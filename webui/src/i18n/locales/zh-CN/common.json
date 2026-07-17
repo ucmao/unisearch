@@ -1,0 +1,24 @@
+{
+  "status": {
+    "active": "运行中",
+    "standby": "待机",
+    "idle": "空闲",
+    "running": "运行中",
+    "stopping": "停止中",
+    "error": "错误"
+  },
+  "sidebar": {
+    "title": "MediaRadar",
+    "api": "API",
+    "local": "本地"
+  },
+  "action": {
+    "loading": "加载中...",
+    "skip": "跳过检测",
+    "retry": "重新扫描"
+  },
+  "unit": {
+    "entries": "条记录",
+    "records": "条"
+  }
+}
