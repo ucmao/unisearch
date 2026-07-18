@@ -6,11 +6,12 @@ import { CrawlerConfigPanel } from '@/components/config/CrawlerConfigPanel'
 import { CrawlerSearchHeader } from '@/components/config/CrawlerSearchHeader'
 import { EnvironmentCheck, isEnvChecked } from '@/components/env/EnvironmentCheck'
 import { ResultWorkbench } from '@/components/analytics/ResultWorkbench'
+import { AgentWorkspace } from '@/components/agent/AgentWorkspace'
 
 function App() {
   // Initialize by checking localStorage if env check has passed
   const [envChecked, setEnvChecked] = useState(() => isEnvChecked())
-  const [activeView, setActiveView] = useState<'crawler' | 'results'>('crawler')
+  const [activeView, setActiveView] = useState<'agent' | 'crawler' | 'results'>('agent')
 
   const handleEnvCheckComplete = () => {
     setEnvChecked(true)
@@ -30,7 +31,11 @@ function App() {
       />
 
       {/* Main Area */}
-      {activeView === 'crawler' ? (
+      {activeView === 'agent' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <AgentWorkspace onOpenResults={() => setActiveView('results')} onOpenManual={() => setActiveView('crawler')} />
+        </div>
+      ) : activeView === 'crawler' ? (
         <div className="flex-1 min-h-0 overflow-y-auto p-4 xl:overflow-hidden">
           <div className="grid min-h-full grid-cols-1 gap-3 xl:h-full xl:min-h-0 xl:grid-cols-[340px_minmax(0,1fr)]">
             <CrawlerConfigPanel />

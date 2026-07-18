@@ -1,4 +1,4 @@
-import { BarChart3, Bug, Settings2, Wifi } from 'lucide-react'
+import { BarChart3, Bot, Bug, Settings2, Wifi } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { useCrawlerStore } from '@/store/crawlerStore'
@@ -6,8 +6,8 @@ import { useCrawlerStatus } from '@/hooks/useCrawler'
 import { ThemeToggle } from './ThemeToggle'
 
 interface SidebarProps {
-  activeView: 'crawler' | 'results'
-  onViewChange: (view: 'crawler' | 'results') => void
+  activeView: 'agent' | 'crawler' | 'results'
+  onViewChange: (view: 'agent' | 'crawler' | 'results') => void
 }
 
 export function Sidebar({ activeView, onViewChange }: SidebarProps) {
@@ -43,6 +43,18 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           aria-label="主导航"
           className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/80 p-1 shadow-sm"
         >
+          <button
+            type="button"
+            aria-current={activeView === 'agent' ? 'page' : undefined}
+            title="AI任务"
+            onClick={() => onViewChange('agent')}
+            className={`inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-xs font-mono transition-all sm:px-3 ${
+              activeView === 'agent' ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan shadow-sm' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary'
+            }`}
+          >
+            <Bot className="h-4 w-4" />
+            <span className="hidden sm:inline">AI任务</span>
+          </button>
           <button
             type="button"
             aria-current={activeView === 'crawler' ? 'page' : undefined}

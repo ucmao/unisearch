@@ -6,6 +6,9 @@ import path from 'path';
 import fs from 'fs';
 import { crawlerManager } from './services/CrawlerManager';
 import { analyticsRepository } from '../database/repository';
+import { agentRepository } from './services/AgentRepository';
+import { agentService } from './services/AgentService';
+import { modelService } from './services/ModelService';
 import type { AppConfig } from '../tools/config';
 
 const fastify = Fastify({ logger: false });
@@ -152,6 +155,78 @@ export async function startServer(port = 8080): Promise<number> {
         { value: 'creator', label: '创作者主页' },
       ],
     };
+  });
+
+  // Local conversational agent routes
+  fastify.get('/api/agent/threads', async () => ({ items: agentRepository.listThreads() }));
+
+  fastify.post('/api/agent/threads', async (request) => {
+    const body = (request.body || {}) as { title?: string };
+    return agentRepository.createThread(body.title?.trim() || '新建情报任务');
+  });
+
+  fastify.get('/api/agent/threads/:thread_id', async (request, reply) => {
+    await agentService.tick();
+    const { thread_id } = request.params as { thread_id: string };
+    const thread = agentRepository.getThread(thread_id);
+    return thread || reply.status(404).send({ detail: 'Task not found' });
+  });
+
+  fastify.delete('/api/agent/threads/:thread_id', async (request, reply) => {
+    const { thread_id } = request.params as { thread_id: string };
+    return agentRepository.deleteThread(thread_id)
+      ? { status: 'ok' }
+      : reply.status(404).send({ detail: 'Task not found' });
+  });
+
+  fastify.post('/api/agent/threads/:thread_id/messages', async (request, reply) => {
+    const { thread_id } = request.params as { thread_id: string };
+    const { content } = request.body as { content?: string };
+    if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
+    try { return await agentService.sendMessage(thread_id, content.trim()); }
+    catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
+  fastify.post('/api/agent/plans/:plan_id/execute', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    try { return agentService.executePlan(plan_id); }
+    catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
+  fastify.get('/api/agent/plans/:plan_id/export', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    const plan = agentRepository.getPlan(plan_id);
+    if (!plan) return reply.status(404).send({ detail: 'Plan not found' });
+    const rows = agentRepository.getPlanExportContents(plan_id);
+    const columns = [
+      ['platform_label', '平台'], ['keyword', '关键词'], ['title', '标题'], ['description', '正文'],
+      ['creator_name', '作者'], ['likes', '点赞数'], ['saves', '收藏数'], ['comments', '评论数'],
+      ['shares', '分享数'], ['views', '播放数'], ['published_at', '发布时间'], ['content_url', '内容链接'],
+    ];
+    const quote = (value: any) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    let csv = '\ufeff' + columns.map(([, header]) => quote(header)).join(',') + '\n';
+    for (const row of rows) {
+      csv += columns.map(([key]) => {
+        const value = key === 'published_at' && row[key] ? new Date(row[key] * 1000).toLocaleString('zh-CN') : row[key];
+        return quote(value);
+      }).join(',') + '\n';
+    }
+    const filename = `UniSearch任务_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`;
+    return reply.header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
+      .send(Buffer.from(csv, 'utf-8'));
+  });
+
+  fastify.get('/api/agent/model-profile', async () => modelService.getProfile(false));
+
+  fastify.put('/api/agent/model-profile', async (request, reply) => {
+    try { return modelService.saveProfile(request.body as any); }
+    catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
+  fastify.post('/api/agent/model-profile/test', async (_request, reply) => {
+    try { return await modelService.test(); }
+    catch (error: any) { return reply.status(400).send({ detail: error.response?.data?.error?.message || error.message }); }
   });
 
   // Crawler routes
