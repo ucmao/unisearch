@@ -9,9 +9,10 @@ import { analyticsRepository } from '../database/repository';
 import { agentRepository } from './services/AgentRepository';
 import { agentService } from './services/AgentService';
 import { modelService } from './services/ModelService';
+import { agentAttachmentService } from './services/AgentAttachmentService';
 import type { AppConfig } from '../tools/config';
 
-const fastify = Fastify({ logger: false });
+const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
 export async function startServer(port = 8080): Promise<number> {
   // Error Handler
@@ -160,6 +161,8 @@ export async function startServer(port = 8080): Promise<number> {
   // Local conversational agent routes
   fastify.get('/api/agent/threads', async () => ({ items: agentRepository.listThreads() }));
 
+  fastify.get('/api/agent/referenceable-tasks', async () => ({ items: agentRepository.listReferenceableTasks() }));
+
   fastify.post('/api/agent/threads', async (request) => {
     const body = (request.body || {}) as { title?: string };
     return agentRepository.createThread(body.title?.trim() || '新建情报任务');
@@ -174,16 +177,36 @@ export async function startServer(port = 8080): Promise<number> {
 
   fastify.delete('/api/agent/threads/:thread_id', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
-    return agentRepository.deleteThread(thread_id)
+    const deleted = agentRepository.deleteThread(thread_id);
+    if (deleted) agentAttachmentService.removeThreadFiles(thread_id);
+    return deleted ? { status: 'ok' } : reply.status(404).send({ detail: 'Task not found' });
+  });
+
+  fastify.post('/api/agent/threads/:thread_id/attachments', async (request, reply) => {
+    const { thread_id } = request.params as { thread_id: string };
+    try {
+      return await agentAttachmentService.upload(thread_id, request.body as any);
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.delete('/api/agent/threads/:thread_id/attachments/:attachment_id', async (request, reply) => {
+    const { thread_id, attachment_id } = request.params as { thread_id: string; attachment_id: string };
+    return agentAttachmentService.remove(thread_id, attachment_id)
       ? { status: 'ok' }
-      : reply.status(404).send({ detail: 'Task not found' });
+      : reply.status(404).send({ detail: 'Attachment not found' });
   });
 
   fastify.post('/api/agent/threads/:thread_id/messages', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
-    const { content } = request.body as { content?: string };
+    const { content, attachment_ids, task_references } = request.body as {
+      content?: string;
+      attachment_ids?: string[];
+      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+    };
     if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
-    try { return await agentService.sendMessage(thread_id, content.trim()); }
+    try { return await agentService.sendMessage(thread_id, content.trim(), { attachment_ids, task_references }); }
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });
 
@@ -273,13 +296,14 @@ export async function startServer(port = 8080): Promise<number> {
 
   // Analytics routes
   fastify.get('/api/data/analytics/summary', async (request) => {
-    const query = request.query as { run_id?: string; platform?: string; keyword?: string };
-    return analyticsRepository.summary(query.run_id, query.platform, query.keyword);
+    const query = request.query as { run_id?: string; task_id?: string; platform?: string; keyword?: string };
+    return analyticsRepository.summary(query.run_id, query.platform, query.keyword, query.task_id);
   });
 
   fastify.get('/api/data/analytics/contents', async (request) => {
     const query = request.query as {
       run_id?: string;
+      task_id?: string;
       platform?: string;
       keyword?: string;
       query?: string;
@@ -290,6 +314,7 @@ export async function startServer(port = 8080): Promise<number> {
     };
     return analyticsRepository.queryContents({
       run_id: query.run_id,
+      task_id: query.task_id,
       platform: query.platform,
       keyword: query.keyword,
       query: query.query,
@@ -303,6 +328,7 @@ export async function startServer(port = 8080): Promise<number> {
   fastify.get('/api/data/analytics/comments', async (request) => {
     const query = request.query as {
       run_id?: string;
+      task_id?: string;
       platform?: string;
       content_id?: string;
       level?: string;
@@ -312,6 +338,7 @@ export async function startServer(port = 8080): Promise<number> {
     };
     return analyticsRepository.queryComments({
       run_id: query.run_id,
+      task_id: query.task_id,
       platform: query.platform,
       content_id: query.content_id,
       level: query.level ? parseInt(query.level, 10) : null,
@@ -326,6 +353,7 @@ export async function startServer(port = 8080): Promise<number> {
       platform: string;
       content_id: string;
       run_id?: string;
+      task_id?: string;
       page?: string;
       page_size?: string;
     };
@@ -333,6 +361,7 @@ export async function startServer(port = 8080): Promise<number> {
       platform: query.platform,
       content_id: query.content_id,
       run_id: query.run_id,
+      task_id: query.task_id,
       page: query.page ? parseInt(query.page, 10) : 1,
       page_size: query.page_size ? parseInt(query.page_size, 10) : 20,
     });
@@ -359,10 +388,22 @@ export async function startServer(port = 8080): Promise<number> {
     }
   });
 
+  fastify.delete('/api/data/analytics/tasks/:task_id', async (request, reply) => {
+    const params = request.params as { task_id: string };
+    try {
+      const deleted = analyticsRepository.deleteTask(params.task_id);
+      if (!deleted) return reply.status(404).send({ detail: 'Task not found' });
+      return { status: 'ok', task_id: params.task_id };
+    } catch (err: any) {
+      return reply.status(409).send({ detail: err.message });
+    }
+  });
+
   // Export CSV file stream
   fastify.get('/api/data/analytics/export', async (request, reply) => {
     const query = request.query as {
       run_id?: string;
+      task_id?: string;
       platform?: string;
       keyword?: string;
       query?: string;
@@ -371,6 +412,7 @@ export async function startServer(port = 8080): Promise<number> {
 
     const res = analyticsRepository.queryContents({
       run_id: query.run_id,
+      task_id: query.task_id,
       platform: query.platform,
       keyword: query.keyword,
       query: query.query,

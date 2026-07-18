@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, FileText, KeyRound,
-  Loader2, MessageSquarePlus, Play, Plus, RefreshCw, Send, Settings2,
-  Sparkles, Trash2, User, XCircle,
+  Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, RefreshCw, Send, Settings2,
+  Sparkles, Table2, Trash2, User, X, XCircle,
 } from 'lucide-react'
-import { agentApi, type AgentMessage, type AgentPlan, type AgentThread, type AgentThreadSummary, type ModelProfile } from '@/lib/api'
+import { agentApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type ModelProfile } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -38,6 +38,15 @@ function timeAgo(value: string) {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}小时前`
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(value))
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '')
+    reader.onerror = () => reject(reader.error || new Error('读取文件失败'))
+    reader.readAsDataURL(file)
+  })
 }
 
 function ModelSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
@@ -202,6 +211,10 @@ function MessageBubble({ message, plan, onExecute, executing, onOpenResults }: {
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
       <div className={`max-w-[780px] ${isUser ? 'rounded-2xl rounded-tr-sm bg-cyber-neon-cyan/12 px-4 py-3' : 'min-w-0 flex-1'}`}>
+        {isUser && (message.metadata?.attachments?.length || message.metadata?.task_references?.length) ? <div className="mb-2 flex flex-wrap justify-end gap-1.5">
+          {(message.metadata.attachments || []).map((attachment: AgentAttachment) => <span key={attachment.attachment_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-border-default bg-cyber-bg-panel/60 px-2 py-1 text-[10px] text-cyber-text-secondary"><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{attachment.file_name}</span></span>)}
+          {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => <span key={reference.plan_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2 py-1 text-[10px] text-cyber-text-secondary"><Database className="h-3 w-3 shrink-0" /><span className="truncate">{reference.goal}</span></span>)}
+        </div> : null}
         {isUser
           ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{message.content}</div>
           : <MarkdownContent content={message.content} />}
@@ -222,10 +235,15 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false)
+  const [attachments, setAttachments] = useState<AgentAttachment[]>([])
+  const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; platforms: string[] }>>([])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const autoCreateStartedRef = useRef(false)
   const send = useMutation({
-    mutationFn: ({ id, content }: { id: string; content: string; message: AgentMessage }) => agentApi.sendMessage(id, content),
+    mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => agentApi.sendMessage(id, content, { attachment_ids: attachmentIds, task_references: references }),
     onMutate: async ({ id, message }) => {
       await client.cancelQueries({ queryKey: ['agent-thread', id] })
       client.setQueryData<AgentThread>(['agent-thread', id], (current) => current ? {
@@ -249,6 +267,18 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
   const threadsQuery = useQuery({ queryKey: ['agent-threads'], queryFn: async () => (await agentApi.listThreads()).data.items, refetchInterval: 3000 })
   const threadQuery = useQuery({ queryKey: ['agent-thread', selectedId], queryFn: async () => (await agentApi.getThread(selectedId!)).data, enabled: Boolean(selectedId), refetchInterval: send.isPending ? false : 1500 })
   const modelProfileQuery = useQuery({ queryKey: ['agent-model-profile'], queryFn: async () => (await agentApi.getModelProfile()).data })
+  const referenceableTasksQuery = useQuery({ queryKey: ['agent-referenceable-tasks'], queryFn: async () => (await agentApi.listReferenceableTasks()).data.items, enabled: taskPickerOpen })
+
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      if (!selectedId) throw new Error('请先选择任务')
+      if (file.size > 8 * 1024 * 1024) throw new Error('单个文件不能超过 8MB')
+      const dataBase64 = await fileToBase64(file)
+      return (await agentApi.uploadAttachment(selectedId, { fileName: file.name, mimeType: file.type || 'application/octet-stream', dataBase64 })).data
+    },
+    onSuccess: (attachment) => setAttachments((current) => [...current, attachment].slice(0, 5)),
+    onError: (error) => toast.error(getError(error)),
+  })
 
   const create = useMutation({ mutationFn: async () => (await agentApi.createThread()).data, onSuccess: (thread) => { setSelectedId(thread.thread_id); client.invalidateQueries({ queryKey: ['agent-threads'] }) } })
   const remove = useMutation({
@@ -293,6 +323,11 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
       create.mutate()
     }
   }, [threadsQuery.data, selectedId])
+  useEffect(() => {
+    setAttachments([])
+    setTaskReferences([])
+    setAddMenuOpen(false)
+  }, [selectedId])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [threadQuery.data?.messages.length, send.isPending])
 
   const submit = () => {
@@ -313,11 +348,30 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
       role: 'user',
       kind: 'text',
       content,
-      metadata: { optimistic: true },
+      metadata: { optimistic: true, attachments, task_references: taskReferences },
       created_at: new Date().toISOString(),
     }
+    const attachmentIds = attachments.map((attachment) => attachment.attachment_id)
+    const references = taskReferences.map(({ plan_id, platforms }) => ({ plan_id, platforms }))
     setInput('')
-    send.mutate({ id: selectedId, content, message })
+    setAttachments([])
+    setTaskReferences([])
+    send.mutate({ id: selectedId, content, attachmentIds, references, message })
+  }
+
+  const removeAttachment = async (attachment: AgentAttachment) => {
+    setAttachments((current) => current.filter((item) => item.attachment_id !== attachment.attachment_id))
+    if (selectedId) agentApi.deleteAttachment(selectedId, attachment.attachment_id).catch(() => undefined)
+  }
+
+  const toggleTaskReference = (task: AgentTaskReference) => {
+    setTaskReferences((current) => current.some((item) => item.plan_id === task.plan_id)
+      ? current.filter((item) => item.plan_id !== task.plan_id)
+      : [...current, { plan_id: task.plan_id, goal: task.goal, platforms: [] }].slice(0, 3))
+  }
+
+  const setReferencePlatforms = (task: AgentTaskReference, platforms: string[]) => {
+    setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
   }
   const activePlan = threadQuery.data?.plan || null
   const runningCount = useMemo(() => activePlan?.steps.filter((step) => step.status === 'running').length || 0, [activePlan])
@@ -374,12 +428,41 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           <div className="mx-auto max-w-4xl">
             {modelProfileQuery.isLoading ? <div className="flex min-h-[88px] items-center justify-center rounded-xl border border-cyber-border-default bg-cyber-bg-panel text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在检查 AI 模型配置…</div> : modelReady ? <>
               <div className="relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel shadow-sm focus-within:border-cyber-neon-cyan/50">
+                {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
+                  {attachments.map((attachment) => <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
+                    {attachment.kind === 'image' ? <Image className="h-3.5 w-3.5 shrink-0" /> : attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
+                    <span className="truncate">{attachment.file_name}</span>
+                    <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
+                  </span>)}
+                  {taskReferences.map((reference) => <span key={reference.plan_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
+                    <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => PLATFORM_LABELS[platform] || platform).join('/')}` : ''}</span>
+                    <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
+                  </span>)}
+                </div> : null}
                 <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
                   placeholder={activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
-                  className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
+                  className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pb-14 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
+                <div className="absolute bottom-3 left-3">
+                  <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
+                    {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
+                  </Button>
+                  {addMenuOpen ? <div className="absolute bottom-11 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
+                    <button type="button" onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                      <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">图片、文本、CSV、XLSX</span></span>
+                    </button>
+                    <button type="button" onClick={() => { setAddMenuOpen(false); setTaskPickerOpen(true) }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                      <Database className="h-4 w-4" /><span><span className="block font-medium">引用采集结果</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">选择已有任务或平台</span></span>
+                    </button>
+                  </div> : null}
+                  <input ref={fileInputRef} type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.tsv,.xlsx" onChange={(event) => {
+                    const files = Array.from(event.target.files || []).slice(0, Math.max(0, 5 - attachments.length))
+                    files.reduce((promise, file) => promise.then(() => upload.mutateAsync(file).then(() => undefined)), Promise.resolve()).catch(() => undefined)
+                    event.target.value = ''
+                  }} />
+                </div>
                 <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending}><Send /></Button>
               </div>
-              <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>Enter 发送 · Shift+Enter 换行</span><span>只有明确的调研需求才会生成计划，确认后开始采集</span></div>
+              <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>＋ 添加资料 · Enter 发送 · Shift+Enter 换行</span><span>附件和引用结果只在本机处理后发送给所配置的模型</span></div>
             </> : <div className="flex min-h-[88px] items-center justify-between gap-4 rounded-xl border border-cyber-neon-pink/25 bg-cyber-neon-pink/5 px-4 py-3">
               <div><p className="text-sm text-cyber-text-primary">{modelUnavailableText}</p><p className="mt-1 text-[10px] text-cyber-text-muted">配置并成功测试连接后，才能开始 AI 对话、生成计划和分析结果。</p></div>
               <Button variant="outline" className="shrink-0" onClick={() => setSettingsOpen(true)}><KeyRound />配置模型</Button>
@@ -397,6 +480,32 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
             {activePlan.steps.some((step) => step.run_id) && <CsvDownloadLink planId={activePlan.plan_id} compact />}</div>
         </div> : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
       </aside>
+      <Dialog open={taskPickerOpen} onOpenChange={setTaskPickerOpen}>
+        <DialogContent className="max-w-2xl bg-cyber-bg-panel">
+          <DialogHeader>
+            <DialogTitle>引用采集结果</DialogTitle>
+            <DialogDescription>最多选择 3 个已完成任务。默认引用全部平台，也可以缩小到某个平台。</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+            {referenceableTasksQuery.isLoading ? <div className="flex justify-center py-10"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
+            {!referenceableTasksQuery.isLoading && !referenceableTasksQuery.data?.length ? <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-10 text-center text-xs text-cyber-text-muted">还没有已完成且可引用的采集任务</div> : null}
+            {referenceableTasksQuery.data?.map((task) => {
+              const selected = taskReferences.find((item) => item.plan_id === task.plan_id)
+              return <div key={task.plan_id} className={`rounded-xl border p-3 ${selected ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle'}`}>
+                <button type="button" onClick={() => toggleTaskReference(task)} className="flex w-full items-start gap-3 text-left">
+                  <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-cyber-bg-primary' : 'border-cyber-border-default'}`}>{selected ? '✓' : ''}</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-cyber-text-primary">{task.goal}</span><span className="mt-1 block text-[10px] text-cyber-text-muted">{task.content_count} 条内容 · {task.platforms.map((platform) => PLATFORM_LABELS[platform] || platform).join('、')}</span></span>
+                </button>
+                {selected ? <div className="mt-3 flex flex-wrap gap-1.5 border-t border-cyber-border-subtle pt-3">
+                  <button type="button" onClick={() => setReferencePlatforms(task, [])} className={`rounded-md border px-2 py-1 text-[10px] ${!selected.platforms.length ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>全部平台</button>
+                  {task.platforms.map((platform) => <button key={platform} type="button" onClick={() => setReferencePlatforms(task, [platform])} className={`rounded-md border px-2 py-1 text-[10px] ${selected.platforms.includes(platform) ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>{PLATFORM_LABELS[platform] || platform}</button>)}
+                </div> : null}
+              </div>
+            })}
+          </div>
+          <DialogFooter><Button onClick={() => setTaskPickerOpen(false)}>完成{taskReferences.length ? `（已选 ${taskReferences.length}）` : ''}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
       <ModelSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )

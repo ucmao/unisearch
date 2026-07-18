@@ -159,17 +159,19 @@ export class AnalyticsRepository {
     const keywords = config.keywords || '';
     const platformLabel = PLATFORM_LABELS[platform] || platform;
     const displayName = taskName.trim() || `${platformLabel} · ${keywords || config.crawler_type || '任务'}`;
+    const taskId = String(config.task_id || runId);
+    const taskTitle = String(config.task_title || keywords || displayName).trim() || displayName;
 
     const configJson = JSON.stringify(config);
     const startedAt = new Date().toISOString();
 
     const stmt = this.db.prepare(`
       INSERT INTO crawl_runs 
-      (run_id, task_name, platform, crawler_type, keywords, save_option, status, started_at, config_json)
-      VALUES (?, ?, ?, ?, ?, 'sqlite', 'running', ?, ?)
+      (run_id, task_id, task_title, task_name, platform, crawler_type, keywords, save_option, status, started_at, config_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'sqlite', 'running', ?, ?)
     `);
     
-    stmt.run(runId, displayName, platform, config.crawler_type || '', keywords, startedAt, configJson);
+    stmt.run(runId, taskId, taskTitle, displayName, platform, config.crawler_type || '', keywords, startedAt, configJson);
     return runId;
   }
 
@@ -261,11 +263,17 @@ export class AnalyticsRepository {
     return contents.length;
   }
 
-  private getScopeSql(runId?: string | null): { sql: string; params: any[] } {
+  private getScopeSql(runId?: string | null, taskId?: string | null): { sql: string; params: any[] } {
     if (runId && runId !== 'all') {
       return {
         sql: 'SELECT * FROM content_records WHERE run_id = ?',
         params: [runId],
+      };
+    }
+    if (taskId && taskId !== 'all') {
+      return {
+        sql: 'SELECT c.* FROM content_records c JOIN crawl_runs r ON r.run_id = c.run_id WHERE r.task_id = ?',
+        params: [taskId],
       };
     }
     return {
@@ -311,6 +319,7 @@ export class AnalyticsRepository {
 
   public queryContents(params: {
     run_id?: string | null;
+    task_id?: string | null;
     platform?: string | null;
     keyword?: string | null;
     query?: string | null;
@@ -342,7 +351,7 @@ export class AnalyticsRepository {
       throw new Error(`Unsupported sort field: ${sortBy}`);
     }
 
-    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId);
+    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, params.task_id);
     const { sql: filterSql, params: filterParams } = this.getFiltersSql(platform, keyword, query);
 
     const countSql = `SELECT COUNT(*) AS total FROM (${scopeSql}) scoped${filterSql}`;
@@ -375,9 +384,10 @@ export class AnalyticsRepository {
   public summary(
     runId?: string | null,
     platform?: string | null,
-    keyword?: string | null
+    keyword?: string | null,
+    taskId?: string | null
   ): any {
-    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId);
+    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, taskId);
     const { sql: platformFilterSql, params: platformParams } = this.getFiltersSql(platform, null, null);
     const { sql: selectedFilterSql, params: selectedParams } = this.getFiltersSql(platform, keyword, null);
 
@@ -444,6 +454,7 @@ export class AnalyticsRepository {
 
   public queryComments(params: {
     run_id?: string | null;
+    task_id?: string | null;
     platform?: string | null;
     content_id?: string | null;
     level?: number | null;
@@ -460,10 +471,12 @@ export class AnalyticsRepository {
     const pageSize = params.page_size || 20;
 
     let allowedContentIds: Set<string> | null = null;
-    if (runId && runId !== 'all') {
+    if ((runId && runId !== 'all') || (params.task_id && params.task_id !== 'all')) {
       const allowed = this.db
-        .prepare('SELECT DISTINCT platform, content_id FROM content_records WHERE run_id = ?')
-        .all(runId) as { platform: string; content_id: string }[];
+        .prepare(runId
+          ? 'SELECT DISTINCT platform, content_id FROM content_records WHERE run_id = ?'
+          : 'SELECT DISTINCT c.platform, c.content_id FROM content_records c JOIN crawl_runs r ON r.run_id=c.run_id WHERE r.task_id = ?')
+        .all(runId || params.task_id) as { platform: string; content_id: string }[];
       allowedContentIds = new Set(allowed.map((r) => `${r.platform}:${r.content_id}`));
     }
 
@@ -550,6 +563,7 @@ export class AnalyticsRepository {
     platform: string;
     content_id: string;
     run_id?: string | null;
+    task_id?: string | null;
     page?: number;
     page_size?: number;
   }): {
@@ -567,6 +581,7 @@ export class AnalyticsRepository {
 
     const result = this.queryComments({
       run_id: params.run_id,
+      task_id: params.task_id,
       platform: params.platform,
       content_id: params.content_id,
       page: 1,
@@ -621,7 +636,21 @@ export class AnalyticsRepository {
     
     const offset = (page - 1) * pageSize;
     const rows = this.db
-      .prepare('SELECT * FROM crawl_runs ORDER BY started_at DESC LIMIT ? OFFSET ?')
+      .prepare(`
+        SELECT
+          r.run_id,
+          COALESCE(step.plan_id, r.task_id, r.run_id) AS task_id,
+          COALESCE(thread.title, plan.goal, r.task_title, r.task_name) AS task_title,
+          r.task_name, r.platform, r.crawler_type, r.keywords, r.save_option,
+          r.status, r.started_at, r.finished_at, r.exit_code, r.item_count,
+          r.error_message, r.config_json
+        FROM crawl_runs r
+        LEFT JOIN agent_plan_steps step ON step.run_id = r.run_id
+        LEFT JOIN agent_plans plan ON plan.plan_id = step.plan_id
+        LEFT JOIN agent_threads thread ON thread.thread_id = plan.thread_id
+        ORDER BY r.started_at DESC
+        LIMIT ? OFFSET ?
+      `)
       .all(pageSize, offset);
 
     return {
@@ -631,6 +660,14 @@ export class AnalyticsRepository {
       page_size: pageSize,
       pages: Math.ceil(total / pageSize),
     };
+  }
+
+  public deleteTask(taskId: string): boolean {
+    const rows = this.db.prepare('SELECT status FROM crawl_runs WHERE task_id = ?').all(taskId) as { status: string }[];
+    if (!rows.length) return false;
+    if (rows.some((row) => row.status === 'running')) throw new Error('A running task cannot be deleted');
+    this.db.prepare('DELETE FROM crawl_runs WHERE task_id = ?').run(taskId);
+    return true;
   }
 
   public deleteRun(runId: string): boolean {

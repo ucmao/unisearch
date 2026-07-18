@@ -17,6 +17,18 @@ export interface ResearchPlan {
   outputs: string[];
 }
 
+export interface AgentAttachmentRecord {
+  attachment_id: string;
+  thread_id: string;
+  file_name: string;
+  mime_type: string;
+  kind: 'image' | 'text' | 'spreadsheet';
+  size_bytes: number;
+  text_content: string;
+  storage_path: string;
+  created_at: string;
+}
+
 function id(): string {
   return crypto.randomUUID().replace(/-/g, '');
 }
@@ -59,6 +71,57 @@ export class AgentRepository {
 
   deleteThread(threadId: string): boolean {
     return this.db.prepare('DELETE FROM agent_threads WHERE thread_id = ?').run(threadId).changes > 0;
+  }
+
+  createAttachment(input: Omit<AgentAttachmentRecord, 'attachment_id' | 'created_at'>): AgentAttachmentRecord {
+    const attachmentId = id();
+    const createdAt = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO agent_attachments
+        (attachment_id, thread_id, file_name, mime_type, kind, size_bytes, text_content, storage_path, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      attachmentId, input.thread_id, input.file_name, input.mime_type, input.kind,
+      input.size_bytes, input.text_content, input.storage_path, createdAt,
+    );
+    return this.getAttachment(input.thread_id, attachmentId)!;
+  }
+
+  getAttachment(threadId: string, attachmentId: string): AgentAttachmentRecord | null {
+    return (this.db.prepare('SELECT * FROM agent_attachments WHERE thread_id=? AND attachment_id=?')
+      .get(threadId, attachmentId) as AgentAttachmentRecord | undefined) || null;
+  }
+
+  getAttachments(threadId: string, attachmentIds: string[]): AgentAttachmentRecord[] {
+    if (!attachmentIds.length) return [];
+    const placeholders = attachmentIds.map(() => '?').join(',');
+    return this.db.prepare(`SELECT * FROM agent_attachments WHERE thread_id=? AND attachment_id IN (${placeholders}) ORDER BY created_at`)
+      .all(threadId, ...attachmentIds) as AgentAttachmentRecord[];
+  }
+
+  deleteAttachment(threadId: string, attachmentId: string): AgentAttachmentRecord | null {
+    const existing = this.getAttachment(threadId, attachmentId);
+    if (!existing) return null;
+    this.db.prepare('DELETE FROM agent_attachments WHERE thread_id=? AND attachment_id=?').run(threadId, attachmentId);
+    return existing;
+  }
+
+  listReferenceableTasks() {
+    return (this.db.prepare(`
+      SELECT p.plan_id, p.goal, p.status, p.updated_at,
+             GROUP_CONCAT(DISTINCT s.platform) AS platforms,
+             COUNT(DISTINCT c.id) AS content_count
+      FROM agent_plans p
+      LEFT JOIN agent_plan_steps s ON s.plan_id=p.plan_id
+      LEFT JOIN content_records c ON c.run_id=s.run_id
+      WHERE p.status IN ('completed', 'partially_completed')
+      GROUP BY p.plan_id
+      ORDER BY p.updated_at DESC
+    `).all() as any[]).map((row) => ({
+      ...row,
+      platforms: String(row.platforms || '').split(',').filter(Boolean),
+      content_count: Number(row.content_count || 0),
+    }));
   }
 
   touchThread(threadId: string, title?: string) {
@@ -140,15 +203,19 @@ export class AgentRepository {
     return this.db.prepare('SELECT * FROM crawl_runs WHERE run_id=?').get(runId);
   }
 
-  getPlanContents(planId: string, limit = 60): any[] {
+  getPlanContents(planId: string, limit = 60, platforms: string[] = []): any[] {
+    const selectedPlatforms = platforms.filter(Boolean);
+    const platformClause = selectedPlatforms.length
+      ? ` AND c.platform IN (${selectedPlatforms.map(() => '?').join(',')})`
+      : '';
     return this.db.prepare(`
       SELECT c.platform_label, c.keyword, substr(c.title, 1, 240) AS title,
              substr(c.description, 1, 800) AS description, c.creator_name,
              c.likes, c.saves, c.comments, c.shares, c.views, c.content_url
       FROM content_records c
       JOIN agent_plan_steps s ON s.run_id=c.run_id
-      WHERE s.plan_id=? ORDER BY c.engagement DESC LIMIT ?
-    `).all(planId, limit) as any[];
+      WHERE s.plan_id=?${platformClause} ORDER BY c.engagement DESC LIMIT ?
+    `).all(planId, ...selectedPlatforms, limit) as any[];
   }
 
   getPlanStats(planId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {

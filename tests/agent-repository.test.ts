@@ -70,3 +70,27 @@ test('a plan is frozen after execution has started', () => {
     db.close();
   }
 });
+
+test('attachments are scoped to their conversation and removed with it', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const first = repo.createThread('附件任务');
+    const second = repo.createThread('其他任务');
+    const attachment = repo.createAttachment({
+      thread_id: first.thread_id,
+      file_name: 'notes.md',
+      mime_type: 'text/markdown',
+      kind: 'text',
+      size_bytes: 12,
+      text_content: '真实附件内容',
+      storage_path: '',
+    });
+
+    assert.equal(repo.getAttachments(first.thread_id, [attachment.attachment_id]).length, 1);
+    assert.equal(repo.getAttachments(second.thread_id, [attachment.attachment_id]).length, 0);
+    repo.deleteThread(first.thread_id);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_attachments').get() as any).count, 0);
+  } finally {
+    db.close();
+  }
+});
