@@ -112,11 +112,21 @@ export class WeiboCrawler extends AbstractCrawler {
           const items: any[] = [];
           const cardElements = document.querySelectorAll('.card-wrap[mid]');
           
+          const parseStat = (text: string | null) => {
+            if (!text) return '0';
+            const match = text.match(/\d+/);
+            return match ? match[0] : '0';
+          };
+          
           cardElements.forEach((card) => {
             const mid = card.getAttribute('mid') || '';
             const contentEl = card.querySelector('p.txt[node-type="feed_list_content"]');
             const authorEl = card.querySelector('a.name');
             const urlEl = card.querySelector('.from a[href*="/status/"]');
+            
+            const repostEl = card.querySelector('.card-act ul li:nth-child(2) a');
+            const commentEl = card.querySelector('.card-act ul li:nth-child(3) a');
+            const likeEl = card.querySelector('.card-act ul li:nth-child(4) a');
             
             if (contentEl && authorEl) {
               items.push({
@@ -125,6 +135,9 @@ export class WeiboCrawler extends AbstractCrawler {
                 nickname: authorEl.textContent?.trim() || '',
                 creator_hash: authorEl.getAttribute('usercard')?.match(/id=([0-9]+)/)?.[1] || '',
                 note_url: urlEl ? 'https:' + urlEl.getAttribute('href') : '',
+                shared_count: parseStat(repostEl ? repostEl.textContent : ''),
+                comments_count: parseStat(commentEl ? commentEl.textContent : ''),
+                liked_count: parseStat(likeEl ? likeEl.textContent : ''),
               });
             }
           });
@@ -144,9 +157,9 @@ export class WeiboCrawler extends AbstractCrawler {
             nickname: c.nickname,
             creator_hash: c.creator_hash,
             note_url: c.note_url,
-            liked_count: '0',
-            comments_count: '0',
-            shared_count: '0',
+            liked_count: c.liked_count,
+            comments_count: c.comments_count,
+            shared_count: c.shared_count,
             create_time: Math.floor(Date.now() / 1000),
             source_keyword: keyword,
           };

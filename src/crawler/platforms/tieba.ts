@@ -110,24 +110,44 @@ export class TiebaCrawler extends AbstractCrawler {
 
         const posts = await this.page!.evaluate(() => {
           const items: any[] = [];
-          const postElements = document.querySelectorAll('.s_post');
+          const postElements = document.querySelectorAll('.thread-content-box');
           
           postElements.forEach((post) => {
-            const titleEl = post.querySelector('.p_title a');
-            const descEl = post.querySelector('.p_content');
-            const authorEl = post.querySelector('.p_author a, .p_author');
+            const titleEl = post.querySelector('.title-wrap span');
+            const descEl = post.querySelector('.abstract-wrap span');
+            const authorEl = post.querySelector('.forum-attention');
+            const linkEl = post.querySelector('.action-link-bg, .comment-link-zone, .item-link-bg');
+            const tiebaNameEl = post.querySelector('.forum-name-text');
             
-            if (titleEl) {
-              const href = titleEl.getAttribute('href') || '';
-              const noteId = href.match(/p\/([0-9]+)/)?.[1] || '';
+            const href = linkEl ? linkEl.getAttribute('href') || '' : '';
+            const noteId = href.match(/p\/([0-9]+)/)?.[1] || '';
+            
+            const itemWarps = Array.from(post.querySelectorAll('.item-warp'));
+            let commentCount = 0;
+            
+            itemWarps.forEach((warp) => {
+              const iconUse = warp.querySelector('use');
+              const iconHref = iconUse ? (iconUse.getAttribute('xlink:href') || iconUse.getAttribute('href') || '') : '';
+              const numEl = warp.querySelector('.action-number');
+              const valText = numEl ? numEl.textContent?.trim() || '' : '';
               
+              if (iconHref.includes('comment')) {
+                commentCount = parseInt(valText) || 0;
+              }
+            });
+
+            if (titleEl) {
+              const tiebaName = tiebaNameEl?.textContent?.trim() || '';
               items.push({
                 note_id: noteId,
                 title: titleEl.textContent?.trim() || '',
                 desc: descEl?.textContent?.trim() || '',
                 note_url: href.startsWith('http') ? href : 'https://tieba.baidu.com' + href,
                 user_nickname: authorEl?.textContent?.trim() || '',
-                creator_hash: authorEl?.getAttribute('href') || '',
+                creator_hash: authorEl ? authorEl.textContent?.trim() || '' : '',
+                comment_count: commentCount,
+                tieba_name: tiebaName,
+                tieba_link: tiebaName ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(tiebaName.replace('吧', ''))}` : '',
               });
             }
           });
@@ -148,8 +168,10 @@ export class TiebaCrawler extends AbstractCrawler {
             note_url: p.note_url,
             user_nickname: p.user_nickname,
             creator_hash: p.creator_hash,
-            total_replay_num: 0,
-            total_replay_page: 0,
+            total_replay_num: p.comment_count,
+            total_replay_page: Math.ceil(p.comment_count / 30),
+            tieba_name: p.tieba_name,
+            tieba_link: p.tieba_link,
             source_keyword: keyword,
           };
 
