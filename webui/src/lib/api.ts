@@ -185,6 +185,72 @@ export interface ConfigOption {
   label: string
 }
 
+export interface AgentMessage {
+  message_id: string
+  thread_id: string
+  role: 'user' | 'assistant' | 'system'
+  kind: 'text' | 'plan' | 'analysis' | 'status'
+  content: string
+  metadata: Record<string, any>
+  created_at: string
+}
+
+export interface ResearchPlanData {
+  goal: string
+  platforms: string[]
+  keywords: string[]
+  collectComments: boolean
+  collectSubComments: boolean
+  startPage: number
+  loginType: 'qrcode' | 'cookie'
+  headless: boolean
+  analysis: string[]
+  outputs: string[]
+}
+
+export interface AgentPlanStep {
+  step_id: string
+  plan_id: string
+  platform: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped'
+  run_id: string | null
+  error_message: string | null
+}
+
+export interface AgentPlan {
+  plan_id: string
+  thread_id: string
+  goal: string
+  status: 'awaiting_confirmation' | 'queued' | 'running' | 'completed' | 'partially_completed' | 'failed'
+  plan: ResearchPlanData
+  steps: AgentPlanStep[]
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentThreadSummary {
+  thread_id: string
+  title: string
+  status: string
+  updated_at: string
+  last_message?: string
+  plan_status?: string
+}
+
+export interface AgentThread extends AgentThreadSummary {
+  messages: AgentMessage[]
+  plan: AgentPlan | null
+}
+
+export interface ModelProfile {
+  provider: 'minimax' | 'deepseek' | 'custom'
+  baseUrl: string
+  model: string
+  temperature: number
+  timeoutMs: number
+  apiKeyConfigured: boolean
+}
+
 // API functions
 export const crawlerApi = {
   start: (config: CrawlerConfig) => api.post('/crawler/start', config),
@@ -272,6 +338,20 @@ export const configApi = {
       login_types: ConfigOption[]
       crawler_types: ConfigOption[]
     }>('/config/options'),
+}
+
+export const agentApi = {
+  listThreads: () => api.get<{ items: AgentThreadSummary[] }>('/agent/threads'),
+  createThread: (title?: string) => api.post<AgentThread>('/agent/threads', { title }),
+  getThread: (threadId: string) => api.get<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`),
+  deleteThread: (threadId: string) => api.delete(`/agent/threads/${encodeURIComponent(threadId)}`),
+  sendMessage: (threadId: string, content: string) =>
+    api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content }, { timeout: 180000 }),
+  executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
+  getPlanExportUrl: (planId: string) => `/api/agent/plans/${encodeURIComponent(planId)}/export`,
+  getModelProfile: () => api.get<ModelProfile>('/agent/model-profile'),
+  saveModelProfile: (profile: Partial<ModelProfile> & { apiKey?: string }) => api.put<ModelProfile>('/agent/model-profile', profile),
+  testModelProfile: () => api.post<{ success: boolean; message: string; latency_ms: number }>('/agent/model-profile/test', null, { timeout: 180000 }),
 }
 
 export interface EnvCheckResult {

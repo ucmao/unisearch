@@ -379,5 +379,52 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_content_run_id ON content_records(run_id);
     CREATE INDEX IF NOT EXISTS idx_content_platform_keyword ON content_records(platform, keyword);
     CREATE INDEX IF NOT EXISTS idx_content_engagement ON content_records(engagement DESC);
+
+    -- Local conversational agent workspace
+    CREATE TABLE IF NOT EXISTS agent_threads (
+      thread_id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_threads_updated ON agent_threads(updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      message_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'text',
+      content TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(thread_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS agent_plans (
+      plan_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      plan_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_plans_thread ON agent_plans(thread_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS agent_plan_steps (
+      step_id TEXT PRIMARY KEY,
+      plan_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued',
+      run_id TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(plan_id) REFERENCES agent_plans(plan_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
   `);
 }
