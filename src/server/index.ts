@@ -211,9 +211,10 @@ export async function startServer(port = 8080): Promise<number> {
         return quote(value);
       }).join(',') + '\n';
     }
-    const filename = `UniSearch任务_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.csv`;
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const filename = `UniSearch_${stamp}.csv`;
     return reply.header('Content-Type', 'text/csv; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
       .send(Buffer.from(csv, 'utf-8'));
   });
 

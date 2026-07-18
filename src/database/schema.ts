@@ -412,7 +412,8 @@ export function initSchema(db: Database): void {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS idx_agent_plans_thread ON agent_plans(thread_id, created_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_plans_one_per_thread
+      ON agent_plans(thread_id);
 
     CREATE TABLE IF NOT EXISTS agent_plan_steps (
       step_id TEXT PRIMARY KEY,

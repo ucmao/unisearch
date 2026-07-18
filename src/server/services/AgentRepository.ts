@@ -26,14 +26,16 @@ function parseJson<T>(value: string, fallback: T): T {
 }
 
 export class AgentRepository {
-  private get db(): Database { return getDb(); }
+  constructor(private readonly databaseProvider: () => Database = getDb) {}
+
+  private get db(): Database { return this.databaseProvider(); }
 
   createThread(title = '新建情报任务') {
     const threadId = id();
     const now = new Date().toISOString();
     this.db.prepare(`INSERT INTO agent_threads (thread_id, title, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)`)
       .run(threadId, title, now, now);
-    this.addMessage(threadId, 'assistant', 'text', '告诉我你想采集什么信息、涉及哪些平台，以及最终希望得到什么结论。');
+    this.addMessage(threadId, 'assistant', 'text', '你好，我既可以陪你正常对话，也可以在需要时帮你规划跨平台内容采集与分析。你想先聊什么？');
     return this.getThread(threadId);
   }
 
@@ -78,14 +80,31 @@ export class AgentRepository {
     const planId = id();
     const now = new Date().toISOString();
     const tx = this.db.transaction(() => {
-      this.db.prepare(`UPDATE agent_plans SET status='superseded', updated_at=? WHERE thread_id=? AND status IN ('draft','awaiting_confirmation')`).run(now, threadId);
+      const existing = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at DESC LIMIT 1`).get(threadId) as any;
+      if (existing) return this.hydratePlan(existing);
+
       this.db.prepare(`INSERT INTO agent_plans (plan_id, thread_id, goal, status, plan_json, created_at, updated_at) VALUES (?, ?, ?, 'awaiting_confirmation', ?, ?, ?)`)
         .run(planId, threadId, plan.goal, JSON.stringify(plan), now, now);
       const insert = this.db.prepare(`INSERT INTO agent_plan_steps (step_id, plan_id, platform, status, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?)`);
       for (const platform of plan.platforms) insert.run(id(), planId, platform, now, now);
+      return this.getPlan(planId);
     });
-    tx();
-    return this.getPlan(planId);
+    return tx();
+  }
+
+  updatePendingPlan(planId: string, plan: ResearchPlan) {
+    const now = new Date().toISOString();
+    const tx = this.db.transaction(() => {
+      const result = this.db.prepare(`UPDATE agent_plans SET goal=?, plan_json=?, updated_at=? WHERE plan_id=? AND status='awaiting_confirmation'`)
+        .run(plan.goal, JSON.stringify(plan), now, planId);
+      if (result.changes === 0) throw new Error('只有等待确认的计划可以修改');
+
+      this.db.prepare('DELETE FROM agent_plan_steps WHERE plan_id=?').run(planId);
+      const insert = this.db.prepare(`INSERT INTO agent_plan_steps (step_id, plan_id, platform, status, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?)`);
+      for (const platform of plan.platforms) insert.run(id(), planId, platform, now, now);
+      return this.getPlan(planId);
+    });
+    return tx();
   }
 
   getLatestPlan(threadId: string) {

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { MarkdownContent } from './MarkdownContent'
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
@@ -141,6 +142,18 @@ function StepIcon({ status }: { status: string }) {
   return <Clock3 className="h-4 w-4 text-cyber-text-muted" />
 }
 
+function CsvDownloadLink({ planId, compact = false }: { planId: string; compact?: boolean }) {
+  return (
+    <a
+      href={agentApi.getPlanExportUrl(planId)}
+      download
+      className={`inline-flex items-center justify-center gap-2 rounded-md border border-cyber-border-default text-xs font-medium transition-colors hover:border-cyber-neon-cyan/60 hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan ${compact ? 'h-9 px-3' : 'mt-3 h-10 px-4'}`}
+    >
+      <Download className="h-4 w-4" />下载 CSV
+    </a>
+  )
+}
+
 function PlanCard({ plan, onExecute, executing, onOpenResults }: {
   plan: AgentPlan; onExecute: () => void; executing: boolean; onOpenResults: () => void
 }) {
@@ -174,7 +187,7 @@ function PlanCard({ plan, onExecute, executing, onOpenResults }: {
       <div className="flex items-center justify-between border-t border-cyber-border-subtle bg-cyber-bg-tertiary/20 px-4 py-3">
         <span className="text-[10px] text-cyber-text-muted">评论 {plan.plan.collectComments ? '开启' : '关闭'} · 浏览器 {plan.plan.headless ? '后台模式' : '可见模式'}</span>
         {canExecute ? <Button size="sm" onClick={onExecute} disabled={executing}><Play />{plan.status === 'awaiting_confirmation' ? '确认并执行' : '重试失败步骤'}</Button> : null}
-        {['completed', 'partially_completed'].includes(plan.status) ? <Button size="sm" variant="outline" onClick={onOpenResults}><Database />查看结果</Button> : null}
+        {['completed', 'partially_completed'].includes(plan.status) ? <div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={onOpenResults}><Database />查看结果</Button><CsvDownloadLink planId={plan.plan_id} compact /></div> : null}
       </div>
       {plan.status === 'running' ? <div className="h-0.5 bg-cyber-bg-tertiary"><div className="h-full bg-cyber-neon-cyan transition-all" style={{ width: `${Math.max(8, progress)}%` }} /></div> : null}
     </div>
@@ -189,7 +202,12 @@ function MessageBubble({ message, plan, onExecute, executing, onOpenResults }: {
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
       <div className={`max-w-[780px] ${isUser ? 'rounded-2xl rounded-tr-sm bg-cyber-neon-cyan/12 px-4 py-3' : 'min-w-0 flex-1'}`}>
-        <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{message.content}</div>
+        {isUser
+          ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{message.content}</div>
+          : <MarkdownContent content={message.content} />}
+        {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
+          ? <CsvDownloadLink planId={message.metadata.plan_id} />
+          : null}
         {message.kind === 'plan' && plan && message.metadata?.plan_id === plan.plan_id
           ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onOpenResults={onOpenResults} /> : null}
         <p className={`mt-1.5 text-[9px] text-cyber-text-muted ${isUser ? 'text-right' : ''}`}>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
@@ -376,7 +394,7 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           <div><p className="text-xs font-medium">{STATUS_LABELS[activePlan.status] || activePlan.status}</p><p className="mt-1 text-[10px] text-cyber-text-muted">{activePlan.steps.length}个平台 · {activePlan.plan.keywords.length}个关键词</p></div>
           <div><p className="text-[10px] text-cyber-text-muted">数据采集</p><div className="mt-2 space-y-2">{activePlan.steps.map((step) => <div key={step.step_id} className="flex items-center justify-between text-xs"><span>{PLATFORM_LABELS[step.platform]}</span><StepIcon status={step.status} /></div>)}</div></div>
           <div className="space-y-2"><Button variant="outline" className="w-full justify-start" onClick={onOpenResults}><Database />结果看板<ChevronRight className="ml-auto" /></Button>
-            {activePlan.steps.some((step) => step.run_id) && <a className="flex h-9 items-center gap-2 rounded-md border border-cyber-border-default px-3 text-xs hover:border-cyber-neon-cyan/50" href={agentApi.getPlanExportUrl(activePlan.plan_id)}><Download className="h-4 w-4" />导出全部平台</a>}</div>
+            {activePlan.steps.some((step) => step.run_id) && <CsvDownloadLink planId={activePlan.plan_id} compact />}</div>
         </div> : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
       </aside>
       <ModelSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

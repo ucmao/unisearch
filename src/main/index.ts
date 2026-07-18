@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
+import fs from 'fs';
 import path from 'path';
 import net from 'net';
 import { startServer, stopServer } from '../server';
@@ -40,6 +41,22 @@ function createWindow(port: number): void {
   });
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
+
+  mainWindow.webContents.session.on('will-download', (_event, item) => {
+    if (!item.getFilename().startsWith('UniSearch_')) return;
+    const downloadsDir = app.getPath('downloads');
+    const parsed = path.parse(item.getFilename());
+    let savePath = path.join(downloadsDir, item.getFilename());
+    let suffix = 2;
+    while (fs.existsSync(savePath)) {
+      savePath = path.join(downloadsDir, `${parsed.name}_${suffix}${parsed.ext}`);
+      suffix++;
+    }
+    item.setSavePath(savePath);
+    item.once('done', (_downloadEvent, state) => {
+      if (state === 'completed') shell.showItemInFolder(savePath);
+    });
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
