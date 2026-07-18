@@ -4,6 +4,7 @@ import fs from 'fs';
 import { EventEmitter } from 'events';
 import { activeConfig, applyConfig } from '../../tools/config';
 import { analyticsRepository } from '../../database/repository';
+import { getDatabasePath } from '../../database/connection';
 import type { LogEntry } from '@/lib/api';
 
 export interface CrawlerStartRequest {
@@ -58,13 +59,13 @@ export class CrawlerTask {
     manager.addGlobalLog(entry);
   }
 
-  private collectRunContents(): any[] {
+  private collectRunContents(runId: string): any[] {
     try {
       // In JS migration, platform-specific tables can be queried to get crawled contents.
       // For simplicity, we query the latest contents ingested during this run.
-      if (!this.currentRunId) return [];
+      if (!runId) return [];
       const res = analyticsRepository.queryContents({
-        run_id: this.currentRunId,
+        run_id: runId,
         platform: this.platform,
         page: 1,
         page_size: 1000000,
@@ -90,7 +91,7 @@ export class CrawlerTask {
     this.lastRunId = runId;
 
     try {
-      const contents = this.collectRunContents();
+      const contents = this.collectRunContents(runId);
       analyticsRepository.finishRun(runId, status, exitCode, contents, errorMessage);
       this.addLog(
         `运行分析已保存: 任务 ${runId.slice(0, 8)}, 包含 ${contents.length} 条记录`,
@@ -127,6 +128,10 @@ export class CrawlerTask {
     this.addLog(`启动爬虫循环 (平台: ${this.platform}, 任务ID: ${runId.slice(0, 8)})`, 'info', manager);
 
     try {
+      // Get main process database directory to share database file with worker subprocess
+      const dbPath = getDatabasePath();
+      const dbDir = path.dirname(dbPath);
+
       // Spawn node worker subprocess
       this.process = fork(workerPath, [], {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
@@ -134,6 +139,7 @@ export class CrawlerTask {
           ...process.env,
           MEDIARADAR_RUN_ID: runId,
           NODE_ENV: process.env.NODE_ENV,
+          UNISEARCH_USER_DATA_DIR: dbDir,
         },
       });
 

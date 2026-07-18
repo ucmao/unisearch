@@ -26,13 +26,22 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
       this.page = await this.cdpManager.newPage();
     } else {
       console.log('[XHS] Launching browser in standard mode');
-      const browser = await playwright.chromium.launch({
+      const path = require('path');
+      const userDataDir = path.join(
+        process.cwd(),
+        'browser_data',
+        activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM)
+      );
+      this.browserContext = await playwright.chromium.launchPersistentContext(userDataDir, {
         headless: activeConfig.HEADLESS,
-      });
-      this.browserContext = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-blink-features=AutomationControlled',
+        ],
       });
-      this.page = await this.browserContext.newPage();
+      this.page = this.browserContext.pages().length > 0 ? this.browserContext.pages()[0] : await this.browserContext.newPage();
     }
 
     // Add stealth init script
