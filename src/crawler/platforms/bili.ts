@@ -146,17 +146,38 @@ export class BilibiliCrawler extends AbstractCrawler {
           if (count >= activeConfig.CRAWLER_MAX_NOTES_COUNT) break;
           if (!v.video_id) continue;
 
+          let detail: any = {};
+          try {
+            const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${v.video_id}`;
+            const res = await this.page!.evaluate(async (url) => {
+              const resp = await fetch(url);
+              return resp.json();
+            }, apiUrl);
+            if (res && res.code === 0 && res.data) {
+              detail = res.data;
+            }
+          } catch (e: any) {
+            console.error(`[BILI] Failed to fetch details for ${v.video_id}:`, e.message);
+          }
+
           const videoDetail = {
             video_id: v.video_id,
             video_url: v.video_url,
-            creator_hash: v.creator_hash,
-            nickname: v.nickname,
-            liked_count: 0,
+            creator_hash: detail.owner?.mid ? String(detail.owner.mid) : v.creator_hash,
+            nickname: detail.owner?.name || v.nickname,
+            liked_count: Number(detail.stat?.like || 0),
             video_type: 'video',
-            title: v.title,
-            desc: v.title,
-            create_time: Math.floor(Date.now() / 1000),
-            video_play_count: v.video_play_count,
+            title: detail.title || v.title,
+            desc: detail.desc || v.title,
+            create_time: detail.pubdate || Math.floor(Date.now() / 1000),
+            disliked_count: String(detail.stat?.dislike || 0),
+            video_play_count: String(detail.stat?.view || v.video_play_count),
+            video_favorite_count: String(detail.stat?.favorite || 0),
+            video_share_count: String(detail.stat?.share || 0),
+            video_coin_count: String(detail.stat?.coin || 0),
+            video_danmaku: String(detail.stat?.danmaku || 0),
+            video_comment: String(detail.stat?.reply || 0),
+            video_cover_url: detail.pic || '',
             source_keyword: keyword,
           };
 

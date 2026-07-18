@@ -112,10 +112,19 @@ export class ZhihuCrawler extends AbstractCrawler {
           const results: any[] = [];
           const cards = document.querySelectorAll('.Search-card, .ContentItem');
           
+          const parseStat = (text: string | null) => {
+            if (!text) return 0;
+            const match = text.replace(/,/g, '').match(/\d+/);
+            return match ? parseInt(match[0]) : 0;
+          };
+          
           cards.forEach((card) => {
             const titleEl = card.querySelector('.ContentItem-title a, h2 a');
             const bodyEl = card.querySelector('.RichText, .ContentItem-richText');
             const authorEl = card.querySelector('.AuthorInfo-name, .UserLink-link');
+            
+            const voteUpEl = card.querySelector('.VoteButton--up, .VoteButton');
+            const commentButton = Array.from(card.querySelectorAll('button.ContentItem-action, a.ContentItem-action')).find(b => b.textContent?.includes('评论'));
             
             if (titleEl) {
               const href = titleEl.getAttribute('href') || '';
@@ -130,6 +139,8 @@ export class ZhihuCrawler extends AbstractCrawler {
                 desc: bodyEl?.textContent?.trim() || '',
                 user_nickname: authorEl?.textContent?.trim() || '',
                 creator_hash: authorEl?.getAttribute('href')?.split('/').pop() || '',
+                voteup_count: parseStat(voteUpEl ? voteUpEl.textContent : ''),
+                comment_count: parseStat(commentButton ? commentButton.textContent : ''),
               });
             }
           });
@@ -150,8 +161,8 @@ export class ZhihuCrawler extends AbstractCrawler {
             content_url: it.content_url,
             title: it.title,
             desc: it.desc,
-            voteup_count: 0,
-            comment_count: 0,
+            voteup_count: it.voteup_count,
+            comment_count: it.comment_count,
             user_nickname: it.user_nickname,
             creator_hash: it.creator_hash,
             source_keyword: keyword,
