@@ -1,5 +1,6 @@
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
+import { inferResearchKeywords, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService } from './ModelService';
 
 const SUPPORTED = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu'];
@@ -28,13 +29,10 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
 function fallbackPlan(text: string): ResearchPlan {
   const aliases: [RegExp, string][] = [[/小红书/i, 'xhs'], [/抖音/i, 'dy'], [/快手/i, 'ks'], [/(B站|哔哩)/i, 'bili'], [/微博/i, 'wb'], [/贴吧/i, 'tieba'], [/知乎/i, 'zhihu']];
   const platforms = aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
-  const quoted = Array.from(text.matchAll(/[“"']([^”"']{1,30})[”"']/g)).map((m) => m[1]);
-  const aboutMatch = text.match(/关于\s*([^的，。；;\n]{1,30})/);
-  const keywordMatch = text.match(/关键词[:：]\s*([^，。；;\n]{1,50})/);
   return normalizePlan({
     goal: text,
     platforms,
-    keywords: quoted.length ? quoted : keywordMatch ? keywordMatch[1].split(/[、,，和与]/) : aboutMatch ? [aboutMatch[1].trim()] : [],
+    keywords: inferResearchKeywords(text),
     collectComments: /评论|评价|口碑|舆情|投诉|反馈/.test(text),
     collectSubComments: /二级|回复/.test(text),
     analysis: ['内容摘要', /负面|投诉|舆情/.test(text) ? '负面主题与风险' : '用户观点与情感', '跨平台对比'],
@@ -44,6 +42,37 @@ function fallbackPlan(text: string): ResearchPlan {
 
 function isAnalysisIntent(text: string) {
   return /分析|总结|结论|对比|洞察|报告|原因|评价如何|怎么看/.test(text);
+}
+
+function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPlan {
+  return {
+    ...base,
+    ...patch,
+    platforms: Array.isArray(patch.platforms) ? patch.platforms : base.platforms,
+    keywords: Array.isArray(patch.keywords) ? patch.keywords : base.keywords,
+    analysis: Array.isArray(patch.analysis) ? patch.analysis : base.analysis,
+    outputs: Array.isArray(patch.outputs) ? patch.outputs : base.outputs,
+  };
+}
+
+function revisePlanLocally(base: ResearchPlan, text: string): ResearchPlan {
+  const aliases: Array<[RegExp, string]> = [
+    [/小红书/i, 'xhs'], [/抖音/i, 'dy'], [/快手/i, 'ks'], [/(?:B站|哔哩哔哩)/i, 'bili'],
+    [/微博/i, 'wb'], [/(?:百度贴吧|贴吧)/i, 'tieba'], [/知乎/i, 'zhihu'],
+  ];
+  const mentioned = aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
+  let platforms = [...base.platforms];
+  if (/去掉|删除|移除|不要/.test(text)) platforms = platforms.filter((item) => !mentioned.includes(item));
+  else if (/改成|换成|只要|仅/.test(text) && mentioned.length) platforms = mentioned;
+  else if (mentioned.length) platforms = Array.from(new Set([...platforms, ...mentioned]));
+
+  const keywordMatch = text.match(/关键词[:：]?\s*[“"']?([^”"'，。；;]{1,50})/);
+  let keywords = [...base.keywords];
+  if (keywordMatch?.[1]) {
+    const values = keywordMatch[1].split(/[、,，和与]/).map((item) => item.trim()).filter(Boolean);
+    keywords = /增加|添加|再加/.test(text) ? Array.from(new Set([...keywords, ...values])) : values;
+  }
+  return { ...base, platforms: platforms.length ? platforms : base.platforms, keywords: keywords.length ? keywords : base.keywords };
 }
 
 export class AgentService {
@@ -62,7 +91,68 @@ export class AgentService {
     }
 
     const latest = agentRepository.getLatestPlan(threadId);
-    if (latest && ['completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content)) {
+    const previousMessage = thread.messages.at(-1);
+    const awaitingClarification = previousMessage?.role === 'assistant' && previousMessage?.kind === 'clarify';
+    const previousUserMessage = awaitingClarification
+      ? [...thread.messages].reverse().find((message: any) => message.role === 'user')
+      : null;
+    const planningText = previousUserMessage ? `${previousUserMessage.content}\n用户补充：${content}` : content;
+    const localDecision = localIntentDecision(content, { planStatus: latest?.status, awaitingClarification });
+    let decision: AgentDecision;
+    let fallback = false;
+
+    if (isSimpleConversation(content) || ['execute', 'stop', 'analyze'].includes(localDecision.action)) {
+      decision = localDecision;
+    } else {
+      try {
+        const updatedThread = agentRepository.getThread(threadId);
+        const messages = updatedThread.messages
+          .filter((message: any) => ['user', 'assistant'].includes(message.role))
+          .slice(-12)
+          .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+        decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null);
+        if (localDecision.action === 'clarify' && ['create_plan', 'revise_plan'].includes(decision.action)) decision = localDecision;
+      } catch {
+        decision = localDecision;
+        fallback = true;
+      }
+    }
+
+    if (decision.action === 'chat' || decision.action === 'clarify') {
+      const reply = decision.reply.trim() || localDecision.reply;
+      agentRepository.addMessage(threadId, 'assistant', decision.action === 'clarify' ? 'clarify' : 'text', reply, {
+        action: decision.action,
+        missing_fields: decision.missingFields || [],
+        fallback,
+      });
+      return agentRepository.getThread(threadId);
+    }
+
+    if (decision.action === 'execute') {
+      if (!latest || latest.status !== 'awaiting_confirmation') {
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有等待确认的计划。你可以先告诉我想采集的具体主题。', { action: 'chat' });
+      } else {
+        this.executePlan(latest.plan_id);
+        agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，任务已进入本地执行队列。', { plan_id: latest.plan_id, action: 'execute' });
+      }
+      return agentRepository.getThread(threadId);
+    }
+
+    if (decision.action === 'stop') {
+      if (!latest || !['queued', 'running'].includes(latest.status)) {
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有正在执行的采集任务。', { action: 'chat' });
+      } else {
+        await this.stopPlan(latest);
+        agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '当前采集任务已停止。', { plan_id: latest.plan_id, action: 'stop' });
+      }
+      return agentRepository.getThread(threadId);
+    }
+
+    if (decision.action === 'analyze' || (latest && ['completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
+      if (!latest || !['completed', 'partially_completed'].includes(latest.status)) {
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有已完成的采集结果可以分析。', { action: 'chat' });
+        return agentRepository.getThread(threadId);
+      }
       const rows = agentRepository.getPlanContents(latest.plan_id);
       if (!rows.length) {
         agentRepository.addMessage(threadId, 'assistant', 'analysis', '当前任务没有可分析的数据。可以先检查采集结果，或重试失败的平台。');
@@ -79,13 +169,32 @@ export class AgentService {
     }
 
     let plan: ResearchPlan;
-    let fallback = false;
-    try { plan = normalizePlan(await modelService.createPlan(content), content); }
-    catch { plan = fallbackPlan(content); fallback = true; }
+    if (decision.action === 'revise_plan' && latest?.status === 'awaiting_confirmation') {
+      const candidate = decision.plan ? mergePlan(latest.plan, decision.plan) : revisePlanLocally(latest.plan, content);
+      plan = normalizePlan(candidate, latest.goal);
+    } else if (decision.action === 'create_plan') {
+      if (decision.plan) plan = normalizePlan(decision.plan, content);
+      else {
+        try { plan = normalizePlan(await modelService.createPlan(planningText), planningText); }
+        catch { plan = fallbackPlan(planningText); fallback = true; }
+      }
+    } else {
+      agentRepository.addMessage(threadId, 'assistant', 'text', decision.reply || localDecision.reply, { action: 'chat', fallback });
+      return agentRepository.getThread(threadId);
+    }
     const created = agentRepository.createPlan(threadId, plan);
     const platformNames = plan.platforms.map((p) => LABELS[p]).join('、');
-    agentRepository.addMessage(threadId, 'assistant', 'plan', `${fallback ? '尚未连接模型，已用本地规则生成计划。' : '我已根据你的目标生成采集计划。'}\n将从 ${platformNames} 搜索 ${plan.keywords.join('、')}。确认后开始执行。`, { plan_id: created.plan_id, fallback });
+    const lead = decision.reply.trim() || (decision.action === 'revise_plan' ? '我已按你的要求更新采集计划。' : '我已根据你的目标生成采集计划。');
+    agentRepository.addMessage(threadId, 'assistant', 'plan', `${lead}\n将从 ${platformNames} 搜索 ${plan.keywords.join('、')}。确认后才会开始执行。`, { plan_id: created.plan_id, fallback, action: decision.action });
     return agentRepository.getThread(threadId);
+  }
+
+  private async stopPlan(plan: any) {
+    for (const step of plan.steps) {
+      if (step.status === 'running') await crawlerManager.stop(step.platform);
+      if (['queued', 'running'].includes(step.status)) agentRepository.updateStep(step.step_id, 'stopped', step.run_id, null);
+    }
+    agentRepository.updatePlanStatus(plan.plan_id, 'stopped');
   }
 
   executePlan(planId: string) {

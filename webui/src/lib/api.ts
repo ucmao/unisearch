@@ -189,7 +189,7 @@ export interface AgentMessage {
   message_id: string
   thread_id: string
   role: 'user' | 'assistant' | 'system'
-  kind: 'text' | 'plan' | 'analysis' | 'status'
+  kind: 'text' | 'clarify' | 'plan' | 'analysis' | 'status'
   content: string
   metadata: Record<string, any>
   created_at: string
@@ -221,7 +221,7 @@ export interface AgentPlan {
   plan_id: string
   thread_id: string
   goal: string
-  status: 'awaiting_confirmation' | 'queued' | 'running' | 'completed' | 'partially_completed' | 'failed'
+  status: 'awaiting_confirmation' | 'queued' | 'running' | 'completed' | 'partially_completed' | 'failed' | 'stopped'
   plan: ResearchPlanData
   steps: AgentPlanStep[]
   created_at: string

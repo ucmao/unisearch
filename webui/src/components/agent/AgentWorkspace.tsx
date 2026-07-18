@@ -253,7 +253,7 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
             {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
             {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} />)}
-            {send.isPending && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在整理可执行计划…</div>}
+            {send.isPending && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在理解你的消息…</div>}
             <div ref={bottomRef} />
           </div>
         </div>
@@ -262,11 +262,11 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           <div className="mx-auto max-w-4xl">
             <div className="relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel shadow-sm focus-within:border-cyber-neon-cyan/50">
               <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-                placeholder={activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '描述采集目标、平台、关键词和想要的结果…'}
+                placeholder={activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
                 className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
               <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending}><Send /></Button>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>Enter 发送 · Shift+Enter 换行</span><span>AI生成计划后需确认才会开始采集</span></div>
+            <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>Enter 发送 · Shift+Enter 换行</span><span>只有明确的调研需求才会生成计划，确认后开始采集</span></div>
           </div>
         </div>
       </main>
