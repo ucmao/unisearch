@@ -249,6 +249,8 @@ export interface ModelProfile {
   temperature: number
   timeoutMs: number
   apiKeyConfigured: boolean
+  connectionVerified: boolean
+  lastError?: string
 }
 
 // API functions

@@ -6,7 +6,7 @@ import {
   Loader2, MessageSquarePlus, Play, Plus, RefreshCw, Send, Settings2,
   Sparkles, Trash2, User, XCircle,
 } from 'lucide-react'
-import { agentApi, type AgentMessage, type AgentPlan, type ModelProfile } from '@/lib/api'
+import { agentApi, type AgentMessage, type AgentPlan, type AgentThread, type AgentThreadSummary, type ModelProfile } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +20,12 @@ const STATUS_LABELS: Record<string, string> = {
   awaiting_confirmation: '等待确认', queued: '排队中', running: '采集中', completed: '已完成',
   partially_completed: '部分完成', failed: '失败', stopped: '已停止',
 }
+
+const MODEL_PROVIDER_DEFAULTS = {
+  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M3' },
+  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'DeepSeek-V4-Flash' },
+  custom: { baseUrl: '', model: '' },
+} satisfies Record<ModelProfile['provider'], { baseUrl: string; model: string }>
 
 function getError(error: any) {
   return error?.response?.data?.detail || error?.message || '操作失败'
@@ -37,9 +43,16 @@ function ModelSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const queryClient = useQueryClient()
   const profileQuery = useQuery({ queryKey: ['agent-model-profile'], queryFn: async () => (await agentApi.getModelProfile()).data, enabled: open })
   const [form, setForm] = useState<Partial<ModelProfile> & { apiKey?: string }>({})
+  const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], { baseUrl: string; model: string }>>>({})
 
   useEffect(() => {
-    if (profileQuery.data) setForm({ ...profileQuery.data, apiKey: '' })
+    if (profileQuery.data) {
+      providerDrafts.current[profileQuery.data.provider] = {
+        baseUrl: profileQuery.data.baseUrl,
+        model: profileQuery.data.model,
+      }
+      setForm({ ...profileQuery.data, apiKey: '' })
+    }
   }, [profileQuery.data])
 
   const save = useMutation({
@@ -56,17 +69,24 @@ function ModelSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       await agentApi.saveModelProfile(form)
       return (await agentApi.testModelProfile()).data
     },
-    onSuccess: (data) => toast.success(`${data.message} · ${data.latency_ms}ms`),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['agent-model-profile'] })
+      toast.success(`${data.message} · ${data.latency_ms}ms`)
+    },
     onError: (error) => toast.error(`连接失败：${getError(error)}`),
   })
 
   const applyProvider = (provider: ModelProfile['provider']) => {
-    const presets = {
-      minimax: { baseUrl: 'https://api.minimax.io/v1', model: 'MiniMax-M2.7' },
-      deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-      custom: { baseUrl: form.baseUrl || '', model: form.model || '' },
-    }
-    setForm((current) => ({ ...current, provider, ...presets[provider] }))
+    setForm((current) => {
+      if (current.provider) {
+        providerDrafts.current[current.provider] = {
+          baseUrl: current.baseUrl || '',
+          model: current.model || '',
+        }
+      }
+      const providerValues = providerDrafts.current[provider] || MODEL_PROVIDER_DEFAULTS[provider]
+      return { ...current, provider, ...providerValues, apiKey: current.apiKey }
+    })
   }
 
   return (
@@ -76,6 +96,7 @@ function ModelSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChan
           <DialogTitle>本地模型配置</DialogTitle>
           <DialogDescription>模型凭证保存在本机。采集数据只会在你发起AI分析时发送给所配置的服务。</DialogDescription>
         </DialogHeader>
+        {form.lastError ? <p className="rounded-lg border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 px-3 py-2 text-xs text-cyber-neon-pink">最近一次模型调用失败：{form.lastError}</p> : null}
         <div className="space-y-4">
           <div className="grid grid-cols-3 gap-2">
             {(['minimax', 'deepseek', 'custom'] as const).map((provider) => (
@@ -185,15 +206,61 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
   const [settingsOpen, setSettingsOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const autoCreateStartedRef = useRef(false)
+  const send = useMutation({
+    mutationFn: ({ id, content }: { id: string; content: string; message: AgentMessage }) => agentApi.sendMessage(id, content),
+    onMutate: async ({ id, message }) => {
+      await client.cancelQueries({ queryKey: ['agent-thread', id] })
+      client.setQueryData<AgentThread>(['agent-thread', id], (current) => current ? {
+        ...current,
+        last_message: message.content,
+        updated_at: message.created_at,
+        messages: [...current.messages, message],
+      } : current)
+    },
+    onSuccess: ({ data }) => {
+      client.setQueryData(['agent-thread', data.thread_id], data)
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+      client.invalidateQueries({ queryKey: ['agent-model-profile'] })
+    },
+    onError: (error, { id }) => {
+      toast.error(getError(error))
+      client.invalidateQueries({ queryKey: ['agent-thread', id] })
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+    },
+  })
   const threadsQuery = useQuery({ queryKey: ['agent-threads'], queryFn: async () => (await agentApi.listThreads()).data.items, refetchInterval: 3000 })
-  const threadQuery = useQuery({ queryKey: ['agent-thread', selectedId], queryFn: async () => (await agentApi.getThread(selectedId!)).data, enabled: Boolean(selectedId), refetchInterval: 1500 })
+  const threadQuery = useQuery({ queryKey: ['agent-thread', selectedId], queryFn: async () => (await agentApi.getThread(selectedId!)).data, enabled: Boolean(selectedId), refetchInterval: send.isPending ? false : 1500 })
+  const modelProfileQuery = useQuery({ queryKey: ['agent-model-profile'], queryFn: async () => (await agentApi.getModelProfile()).data })
 
   const create = useMutation({ mutationFn: async () => (await agentApi.createThread()).data, onSuccess: (thread) => { setSelectedId(thread.thread_id); client.invalidateQueries({ queryKey: ['agent-threads'] }) } })
-  const remove = useMutation({ mutationFn: (id: string) => agentApi.deleteThread(id), onSuccess: () => { setSelectedId(null); client.invalidateQueries({ queryKey: ['agent-threads'] }) } })
-  const send = useMutation({
-    mutationFn: ({ id, content }: { id: string; content: string }) => agentApi.sendMessage(id, content),
-    onSuccess: ({ data }) => { client.setQueryData(['agent-thread', data.thread_id], data); client.invalidateQueries({ queryKey: ['agent-threads'] }) },
-    onError: (error) => toast.error(getError(error)),
+  const remove = useMutation({
+    mutationFn: (id: string) => agentApi.deleteThread(id),
+    onMutate: async (id) => {
+      await Promise.all([
+        client.cancelQueries({ queryKey: ['agent-threads'] }),
+        client.cancelQueries({ queryKey: ['agent-thread', id] }),
+      ])
+      const previousThreads = client.getQueryData<AgentThreadSummary[]>(['agent-threads'])
+      client.setQueryData<AgentThreadSummary[]>(['agent-threads'], (current) => current?.filter((thread) => thread.thread_id !== id))
+      client.removeQueries({ queryKey: ['agent-thread', id], exact: true })
+      setSelectedId((current) => current === id ? null : current)
+      return { previousThreads }
+    },
+    onSuccess: (_response, id) => {
+      client.removeQueries({ queryKey: ['agent-thread', id], exact: true })
+      const remainingThreads = client.getQueryData<AgentThreadSummary[]>(['agent-threads']) || []
+      if (!remainingThreads.length) {
+        autoCreateStartedRef.current = true
+        create.mutate()
+      }
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+    },
+    onError: (error, id, context) => {
+      if (context?.previousThreads) client.setQueryData(['agent-threads'], context.previousThreads)
+      setSelectedId(id)
+      client.invalidateQueries({ queryKey: ['agent-thread', id] })
+      toast.error(getError(error))
+    },
   })
   const execute = useMutation({
     mutationFn: (planId: string) => agentApi.executePlan(planId),
@@ -213,11 +280,37 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
   const submit = () => {
     const content = input.trim()
     if (!content || !selectedId || send.isPending) return
+    if (!modelProfileQuery.data?.apiKeyConfigured || !modelProfileQuery.data.connectionVerified || modelProfileQuery.data.lastError) {
+      setSettingsOpen(true)
+      toast.error(modelProfileQuery.data?.lastError
+        ? 'AI 模型连接不可用，请先测试连接'
+        : modelProfileQuery.data?.apiKeyConfigured
+          ? 'AI 模型尚未验证，请先测试连接'
+          : '请先配置 AI 模型 API Key')
+      return
+    }
+    const message: AgentMessage = {
+      message_id: `pending-${Date.now()}`,
+      thread_id: selectedId,
+      role: 'user',
+      kind: 'text',
+      content,
+      metadata: { optimistic: true },
+      created_at: new Date().toISOString(),
+    }
     setInput('')
-    send.mutate({ id: selectedId, content })
+    send.mutate({ id: selectedId, content, message })
   }
   const activePlan = threadQuery.data?.plan || null
   const runningCount = useMemo(() => activePlan?.steps.filter((step) => step.status === 'running').length || 0, [activePlan])
+  const modelReady = Boolean(modelProfileQuery.data?.apiKeyConfigured && modelProfileQuery.data.connectionVerified && !modelProfileQuery.data.lastError)
+  const modelUnavailableText = modelProfileQuery.data?.lastError
+    ? `AI 模型连接不可用：${modelProfileQuery.data.lastError}`
+    : modelProfileQuery.data?.apiKeyConfigured
+      ? 'AI 模型尚未通过连接测试，无法进行思考和对话'
+      : '尚未配置 AI 模型 API，无法进行思考和对话'
+  const pendingMessage = send.isPending && send.variables?.id === selectedId ? send.variables.message : null
+  const pendingMessageInThread = Boolean(pendingMessage && threadQuery.data?.messages.some((message) => message.message_id === pendingMessage.message_id))
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
@@ -241,11 +334,11 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
 
       <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
-          <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || 'UniSearch Agent'}</h1><p className="mt-0.5 text-[10px] text-cyber-text-muted">{runningCount ? `${runningCount} 个平台正在采集` : '本地任务 · 数据保存在当前设备'}</p></div>
+          <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || 'UniSearch Agent'}</h1><p className="mt-0.5 text-[10px] text-cyber-text-muted">{runningCount ? `${runningCount} 个平台正在采集` : modelReady ? 'AI 模型已就绪 · 数据保存在当前设备' : 'AI 模型未就绪 · 本地功能仍可使用'}</p></div>
           <div className="flex items-center gap-1">
             <Button className="md:hidden" size="icon" variant="ghost" onClick={() => create.mutate()}><MessageSquarePlus /></Button>
             <Button size="icon" variant="ghost" onClick={() => setSettingsOpen(true)} title="模型设置"><Settings2 /></Button>
-            {selectedId && <Button size="icon" variant="ghost" onClick={() => { if (confirm('删除这个任务及其对话和计划？')) remove.mutate(selectedId) }} title="删除任务"><Trash2 /></Button>}
+            {selectedId && <Button size="icon" variant="ghost" disabled={remove.isPending || send.isPending} onClick={() => { if (confirm('删除这个任务及其对话和计划？')) remove.mutate(selectedId) }} title="删除任务"><Trash2 /></Button>}
           </div>
         </div>
 
@@ -253,20 +346,26 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
             {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
             {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} />)}
-            {send.isPending && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在理解你的消息…</div>}
+            {pendingMessage && !pendingMessageInThread ? <MessageBubble message={pendingMessage} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} /> : null}
+            {pendingMessage && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
             <div ref={bottomRef} />
           </div>
         </div>
 
         <div className="shrink-0 border-t border-cyber-border-subtle bg-cyber-bg-primary/90 px-4 py-4 backdrop-blur sm:px-6">
           <div className="mx-auto max-w-4xl">
-            <div className="relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel shadow-sm focus-within:border-cyber-neon-cyan/50">
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-                placeholder={activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
-                className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
-              <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending}><Send /></Button>
-            </div>
-            <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>Enter 发送 · Shift+Enter 换行</span><span>只有明确的调研需求才会生成计划，确认后开始采集</span></div>
+            {modelProfileQuery.isLoading ? <div className="flex min-h-[88px] items-center justify-center rounded-xl border border-cyber-border-default bg-cyber-bg-panel text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在检查 AI 模型配置…</div> : modelReady ? <>
+              <div className="relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel shadow-sm focus-within:border-cyber-neon-cyan/50">
+                <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+                  placeholder={activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
+                  className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
+                <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending}><Send /></Button>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>Enter 发送 · Shift+Enter 换行</span><span>只有明确的调研需求才会生成计划，确认后开始采集</span></div>
+            </> : <div className="flex min-h-[88px] items-center justify-between gap-4 rounded-xl border border-cyber-neon-pink/25 bg-cyber-neon-pink/5 px-4 py-3">
+              <div><p className="text-sm text-cyber-text-primary">{modelUnavailableText}</p><p className="mt-1 text-[10px] text-cyber-text-muted">配置并成功测试连接后，才能开始 AI 对话、生成计划和分析结果。</p></div>
+              <Button variant="outline" className="shrink-0" onClick={() => setSettingsOpen(true)}><KeyRound />配置模型</Button>
+            </div>}
           </div>
         </div>
       </main>
