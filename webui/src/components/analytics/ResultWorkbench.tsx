@@ -4,6 +4,7 @@ import axios from 'axios'
 import { toast } from 'sonner'
 import {
   BarChart3,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -141,17 +142,19 @@ function KeywordBars({ rows, metric, selected, onSelect }: {
   )
 }
 
-function ContentCommentsDialog({ content, runId, onOpenChange }: {
+function ContentCommentsDialog({ content, runId, taskId, onOpenChange }: {
   content: NormalizedContent | null
-  runId: string
+  runId?: string
+  taskId?: string
   onOpenChange: (open: boolean) => void
 }) {
   const [page, setPage] = useState(1)
   const commentsQuery = useQuery({
-    queryKey: ['analytics-comment-threads', runId, content?.platform, content?.content_id, page],
+    queryKey: ['analytics-comment-threads', runId, taskId, content?.platform, content?.content_id, page],
     enabled: Boolean(content),
     queryFn: async () => (await dataApi.getAnalyticsCommentThreads({
       run_id: runId,
+      task_id: taskId,
       platform: content!.platform,
       content_id: content!.content_id,
       page,
@@ -263,7 +266,7 @@ export function ResultWorkbench() {
     ? 'error'
     : 'idle'
   const previousCrawlerStatus = useRef(crawlerStatus)
-  const [runId, setRunId] = useState('all')
+  const [scope, setScope] = useState('all')
   const [platform, setPlatform] = useState('all')
   const [keyword, setKeyword] = useState('all')
   const [metric, setMetric] = useState<MetricKey>('engagement')
@@ -278,6 +281,7 @@ export function ResultWorkbench() {
   const [isRunHistoryOpen, setIsRunHistoryOpen] = useState(false)
   const [isTaskSidebarCollapsed, setIsTaskSidebarCollapsed] = useState(false)
   const [taskQuery, setTaskQuery] = useState('')
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [selectedCommentContent, setSelectedCommentContent] = useState<NormalizedContent | null>(null)
 
   const runsQuery = useQuery({
@@ -286,20 +290,24 @@ export function ResultWorkbench() {
     refetchInterval: crawlerStatus === 'running' || crawlerStatus === 'stopping' ? 3_000 : false,
   })
 
+  const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
+  const selectedTaskId = scope.startsWith('task:') ? scope.slice(5) : undefined
+
   const summaryQuery = useQuery({
-    queryKey: ['analytics-summary', runId, platform, keyword],
-    queryFn: async () => (await dataApi.getAnalyticsSummary(platform, keyword, runId)).data,
+    queryKey: ['analytics-summary', scope, platform, keyword],
+    queryFn: async () => (await dataApi.getAnalyticsSummary(platform, keyword, selectedRunId, selectedTaskId)).data,
   })
   const contentsQuery = useQuery({
-    queryKey: ['analytics-contents', runId, platform, keyword, query, sortBy, page],
+    queryKey: ['analytics-contents', scope, platform, keyword, query, sortBy, page],
     queryFn: async () => (await dataApi.getAnalyticsContents({
-      run_id: runId, platform, keyword, query, sort_by: sortBy, sort_order: 'desc', page, page_size: 20,
+      run_id: selectedRunId, task_id: selectedTaskId, platform, keyword, query, sort_by: sortBy, sort_order: 'desc', page, page_size: 20,
     })).data,
   })
   const commentsQuery = useQuery({
-    queryKey: ['analytics-comments', runId, platform, commentLevel, commentQuery, commentPage],
+    queryKey: ['analytics-comments', scope, platform, commentLevel, commentQuery, commentPage],
     queryFn: async () => (await dataApi.getAnalyticsComments({
-      run_id: runId,
+      run_id: selectedRunId,
+      task_id: selectedTaskId,
       platform,
       level: commentLevel === 'all' ? undefined : Number(commentLevel),
       query: commentQuery,
@@ -319,7 +327,7 @@ export function ResultWorkbench() {
     setKeyword('all')
     setPage(1)
     setCommentPage(1)
-  }, [runId])
+  }, [scope])
 
   useEffect(() => {
     const wasActive = previousCrawlerStatus.current === 'running' || previousCrawlerStatus.current === 'stopping'
@@ -338,12 +346,29 @@ export function ResultWorkbench() {
   const isRefreshing = summaryQuery.isFetching || contentsQuery.isFetching || commentsQuery.isFetching || runsQuery.isFetching
   const keywordRows = useMemo(() => summary?.by_keyword ?? [], [summary])
   const runs = runsQuery.data?.items ?? []
-  const filteredRuns = useMemo(() => {
+  const tasks = useMemo(() => {
+    const groups = new Map<string, { task_id: string; task_title: string; runs: typeof runs }>()
+    runs.forEach((run) => {
+      const taskId = run.task_id || run.run_id
+      const current = groups.get(taskId)
+      if (current) current.runs.push(run)
+      else groups.set(taskId, { task_id: taskId, task_title: run.task_title || run.task_name, runs: [run] })
+    })
+    return Array.from(groups.values())
+  }, [runs])
+  const filteredTasks = useMemo(() => {
     const normalizedQuery = taskQuery.trim().toLocaleLowerCase()
-    if (!normalizedQuery) return runs
-    return runs.filter((run) => run.task_name.toLocaleLowerCase().includes(normalizedQuery))
-  }, [runs, taskQuery])
-  const selectedRun = runs.find((run) => run.run_id === runId)
+    if (!normalizedQuery) return tasks
+    return tasks.filter((task) =>
+      task.task_title.toLocaleLowerCase().includes(normalizedQuery)
+      || task.runs.some((run) => `${run.task_name} ${run.platform} ${run.keywords}`.toLocaleLowerCase().includes(normalizedQuery))
+    )
+  }, [tasks, taskQuery])
+  const selectedRun = runs.find((run) => run.run_id === selectedRunId)
+  const selectedTask = tasks.find((task) => task.task_id === selectedTaskId)
+  const scopeTitle = scope === 'all'
+    ? '全部任务的最新数据'
+    : selectedTask?.task_title || selectedRun?.task_name || '所选任务'
 
   const refresh = async () => {
     await Promise.all([runsQuery.refetch(), summaryQuery.refetch(), contentsQuery.refetch(), commentsQuery.refetch()])
@@ -352,7 +377,7 @@ export function ResultWorkbench() {
   const deleteRun = async (selectedRunId: string) => {
     try {
       await dataApi.deleteAnalyticsRun(selectedRunId)
-      if (runId === selectedRunId) setRunId('all')
+      if (scope === `run:${selectedRunId}`) setScope('all')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['analytics-runs'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
@@ -367,8 +392,96 @@ export function ResultWorkbench() {
     }
   }
 
+  const deleteTask = async (taskId: string) => {
+    try {
+      await dataApi.deleteAnalyticsTask(taskId)
+      if (scope === `task:${taskId}` || tasks.find((task) => task.task_id === taskId)?.runs.some((run) => scope === `run:${run.run_id}`)) setScope('all')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['analytics-runs'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
+      ])
+      toast.success('任务及其全部执行记录已删除，原始数据文件仍然保留')
+    } catch (error) {
+      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
+      toast.error(detail || '任务删除失败')
+      throw error
+    }
+  }
+
   const exportUrl = dataApi.getAnalyticsExportUrl({
-    run_id: runId, platform, keyword, query, sort_by: sortBy,
+    run_id: selectedRunId, task_id: selectedTaskId, platform, keyword, query, sort_by: sortBy,
+  })
+
+  const renderTaskGroups = (mobile = false) => filteredTasks.map((task) => {
+    const isExpanded = expandedTasks.has(task.task_id) || task.runs.some((run) => scope === `run:${run.run_id}`)
+    const isSelected = scope === `task:${task.task_id}`
+    const isRunning = task.runs.some((run) => run.status === 'running')
+    const itemCount = task.runs.reduce((total, run) => total + run.item_count, 0)
+    const latestRun = task.runs[0]
+    return (
+      <div key={task.task_id} className="overflow-hidden rounded-md border border-cyber-border-subtle">
+        <div className={`group relative transition-colors ${isSelected ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'}`}>
+          <button
+            type="button"
+            onClick={() => { setScope(`task:${task.task_id}`); if (mobile) setIsRunHistoryOpen(false) }}
+            className={`w-full text-left ${mobile ? 'p-3 pl-9 pr-12' : 'p-2.5 pl-8 pr-9'}`}
+          >
+            <span className="block truncate text-xs font-semibold text-cyber-text-primary" title={task.task_title}>{task.task_title}</span>
+            <span className={`mt-1 flex items-center justify-between gap-2 text-cyber-text-muted ${mobile ? 'text-[11px]' : 'text-[10px]'}`}>
+              <span>{task.runs.length} 个执行 · {formatRunTime(latestRun?.started_at ?? null)}</span>
+              <span>{itemCount} 条</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpandedTasks((current) => {
+              const next = new Set(current)
+              if (next.has(task.task_id)) next.delete(task.task_id)
+              else next.add(task.task_id)
+              return next
+            })}
+            className="absolute left-1.5 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
+            aria-label={isExpanded ? `收起任务 ${task.task_title}` : `展开任务 ${task.task_title}`}
+          >
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </button>
+          {!isRunning ? (
+            <DeleteConfirmDialog
+              title="删除整个任务？"
+              description={`将删除“${task.task_title}”及其 ${task.runs.length} 个执行记录，但不会删除 SQLite 中的平台原始采集表数据。`}
+              onConfirm={() => deleteTask(task.task_id)}
+              trigger={<Button variant="ghost" size="icon" aria-label={`删除任务 ${task.task_title}`} className={`absolute right-1 top-1 h-7 w-7 text-cyber-text-muted hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink ${mobile ? '' : 'opacity-0 focus:opacity-100 group-hover:opacity-100'}`}><Trash2 /></Button>}
+            />
+          ) : null}
+        </div>
+        {isExpanded ? (
+          <div className="border-t border-cyber-border-subtle bg-cyber-bg-secondary/35 p-1.5">
+            {task.runs.map((run) => (
+              <div key={run.run_id} className={`group/run relative rounded transition-colors ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'}`}>
+                <button type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-2 pl-6 pr-9 text-left">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[11px] font-medium text-cyber-text-secondary" title={run.task_name}>{run.task_name}</span>
+                    <Badge variant="outline" className="shrink-0 text-[9px]">{runStatusLabel[run.status] ?? run.status}</Badge>
+                  </span>
+                  <span className="mt-1 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>{formatRunTime(run.started_at)}</span><span>{run.item_count} 条</span></span>
+                </button>
+                <span className="absolute left-2 top-3 h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan/50" />
+                {run.status !== 'running' ? (
+                  <DeleteConfirmDialog
+                    title="删除执行记录？"
+                    description={`仅删除“${run.task_name}”这一次执行的看板记录。`}
+                    onConfirm={() => deleteRun(run.run_id)}
+                    trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    )
   })
 
   return (
@@ -385,7 +498,7 @@ export function ResultWorkbench() {
               <History className="h-4 w-4 shrink-0 text-cyber-neon-cyan" />
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-cyber-text-primary">任务范围</h2>
-                <p className="text-[10px] text-cyber-text-muted">共 {runsQuery.data?.total ?? 0} 个任务</p>
+                <p className="text-[10px] text-cyber-text-muted">共 {tasks.length} 个任务 · {runsQuery.data?.total ?? 0} 个执行</p>
               </div>
             </div>
           ) : null}
@@ -407,7 +520,7 @@ export function ResultWorkbench() {
               type="button"
               onClick={() => setIsTaskSidebarCollapsed(false)}
               className="flex h-10 w-10 items-center justify-center rounded-md border border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 text-cyber-neon-cyan"
-              title={`当前范围：${runId === 'all' ? '全部任务' : selectedRun?.task_name ?? '所选任务'}`}
+              title={`当前范围：${scopeTitle}`}
               aria-label="展开并查看当前任务范围"
             >
               <History className="h-4 w-4" />
@@ -427,14 +540,14 @@ export function ResultWorkbench() {
               </div>
             <div
               className={`group relative rounded-md border transition-colors ${
-                runId === 'all'
+                scope === 'all'
                   ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10'
                   : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/70'
               }`}
             >
               <button
                 type="button"
-                onClick={() => setRunId('all')}
+                onClick={() => setScope('all')}
                 className="w-full p-2.5 pr-9 text-left"
               >
                 <span className="block text-xs font-medium text-cyber-text-primary">全部任务</span>
@@ -462,46 +575,8 @@ export function ResultWorkbench() {
             </div>
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              {filteredRuns.map((run) => (
-                <div
-                  key={run.run_id}
-                  className={`group relative rounded-md border transition-colors ${
-                    runId === run.run_id
-                      ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10'
-                      : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/70'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setRunId(run.run_id)}
-                    className="w-full p-2.5 pr-9 text-left"
-                  >
-                    <span className="block truncate text-xs font-medium text-cyber-text-primary" title={run.task_name}>{run.task_name}</span>
-                    <span className="mt-1 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
-                      <span>{formatRunTime(run.started_at)}</span>
-                      <span>{run.item_count} 条 · {runStatusLabel[run.status] ?? run.status}</span>
-                    </span>
-                  </button>
-                  {run.status !== 'running' ? (
-                    <DeleteConfirmDialog
-                      title="删除任务记录？"
-                      description={`将删除“${run.task_name}”及其看板历史记录，但不会删除 SQLite 中的平台原始采集表数据。`}
-                      onConfirm={() => deleteRun(run.run_id)}
-                      trigger={
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`删除任务 ${run.task_name}`}
-                          className="absolute right-1 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink focus:opacity-100 group-hover:opacity-100"
-                        >
-                          <Trash2 />
-                        </Button>
-                      }
-                    />
-                  ) : null}
-                </div>
-              ))}
-              {!runsQuery.isLoading && !filteredRuns.length ? (
+              {renderTaskGroups()}
+              {!runsQuery.isLoading && !filteredTasks.length ? (
                 <div className="py-8 text-center text-xs text-cyber-text-muted">
                   {taskQuery.trim() ? '没有匹配的任务' : '暂无任务记录'}
                 </div>
@@ -521,7 +596,7 @@ export function ResultWorkbench() {
             </h1>
             <p className="mt-1 text-xs text-cyber-text-muted">跨文件统一内容字段，按平台和来源关键词对比采集结果</p>
             <p className="mt-1 truncate text-[11px] text-cyber-text-secondary" title={selectedRun?.task_name}>
-              当前范围：{runId === 'all' ? '全部任务的最新数据' : selectedRun?.task_name ?? '所选任务'}
+              当前范围：{scopeTitle}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -799,14 +874,14 @@ export function ResultWorkbench() {
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               <div
                 className={`group relative rounded-md border transition-colors ${
-                  runId === 'all'
+                  scope === 'all'
                     ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10'
                     : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/70'
                 }`}
               >
                 <button
                   type="button"
-                  onClick={() => { setRunId('all'); setIsRunHistoryOpen(false) }}
+                  onClick={() => { setScope('all'); setIsRunHistoryOpen(false) }}
                   className="w-full p-3 pr-12 text-left"
                 >
                   <span className="block text-xs font-medium text-cyber-text-primary">全部任务</span>
@@ -832,52 +907,9 @@ export function ResultWorkbench() {
                 ) : null}
               </div>
 
-              {filteredRuns.map((run) => (
-                <div
-                  key={run.run_id}
-                  className={`relative rounded-md border transition-colors ${
-                    runId === run.run_id
-                      ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10'
-                      : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/70'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { setRunId(run.run_id); setIsRunHistoryOpen(false) }}
-                    className="w-full p-3 pr-12 text-left"
-                  >
-                    <span className="flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate text-xs font-medium text-cyber-text-primary" title={run.task_name}>{run.task_name}</span>
-                      <Badge variant="outline" className="mr-1 shrink-0 text-[10px]">
-                        {runStatusLabel[run.status] ?? run.status}
-                      </Badge>
-                    </span>
-                    <span className="mt-2 flex items-center gap-4 text-[11px] text-cyber-text-muted">
-                      <span>{formatRunTime(run.started_at)}</span>
-                      <span>{run.item_count} 条</span>
-                    </span>
-                  </button>
-                  {run.status !== 'running' ? (
-                    <DeleteConfirmDialog
-                      title="删除任务记录？"
-                      description={`将删除“${run.task_name}”及其看板历史记录，但不会删除 SQLite 中的平台原始采集表数据。`}
-                      onConfirm={() => deleteRun(run.run_id)}
-                      trigger={
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`删除任务 ${run.task_name}`}
-                          className="absolute right-1.5 top-1.5 h-8 w-8 text-cyber-text-muted hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink"
-                        >
-                          <Trash2 />
-                        </Button>
-                      }
-                    />
-                  ) : null}
-                </div>
-              ))}
+              {renderTaskGroups(true)}
 
-              {!runsQuery.isLoading && !filteredRuns.length ? (
+              {!runsQuery.isLoading && !filteredTasks.length ? (
                 <div className="py-8 text-center text-xs text-cyber-text-muted">
                   {taskQuery.trim() ? '没有匹配的任务' : '暂无任务记录'}
                 </div>
@@ -888,7 +920,8 @@ export function ResultWorkbench() {
 
         <ContentCommentsDialog
           content={selectedCommentContent}
-          runId={runId}
+          runId={selectedRunId}
+          taskId={selectedTaskId}
           onOpenChange={(open) => { if (!open) setSelectedCommentContent(null) }}
         />
       </div>

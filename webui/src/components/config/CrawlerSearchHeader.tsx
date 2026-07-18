@@ -150,6 +150,8 @@ export function CrawlerSearchHeader() {
       }
     }
 
+    const taskId = crypto.randomUUID().replace(/-/g, '')
+    const taskTitle = finalKeywords || (config.crawler_type === 'detail' ? '指定内容采集' : '创作者采集')
     selectedPlatforms.forEach((p) => {
       if (statuses[p] !== 'running' && statuses[p] !== 'stopping') {
         startCrawler({
@@ -157,6 +159,8 @@ export function CrawlerSearchHeader() {
           platform: p,
           keywords: finalKeywords,
           cookies: config.login_type === 'cookie' ? platformCookies[p] || '' : '',
+          task_id: taskId,
+          task_title: taskTitle,
         })
       }
     })

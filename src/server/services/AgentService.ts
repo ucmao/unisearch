@@ -1,7 +1,8 @@
+import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
 import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
-import { modelService } from './ModelService';
+import { modelService, type ConversationMaterials } from './ModelService';
 
 const SUPPORTED = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu'];
 const LABELS: Record<string, string> = { xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎' };
@@ -88,10 +89,77 @@ export class AgentService {
     this.timer.unref();
   }
 
-  async sendMessage(threadId: string, content: string) {
+  private collectMaterials(thread: any, includePlanId?: string): ConversationMaterials {
+    const attachmentIds = new Set<string>();
+    const referenceMap = new Map<string, Set<string>>();
+    for (const message of thread.messages || []) {
+      if (message.role !== 'user') continue;
+      for (const attachment of message.metadata?.attachments || []) {
+        if (typeof attachment?.attachment_id === 'string') attachmentIds.add(attachment.attachment_id);
+      }
+      for (const reference of message.metadata?.task_references || []) {
+        if (typeof reference?.plan_id !== 'string') continue;
+        const selected = referenceMap.get(reference.plan_id) || new Set<string>();
+        for (const platform of reference.platforms || []) if (SUPPORTED.includes(platform)) selected.add(platform);
+        referenceMap.set(reference.plan_id, selected);
+      }
+    }
+    if (includePlanId && !referenceMap.has(includePlanId)) referenceMap.set(includePlanId, new Set());
+
+    const texts: ConversationMaterials['texts'] = [];
+    const images: ConversationMaterials['images'] = [];
+    let remainingChars = 90_000;
+    for (const attachment of agentRepository.getAttachments(thread.thread_id, [...attachmentIds])) {
+      if (attachment.kind === 'image' && attachment.storage_path) {
+        try {
+          const data = fs.readFileSync(attachment.storage_path).toString('base64');
+          images.push({ label: attachment.file_name, dataUrl: `data:${attachment.mime_type};base64,${data}` });
+        } catch {}
+        continue;
+      }
+      if (remainingChars <= 0) break;
+      const value = attachment.text_content.slice(0, remainingChars);
+      if (value) texts.push({ label: `上传文件：${attachment.file_name}`, content: value });
+      remainingChars -= value.length;
+    }
+    for (const [planId, platforms] of referenceMap) {
+      if (remainingChars <= 0) break;
+      const plan = agentRepository.getPlan(planId);
+      if (!plan || !['completed', 'partially_completed'].includes(plan.status)) continue;
+      const rows = agentRepository.getPlanContents(planId, 60, [...platforms]);
+      const value = JSON.stringify({ goal: plan.goal, selected_platforms: [...platforms], records: rows }).slice(0, remainingChars);
+      texts.push({ label: `采集任务：${plan.goal}`, content: value });
+      remainingChars -= value.length;
+    }
+    return { texts, images: images.slice(0, 5) };
+  }
+
+  async sendMessage(
+    threadId: string,
+    content: string,
+    context: { attachment_ids?: string[]; task_references?: Array<{ plan_id: string; platforms?: string[] }> } = {},
+  ) {
     const thread = agentRepository.getThread(threadId);
     if (!thread) throw new Error('任务不存在');
-    agentRepository.addMessage(threadId, 'user', 'text', content);
+    const attachmentIds = Array.from(new Set((context.attachment_ids || []).map(String))).slice(0, 5);
+    const attachments = agentRepository.getAttachments(threadId, attachmentIds);
+    if (attachments.length !== attachmentIds.length) throw new Error('部分附件不存在或不属于当前任务');
+    const taskReferences = (context.task_references || []).slice(0, 3).map((reference) => {
+      const plan = agentRepository.getPlan(String(reference.plan_id || ''));
+      if (!plan || !['completed', 'partially_completed'].includes(plan.status)) throw new Error('引用的采集任务不存在或尚未产生可分析结果');
+      const available = new Set(plan.steps.map((step: any) => step.platform));
+      const platforms = Array.from(new Set((reference.platforms || []).map(String)))
+        .filter((platform) => SUPPORTED.includes(platform) && available.has(platform));
+      return { plan_id: plan.plan_id, goal: plan.goal, platforms };
+    });
+    const messageMetadata = {
+      attachments: attachments.map((attachment) => ({
+        attachment_id: attachment.attachment_id, file_name: attachment.file_name,
+        mime_type: attachment.mime_type, kind: attachment.kind, size_bytes: attachment.size_bytes,
+      })),
+      task_references: taskReferences,
+    };
+    agentRepository.addMessage(threadId, 'user', 'text', content, messageMetadata);
     if (thread.messages.filter((m: any) => m.role === 'user').length === 0) {
       agentRepository.touchThread(threadId, content.slice(0, 24));
     }
@@ -139,7 +207,8 @@ export class AgentService {
           .filter((message: any) => ['user', 'assistant'].includes(message.role))
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
-        const reply = (await modelService.converse(messages, { redirectToResearch })).trim();
+        const materials = this.collectMaterials(updatedThread);
+        const reply = (await modelService.converse(messages, { redirectToResearch, materials })).trim();
         if (!reply) throw new Error('模型没有返回文本内容');
         agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
           action: 'chat',
@@ -249,6 +318,20 @@ export class AgentService {
     if (decision.action === 'analyze' || (latest && ['completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
       if (!latest || !['completed', 'partially_completed'].includes(latest.status)) {
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有已完成的采集结果可以分析。', { action: 'chat' });
+        return agentRepository.getThread(threadId);
+      }
+      const updatedThread = agentRepository.getThread(threadId);
+      const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
+      if (referencedMaterials.texts.length || referencedMaterials.images.length) {
+        try {
+          const messages = updatedThread.messages
+            .filter((message: any) => ['user', 'assistant'].includes(message.role))
+            .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+          const answer = await modelService.converse(messages, { materials: referencedMaterials });
+          agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
+        } catch (error: any) {
+          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
+        }
         return agentRepository.getThread(threadId);
       }
       const rows = agentRepository.getPlanContents(latest.plan_id);
@@ -399,6 +482,7 @@ export class AgentService {
         platform: step.platform, login_type: p.loginType, crawler_type: 'search', keywords: p.keywords.join(','),
         start_page: p.startPage, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
         cookies: '', headless: p.headless, loop_execution: false,
+        task_id: refreshed.plan_id, task_title: refreshed.goal,
       });
       if (ok) {
         const state = crawlerManager.getStatus(step.platform);

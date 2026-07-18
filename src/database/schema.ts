@@ -334,6 +334,8 @@ export function initSchema(db: Database): void {
     -- Crawl Runs Table (Analytics tracking)
     CREATE TABLE IF NOT EXISTS crawl_runs (
       run_id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL DEFAULT '',
+      task_title TEXT NOT NULL DEFAULT '',
       task_name TEXT NOT NULL,
       platform TEXT NOT NULL,
       crawler_type TEXT NOT NULL,
@@ -402,6 +404,20 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(thread_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS agent_attachments (
+      attachment_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      text_content TEXT NOT NULL DEFAULT '',
+      storage_path TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_attachments_thread ON agent_attachments(thread_id, created_at);
+
     CREATE TABLE IF NOT EXISTS agent_plans (
       plan_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,
@@ -428,4 +444,39 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
   `);
+
+  // Older databases predate the parent task layer. Keep every historical run as
+  // its own task so existing analytics remain selectable after the migration.
+  const runColumns = new Set(
+    db.prepare("PRAGMA table_info(crawl_runs)").all().map((column: any) => column.name)
+  );
+  if (!runColumns.has('task_id')) db.exec("ALTER TABLE crawl_runs ADD COLUMN task_id TEXT NOT NULL DEFAULT ''");
+  if (!runColumns.has('task_title')) db.exec("ALTER TABLE crawl_runs ADD COLUMN task_title TEXT NOT NULL DEFAULT ''");
+  db.exec("UPDATE crawl_runs SET task_id = run_id WHERE task_id = ''");
+  db.exec("UPDATE crawl_runs SET task_title = task_name WHERE task_title = ''");
+  // Runs created by the AI workspace used to have no parent task metadata, but
+  // agent_plan_steps already records the authoritative run -> plan relation.
+  // Reconcile it on every startup so databases migrated by an older build are
+  // corrected as well.
+  db.exec(`
+    UPDATE crawl_runs
+    SET task_id = (
+      SELECT step.plan_id
+      FROM agent_plan_steps step
+      WHERE step.run_id = crawl_runs.run_id
+      LIMIT 1
+    ),
+    task_title = COALESCE((
+      SELECT COALESCE(thread.title, plan.goal)
+      FROM agent_plan_steps step
+      JOIN agent_plans plan ON plan.plan_id = step.plan_id
+      LEFT JOIN agent_threads thread ON thread.thread_id = plan.thread_id
+      WHERE step.run_id = crawl_runs.run_id
+      LIMIT 1
+    ), task_title)
+    WHERE EXISTS (
+      SELECT 1 FROM agent_plan_steps step WHERE step.run_id = crawl_runs.run_id
+    )
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_task_id ON crawl_runs(task_id)");
 }

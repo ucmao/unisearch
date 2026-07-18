@@ -11,6 +11,8 @@ export interface CrawlerConfig {
   cookies: string
   headless: boolean
   loop_execution: boolean
+  task_id?: string
+  task_title?: string
 }
 
 export interface PlatformState {
