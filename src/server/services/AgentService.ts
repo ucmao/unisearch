@@ -1,6 +1,6 @@
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
-import { localIntentDecision, type AgentDecision } from './AgentIntent';
+import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService } from './ModelService';
 
 const SUPPORTED = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu'];
@@ -22,7 +22,7 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     loginType: 'qrcode',
     headless: Boolean(input?.headless),
     analysis: Array.isArray(input?.analysis) ? input.analysis.map(String).slice(0, 8) : ['内容摘要', '用户观点与情感', '关键发现'],
-    outputs: Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['xlsx', 'markdown'],
+    outputs: Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['csv'],
   };
 }
 
@@ -39,6 +39,46 @@ function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPl
     analysis: Array.isArray(patch.analysis) ? patch.analysis : base.analysis,
     outputs: Array.isArray(patch.outputs) ? patch.outputs : base.outputs,
   };
+}
+
+function inferPlanRevision(text: string, base: ResearchPlan): Partial<ResearchPlan> | null {
+  const patch: Partial<ResearchPlan> = {};
+  if (/关键词/i.test(text)) {
+    const keywords = inferResearchKeywords(text);
+    if (keywords.length) patch.keywords = keywords;
+  }
+
+  const mentionedPlatforms = inferResearchPlatforms(text);
+  if (mentionedPlatforms.length) {
+    if (/去掉|删除|移除|不要/.test(text)) {
+      patch.platforms = base.platforms.filter((platform) => !mentionedPlatforms.includes(platform));
+    } else if (/加上|增加|添加|再加|也要/.test(text)) {
+      patch.platforms = Array.from(new Set([...base.platforms, ...mentionedPlatforms]));
+    } else {
+      patch.platforms = mentionedPlatforms;
+    }
+  }
+
+  if (/(?:不要|关闭|不采集).*(?:评论|留言)/.test(text)) patch.collectComments = false;
+  else if (/(?:开启|打开|采集|需要).*(?:评论|留言)/.test(text)) patch.collectComments = true;
+  if (/(?:不要|关闭|不采集).*(?:二级评论|子评论|回复)/.test(text)) patch.collectSubComments = false;
+  else if (/(?:开启|打开|采集|需要).*(?:二级评论|子评论|回复)/.test(text)) patch.collectSubComments = true;
+  if (/后台|无头/.test(text)) patch.headless = true;
+  else if (/可见|显示浏览器|打开浏览器/.test(text)) patch.headless = false;
+  const page = text.match(/(?:第|从)?\s*(\d{1,2})\s*页/);
+  if (page) patch.startPage = Number(page[1]);
+  return Object.keys(patch).length ? patch : null;
+}
+
+function conversationalTurnsSinceReminder(messages: any[]): number {
+  let turns = 0;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message.role !== 'assistant') continue;
+    if (message.metadata?.redirect_reminded || message.metadata?.action !== 'chat') break;
+    turns++;
+  }
+  return turns;
 }
 
 export class AgentService {
@@ -84,15 +124,41 @@ export class AgentService {
       previousUserText: lastUserMessage?.content,
     });
     let decision: AgentDecision;
+    const deterministicRevision = localDecision.action === 'revise_plan' && latest?.status === 'awaiting_confirmation'
+      ? inferPlanRevision(content, latest.plan)
+      : null;
 
-    if (['model_info', 'execute', 'stop', 'status', 'analyze'].includes(localDecision.action)) {
+    if (deterministicRevision) {
+      decision = { action: 'revise_plan', reply: '已按你的要求更新采集计划，请确认后执行。', plan: deterministicRevision };
+    } else if (['model_info', 'execute', 'stop', 'status', 'analyze', 'export', 'clarify', 'create_plan'].includes(localDecision.action)) {
       decision = localDecision;
+    } else if (localDecision.action === 'chat') {
+      try {
+        const updatedThread = agentRepository.getThread(threadId);
+        const messages = updatedThread.messages
+          .filter((message: any) => ['user', 'assistant'].includes(message.role))
+          .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+        const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
+        const reply = (await modelService.converse(messages, { redirectToResearch })).trim();
+        if (!reply) throw new Error('模型没有返回文本内容');
+        agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
+          action: 'chat',
+          redirect_reminded: redirectToResearch,
+        });
+        return agentRepository.getThread(threadId);
+      } catch (error: any) {
+        const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
+        agentRepository.addMessage(threadId, 'assistant', 'status', `AI 服务连接失败：${reason}\n\n本次没有生成 AI 回复，请到“模型设置”检查配置并测试连接。`, {
+          action: 'model_error',
+          error: reason,
+        });
+        return agentRepository.getThread(threadId);
+      }
     } else {
       try {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = updatedThread.messages
           .filter((message: any) => ['user', 'assistant'].includes(message.role))
-          .slice(-12)
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null);
         if (localDecision.action === 'clarify' && ['create_plan', 'revise_plan'].includes(decision.action)) decision = localDecision;
@@ -164,6 +230,22 @@ export class AgentService {
       return agentRepository.getThread(threadId);
     }
 
+    if (decision.action === 'export') {
+      if (!latest || !latest.steps.some((step: any) => step.run_id)) {
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有可以导出的采集数据。请先完成一次采集任务。', { action: 'export' });
+      } else {
+        const stats = agentRepository.getPlanStats(latest.plan_id);
+        agentRepository.addMessage(
+          threadId,
+          'assistant',
+          'export',
+          `当前任务的 CSV 已准备好，共 ${stats.content_count} 条内容。点击下方按钮下载；桌面版会保存到系统“下载”目录，并在完成后自动定位文件。`,
+          { action: 'export', plan_id: latest.plan_id, record_count: stats.content_count },
+        );
+      }
+      return agentRepository.getThread(threadId);
+    }
+
     if (decision.action === 'analyze' || (latest && ['completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
       if (!latest || !['completed', 'partially_completed'].includes(latest.status)) {
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有已完成的采集结果可以分析。', { action: 'chat' });
@@ -186,6 +268,17 @@ export class AgentService {
       return agentRepository.getThread(threadId);
     }
 
+    if (decision.action === 'create_plan' && latest) {
+      const reply = latest.status === 'awaiting_confirmation'
+        ? '当前任务已经生成过采集执行计划。你可以修改现有计划，或确认后开始执行。'
+        : '当前任务已经生成并使用过采集执行计划，不能再次生成。若要采集新的主题，请新建一个任务。';
+      agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
+        action: 'plan_already_exists',
+        plan_id: latest.plan_id,
+      });
+      return agentRepository.getThread(threadId);
+    }
+
     let plan: ResearchPlan;
     if (decision.action === 'revise_plan' && latest?.status === 'awaiting_confirmation') {
       if (!decision.plan) {
@@ -198,15 +291,24 @@ export class AgentService {
       const candidate = mergePlan(latest.plan, decision.plan);
       plan = normalizePlan(candidate, latest.goal);
     } else if (decision.action === 'create_plan') {
+      const explicitPlatforms = inferResearchPlatforms(planningText);
+      const explicitKeywords = inferResearchKeywords(planningText);
       if (decision.plan) plan = normalizePlan(decision.plan, content);
+      else if (explicitPlatforms.length && explicitKeywords.length) {
+        plan = normalizePlan({ platforms: explicitPlatforms, keywords: explicitKeywords }, planningText);
+      }
       else {
-        try { plan = normalizePlan(await modelService.createPlan(planningText), planningText); }
+        const updatedThread = agentRepository.getThread(threadId);
+        const messages = updatedThread.messages
+          .filter((message: any) => ['user', 'assistant'].includes(message.role))
+          .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+        try { plan = normalizePlan(await modelService.createPlan(messages, planningText), planningText); }
         catch (error: any) {
-          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 计划生成失败：${error.message}\n\n本次没有生成本地兜底计划，请检查模型配置并测试连接。`, {
-            action: 'model_error',
-            error: error.message,
-          });
-          return agentRepository.getThread(threadId);
+          const fallbackKeywords = inferResearchKeywords(planningText);
+          plan = normalizePlan({
+            platforms: inferResearchPlatforms(planningText),
+            keywords: fallbackKeywords,
+          }, planningText);
         }
       }
     } else {
@@ -221,10 +323,13 @@ export class AgentService {
       agentRepository.addMessage(threadId, 'assistant', 'text', reply, { action: 'chat' });
       return agentRepository.getThread(threadId);
     }
-    const created = agentRepository.createPlan(threadId, plan);
+    const created = decision.action === 'revise_plan' && latest
+      ? agentRepository.updatePendingPlan(latest.plan_id, plan)
+      : agentRepository.createPlan(threadId, plan);
     const platformNames = plan.platforms.map((p) => LABELS[p]).join('、');
     const lead = decision.reply.trim() || (decision.action === 'revise_plan' ? '我已按你的要求更新采集计划。' : '我已根据你的目标生成采集计划。');
-    agentRepository.addMessage(threadId, 'assistant', 'plan', `${lead}\n将从 ${platformNames} 搜索 ${plan.keywords.join('、')}。确认后才会开始执行。`, { plan_id: created.plan_id, action: decision.action });
+    const messageKind = decision.action === 'revise_plan' ? 'text' : 'plan';
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n将从 ${platformNames} 搜索 ${plan.keywords.join('、')}。确认后才会开始执行。`, { plan_id: created.plan_id, action: decision.action });
     return agentRepository.getThread(threadId);
   }
 

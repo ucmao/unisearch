@@ -189,7 +189,7 @@ export interface AgentMessage {
   message_id: string
   thread_id: string
   role: 'user' | 'assistant' | 'system'
-  kind: 'text' | 'clarify' | 'plan' | 'analysis' | 'status'
+  kind: 'text' | 'clarify' | 'plan' | 'analysis' | 'status' | 'export'
   content: string
   metadata: Record<string, any>
   created_at: string
