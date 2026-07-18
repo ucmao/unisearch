@@ -59,7 +59,7 @@ export class WeiboCrawler extends AbstractCrawler {
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
       console.log('[WEIBO] User is not logged in. Waiting for manual login...');
       try {
-        await this.page!.click('.login-btn, .gn_login', { timeout: 3000 });
+        await this.page!.click('.login-btn, .gn_login, button:has-text("登录"), a:has-text("登录")', { timeout: 3000 });
       } catch {}
 
       const startTime = Date.now();
@@ -76,10 +76,26 @@ export class WeiboCrawler extends AbstractCrawler {
 
   private async checkLoginState(): Promise<boolean> {
     try {
+      const url = this.page!.url();
+      if (url.includes('newlogin') || url.includes('login')) {
+        return false;
+      }
+      const hasPublishBox = await this.page!.isVisible('[placeholder*="有什么新鲜事"]', { timeout: 1000 });
+      if (hasPublishBox) return true;
+    } catch {}
+    try {
+      const isLoginBtn = await this.page!.isVisible('.login-btn, .gn_login, button:has-text("登录"), a:has-text("登录")', { timeout: 1000 });
+      if (isLoginBtn) return false;
+    } catch {}
+    try {
       if (this.browserContext) {
         const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some((c) => c.name === 'SSOLoginState' || c.name === 'WBPSESS');
+        const hasSession = cookies.some((c) => c.name === 'SUB');
         if (hasSession) {
+          const url = this.page!.url();
+          if (url.includes('newlogin') || url.includes('login')) return false;
+          const loginBtnExists = await this.page!.isVisible('.login-btn, .gn_login, button:has-text("登录"), a:has-text("登录")', { timeout: 1000 }).catch(() => false);
+          if (loginBtnExists) return false;
           console.log('[WEIBO] Login state confirmed via cookies.');
           return true;
         }
@@ -87,12 +103,7 @@ export class WeiboCrawler extends AbstractCrawler {
     } catch (err: any) {
       console.error('[WEIBO] Error checking cookies:', err.message);
     }
-    try {
-      const visible = await this.page!.isVisible('.gn_position, .nav-avatar', { timeout: 1000 });
-      return visible;
-    } catch {
-      return false;
-    }
+    return false;
   }
 
   public async search(): Promise<void> {
@@ -112,37 +123,43 @@ export class WeiboCrawler extends AbstractCrawler {
           const items: any[] = [];
           const cardElements = document.querySelectorAll('.card-wrap[mid]');
           
-          const parseStat = (text: string | null) => {
-            if (!text) return '0';
-            const match = text.match(/\d+/);
-            return match ? match[0] : '0';
-          };
-          
-          cardElements.forEach((card) => {
-            const mid = card.getAttribute('mid') || '';
-            const contentEl = card.querySelector('p.txt[node-type="feed_list_content"]');
-            const authorEl = card.querySelector('a.name');
-            const urlEl = card.querySelector('.from a[href*="/status/"]');
+            const parseStat = (text: string | null) => {
+              if (!text) return '0';
+              const cleanText = text.trim();
+              if (cleanText.includes('万')) {
+                const numStr = cleanText.replace('万', '').trim();
+                const val = parseFloat(numStr);
+                return isNaN(val) ? '0' : Math.round(val * 10000).toString();
+              }
+              const match = cleanText.match(/\d+/);
+              return match ? match[0] : '0';
+            };
             
-            const repostEl = card.querySelector('.card-act ul li:nth-child(2) a');
-            const commentEl = card.querySelector('.card-act ul li:nth-child(3) a');
-            const likeEl = card.querySelector('.card-act ul li:nth-child(4) a');
-            
-            if (contentEl && authorEl) {
-              items.push({
-                note_id: mid,
-                content: contentEl.textContent?.trim() || '',
-                nickname: authorEl.textContent?.trim() || '',
-                creator_hash: authorEl.getAttribute('usercard')?.match(/id=([0-9]+)/)?.[1] || '',
-                note_url: urlEl ? 'https:' + urlEl.getAttribute('href') : '',
-                shared_count: parseStat(repostEl ? repostEl.textContent : ''),
-                comments_count: parseStat(commentEl ? commentEl.textContent : ''),
-                liked_count: parseStat(likeEl ? likeEl.textContent : ''),
-              });
-            }
+            cardElements.forEach((card) => {
+              const mid = card.getAttribute('mid') || '';
+              const contentEl = card.querySelector('p.txt[node-type="feed_list_content"]');
+              const authorEl = card.querySelector('a.name');
+              const urlEl = card.querySelector('.from a[href*="/status/"]');
+              
+              const repostEl = card.querySelector('a[action-type="feed_list_forward"]');
+              const commentEl = card.querySelector('a[action-type="feed_list_comment"]');
+              const likeEl = card.querySelector('.woo-like-count, a[action-type="feed_list_like"]');
+              
+              if (contentEl && authorEl) {
+                items.push({
+                  note_id: mid,
+                  content: contentEl.textContent?.trim() || '',
+                  nickname: authorEl.textContent?.trim() || '',
+                  creator_hash: authorEl.getAttribute('usercard')?.match(/id=([0-9]+)/)?.[1] || '',
+                  note_url: urlEl ? 'https:' + urlEl.getAttribute('href') : '',
+                  shared_count: parseStat(repostEl ? repostEl.textContent : ''),
+                  comments_count: parseStat(commentEl ? commentEl.textContent : ''),
+                  liked_count: parseStat(likeEl ? likeEl.textContent : ''),
+                });
+              }
+            });
+            return items;
           });
-          return items;
-        });
 
         console.log(`[WEIBO] Found ${cards.length} posts. Ingesting...`);
         let count = 0;

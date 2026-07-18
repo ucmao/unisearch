@@ -76,10 +76,20 @@ export class ZhihuCrawler extends AbstractCrawler {
 
   private async checkLoginState(): Promise<boolean> {
     try {
+      const visible = await this.page!.isVisible('.AppHeader-profile, .AppHeader-user', { timeout: 1000 });
+      if (visible) return true;
+    } catch {}
+    try {
+      const isLoginBtn = await this.page!.isVisible('.AppHeader-login, .SignFlow-tabs', { timeout: 1000 });
+      if (isLoginBtn) return false;
+    } catch {}
+    try {
       if (this.browserContext) {
         const cookies = await this.browserContext.cookies();
         const hasSession = cookies.some((c) => c.name === 'z_c0');
         if (hasSession) {
+          const loginBtnExists = await this.page!.isVisible('.AppHeader-login, .SignFlow-tabs', { timeout: 1000 }).catch(() => false);
+          if (loginBtnExists) return false;
           console.log('[ZHIHU] Login state confirmed via cookies.');
           return true;
         }
@@ -87,12 +97,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     } catch (err: any) {
       console.error('[ZHIHU] Error checking cookies:', err.message);
     }
-    try {
-      const visible = await this.page!.isVisible('.AppHeader-profile, .AppHeader-user', { timeout: 1000 });
-      return visible;
-    } catch {
-      return false;
-    }
+    return false;
   }
 
   public async search(): Promise<void> {

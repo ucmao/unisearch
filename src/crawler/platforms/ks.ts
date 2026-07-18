@@ -76,18 +76,6 @@ export class KuaishouCrawler extends AbstractCrawler {
 
   private async checkLoginState(): Promise<boolean> {
     try {
-      if (this.browserContext) {
-        const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some((c) => c.name === 'passToken');
-        if (hasSession) {
-          console.log('[KS] Login state confirmed via cookies.');
-          return true;
-        }
-      }
-    } catch (err: any) {
-      console.error('[KS] Error checking cookies:', err.message);
-    }
-    try {
       const selectors = [
         '.header-user-avatar',
         '.avatar-wrap',
@@ -96,16 +84,32 @@ export class KuaishouCrawler extends AbstractCrawler {
         'a[href*="/profile"]'
       ];
       for (const selector of selectors) {
-        const visible = await this.page!.isVisible(selector, { timeout: 1000 }).catch(() => false);
+        const visible = await this.page!.isVisible(selector, { timeout: 500 }).catch(() => false);
         if (visible) {
           console.log(`[KS] Login state confirmed via selector: ${selector}`);
           return true;
         }
       }
-      return false;
-    } catch {
-      return false;
+    } catch {}
+    try {
+      const isLoginBtn = await this.page!.isVisible('.login-btn, .header-login', { timeout: 1000 });
+      if (isLoginBtn) return false;
+    } catch {}
+    try {
+      if (this.browserContext) {
+        const cookies = await this.browserContext.cookies();
+        const hasSession = cookies.some((c) => c.name === 'passToken');
+        if (hasSession) {
+          const loginBtnExists = await this.page!.isVisible('.login-btn, .header-login', { timeout: 1000 }).catch(() => false);
+          if (loginBtnExists) return false;
+          console.log('[KS] Login state confirmed via cookies.');
+          return true;
+        }
+      }
+    } catch (err: any) {
+      console.error('[KS] Error checking cookies:', err.message);
     }
+    return false;
   }
 
   public async search(): Promise<void> {
