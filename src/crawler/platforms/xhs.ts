@@ -94,7 +94,23 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
       
       // Try to open login dialog if not popped up
       try {
-        await this.page!.click('xpath=//*[@id="app"]/div[1]/div[2]/div[1]/ul/div[1]/button', { timeout: 3000 });
+        const loginBtnSelectors = [
+          'xpath=//*[@id="app"]/div[1]/div[2]/div[1]/ul/div[1]/button',
+          'button:has-text("登录")',
+          '.login-btn',
+          '.login-button',
+          'a:has-text("登录")',
+          'span:has-text("登录")'
+        ];
+        for (const selector of loginBtnSelectors) {
+          try {
+            const btn = this.page!.locator(selector);
+            if (await btn.isVisible({ timeout: 1000 })) {
+              await btn.click({ timeout: 2000 });
+              break;
+            }
+          } catch {}
+        }
       } catch {
         // Ignored, might already be open
       }
@@ -118,72 +134,110 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   }
 
   private async checkLoginState(): Promise<boolean> {
+    // 1. Wait a bit for page load to stabilize
+    await this.page!.waitForTimeout(1000);
+
+    // 2. Check logged-out indicators first. Public navigation items such as
+    // "/publish" can be visible to visitors and must not be used as proof of login.
+    if (this.page!.url().includes('/login')) {
+      return false;
+    }
+
+    const loginSelectors = [
+      'xpath=//*[@id="app"]/div[1]/div[2]/div[1]/ul/div[1]/button',
+      'button:has-text("登录")',
+      'a:has-text("登录")',
+      'span:has-text("登录")',
+      '.login-btn',
+      '.login-button',
+      '.login-container'
+    ];
+    for (const selector of loginSelectors) {
+      try {
+        const visible = await this.page!.isVisible(selector, { timeout: 500 }).catch(() => false);
+        if (visible) return false;
+      } catch {}
+    }
+
+    // 3. A profile link with a concrete user id is account-specific.
+    const profileSelector = "a[href*='/user/profile/']";
     try {
-      // Selector for the "Me" link in sidebar
-      const profileSelector = "xpath=//a[contains(@href, '/user/profile/')]//span[text()='我']";
-      const visible = await this.page!.isVisible(profileSelector, { timeout: 1000 });
-      if (visible) return true;
+      const profileLinks = this.page!.locator(profileSelector);
+      const count = await profileLinks.count();
+      for (let index = 0; index < count; index++) {
+        const link = profileLinks.nth(index);
+        if (!(await link.isVisible().catch(() => false))) continue;
+
+        const href = await link.getAttribute('href');
+        if (href && /\/user\/profile\/[^/?#]+/.test(href)) {
+          console.log(`[XHS] Login state confirmed via account profile link: ${href}`);
+          return true;
+        }
+      }
     } catch {}
 
+    // 4. A session cookie is the fallback when the responsive layout hides the
+    // profile link. Logged-out UI above always takes precedence over this check.
     try {
       const cookies = await this.browserContext!.cookies();
-      const hasWebSession = cookies.some((c) => c.name === 'web_session');
-      return hasWebSession;
-    } catch {}
-    
+      const hasWebSession = cookies.some((c) => c.name === 'web_session' && c.value.trim().length > 0);
+      if (hasWebSession) {
+        console.log('[XHS] Login state confirmed via cookies.');
+        return true;
+      }
+    } catch (err: any) {
+      console.error('[XHS] Error checking cookies:', err.message);
+    }
+
     return false;
   }
 
   public async search(): Promise<void> {
     console.log('[XHS] Beginning keyword search...');
     const keywords = activeConfig.KEYWORDS.split(',');
+    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
     
     for (const keyword of keywords) {
       console.log(`[XHS] Searching keyword: ${keyword}`);
       
       try {
-        // Navigate to search page
-        const searchUrl = `${this.page!.url().split('?')[0]}/search_result?keyword=${encodeURIComponent(keyword)}`;
-        await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-        await this.page!.waitForTimeout(3000);
-
-        // Fetch search results via page-evaluated API calls (inherits authentication headers)
-        const notes = await this.page!.evaluate(async (kw) => {
-          try {
-            const apiHost = window.location.hostname.includes('rednote.com') ? 'webapi.rednote.com' : 'edith.xiaohongshu.com';
-            const url = `https://${apiHost}/web_api/sns/v1/search/notes`;
-            const searchId = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-            
-            const payload = {
-              keyword: kw,
-              page: 1,
-              page_size: 20,
-              search_id: searchId,
-              sort: 'general',
-              note_type: 0,
-            };
-
-            const resp = await fetch(url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json;charset=UTF-8',
-                'Accept': 'application/json, text/plain, */*',
-              },
-              body: JSON.stringify(payload),
-            });
-            
-            const text = await resp.text();
-            const data = JSON.parse(text);
-            return data.data?.items || [];
-          } catch (err: any) {
-            return { error: err.message };
-          }
-        }, keyword);
-
-        if ('error' in notes) {
-          console.error('[XHS] API search error:', notes.error);
-          continue;
+        // Xiaohongshu's current web app no longer reliably accepts direct
+        // navigation to /search_result. Use the homepage search box so the app
+        // creates its signed request to the current v2 API on so.xiaohongshu.com.
+        if (!this.page!.url().startsWith(`${indexUrl}/explore`)) {
+          await this.page!.goto(indexUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
+
+        const searchBox = this.page!.locator('.input-box.search-box-in-content').first();
+        await searchBox.waitFor({ state: 'visible', timeout: 15000 });
+        await searchBox.click();
+
+        const searchInput = this.page!
+          .locator('textarea#search-input:visible, textarea#search-input-in-feeds:visible')
+          .first();
+        await searchInput.waitFor({ state: 'visible', timeout: 10000 });
+        await searchInput.fill(keyword);
+
+        const [searchResponse] = await Promise.all([
+          this.page!.waitForResponse((response) => {
+            const url = response.url();
+            return response.request().method() === 'POST'
+              && url.includes('/api/sns/web/v2/search/notes');
+          }, { timeout: 30000 }),
+          searchInput.press('Enter'),
+        ]);
+
+        if (!searchResponse.ok()) {
+          throw new Error(`Search request returned HTTP ${searchResponse.status()}`);
+        }
+
+        const searchResult = await searchResponse.json();
+        if (!searchResult?.success) {
+          throw new Error(`Search API rejected the request: ${searchResult?.msg || searchResult?.code || 'unknown error'}`);
+        }
+
+        const notes = searchResult.data?.items;
+        if (!Array.isArray(notes)) throw new Error('Search API returned an invalid items payload');
 
         console.log(`[XHS] Found ${notes.length} notes. Ingesting...`);
         let count = 0;
@@ -192,24 +246,38 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           if (count >= activeConfig.CRAWLER_MAX_NOTES_COUNT) break;
           if (item.model_type === 'rec_query' || item.model_type === 'hot_query') continue;
 
-          // Resolve xhs note object mapping
+          // v2 search results keep display fields under note_card while the id
+          // and xsec_token remain on the outer item.
+          const card = item.note_card || item;
+          const noteId = item.id || item.note_id || card.note_id;
+          if (!noteId) continue;
+
+          const user = card.user || item.user || {};
+          const interactInfo = card.interact_info || item.interact_info || {};
+          const imageUrls = (card.image_list || item.image_list || [])
+            .map((image: any) => image.url || image.url_default || image.info_list?.[0]?.url || '')
+            .filter(Boolean);
+          if (imageUrls.length === 0 && card.cover) {
+            imageUrls.push(card.cover.url_default || card.cover.url_pre || '');
+          }
+
           const noteDetail = {
-            note_id: item.id || item.note_id,
-            type: item.type === 'video' ? 'video' : 'normal',
-            title: item.title || item.desc || '',
-            desc: item.desc || '',
+            note_id: noteId,
+            type: card.type === 'video' ? 'video' : 'normal',
+            title: card.display_title || card.title || item.title || '',
+            desc: card.desc || item.desc || '',
             video_url: '',
-            time: item.time || Math.floor(Date.now() / 1000),
+            time: card.time || item.time || Math.floor(Date.now() / 1000),
             last_update_time: Math.floor(Date.now() / 1000),
-            creator_hash: item.user?.user_id || item.user?.id || '',
-            nickname: item.user?.nickname || '',
-            liked_count: item.interact_info?.liked_count || 0,
-            collected_count: item.interact_info?.collected_count || 0,
-            comment_count: item.interact_info?.comment_count || 0,
-            share_count: item.interact_info?.share_count || 0,
-            image_list: item.image_list?.map((img: any) => img.url || '').join(',') || '',
+            creator_hash: user.user_id || user.id || '',
+            nickname: user.nickname || user.nick_name || '',
+            liked_count: interactInfo.liked_count || 0,
+            collected_count: interactInfo.collected_count || 0,
+            comment_count: interactInfo.comment_count || 0,
+            share_count: interactInfo.shared_count || interactInfo.share_count || 0,
+            image_list: imageUrls.filter(Boolean).join(','),
             tag_list: '',
-            note_url: `https://www.xiaohongshu.com/explore/${item.id || item.note_id}`,
+            note_url: `${indexUrl}/explore/${noteId}?xsec_token=${encodeURIComponent(item.xsec_token || '')}&xsec_source=pc_search`,
             source_keyword: keyword,
             xsec_token: item.xsec_token || '',
           };
@@ -226,6 +294,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         }
       } catch (err: any) {
         console.error(`[XHS] Error searching keyword ${keyword}:`, err.message);
+        throw err;
       }
     }
   }

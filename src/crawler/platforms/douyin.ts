@@ -91,21 +91,6 @@ export class DouyinCrawler extends AbstractCrawler {
 
   private async checkLoginState(): Promise<boolean> {
     try {
-      if (this.browserContext) {
-        const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some(
-          (c) => c.name === 'sessionid' || c.name === 'sid_guard' || c.name === 'passport_auth_token'
-        );
-        if (hasSession) {
-          console.log('[DY] Login state confirmed via cookies.');
-          return true;
-        }
-      }
-    } catch (err: any) {
-      console.error('[DY] Error checking cookies:', err.message);
-    }
-
-    try {
       const selectors = [
         '[data-e2e="user-avatar"]',
         '.header-user-avatar',
@@ -116,14 +101,33 @@ export class DouyinCrawler extends AbstractCrawler {
         'div[class*="avatar"] img',
       ];
       for (const selector of selectors) {
-        const visible = await this.page!.isVisible(selector, { timeout: 1000 }).catch(() => false);
+        const visible = await this.page!.isVisible(selector, { timeout: 500 }).catch(() => false);
         if (visible) {
           console.log(`[DY] Login state confirmed via selector: ${selector}`);
           return true;
         }
       }
     } catch {}
-
+    try {
+      const isLoginBtn = await this.page!.isVisible('.login-guide, .header-login-btn', { timeout: 1000 });
+      if (isLoginBtn) return false;
+    } catch {}
+    try {
+      if (this.browserContext) {
+        const cookies = await this.browserContext.cookies();
+        const hasSession = cookies.some(
+          (c) => c.name === 'sessionid' || c.name === 'sid_guard' || c.name === 'passport_auth_token'
+        );
+        if (hasSession) {
+          const loginBtnExists = await this.page!.isVisible('.login-guide, .header-login-btn', { timeout: 1000 }).catch(() => false);
+          if (loginBtnExists) return false;
+          console.log('[DY] Login state confirmed via cookies.');
+          return true;
+        }
+      }
+    } catch (err: any) {
+      console.error('[DY] Error checking cookies:', err.message);
+    }
     return false;
   }
 
