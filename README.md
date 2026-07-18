@@ -1,26 +1,22 @@
-# 🔥 MediaRadar - 自媒体雷达
+# 🔥 UniSearch - 跨平台 AI 搜索引擎
 
 > **免责声明：**
 > 
 > 大家请以学习为目的使用本仓库⚠️⚠️⚠️⚠️，[爬虫违法违规的案件](https://github.com/HiddenStrawberry/Crawler_Illegal_Cases_In_China)  <br>
 >
->本仓库的所有内容仅供学习和参考之用，禁止用于商业用途。任何人或组织不得将本仓库的内容用于非法用途或侵犯他人合法权益。本仓库所涉及的爬虫技术仅用于学习和研究，不得用于对其他平台进行大规模爬虫或其他非法行为。对于因使用本仓库内容而引起的任何法律责任，本仓库不承担任何责任。使用本仓库的内容即表示您同意本免责声明的所有条款和条件。
+>本仓库的所有内容仅供学习和参考之用，禁止用于商业用途。任何人或组织不得将本仓库的内容用于非法用途或侵犯他人合法权益。本仓库所涉及的爬虫技术仅用于学习和研究，不得用于对其他平台进行大规模爬虫或其他非法行为。对于因使用本仓库内容而引起的任何法律责任，本仓库不承担任何责任。使用本仓库的内容即表示您同意本免责声明的所有条款 and 条件。
 >
 > 点击查看更为详细的免责声明。[点击跳转](#disclaimer)
 
-
-
-
 ## 📖 项目简介
 
-一个功能强大的**多平台自媒体数据采集工具**，支持小红书、抖音、快手、B站、微博、贴吧、知乎等主流平台的公开信息抓取。
+一个功能强大的**多平台自媒体数据采集工具**，支持小红书、抖音、快手、B站、微博、贴吧、知乎等主流平台的公开信息抓取。项目已全面迁移至 **TypeScript + Electron** 架构，提供开箱即用的桌面端可视化操作界面，无需复杂的命令行配置即可轻松使用。
 
 ### 🔧 技术原理
 
-- **核心技术**：基于 [Playwright](https://playwright.dev/) 浏览器自动化框架登录保存登录态
-- **无需JS逆向**：利用保留登录态的浏览器上下文环境，通过 JS 表达式获取签名参数
-- **优势特点**：无需逆向复杂的加密算法，大幅降低技术门槛
-
+- **核心技术**：基于 [Playwright](https://playwright.dev/) 浏览器自动化框架进行数据采集。
+- **运行机制**：Electron 桌面端启动本地 Fastify API 服务作为后端，通过 Web 页面控制 Node 爬虫工作线程（Worker）实现并发抓取。
+- **无需 JS 逆向**：利用保留登录态的浏览器上下文环境，通过 JS 注入和网络拦截获取签名参数，降低反爬风控风险。
 
 ## ✨ 功能特性
 | 平台   | 关键词搜索 | 指定帖子ID爬取 | 二级评论 | 指定创作者主页 | 登录态缓存 | IP代理池 | 生成评论词云图 |
@@ -33,185 +29,73 @@
 | 贴吧   | ✅          | ✅              | ✅        | ✅              | ✅          | ✅        | ✅              |
 | 知乎   | ✅          | ✅              | ✅        | ✅              | ✅          | ✅        | ✅              |
 
-
 ## 🚀 快速开始
 
-## 📋 前置依赖
+### 📋 前置依赖
 
-### 🚀 uv 安装（推荐）
+1. **Node.js**：请前往官网下载安装：
+   - **下载地址**：https://nodejs.org/en/download/
+   - **版本要求**：>= 16.0.0
+2. **Chrome 浏览器**（推荐）：
+   - 项目默认使用 CDP 模式连接本地 Chrome 浏览器，以降低风控风险。
+   - 使用前需在 Chrome 地址栏输入 `chrome://inspect/#remote-debugging` 并勾选 **"Allow remote debugging for this browser instance"**。
 
-在进行下一步操作之前，请确保电脑上已经安装了 uv：
+### 📦 安装依赖
 
-- **安装地址**：[uv 官方安装指南](https://docs.astral.sh/uv/getting-started/installation)
-- **验证安装**：终端输入命令 `uv --version`，如果正常显示版本号，证明已经安装成功
-- **推荐理由**：uv 是目前最强的 Python 包管理工具，速度快、依赖解析准确
-
-### 🟢 Node.js 安装
-
-项目依赖 Node.js，请前往官网下载安装：
-
-- **下载地址**：https://nodejs.org/en/download/
-- **版本要求**：>= 16.0.0
-
-### 📦 Python 包安装
-
+在项目根目录下执行以下命令安装 Node 依赖包：
 ```shell
-# 进入项目目录
-cd MediaRadar
-
-# 使用 uv sync 命令来保证 python 版本和相关依赖包的一致性
-uv sync
-```
-
-### 🌐 浏览器驱动安装（可选）
-
-> 如果使用默认的 CDP 模式（连接已有 Chrome 浏览器），**无需安装浏览器驱动**。仅在使用标准 Playwright 模式时需要安装。
-
-```shell
-# 仅在标准 Playwright 模式下需要安装浏览器驱动
-uv run playwright install
-```
-
-### 🌍 Chrome 浏览器配置（推荐）
-
-项目默认使用 CDP 模式连接用户已有的 Chrome 浏览器，可以复用浏览器已有的登录状态、Cookie、扩展等，**大幅降低平台风控检测风险**。
-
-使用前需要：
-
-1. **安装最新版 Chrome 浏览器**（版本 >= 144），[下载地址](https://www.google.com/chrome/)
-2. **开启远程调试功能**：在 Chrome 地址栏输入 `chrome://inspect/#remote-debugging`，勾选 **"Allow remote debugging for this browser instance"**
-3. 页面显示 `Server running at: 127.0.0.1:9222` 表示已就绪
-
-> 💡 **提示**：运行爬虫后，Chrome 浏览器会弹出确认对话框，点击"接受"即可。程序会等待用户确认，60秒内操作完成即可。
->
-> 如果不想使用 CDP 模式，可以在 `config/base_config.py` 中设置 `ENABLE_CDP_MODE = False` 切换为标准 Playwright 模式。
-
-## 🚀 运行爬虫程序
-
-```shell
-# 在 config/base_config.py 查看配置项目功能，写的有中文注释
-
-# 从配置文件中读取关键词搜索相关的帖子并爬取帖子信息与评论
-uv run main.py --platform xhs --lt qrcode --type search
-
-# 从配置文件中读取指定的帖子ID列表获取指定帖子的信息与评论信息
-uv run main.py --platform xhs --lt qrcode --type detail
-
-# 打开对应APP扫二维码登录
-
-# 其他平台爬虫使用示例，执行下面的命令查看
-uv run main.py --help
-```
-
-<details>
-<summary>🖥️ <strong>WebUI 可视化操作界面</strong></summary>
-
-MediaRadar 提供了基于 Web 的可视化操作界面，无需命令行也能轻松使用爬虫功能。
-
-#### 开发调试（推荐）
-
-开发时需要同时启动后端 API 服务和前端 Vite 开发服务器：
-
-```shell
-# 终端 1：启动 API 服务器（默认端口 8080）
-uv run uvicorn api.main:app --port 8080 --reload
-
-# 终端 2：启动前端开发服务器
-cd webui
 npm install
-npm run dev        # 默认在 5173 端口启动，并代理 /api 到 8080
 ```
 
-启动成功后，访问 `http://localhost:5173/` 即可打开 WebUI 界面。
+### 🖥️ 启动桌面端应用 (Electron 开发模式)
 
-> 首次打开会进行环境检测（调用 `/api/env/check`），请确保后端服务已启动。如果检测失败，可点击「跳过检测」临时跳过。
+执行以下命令，会自动编译 TypeScript 代码（通过 `tsup`）并启动 Electron 可视化界面：
+```shell
+npm run electron:dev
+```
 
-#### 构建生产资源
+---
 
-如果希望通过 API 服务器直接提供 WebUI 静态资源，需要先构建前端：
+## 🛠️ WebUI 可视化开发与调试
 
+项目支持前后端分离的开发调试模式，可通过浏览器直接访问：
+
+### 1. 启动后端 API 服务器 (Fastify)
+```shell
+npm run build:backend
+node dist/main/index.js
+```
+API 服务默认在本地 `http://127.0.0.1:8080` 启动。
+
+### 2. 启动前端 Vite 开发服务器
+新建一个终端窗口，进入 `webui` 目录并启动前端：
 ```shell
 cd webui
 npm install
-npm run build      # 产物输出到 api/webui/
+npm run dev
 ```
+启动成功后，在浏览器访问 `http://localhost:5173/` 即可。
 
-构建完成后，只需启动 API 服务器：
-
+### 3. 构建静态生产资源
+若需要将前端代码打包，并由 Fastify 服务统一提供访问，可执行：
 ```shell
-uv run uvicorn api.main:app --port 8080 --reload
+npm run webui:build      # 产物输出到 api/webui/
 ```
-
-然后访问 `http://localhost:8080` 即可。
-
-#### WebUI 功能特性
-
-- 可视化配置爬虫参数（平台、登录方式、爬取类型等）
-- 实时查看爬虫运行状态和日志
-- 数据预览和导出
-
-#### 界面预览
-
-<img src="docs/static/images/img_8.png" alt="WebUI 界面预览">
-
-</details>
-
-<details>
-<summary>🔗 <strong>使用 Python 原生 venv 管理环境（不推荐）</strong></summary>
-
-#### 创建并激活 Python 虚拟环境
-
-> 如果是爬取抖音和知乎，需要提前安装 nodejs 环境，版本大于等于：`16` 即可
-
+构建完成后，直接运行后端服务并访问 `http://localhost:8080` 即可：
 ```shell
-# 进入项目根目录
-cd MediaRadar
-
-# 创建虚拟环境
-# 我的 python 版本是：3.11 requirements.txt 中的库是基于这个版本的
-# 如果是其他 python 版本，可能 requirements.txt 中的库不兼容，需自行解决
-python -m venv venv
-
-# macOS & Linux 激活虚拟环境
-source venv/bin/activate
-
-# Windows 激活虚拟环境
-venv\Scripts\activate
+node dist/main/index.js
 ```
 
-#### 安装依赖库
+---
 
+## 📦 应用打包 (Build)
+
+你可以使用以下命令将项目打包为独立的桌面可执行程序（dmg / exe）：
 ```shell
-pip install -r requirements.txt
+npm run electron:build
 ```
 
-#### 安装 playwright 浏览器驱动
-
-```shell
-playwright install
-```
-
-#### 运行爬虫程序（原生环境）
-
-```shell
-# 项目默认是没有开启评论爬取模式，如需评论请在 config/base_config.py 中的 ENABLE_GET_COMMENTS 变量修改
-# 一些其他支持项，也可以在 config/base_config.py 查看功能，写的有中文注释
-
-# 从配置文件中读取关键词搜索相关的帖子并爬取帖子信息与评论
-python main.py --platform xhs --lt qrcode --type search
-
-# 从配置文件中读取指定的帖子ID列表获取指定帖子的信息与评论信息
-python main.py --platform xhs --lt qrcode --type detail
-
-# 打开对应APP扫二维码登录
-
-# 其他平台爬虫使用示例，执行下面的命令查看
-python main.py --help
-```
-
-</details>
-
-
+---
 
 # 免责声明
 <div id="disclaimer"> 
