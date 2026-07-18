@@ -132,6 +132,24 @@ export class AgentRepository {
     `).all(planId, limit) as any[];
   }
 
+  getPlanStats(planId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {
+    const total = this.db.prepare(`
+      SELECT COUNT(*) AS content_count
+      FROM content_records c
+      JOIN agent_plan_steps s ON s.run_id=c.run_id
+      WHERE s.plan_id=?
+    `).get(planId) as { content_count: number } | undefined;
+    const byPlatform = this.db.prepare(`
+      SELECT c.platform, c.platform_label, COUNT(*) AS count
+      FROM content_records c
+      JOIN agent_plan_steps s ON s.run_id=c.run_id
+      WHERE s.plan_id=?
+      GROUP BY c.platform, c.platform_label
+      ORDER BY count DESC
+    `).all(planId) as Array<{ platform: string; platform_label: string; count: number }>;
+    return { content_count: Number(total?.content_count || 0), by_platform: byPlatform };
+  }
+
   getPlanExportContents(planId: string): any[] {
     return this.db.prepare(`
       SELECT c.* FROM content_records c
