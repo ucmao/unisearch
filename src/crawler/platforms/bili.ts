@@ -19,9 +19,22 @@ export class BilibiliCrawler extends AbstractCrawler {
       this.browserContext = await this.cdpManager.launchAndConnect(p);
       this.page = await this.cdpManager.newPage();
     } else {
-      const browser = await p.chromium.launch({ headless: activeConfig.HEADLESS });
-      this.browserContext = await browser.newContext();
-      this.page = await this.browserContext.newPage();
+      const path = require('path');
+      const userDataDir = path.join(
+        process.cwd(),
+        'browser_data',
+        activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM)
+      );
+      this.browserContext = await p.chromium.launchPersistentContext(userDataDir, {
+        headless: activeConfig.HEADLESS,
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-blink-features=AutomationControlled',
+        ],
+      });
+      this.page = this.browserContext.pages().length > 0 ? this.browserContext.pages()[0] : await this.browserContext.newPage();
     }
 
     const stealthPath = 'libs/stealth.min.js';
@@ -65,6 +78,18 @@ export class BilibiliCrawler extends AbstractCrawler {
   }
 
   private async checkLoginState(): Promise<boolean> {
+    try {
+      if (this.browserContext) {
+        const cookies = await this.browserContext.cookies();
+        const hasSession = cookies.some((c) => c.name === 'SESSDATA' || c.name === 'DedeUserID');
+        if (hasSession) {
+          console.log('[BILI] Login state confirmed via cookies.');
+          return true;
+        }
+      }
+    } catch (err: any) {
+      console.error('[BILI] Error checking cookies:', err.message);
+    }
     try {
       const visible = await this.page!.isVisible('.header-avatar-wrap, a.header-entry-avatar', { timeout: 1000 });
       return visible;

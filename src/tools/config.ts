@@ -78,12 +78,12 @@ export const DEFAULT_CONFIG: AppConfig = {
   HEADLESS: false,
   SAVE_LOGIN_STATE: true,
   
-  ENABLE_CDP_MODE: true,
+  ENABLE_CDP_MODE: false,
   CDP_DEBUG_PORT: 9222,
   CUSTOM_BROWSER_PATH: '',
   CDP_HEADLESS: false,
   BROWSER_LAUNCH_TIMEOUT: 60,
-  CDP_CONNECT_EXISTING: true,
+  CDP_CONNECT_EXISTING: false,
   AUTO_CLOSE_BROWSER: true,
 
   SAVE_DATA_OPTION: 'sqlite',
@@ -124,10 +124,61 @@ export const DEFAULT_CONFIG: AppConfig = {
 
 export let activeConfig: AppConfig = { ...DEFAULT_CONFIG };
 
-export function applyConfig(updates: Partial<AppConfig>): AppConfig {
+export function applyConfig(updates: any): AppConfig {
+  if (!updates) return activeConfig;
+
+  const mappedUpdates: Partial<AppConfig> = {};
+
+  // Direct case-insensitive lookup in DEFAULT_CONFIG
+  for (const [key, value] of Object.entries(updates)) {
+    const upperKey = key.toUpperCase();
+    if (upperKey in DEFAULT_CONFIG) {
+      (mappedUpdates as any)[upperKey] = value;
+    }
+  }
+
+  // Explicit frontend-to-backend mappings
+  if (updates.platform !== undefined) mappedUpdates.PLATFORM = updates.platform;
+  if (updates.login_type !== undefined) mappedUpdates.LOGIN_TYPE = updates.login_type;
+  if (updates.crawler_type !== undefined) mappedUpdates.CRAWLER_TYPE = updates.crawler_type;
+  if (updates.keywords !== undefined) mappedUpdates.KEYWORDS = updates.keywords;
+  if (updates.start_page !== undefined) mappedUpdates.START_PAGE = updates.start_page;
+  if (updates.cookies !== undefined) mappedUpdates.COOKIES = updates.cookies;
+
+  if (updates.headless !== undefined) {
+    mappedUpdates.HEADLESS = updates.headless;
+    mappedUpdates.CDP_HEADLESS = updates.headless;
+  }
+
+  if (updates.enable_comments !== undefined) {
+    mappedUpdates.ENABLE_GET_COMMENTS = updates.enable_comments;
+  }
+  if (updates.enable_sub_comments !== undefined) {
+    mappedUpdates.ENABLE_GET_SUB_COMMENTS = updates.enable_sub_comments;
+  }
+
+  // Handle platform specific creator/specified list inputs
+  if (updates.platform) {
+    const plat = updates.platform.toUpperCase();
+    if (updates.specified_ids !== undefined) {
+      const listKey = `${plat}_SPECIFIED_ID_LIST` as keyof AppConfig;
+      const ids = typeof updates.specified_ids === 'string'
+        ? updates.specified_ids.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : updates.specified_ids;
+      (mappedUpdates as any)[listKey] = ids;
+    }
+    if (updates.creator_ids !== undefined) {
+      const listKey = `${plat}_CREATOR_ID_LIST` as keyof AppConfig;
+      const ids = typeof updates.creator_ids === 'string'
+        ? updates.creator_ids.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : updates.creator_ids;
+      (mappedUpdates as any)[listKey] = ids;
+    }
+  }
+
   activeConfig = {
     ...activeConfig,
-    ...updates,
+    ...mappedUpdates,
   };
   return activeConfig;
 }

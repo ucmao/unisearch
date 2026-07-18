@@ -89,6 +89,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     contentType = rawItem.video_type || 'content';
     likes = parseMetric(rawItem.liked_count);
     views = parseMetric(rawItem.viewd_count);
+    comments = parseMetric(rawItem.comment_count);
   } else if (platform === 'wb') {
     contentId = rawItem.note_id || '';
     title = rawItem.content?.slice(0, 100) || '';
