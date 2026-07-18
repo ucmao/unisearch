@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "dist/main/index.js",
   "scripts": {
+    "test:agent": "node --import tsx --test tests/agent-intent.test.ts",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
