@@ -388,6 +388,8 @@ export function initSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS agent_threads (
       thread_id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      title_source TEXT NOT NULL DEFAULT 'default',
+      title_locked INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -477,5 +479,17 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
   `);
+
+  // CREATE TABLE IF NOT EXISTS does not add newly introduced columns to an
+  // existing local database, so keep these lightweight migrations idempotent.
+  const threadColumns = new Set(
+    (db.prepare('PRAGMA table_info(agent_threads)').all() as Array<{ name: string }>).map((column) => column.name),
+  );
+  if (!threadColumns.has('title_source')) {
+    db.exec("ALTER TABLE agent_threads ADD COLUMN title_source TEXT NOT NULL DEFAULT 'legacy'");
+  }
+  if (!threadColumns.has('title_locked')) {
+    db.exec('ALTER TABLE agent_threads ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0');
+  }
 
 }

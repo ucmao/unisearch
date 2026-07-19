@@ -42,6 +42,44 @@ test('creating a plan twice is idempotent for one task', () => {
   }
 });
 
+test('automatic titles stop changing after a manual rename', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread();
+    repo.updateAutomaticTitle(thread.thread_id, '扫地机器人口碑调研', 'generated');
+    assert.equal(repo.getThread(thread.thread_id).title, '扫地机器人口碑调研');
+
+    const renamed = repo.renameThread(thread.thread_id, '我的重点项目');
+    assert.equal(renamed.title, '我的重点项目');
+    assert.equal(renamed.title_source, 'manual');
+    assert.equal(renamed.title_locked, 1);
+
+    repo.updateAutomaticTitle(thread.thread_id, '不应覆盖', 'plan');
+    assert.equal(repo.getThread(thread.thread_id).title, '我的重点项目');
+    assert.throws(() => repo.renameThread(thread.thread_id, '   '), /不能为空/);
+  } finally {
+    db.close();
+  }
+});
+
+test('schema migration adds title controls to an existing conversation table', () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec(`
+      CREATE TABLE agent_threads (
+        thread_id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+    `);
+    initSchema(db);
+    const columns = db.prepare('PRAGMA table_info(agent_threads)').all() as Array<{ name: string }>;
+    assert.equal(columns.some((column) => column.name === 'title_source'), true);
+    assert.equal(columns.some((column) => column.name === 'title_locked'), true);
+  } finally {
+    db.close();
+  }
+});
+
 test('revising a pending plan updates the same plan and rebuilds its steps', () => {
   const { db, repository: repo } = repository();
   try {

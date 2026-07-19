@@ -68,11 +68,11 @@ export class AgentRepository {
 
   private get db(): Database { return this.databaseProvider(); }
 
-  createThread(title = '新建情报任务') {
+  createThread(title = '新建情报任务', titleLocked = false) {
     const threadId = id();
     const now = new Date().toISOString();
-    this.db.prepare(`INSERT INTO agent_threads (thread_id, title, status, created_at, updated_at) VALUES (?, ?, 'active', ?, ?)`)
-      .run(threadId, title, now, now);
+    this.db.prepare(`INSERT INTO agent_threads (thread_id, title, title_source, title_locked, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)`)
+      .run(threadId, title, titleLocked ? 'manual' : 'default', titleLocked ? 1 : 0, now, now);
     this.addMessage(threadId, 'assistant', 'text', '你好，我既可以陪你正常对话，也可以在需要时帮你规划跨平台内容采集与分析。你想先聊什么？');
     return this.getThread(threadId);
   }
@@ -150,10 +150,28 @@ export class AgentRepository {
     }));
   }
 
-  touchThread(threadId: string, title?: string) {
+  touchThread(threadId: string) {
     const now = new Date().toISOString();
-    if (title) this.db.prepare('UPDATE agent_threads SET title=?, updated_at=? WHERE thread_id=?').run(title, now, threadId);
-    else this.db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?').run(now, threadId);
+    this.db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?').run(now, threadId);
+  }
+
+  updateAutomaticTitle(threadId: string, title: string, source: 'fallback' | 'generated' | 'plan') {
+    const value = title.trim().slice(0, 80);
+    if (!value) return this.getThread(threadId);
+    this.db.prepare(`
+      UPDATE agent_threads SET title=?, title_source=?, updated_at=?
+      WHERE thread_id=? AND title_locked=0 AND title_source!='manual'
+    `).run(value, source, new Date().toISOString(), threadId);
+    return this.getThread(threadId);
+  }
+
+  renameThread(threadId: string, title: string) {
+    const value = title.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!value) throw new Error('任务名称不能为空');
+    const result = this.db.prepare(`
+      UPDATE agent_threads SET title=?, title_source='manual', title_locked=1, updated_at=? WHERE thread_id=?
+    `).run(value, new Date().toISOString(), threadId);
+    return result.changes ? this.getThread(threadId) : null;
   }
 
   addMessage(threadId: string, role: AgentRole, kind: string, content: string, metadata: any = {}) {

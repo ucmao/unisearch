@@ -167,7 +167,8 @@ export async function startServer(port = 8080): Promise<number> {
 
   fastify.post('/api/agent/threads', async (request) => {
     const body = (request.body || {}) as { title?: string };
-    return agentRepository.createThread(body.title?.trim() || '新建情报任务');
+    const title = body.title?.trim();
+    return title ? agentRepository.createThread(title, true) : agentRepository.createThread();
   });
 
   fastify.get('/api/agent/threads/:thread_id', async (request, reply) => {
@@ -175,6 +176,17 @@ export async function startServer(port = 8080): Promise<number> {
     const { thread_id } = request.params as { thread_id: string };
     const thread = agentRepository.getThread(thread_id);
     return thread || reply.status(404).send({ detail: 'Task not found' });
+  });
+
+  fastify.patch('/api/agent/threads/:thread_id', async (request, reply) => {
+    const { thread_id } = request.params as { thread_id: string };
+    const { title } = (request.body || {}) as { title?: string };
+    try {
+      const thread = agentRepository.renameThread(thread_id, String(title || ''));
+      return thread || reply.status(404).send({ detail: 'Task not found' });
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message || 'Invalid task name' });
+    }
   });
 
   fastify.delete('/api/agent/threads/:thread_id', async (request, reply) => {
