@@ -4,6 +4,7 @@ import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
 import fs from 'fs';
+import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class ZhihuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -47,6 +48,10 @@ export class ZhihuCrawler extends AbstractCrawler {
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
       await this.search();
+    } else if (activeConfig.CRAWLER_TYPE === 'detail') {
+      await this.getSpecifiedContents();
+    } else if (activeConfig.CRAWLER_TYPE === 'creator') {
+      await this.getCreatorsAndContents();
     }
 
     console.log('[ZHIHU] Zhihu crawler finished.');
@@ -54,6 +59,10 @@ export class ZhihuCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[ZHIHU] Checking login state...');
+    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
+      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.zhihu.com');
+      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+    }
     let isLoggedIn = await this.checkLoginState();
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
@@ -174,6 +183,7 @@ export class ZhihuCrawler extends AbstractCrawler {
           };
 
           await dbStore.storeZhihuContent(contentDetail);
+          if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(it.content_id, it.content_type);
           count++;
           
           await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
@@ -181,6 +191,93 @@ export class ZhihuCrawler extends AbstractCrawler {
       } catch (err: any) {
         console.error(`[ZHIHU] Search error for keyword ${keyword}:`, err.message);
       }
+    }
+  }
+
+  private async fetchContentDetail(target: string, sourceKeyword: string): Promise<any | null> {
+    const resolved = await resolveRedirect(this.page!, target);
+    const answerId = resolved.match(/\/answer\/(\d+)/i)?.[1];
+    const articleId = resolved.match(/(?:zhuanlan\.zhihu\.com\/p|\/article)\/(\d+)/i)?.[1];
+    const questionId = resolved.match(/\/question\/(\d+)/i)?.[1];
+    const rawId = /^\d+$/.test(resolved.trim()) ? resolved.trim() : '';
+    const type = answerId ? 'answer' : articleId ? 'article' : questionId ? 'question' : 'answer';
+    const contentId = answerId || articleId || questionId || rawId;
+    const apiUrl = type === 'article'
+      ? `https://www.zhihu.com/api/v4/articles/${contentId}`
+      : type === 'question'
+        ? `https://www.zhihu.com/api/v4/questions/${contentId}`
+        : `https://www.zhihu.com/api/v4/answers/${contentId}`;
+    try {
+      const result = await this.page!.evaluate(async (url) => (await fetch(url, { credentials: 'include' })).json(), apiUrl);
+      if (!result?.id) throw new Error(result?.message || 'content not found');
+      const question = result.question || (type === 'question' ? result : {});
+      const author = result.author || {};
+      const record = {
+        content_id: String(result.id), content_type: type,
+        content_text: stripHtml(result.content || result.detail || result.excerpt || ''),
+        content_url: type === 'article'
+          ? `https://zhuanlan.zhihu.com/p/${result.id}`
+          : type === 'question'
+            ? `https://www.zhihu.com/question/${result.id}`
+            : `https://www.zhihu.com/question/${question.id || ''}/answer/${result.id}`,
+        question_id: String(question.id || ''), title: result.title || question.title || '',
+        desc: stripHtml(result.excerpt || result.content || result.detail || ''),
+        created_time: result.created_time || result.created || 0,
+        updated_time: result.updated_time || result.updated || 0,
+        voteup_count: result.voteup_count || result.vote_count || 0,
+        comment_count: result.comment_count || 0, source_keyword: sourceKeyword,
+        creator_hash: author.url_token || String(author.id || ''), user_nickname: author.name || '',
+      };
+      await dbStore.storeZhihuContent(record);
+      if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(record.content_id, type);
+      return record;
+    } catch (error: any) {
+      console.error(`[ZHIHU] Failed to collect detail ${target}: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async getContentComments(contentId: string, contentType: string): Promise<void> {
+    const resource = contentType === 'article' ? 'articles' : contentType === 'question' ? 'questions' : 'answers';
+    const url = `https://www.zhihu.com/api/v4/${resource}/${encodeURIComponent(contentId)}/root_comments?order=normal&limit=${activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES}&offset=0&status=open`;
+    try {
+      const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
+      const comments = result?.data || [];
+      const store = async (comment: any, parent = '') => dbStore.storeZhihuComment({
+        comment_id: String(comment.id || ''), parent_comment_id: parent,
+        content: stripHtml(comment.content || ''), publish_time: comment.created_time || 0,
+        sub_comment_count: comment.child_comment_count || 0, like_count: comment.vote_count || 0,
+        dislike_count: comment.dislike_count || 0, content_id: contentId, content_type: contentType,
+        creator_hash: comment.author?.member?.url_token || comment.author?.url_token || '',
+        user_nickname: comment.author?.member?.name || comment.author?.name || '',
+      });
+      for (const comment of comments) {
+        await store(comment);
+        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
+          for (const child of comment.child_comments || []) await store(child, String(comment.id || ''));
+        }
+      }
+      console.log(`[ZHIHU] Stored ${comments.length} comments for ${contentType}:${contentId}`);
+    } catch (error: any) {
+      console.error(`[ZHIHU] Failed to collect comments for ${contentType}:${contentId}: ${error.message}`);
+    }
+  }
+
+  public async getSpecifiedContents(): Promise<void> {
+    for (const target of configuredTargets('zhihu', 'detail')) await this.fetchContentDetail(target, '指定内容');
+  }
+
+  public async getCreatorsAndContents(): Promise<void> {
+    for (const target of configuredTargets('zhihu', 'creator')) {
+      const resolved = await resolveRedirect(this.page!, target);
+      const token = firstMatch(resolved, [/\/people\/([^/?#]+)/i, /[?&]url_token=([^&#]+)/i]);
+      await this.page!.goto(`https://www.zhihu.com/people/${encodeURIComponent(token)}/posts`, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(1800);
+      const links = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/answer/"], a[href*="zhuanlan.zhihu.com/p/"]'))
+        .map((link) => link.getAttribute('href') || '').filter(Boolean));
+      const unique = [...new Set(links)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      console.log(`[ZHIHU] Creator ${token}: discovered ${unique.length} contents`);
+      for (const link of unique) await this.fetchContentDetail(link, `作者:${token}`);
     }
   }
 }

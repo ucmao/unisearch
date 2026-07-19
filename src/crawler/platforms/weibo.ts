@@ -4,6 +4,7 @@ import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
 import fs from 'fs';
+import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class WeiboCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -47,6 +48,10 @@ export class WeiboCrawler extends AbstractCrawler {
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
       await this.search();
+    } else if (activeConfig.CRAWLER_TYPE === 'detail') {
+      await this.getSpecifiedNotes();
+    } else if (activeConfig.CRAWLER_TYPE === 'creator') {
+      await this.getCreatorsAndNotes();
     }
 
     console.log('[WEIBO] Weibo crawler finished.');
@@ -54,6 +59,10 @@ export class WeiboCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[WEIBO] Checking login state...');
+    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
+      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.weibo.com');
+      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+    }
     let isLoggedIn = await this.checkLoginState();
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
@@ -182,12 +191,100 @@ export class WeiboCrawler extends AbstractCrawler {
           };
 
           await dbStore.storeWeiboNote(noteDetail);
+          if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(c.note_id);
           count++;
           
           await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
         }
       } catch (err: any) {
         console.error(`[WEIBO] Search error for keyword ${keyword}:`, err.message);
+      }
+    }
+  }
+
+  private async storeStatus(status: any, sourceKeyword: string): Promise<any | null> {
+    if (!status?.id && !status?.idstr) return null;
+    const noteId = String(status.idstr || status.id);
+    const userId = String(status.user?.idstr || status.user?.id || '');
+    const record = {
+      note_id: noteId,
+      content: stripHtml(status.text_raw || status.text || ''),
+      nickname: status.user?.screen_name || '', creator_hash: userId,
+      note_url: status.mblogid && userId ? `https://weibo.com/${userId}/${status.mblogid}` : `https://weibo.com/detail/${noteId}`,
+      liked_count: status.attitudes_count || 0, comments_count: status.comments_count || 0,
+      shared_count: status.reposts_count || 0,
+      create_time: status.created_at ? Math.floor(new Date(status.created_at).getTime() / 1000) : 0,
+      create_date_time: status.created_at || '', source_keyword: sourceKeyword,
+    };
+    await dbStore.storeWeiboNote(record);
+    if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(noteId);
+    return record;
+  }
+
+  private async fetchNoteDetail(target: string, sourceKeyword: string): Promise<any | null> {
+    const resolved = await resolveRedirect(this.page!, target);
+    let noteId = resolved.match(/\/detail\/(\d+)/i)?.[1]
+      || resolved.match(/[?&]id=(\d+)/i)?.[1]
+      || resolved.match(/^\s*(\d+)\s*$/)?.[1]
+      || '';
+    if (!noteId && /^https?:\/\//i.test(resolved)) {
+      noteId = await this.page!.evaluate(() => document.querySelector('[mid]')?.getAttribute('mid') || '');
+    }
+    try {
+      if (!noteId) throw new Error('无法从链接识别微博数字 ID');
+      const status = await this.page!.evaluate(async (id) => {
+        const response = await fetch(`https://weibo.com/ajax/statuses/show?id=${encodeURIComponent(id)}`, { credentials: 'include' });
+        return response.json();
+      }, noteId);
+      if (!status?.id && !status?.idstr) throw new Error(status?.msg || 'status not found');
+      return await this.storeStatus(status, sourceKeyword);
+    } catch (error: any) {
+      console.error(`[WEIBO] Failed to collect detail ${target}: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async getNoteComments(noteId: string): Promise<void> {
+    const url = `https://weibo.com/ajax/statuses/buildComments?is_reload=1&id=${encodeURIComponent(noteId)}&is_show_bulletin=2&fetch_level=0&max_id=0&count=${activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES}`;
+    try {
+      const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
+      const comments = result?.data || [];
+      const store = async (comment: any, parent = '') => dbStore.storeWeiboComment({
+        comment_id: String(comment.idstr || comment.id || ''), note_id: noteId,
+        content: stripHtml(comment.text_raw || comment.text || ''),
+        create_time: comment.created_at ? Math.floor(new Date(comment.created_at).getTime() / 1000) : 0,
+        create_date_time: comment.created_at || '', creator_hash: String(comment.user?.idstr || comment.user?.id || ''),
+        nickname: comment.user?.screen_name || '', comment_like_count: comment.like_counts || 0,
+        sub_comment_count: comment.total_number || 0, parent_comment_id: parent,
+      });
+      for (const comment of comments) {
+        await store(comment);
+        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
+          for (const child of comment.comments || []) await store(child, String(comment.idstr || comment.id || ''));
+        }
+      }
+      console.log(`[WEIBO] Stored ${comments.length} comments for ${noteId}`);
+    } catch (error: any) {
+      console.error(`[WEIBO] Failed to collect comments for ${noteId}: ${error.message}`);
+    }
+  }
+
+  public async getSpecifiedNotes(): Promise<void> {
+    for (const target of configuredTargets('wb', 'detail')) await this.fetchNoteDetail(target, '指定微博');
+  }
+
+  public async getCreatorsAndNotes(): Promise<void> {
+    for (const target of configuredTargets('wb', 'creator')) {
+      const resolved = await resolveRedirect(this.page!, target);
+      const uid = firstMatch(resolved, [/\/u\/(\d+)/i, /weibo\.com\/(\d+)/i, /[?&]uid=(\d+)/i, /^\s*(\d+)\s*$/]);
+      const url = `https://weibo.com/ajax/statuses/mymblog?uid=${encodeURIComponent(uid)}&page=1&feature=0`;
+      try {
+        const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
+        const statuses = result?.data?.list || [];
+        console.log(`[WEIBO] Creator ${uid}: discovered ${statuses.length} posts`);
+        for (const status of statuses.slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT)) await this.storeStatus(status, `用户:${uid}`);
+      } catch (error: any) {
+        console.error(`[WEIBO] Failed to collect creator ${uid}: ${error.message}`);
       }
     }
   }

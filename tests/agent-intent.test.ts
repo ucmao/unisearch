@@ -41,6 +41,8 @@ test('fallback keywords contain the subject rather than the whole request', () =
   assert.deepEqual(inferResearchKeywords('采集小红书，关键词 科莱特教育'), ['科莱特教育']);
   assert.deepEqual(inferResearchKeywords('关键词改成科莱特集团'), ['科莱特集团']);
   assert.deepEqual(inferResearchPlatforms('采集小红书和知乎'), ['xhs', 'zhihu']);
+  assert.deepEqual(inferResearchPlatforms('解析 https://www.bilibili.com/video/BV1xx411c7mD'), ['bili']);
+  assert.deepEqual(inferResearchPlatforms('抓取 https://v.douyin.com/example/ 的评论'), ['dy']);
 });
 
 test('platform-only collection asks for a subject, then accepts a keyword', () => {

@@ -3,6 +3,7 @@ import { AbstractCrawler } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
+import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -397,13 +398,75 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedNotes(): Promise<void> {
-    console.log('[XHS] Specified notes details crawling (placeholder)...');
-    // Port of specified notes details using page.evaluate('/web_api/sns/v1/note/detail')
+    for (const target of configuredTargets('xhs', 'detail')) await this.fetchNoteDetail(target, '指定作品');
   }
 
   public async getCreatorsAndNotes(): Promise<void> {
-    console.log('[XHS] Creator posted notes crawling (placeholder)...');
-    // Port of creator posted notes using page.evaluate('/web_api/sns/v1/user/posted')
+    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
+    for (const target of configuredTargets('xhs', 'creator')) {
+      const resolved = await resolveRedirect(this.page!, target);
+      const creatorId = firstMatch(resolved, [/\/user\/profile\/([^/?#]+)/i, /[?&]user_id=([^&#]+)/i]);
+      await this.page!.goto(`${indexUrl}/user/profile/${encodeURIComponent(creatorId)}`, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(2200);
+      const notes = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/explore/"]')).map((link) => {
+        const href = link.getAttribute('href') || '';
+        return { href, id: href.match(/\/explore\/([^/?#]+)/)?.[1] || '' };
+      }).filter((item) => item.id));
+      const unique = [...new Map(notes.map((note) => [note.id, note])).values()].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      console.log(`[XHS] Creator ${creatorId}: discovered ${unique.length} works`);
+      for (const note of unique) await this.fetchNoteDetail(note.href, `创作者:${creatorId}`);
+    }
+  }
+
+  private async fetchNoteDetail(target: string, sourceKeyword: string): Promise<any | null> {
+    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
+    const resolved = await resolveRedirect(this.page!, target);
+    const noteId = firstMatch(resolved, [/\/explore\/([^/?#]+)/i, /\/discovery\/item\/([^/?#]+)/i, /[?&]note_id=([^&#]+)/i]);
+    const xsecToken = resolved.match(/[?&]xsec_token=([^&#]+)/i)?.[1] || '';
+    const noteUrl = /^https?:\/\//i.test(resolved) && resolved.includes(noteId)
+      ? resolved
+      : `${indexUrl}/explore/${encodeURIComponent(noteId)}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_user` : ''}`;
+    try {
+      if (this.page!.url() !== noteUrl) await this.page!.goto(noteUrl, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(1800);
+      const detail = await this.page!.evaluate((expectedId) => {
+        const text = (selector: string) => document.querySelector(selector)?.textContent?.trim() || '';
+        const attr = (selector: string, name: string) => document.querySelector(selector)?.getAttribute(name) || '';
+        const parseMetric = (value: string) => {
+          const normalized = value.replace(/,/g, '').trim();
+          if (normalized.includes('万')) return Math.round((parseFloat(normalized) || 0) * 10000);
+          return Number(normalized.match(/\d+/)?.[0] || 0);
+        };
+        const authorLink = document.querySelector('a[href*="/user/profile/"]');
+        const images = Array.from(document.querySelectorAll('.note-slider img, .swiper-slide img, meta[property="og:image"]'))
+          .map((node) => node.getAttribute(node.tagName === 'META' ? 'content' : 'src') || '').filter(Boolean);
+        const stats = Array.from(document.querySelectorAll('.interact-container span, [class*="engage"] span')).map((node) => node.textContent?.trim() || '');
+        return {
+          id: expectedId,
+          title: text('#detail-title, .title') || attr('meta[property="og:title"]', 'content'),
+          desc: text('#detail-desc, .desc') || attr('meta[property="og:description"]', 'content'),
+          nickname: text('.author-wrapper .name, .username') || attr('meta[name="author"]', 'content'),
+          creatorId: authorLink?.getAttribute('href')?.match(/\/user\/profile\/([^/?#]+)/)?.[1] || '',
+          images,
+          likes: parseMetric(stats[0] || ''), collects: parseMetric(stats[1] || ''), comments: parseMetric(stats[2] || ''),
+          video: attr('video', 'src') || attr('meta[property="og:video"]', 'content'),
+        };
+      }, noteId);
+      const record = {
+        note_id: noteId, type: detail.video ? 'video' : 'normal', title: detail.title || '', desc: detail.desc || '',
+        video_url: detail.video || '', time: Math.floor(Date.now() / 1000), last_update_time: Math.floor(Date.now() / 1000),
+        creator_hash: detail.creatorId || '', nickname: detail.nickname || '', liked_count: detail.likes || 0,
+        collected_count: detail.collects || 0, comment_count: detail.comments || 0, share_count: 0,
+        image_list: [...new Set(detail.images || [])].join(','), tag_list: '', note_url: noteUrl,
+        source_keyword: sourceKeyword, xsec_token: xsecToken,
+      };
+      await dbStore.storeXhsNote(record);
+      if (activeConfig.ENABLE_GET_COMMENTS) await this.crawlComments(noteId, xsecToken);
+      return record;
+    } catch (error: any) {
+      console.error(`[XHS] Failed to collect detail ${target}: ${error.message}`);
+      return null;
+    }
   }
 
   private parseCookies(cookieStr: string): Record<string, string> {

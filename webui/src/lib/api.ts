@@ -106,6 +106,7 @@ export interface NormalizedContent {
   views: number
   engagement: number
   source_file: string
+  source_metadata?: string
 }
 
 export interface AnalyticsContentsResponse {
@@ -225,6 +226,9 @@ export interface ResearchPlanData {
   goal: string
   platforms: string[]
   keywords: string[]
+  capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve'
+  targets?: string[]
+  connectorOptions?: Record<string, Record<string, unknown>>
   collectComments: boolean
   collectSubComments: boolean
   startPage: number
