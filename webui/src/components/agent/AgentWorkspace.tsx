@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, FileText, KeyRound,
   Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, Search, Send,
-  Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen,
+  Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -154,6 +154,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
   const [renamingThread, setRenamingThread] = useState<AgentThreadSummary | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
   const [terminalOpen, setTerminalOpen] = useState(false)
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(() => localStorage.getItem('unisearch-right-sidebar-open') !== 'false')
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 250))
   const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
@@ -337,6 +338,12 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
       return !current
     })
   }
+  const toggleRightSidebar = () => {
+    setRightSidebarOpen((current) => {
+      localStorage.setItem('unisearch-right-sidebar-open', String(!current))
+      return !current
+    })
+  }
 
   const updateLeftSidebarWidth = (value: number) => {
     const next = Math.round(Math.min(420, Math.max(220, value)))
@@ -465,17 +472,36 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
         />}
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
+      <section className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
           <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || 'UniSearch Agent'}</h1></div>
           <div className="flex items-center gap-1">
             <Button className="md:hidden" size="icon" variant="ghost" onClick={() => create.mutate()}><MessageSquarePlus /></Button>
-            <Button size="icon" variant={terminalOpen ? 'outline' : 'ghost'} onClick={() => setTerminalOpen((open) => !open)} title={terminalOpen ? '隐藏终端' : '显示终端'} aria-pressed={terminalOpen}><PanelBottom /></Button>
-            {selectedId && <Button size="icon" variant="ghost" disabled={remove.isPending || send.isPending} onClick={() => { if (confirm('删除这个任务及其对话和计划？')) remove.mutate(selectedId) }} title="删除任务"><Trash2 /></Button>}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-9 w-9 ${terminalOpen ? 'bg-cyber-bg-tertiary text-cyber-neon-cyan' : ''}`}
+              onClick={() => setTerminalOpen((open) => !open)}
+              title={terminalOpen ? '隐藏终端' : '显示终端'}
+              aria-label={terminalOpen ? '隐藏终端' : '显示终端'}
+              aria-pressed={terminalOpen}
+            ><PanelBottom /></Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-9 w-9 ${rightSidebarOpen ? 'bg-cyber-bg-tertiary text-cyber-neon-cyan' : ''}`}
+              onClick={toggleRightSidebar}
+              title={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
+              aria-label={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
+              aria-pressed={rightSidebarOpen}
+            ><PanelRight /></Button>
+            {selectedId && <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink" disabled={remove.isPending || send.isPending} onClick={() => { if (confirm('删除这个任务及其对话和计划？')) remove.mutate(selectedId) }} title="删除任务" aria-label="删除任务"><Trash2 /></Button>}
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
+            <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
             {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
             {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} />)}
@@ -483,9 +509,9 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             {pendingMessage && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
             <div ref={bottomRef} />
           </div>
-        </div>
+            </div>
 
-        <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
+            <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
           <div className="mx-auto max-w-4xl">
             {modelProfileQuery.isLoading ? <div className="flex min-h-[88px] items-center justify-center rounded-xl border border-cyber-border-default bg-cyber-bg-panel text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在检查 AI 模型配置…</div> : modelReady ? <>
               <div className="agent-composer relative rounded-2xl border border-cyber-border-default bg-cyber-bg-panel focus-within:border-cyber-neon-cyan/50">
@@ -528,6 +554,26 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
               <Button variant="outline" className="shrink-0" onClick={openModelSettings}><KeyRound />配置模型</Button>
             </div>}
           </div>
+            </div>
+          </main>
+
+          {rightSidebarOpen && <aside className="relative shrink-0 border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4" style={{ width: rightSidebarWidth }}>
+        <div
+          className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
+          onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
+            const bounds = workspaceRef.current?.getBoundingClientRect()
+            if (bounds) updateRightSidebarWidth(bounds.right - moveEvent.clientX)
+          })}
+          aria-label="调整右侧边栏宽度"
+        />
+        <p className="text-[10px] uppercase tracking-[0.16em] text-cyber-text-muted">当前任务</p>
+        {activePlan ? <div className="mt-4 space-y-5">
+          <div><p className="text-xs font-medium">{STATUS_LABELS[activePlan.status] || activePlan.status}</p><p className="mt-1 text-[10px] text-cyber-text-muted">{activePlan.steps.length}个平台 · {activePlan.plan.keywords.length}个关键词</p></div>
+          <div><p className="text-[10px] text-cyber-text-muted">数据采集</p><div className="mt-2 space-y-2">{activePlan.steps.map((step) => <div key={step.step_id} className="flex items-center justify-between text-xs"><span>{PLATFORM_LABELS[step.platform]}</span><StepIcon status={step.status} /></div>)}</div></div>
+          <div className="space-y-2"><Button variant="outline" className="w-full justify-start" onClick={onOpenResults}><Database />结果看板<ChevronRight className="ml-auto" /></Button>
+            {activePlan.steps.some((step) => step.run_id) && <CsvDownloadLink planId={activePlan.plan_id} compact />}</div>
+        </div> : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
+          </aside>}
         </div>
         {terminalOpen && (
           <div className="relative shrink-0 border-t border-cyber-border-subtle bg-cyber-bg-primary" style={{ height: terminalHeight }}>
@@ -548,25 +594,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             />
           </div>
         )}
-      </main>
-
-      <aside className="relative hidden shrink-0 border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4 xl:block" style={{ width: rightSidebarWidth }}>
-        <div
-          className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
-          onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
-            const bounds = workspaceRef.current?.getBoundingClientRect()
-            if (bounds) updateRightSidebarWidth(bounds.right - moveEvent.clientX)
-          })}
-          aria-label="调整右侧边栏宽度"
-        />
-        <p className="text-[10px] uppercase tracking-[0.16em] text-cyber-text-muted">当前任务</p>
-        {activePlan ? <div className="mt-4 space-y-5">
-          <div><p className="text-xs font-medium">{STATUS_LABELS[activePlan.status] || activePlan.status}</p><p className="mt-1 text-[10px] text-cyber-text-muted">{activePlan.steps.length}个平台 · {activePlan.plan.keywords.length}个关键词</p></div>
-          <div><p className="text-[10px] text-cyber-text-muted">数据采集</p><div className="mt-2 space-y-2">{activePlan.steps.map((step) => <div key={step.step_id} className="flex items-center justify-between text-xs"><span>{PLATFORM_LABELS[step.platform]}</span><StepIcon status={step.status} /></div>)}</div></div>
-          <div className="space-y-2"><Button variant="outline" className="w-full justify-start" onClick={onOpenResults}><Database />结果看板<ChevronRight className="ml-auto" /></Button>
-            {activePlan.steps.some((step) => step.run_id) && <CsvDownloadLink planId={activePlan.plan_id} compact />}</div>
-        </div> : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
-      </aside>
+      </section>
       <Dialog open={Boolean(renamingThread)} onOpenChange={(open) => {
         if (!open && !rename.isPending) {
           setRenamingThread(null)
