@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, FileText, KeyRound,
-  Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, RefreshCw, Send, Settings2,
-  Sparkles, Table2, Trash2, User, X, XCircle,
+  Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, RefreshCw, Search, Send,
+  Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { agentApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type ModelProfile } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,9 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MarkdownContent } from './MarkdownContent'
+import { Terminal } from '@/components/console/Terminal'
+import { SettingsDialog } from '@/components/layout/SettingsDialog'
+import { useLogWebSocket } from '@/hooks/useWebSocket'
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
@@ -20,6 +23,11 @@ const PLATFORM_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   awaiting_confirmation: '等待确认', queued: '排队中', running: '采集中', completed: '已完成',
   partially_completed: '部分完成', failed: '失败', stopped: '已停止',
+}
+
+function storedPanelSize(key: string, fallback: number) {
+  const value = Number(localStorage.getItem(key))
+  return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 const MODEL_PROVIDER_DEFAULTS = {
@@ -230,8 +238,9 @@ function MessageBubble({ message, plan, onExecute, executing, onOpenResults }: {
   )
 }
 
-export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults: () => void; onOpenManual: () => void }) {
+export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void }) {
   const client = useQueryClient()
+  useLogWebSocket()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -239,6 +248,15 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
   const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; platforms: string[] }>>([])
+  const [threadsCollapsed, setThreadsCollapsed] = useState(() => localStorage.getItem('unisearch-threads-collapsed') === 'true')
+  const [threadSearchOpen, setThreadSearchOpen] = useState(false)
+  const [threadSearchQuery, setThreadSearchQuery] = useState('')
+  const [terminalOpen, setTerminalOpen] = useState(false)
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 250))
+  const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
+  const [activeResize, setActiveResize] = useState<'left' | 'terminal' | 'right' | null>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autoCreateStartedRef = useRef(false)
@@ -374,6 +392,14 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
     setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
   }
   const activePlan = threadQuery.data?.plan || null
+  const filteredThreads = useMemo(() => {
+    const query = threadSearchQuery.trim().toLocaleLowerCase()
+    if (!query) return threadsQuery.data || []
+    return (threadsQuery.data || []).filter((thread) =>
+      thread.title.toLocaleLowerCase().includes(query) || thread.last_message?.toLocaleLowerCase().includes(query)
+    )
+  }, [threadSearchQuery, threadsQuery.data])
+  const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
   const runningCount = useMemo(() => activePlan?.steps.filter((step) => step.status === 'running').length || 0, [activePlan])
   const modelReady = Boolean(modelProfileQuery.data?.apiKeyConfigured && modelProfileQuery.data.connectionVerified && !modelProfileQuery.data.lastError)
   const modelUnavailableText = modelProfileQuery.data?.lastError
@@ -383,25 +409,120 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
       : '尚未配置 AI 模型 API，无法进行思考和对话'
   const pendingMessage = send.isPending && send.variables?.id === selectedId ? send.variables.message : null
   const pendingMessageInThread = Boolean(pendingMessage && threadQuery.data?.messages.some((message) => message.message_id === pendingMessage.message_id))
+  const toggleThreads = () => {
+    setThreadsCollapsed((current) => {
+      localStorage.setItem('unisearch-threads-collapsed', String(!current))
+      return !current
+    })
+  }
+
+  const updateLeftSidebarWidth = (value: number) => {
+    const next = Math.round(Math.min(420, Math.max(220, value)))
+    setLeftSidebarWidth(next)
+    localStorage.setItem('unisearch-left-sidebar-width', String(next))
+  }
+  const updateRightSidebarWidth = (value: number) => {
+    const next = Math.round(Math.min(380, Math.max(210, value)))
+    setRightSidebarWidth(next)
+    localStorage.setItem('unisearch-right-sidebar-width', String(next))
+  }
+  const updateTerminalHeight = (value: number) => {
+    const next = Math.round(Math.min(480, Math.max(140, value)))
+    setTerminalHeight(next)
+    localStorage.setItem('unisearch-terminal-height', String(next))
+  }
+  const beginResize = (event: ReactPointerEvent<HTMLDivElement>, target: 'left' | 'terminal' | 'right', onMove: (event: PointerEvent) => void) => {
+    event.preventDefault()
+    setActiveResize(target)
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = target === 'terminal' ? 'row-resize' : 'col-resize'
+    document.body.style.userSelect = 'none'
+    const finish = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      setActiveResize(null)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+  }
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
-      <aside className="hidden w-[270px] shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/45 md:flex">
-        <div className="p-3"><Button className="w-full justify-start" variant="outline" onClick={() => create.mutate()} disabled={create.isPending}><Plus />新建任务</Button></div>
-        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
-          {threadsQuery.data?.map((thread) => (
-            <button key={thread.thread_id} type="button" onClick={() => setSelectedId(thread.thread_id)}
-              className={`group w-full rounded-lg px-3 py-2.5 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
-              <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
-              <p className="mt-1 truncate text-[10px] text-cyber-text-muted">{thread.last_message || '暂无消息'}</p>
-              <p className="mt-1 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</p>
+    <div ref={workspaceRef} className="flex h-full min-h-0 overflow-hidden">
+      <aside
+        className={`relative hidden shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/70 md:flex ${activeResize === 'left' ? '' : 'transition-[width] duration-200'}`}
+        style={{ width: threadsCollapsed ? 56 : leftSidebarWidth }}
+      >
+        <div className={`flex items-center px-2 pb-2 pt-3 ${threadsCollapsed ? 'justify-center' : 'justify-between'}`}>
+          {!threadsCollapsed && <div className="pl-3 text-xl font-semibold tracking-tight text-cyber-text-primary">UniSearch</div>}
+          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={toggleThreads} title={threadsCollapsed ? '展开任务栏' : '收起任务栏'}>
+            {threadsCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+          </Button>
+        </div>
+        <div className="px-2 pb-3">
+          <Button className={threadsCollapsed ? 'h-9 w-9 p-0' : 'w-full justify-start'} variant="ghost" onClick={() => create.mutate()} disabled={create.isPending} title="新建任务"><SquarePen />{!threadsCollapsed && '新建任务'}</Button>
+        </div>
+        {!threadsCollapsed && <>
+          <div className="mx-2 border-t border-cyber-border-subtle" />
+          <div className="flex items-center justify-between px-3 py-2">
+            <span className="text-[11px] font-medium text-cyber-text-muted">任务</span>
+            <button
+              type="button"
+              onClick={() => {
+                setThreadSearchOpen((open) => !open)
+                if (threadSearchOpen) setThreadSearchQuery('')
+              }}
+              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary ${threadSearchOpen ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted'}`}
+              aria-label={threadSearchOpen ? '关闭任务搜索' : '搜索任务'}
+              title={threadSearchOpen ? '关闭搜索' : '搜索任务'}
+            >
+              <Search className="h-3.5 w-3.5" />
             </button>
-          ))}
+          </div>
+          {threadSearchOpen && <div className="px-2 pb-2">
+            <Input
+              autoFocus
+              value={threadSearchQuery}
+              onChange={(event) => setThreadSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setThreadSearchOpen(false)
+                  setThreadSearchQuery('')
+                }
+              }}
+              placeholder="搜索任务"
+              aria-label="搜索任务"
+              className="h-8 text-xs"
+            />
+          </div>}
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
+            {filteredThreads.map((thread) => (
+              <button key={thread.thread_id} type="button" onClick={() => setSelectedId(thread.thread_id)}
+                className={`group w-full rounded-lg px-3 py-2.5 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
+                <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
+                <p className="mt-1 truncate text-[10px] text-cyber-text-muted">{thread.last_message || '暂无消息'}</p>
+                <p className="mt-1 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</p>
+              </button>
+            ))}
+            {threadSearchQuery.trim() && !filteredThreads.length ? <p className="px-3 py-6 text-center text-[11px] text-cyber-text-muted">未找到匹配任务</p> : null}
+          </div>
+        </>}
+        <div className="mt-auto space-y-1 border-t border-cyber-border-subtle p-2">
+          <button onClick={() => setSettingsOpen(true)} title="模型设置" className={`flex h-10 w-full items-center rounded-lg text-cyber-text-secondary hover:bg-cyber-bg-tertiary ${threadsCollapsed ? 'justify-center px-0' : 'gap-3 px-3'}`}><KeyRound className="h-4 w-4 shrink-0" />{!threadsCollapsed && <span className="text-sm">模型设置</span>}</button>
+          <SettingsDialog compact={threadsCollapsed} />
         </div>
-        <div className="space-y-1 border-t border-cyber-border-subtle p-2">
-          <button onClick={onOpenManual} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary"><Settings2 className="h-4 w-4" />专业搜索</button>
-          <button onClick={() => setSettingsOpen(true)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary"><KeyRound className="h-4 w-4" />模型设置</button>
-        </div>
+        {!threadsCollapsed && <div
+          className={`absolute -right-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'left' ? 'bg-cyber-neon-cyan/35' : ''}`}
+          onPointerDown={(event) => beginResize(event, 'left', (moveEvent) => {
+            const bounds = workspaceRef.current?.getBoundingClientRect()
+            if (bounds) updateLeftSidebarWidth(moveEvent.clientX - bounds.left)
+          })}
+          aria-label="调整左侧边栏宽度"
+        />}
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
@@ -409,7 +530,7 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || 'UniSearch Agent'}</h1><p className="mt-0.5 text-[10px] text-cyber-text-muted">{runningCount ? `${runningCount} 个平台正在采集` : modelReady ? 'AI 模型已就绪 · 数据保存在当前设备' : 'AI 模型未就绪 · 本地功能仍可使用'}</p></div>
           <div className="flex items-center gap-1">
             <Button className="md:hidden" size="icon" variant="ghost" onClick={() => create.mutate()}><MessageSquarePlus /></Button>
-            <Button size="icon" variant="ghost" onClick={() => setSettingsOpen(true)} title="模型设置"><Settings2 /></Button>
+            <Button size="icon" variant={terminalOpen ? 'outline' : 'ghost'} onClick={() => setTerminalOpen((open) => !open)} title={terminalOpen ? '隐藏终端' : '显示终端'} aria-pressed={terminalOpen}><PanelBottom /></Button>
             {selectedId && <Button size="icon" variant="ghost" disabled={remove.isPending || send.isPending} onClick={() => { if (confirm('删除这个任务及其对话和计划？')) remove.mutate(selectedId) }} title="删除任务"><Trash2 /></Button>}
           </div>
         </div>
@@ -424,10 +545,10 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-cyber-border-subtle bg-cyber-bg-primary/90 px-4 py-4 backdrop-blur sm:px-6">
+        <div className="shrink-0 bg-cyber-bg-primary/90 px-4 py-4 backdrop-blur sm:px-6">
           <div className="mx-auto max-w-4xl">
             {modelProfileQuery.isLoading ? <div className="flex min-h-[88px] items-center justify-center rounded-xl border border-cyber-border-default bg-cyber-bg-panel text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在检查 AI 模型配置…</div> : modelReady ? <>
-              <div className="relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel shadow-sm focus-within:border-cyber-neon-cyan/50">
+              <div className="agent-composer relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel focus-within:border-cyber-neon-cyan/50">
                 {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
                   {attachments.map((attachment) => <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
                     {attachment.kind === 'image' ? <Image className="h-3.5 w-3.5 shrink-0" /> : attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
@@ -469,9 +590,36 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
             </div>}
           </div>
         </div>
+        {terminalOpen && (
+          <div className="relative shrink-0 border-t border-cyber-border-subtle bg-cyber-bg-primary" style={{ height: terminalHeight }}>
+            <div
+              className={`absolute -top-[3px] left-0 z-20 h-1.5 w-full touch-none cursor-row-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'terminal' ? 'bg-cyber-neon-cyan/35' : ''}`}
+              onPointerDown={(event) => beginResize(event, 'terminal', (moveEvent) => {
+                const bounds = workspaceRef.current?.getBoundingClientRect()
+                if (bounds) updateTerminalHeight(Math.min(bounds.height - 260, bounds.bottom - moveEvent.clientY))
+              })}
+              aria-label="调整执行终端高度"
+            />
+            <Terminal
+              showCollapseButton={false}
+              platforms={terminalPlatforms}
+              planStatus={activePlan?.status}
+              docked
+              onClose={() => setTerminalOpen(false)}
+            />
+          </div>
+        )}
       </main>
 
-      <aside className="hidden w-[250px] shrink-0 border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4 xl:block">
+      <aside className="relative hidden shrink-0 border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4 xl:block" style={{ width: rightSidebarWidth }}>
+        <div
+          className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
+          onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
+            const bounds = workspaceRef.current?.getBoundingClientRect()
+            if (bounds) updateRightSidebarWidth(bounds.right - moveEvent.clientX)
+          })}
+          aria-label="调整右侧边栏宽度"
+        />
         <p className="text-[10px] uppercase tracking-[0.16em] text-cyber-text-muted">当前任务</p>
         {activePlan ? <div className="mt-4 space-y-5">
           <div><p className="text-xs font-medium">{STATUS_LABELS[activePlan.status] || activePlan.status}</p><p className="mt-1 text-[10px] text-cyber-text-muted">{activePlan.steps.length}个平台 · {activePlan.plan.keywords.length}个关键词</p></div>

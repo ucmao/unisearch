@@ -25,7 +25,7 @@ const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'system', label: '跟随系统', icon: Monitor },
 ]
 
-export function SettingsDialog() {
+export function SettingsDialog({ compact = false }: { compact?: boolean }) {
   const { theme, setTheme } = useThemeStore()
 
   return (
@@ -34,11 +34,11 @@ export function SettingsDialog() {
         <Button
           variant="ghost"
           size="sm"
-          className="h-8 gap-2 px-2.5 text-cyber-text-secondary hover:text-cyber-text-primary"
+          className={`h-10 w-full text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary ${compact ? 'justify-center px-0' : 'justify-start gap-3 px-3'}`}
           title="设置"
         >
           <Settings2 className="h-4 w-4" />
-          <span className="hidden text-xs sm:inline">设置</span>
+          {!compact && <span className="text-sm">设置</span>}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">

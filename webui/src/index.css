@@ -165,22 +165,22 @@
   background: rgb(var(--cyber-bg-secondary));
 }
 
-/* Terminal scrollbar - always dark */
+/* Terminal scrollbar follows the active theme */
 .terminal-scroll::-webkit-scrollbar {
   width: 6px;
 }
 
 .terminal-scroll::-webkit-scrollbar-track {
-  background: #000000;
+  background: rgb(var(--cyber-bg-panel));
 }
 
 .terminal-scroll::-webkit-scrollbar-thumb {
-  background: rgba(0, 255, 65, 0.4);
-  border-radius: 0;
+  background: rgb(var(--cyber-text-muted) / 0.35);
+  border-radius: 999px;
 }
 
 .terminal-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 255, 65, 0.6);
+  background: rgb(var(--cyber-neon-cyan) / 0.55);
 }
 
 /* ============================
@@ -236,6 +236,31 @@
 
 .dark .elevated-panel {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.agent-composer {
+  box-shadow:
+    0 10px 30px rgb(var(--cyber-text-primary) / 0.08),
+    0 2px 6px rgb(var(--cyber-text-primary) / 0.04);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.agent-composer:focus-within {
+  box-shadow:
+    0 12px 34px rgb(var(--cyber-text-primary) / 0.1),
+    0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.08);
+}
+
+.dark .agent-composer {
+  box-shadow:
+    0 12px 34px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.dark .agent-composer:focus-within {
+  box-shadow:
+    0 14px 38px rgba(0, 0, 0, 0.38),
+    0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.1);
 }
 
 /* ============================

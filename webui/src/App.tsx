@@ -1,70 +1,39 @@
 import { useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { Toaster } from 'sonner'
-import { Sidebar } from '@/components/layout/Sidebar'
-import { MainContent } from '@/components/layout/MainContent'
-import { CrawlerConfigPanel } from '@/components/config/CrawlerConfigPanel'
-import { CrawlerSearchHeader } from '@/components/config/CrawlerSearchHeader'
+import { Button } from '@/components/ui/button'
 import { EnvironmentCheck, isEnvChecked } from '@/components/env/EnvironmentCheck'
 import { ResultWorkbench } from '@/components/analytics/ResultWorkbench'
 import { AgentWorkspace } from '@/components/agent/AgentWorkspace'
 
 function App() {
-  // Initialize by checking localStorage if env check has passed
   const [envChecked, setEnvChecked] = useState(() => isEnvChecked())
-  const [activeView, setActiveView] = useState<'agent' | 'crawler' | 'results'>('agent')
-
-  const handleEnvCheckComplete = () => {
-    setEnvChecked(true)
-  }
+  const [showResults, setShowResults] = useState(false)
 
   return (
-    <div className="flex flex-col h-screen cyber-grid overflow-hidden relative">
-      {/* Environment Check Modal */}
-      {!envChecked && (
-        <EnvironmentCheck onCheckComplete={handleEnvCheckComplete} />
-      )}
+    <div className="relative h-screen overflow-hidden cyber-grid">
+      {!envChecked && <EnvironmentCheck onCheckComplete={() => setEnvChecked(true)} />}
 
-      {/* Header Bar */}
-      <Sidebar
-        activeView={activeView}
-        onViewChange={setActiveView}
-      />
-
-      {/* Main Area */}
-      {activeView === 'agent' ? (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <AgentWorkspace onOpenResults={() => setActiveView('results')} onOpenManual={() => setActiveView('crawler')} />
-        </div>
-      ) : activeView === 'crawler' ? (
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 xl:overflow-hidden">
-          <div className="grid min-h-full grid-cols-1 gap-3 xl:h-full xl:min-h-0 xl:grid-cols-[340px_minmax(0,1fr)]">
-            <CrawlerConfigPanel />
-
-            <div className="flex min-h-[620px] min-w-0 flex-col gap-3 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-              <div className="flex-shrink-0">
-                <CrawlerSearchHeader />
-              </div>
-
-              <div className="min-h-[360px] flex-1">
-                <MainContent />
-              </div>
-            </div>
+      {showResults ? (
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex h-14 shrink-0 items-center border-b border-cyber-border-subtle bg-cyber-bg-primary/90 px-4 backdrop-blur">
+            <Button variant="ghost" onClick={() => setShowResults(false)}>
+              <ArrowLeft className="h-4 w-4" />返回任务
+            </Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden pt-3">
+            <ResultWorkbench />
           </div>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 overflow-hidden pt-3">
-          <ResultWorkbench />
-        </div>
+        <AgentWorkspace onOpenResults={() => setShowResults(true)} />
       )}
 
-      {/* Toast notifications - Theme-aware style */}
       <Toaster
         position="top-right"
         toastOptions={{
           className: 'glass-panel font-mono text-cyber-text-primary',
-          style: {
-            fontFamily: 'JetBrains Mono, monospace',
-          },
+          style: { fontFamily: 'JetBrains Mono, monospace' },
         }}
       />
     </div>

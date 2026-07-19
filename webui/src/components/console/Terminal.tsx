@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronUp, Trash2, RefreshCw, Square, Play } from 'lucide-react'
+import { ChevronDown, ChevronUp, Square, TerminalSquare, X } from 'lucide-react'
 import { TerminalLine } from './TerminalLine'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
-import { useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
-import { toast } from 'sonner'
+import { useStopCrawler } from '@/hooks/useCrawler'
 
 const PLATFORM_LABELS: { [key: string]: string } = {
   xhs: '小红书',
@@ -24,62 +23,35 @@ const STATUS_DOTS: { [key: string]: string } = {
   error: 'bg-cyber-neon-pink/80 shadow-glow-pink-sm',
 }
 
-const BANNER_INNER_WIDTH = 72
-const KELOTE_ASCII = String.raw` _  __    _       _         _____                     _____
-| |/ /___| | ___ | |_ ___  |_   _|__  __ _ _ __ ___ |___ /
-| ' // _ \ |/ _ \| __/ _ \   | |/ _ \/ _' | '_ ' _ \  |_ \
-| . \  __/ | (_) | ||  __/   | |  __/ (_| | | | | | |___) |
-|_|\_\___|_|\___/ \__\___|   |_|\___|\__'_|_| |_| |_|____/`.split('\n')
-
-function centerBannerLine(text: string) {
-  const leftPadding = Math.max(0, Math.floor((BANNER_INNER_WIDTH - text.length) / 2))
-  return `${' '.repeat(leftPadding)}${text}`.padEnd(BANNER_INNER_WIDTH)
+interface TerminalProps {
+  showCollapseButton?: boolean
+  platforms?: string[]
+  planStatus?: string
+  docked?: boolean
+  onClose?: () => void
 }
 
-function buildAsciiBanner(platform: string) {
-  const horizontalBorder = '═'.repeat(BANNER_INNER_WIDTH)
-  const logoWidth = Math.max(...KELOTE_ASCII.map((line) => line.length))
-  const logoLeftPadding = Math.max(0, Math.floor((BANNER_INNER_WIDTH - logoWidth) / 2))
-  const contentLines = KELOTE_ASCII.map((line) =>
-    `${' '.repeat(logoLeftPadding)}${line.padEnd(logoWidth)}`.padEnd(BANNER_INNER_WIDTH)
-  )
-  const scanLabel = centerBannerLine(`[ INTELLIGENT SCAN: ${platform.toUpperCase()} ]`)
-
-  return [
-    `  ╔${horizontalBorder}╗`,
-    ...contentLines.map((line) => `  ║${line}║`),
-    `  ║${' '.repeat(BANNER_INNER_WIDTH)}║`,
-    `  ║${scanLabel}║`,
-    `  ╚${horizontalBorder}╝`,
-  ].join('\n')
-}
-
-export function Terminal() {
+export function Terminal({ showCollapseButton = true, platforms, planStatus, docked = false, onClose }: TerminalProps) {
   const { t } = useTranslation('terminal')
   const [isCollapsed, setIsCollapsed] = useState(false)
 
   // Store variables
   const logs = useCrawlerStore((state) => state.logs)
   const statuses = useCrawlerStore((state) => state.statuses)
-  const clearedAfterLogId = useCrawlerStore((state) => state.clearedAfterLogId)
-  const selectedPlatforms = useCrawlerStore((state) => state.selectedPlatforms)
+  const storedPlatforms = useCrawlerStore((state) => state.selectedPlatforms)
   const activePlatformTab = useCrawlerStore((state) => state.activePlatformTab)
-  const config = useCrawlerStore((state) => state.config)
-  const platformCookies = useCrawlerStore((state) => state.platformCookies)
 
   // Actions
-  const clearLogs = useCrawlerStore((state) => state.clearLogs)
-  const restoreLogs = useCrawlerStore((state) => state.restoreLogs)
   const setActivePlatformTab = useCrawlerStore((state) => state.setActivePlatformTab)
 
-  const { mutate: startPlatform } = useStartCrawler()
   const { mutate: stopPlatform } = useStopCrawler()
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const activeLogs = logs[activePlatformTab] || []
-  const activeStatus = statuses[activePlatformTab] || 'idle'
-  const activeClearedId = clearedAfterLogId[activePlatformTab]
+  const visiblePlatforms = platforms ?? storedPlatforms
+  const activePlatform = visiblePlatforms.includes(activePlatformTab) ? activePlatformTab : visiblePlatforms[0] || ''
+  const activeLogs = activePlatform ? logs[activePlatform] || [] : []
+  const activeStatus = activePlatform ? statuses[activePlatform] || 'idle' : 'idle'
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -93,34 +65,30 @@ export function Terminal() {
     stopPlatform(p)
   }
 
-  const handleStartSingle = (e: MouseEvent, p: string) => {
-    e.stopPropagation()
-    if (config.login_type === 'cookie' && !platformCookies[p]?.trim()) {
-      toast.error(`请先填写 ${PLATFORM_LABELS[p] || p} 的 Cookie`)
-      return
-    }
-    startPlatform({
-      ...config,
-      platform: p,
-      cookies: config.login_type === 'cookie' ? platformCookies[p] || '' : '',
-    })
-  }
+  const emptyMessage = !visiblePlatforms.length
+    ? ['尚无执行任务。', '向 AI 描述调研需求；计划经你确认后，执行日志会显示在这里。']
+    : planStatus === 'awaiting_confirmation'
+      ? ['AI 已生成执行计划。', '确认计划后，所选平台的执行日志会显示在这里。']
+      : planStatus === 'queued'
+        ? ['任务已进入执行队列。', '正在等待本机采集进程启动…']
+        : planStatus === 'running'
+          ? ['采集任务正在执行。', '正在等待该平台输出日志…']
+          : ['当前平台暂无执行日志。', '新的日志产生后会自动显示在这里。']
 
   return (
-    <div className={`flex flex-col rounded-xl overflow-hidden transition-all duration-300 border border-cyber-border-subtle bg-[#0d1117] ${isCollapsed ? 'h-12' : 'h-full'}`}>
+    <div className={`flex flex-col overflow-hidden bg-cyber-bg-panel transition-all duration-300 ${docked ? 'h-full' : `rounded-xl border border-cyber-border-subtle ${isCollapsed ? 'h-12' : 'h-full'}`}`}>
       
       {/* Tab bar header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between bg-[#161b22] border-b border-[#30363d] flex-shrink-0 min-h-12 px-2 py-1.5 gap-2">
+      <div className={`flex min-h-11 flex-shrink-0 flex-col justify-between gap-2 px-2 py-1 md:flex-row md:items-center ${docked ? 'bg-cyber-bg-panel' : 'border-b border-cyber-border-subtle bg-cyber-bg-secondary'}`}>
         {/* Left Side: Tabs */}
         <div className="flex items-center gap-1.5 overflow-x-auto px-2 scrollbar-none">
-          <div className="flex gap-1.5 mr-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyber-neon-pink/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-cyber-neon-orange/80" />
-            <span className="w-2.5 h-2.5 rounded-full bg-cyber-neon-green/80" />
+          <div className="mr-2 flex h-8 items-center gap-2 px-2.5 text-cyber-text-secondary">
+            <TerminalSquare className="h-4 w-4" />
+            <span className="text-[11px] font-medium">执行终端</span>
           </div>
           
-          {selectedPlatforms.map((p) => {
-            const isActive = activePlatformTab === p
+          {visiblePlatforms.map((p) => {
+            const isActive = activePlatform === p
             const pStatus = statuses[p] || 'idle'
             const isRunning = pStatus === 'running'
             const isStopping = pStatus === 'stopping'
@@ -131,8 +99,8 @@ export function Terminal() {
                 onClick={() => setActivePlatformTab(p)}
                 className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-medium cursor-pointer transition-all ${
                   isActive
-                    ? 'bg-[#21262d] text-cyber-neon-cyan border border-[#30363d]'
-                    : 'text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#21262d]/50 border border-transparent'
+                    ? 'border border-cyber-border-default bg-cyber-bg-panel text-cyber-neon-cyan'
+                    : 'border border-transparent text-cyber-text-muted hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
                 }`}
               >
                 {/* Status Dot */}
@@ -143,22 +111,14 @@ export function Terminal() {
                 {isRunning ? (
                   <button
                     onClick={(e) => handleStopSingle(e, p)}
-                    className="p-0.5 rounded hover:bg-cyber-neon-pink/20 text-[#8b949e] hover:text-cyber-neon-pink transition-colors ml-1"
+                    className="ml-1 rounded p-0.5 text-cyber-text-muted transition-colors hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink"
                     title="停止爬虫"
                   >
                     <Square className="w-2.5 h-2.5 fill-current" />
                   </button>
                 ) : isStopping ? (
                   <span className="w-2 h-2 border border-t-transparent border-cyber-neon-orange rounded-full animate-spin ml-1" />
-                ) : (
-                  <button
-                    onClick={(e) => handleStartSingle(e, p)}
-                    className="p-0.5 rounded hover:bg-cyber-neon-cyan/20 text-[#8b949e] hover:text-cyber-neon-cyan opacity-0 group-hover:opacity-100 transition-all ml-1"
-                    title="启动爬虫"
-                  >
-                    <Play className="w-2.5 h-2.5 fill-current" />
-                  </button>
-                )}
+                ) : null}
               </div>
             )
           })}
@@ -168,8 +128,8 @@ export function Terminal() {
         <div className="flex items-center justify-end gap-3 px-2">
           {/* Active Log count & status */}
           <div className="flex items-center gap-3 text-[11px] font-mono">
-            <span className="text-[#8b949e]">
-              {activePlatformTab.toUpperCase()}: {t('header.entries', { count: activeLogs.length })}
+            <span className="text-cyber-text-muted">
+              {activePlatform ? `${activePlatform.toUpperCase()}: ${t('header.entries', { count: activeLogs.length })}` : null}
             </span>
             {activeStatus === 'running' && (
               <div className="flex items-center gap-1">
@@ -179,44 +139,25 @@ export function Terminal() {
             )}
           </div>
 
-          {/* Restore logs */}
-          {activeClearedId !== null && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => restoreLogs(activePlatformTab)}
-              className="h-7 w-7 p-0 text-[#8b949e] hover:text-cyber-neon-cyan hover:bg-[#00ffff]/10"
-              title={t('header.restore')}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
+          {onClose && (
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0 text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary" title="隐藏终端">
+              <X className="h-4 w-4" />
             </Button>
           )}
 
-          {/* Clear logs */}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => clearLogs(activePlatformTab)}
-            disabled={activeLogs.length === 0}
-            className="h-7 w-7 p-0 text-[#8b949e] hover:text-cyber-neon-pink hover:bg-[#ff0080]/10 disabled:opacity-30"
-            title={t('header.clear')}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </Button>
-
           {/* Collapse toggle */}
-          <Button
+          {showCollapseButton && <Button
             variant="ghost"
             size="sm"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="h-7 w-7 p-0 text-[#8b949e] hover:text-cyber-neon-cyan hover:bg-[#00ffff]/10"
+            className="h-7 w-7 p-0 text-cyber-text-muted hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan"
           >
             {isCollapsed ? (
               <ChevronDown className="w-4 h-4" />
             ) : (
               <ChevronUp className="w-4 h-4" />
             )}
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -225,22 +166,13 @@ export function Terminal() {
         <>
           <div
             ref={scrollRef}
-            className="flex-1 overflow-auto p-4 font-mono text-xs terminal-scroll bg-[#0d1117] min-h-0 select-text"
+            className="terminal-scroll min-h-0 flex-1 select-text overflow-auto bg-cyber-bg-panel px-4 pb-4 pt-2 font-mono text-xs"
           >
-            {/* Empty view / ASCI Banner */}
+            {/* AI task-aware empty view */}
             {activeLogs.length === 0 ? (
-              <div className="space-y-4 py-4">
-                <pre className="text-cyber-neon-cyan/60 text-[10px] leading-tight select-none">
-{buildAsciiBanner(activePlatformTab)}
-                </pre>
-                <div className="text-[#c9d1d9] text-[11px] space-y-1">
-                  <p className="text-cyber-neon-green/70">
-                    &gt;_ 控制台已就绪，等待操作...
-                  </p>
-                  <p className="text-[#8b949e]">
-                    &gt;_ 请选择目标，然后点击“开始扫描”执行采集。
-                  </p>
-                </div>
+              <div className="space-y-1 text-[11px]">
+                <p className="text-cyber-text-primary">&gt;_ {emptyMessage[0]}</p>
+                <p className="text-cyber-text-muted">&gt;_ {emptyMessage[1]}</p>
               </div>
             ) : (
               <div className="space-y-0.5">
@@ -253,21 +185,12 @@ export function Terminal() {
             {/* Active Cursor */}
             {activeStatus === 'running' && (
               <div className="flex items-center gap-1 mt-3">
-                <span className="text-cyber-neon-green/80">root@{activePlatformTab}-crawler:~$</span>
+                <span className="text-cyber-neon-green/80">agent@{activePlatform}:~$</span>
                 <span className="w-1.5 h-3 bg-cyber-neon-green/80 cursor-blink" />
               </div>
             )}
           </div>
 
-          {/* Terminal Footer */}
-          <div className="px-4 py-1.5 border-t border-[#30363d] bg-[#161b22] flex items-center justify-between flex-shrink-0 select-none">
-            <span className="text-[10px] font-mono text-[#8b949e]">
-              循环模式：{config.loop_execution ? '已开启' : '已关闭'}
-            </span>
-            <div className="text-[10px] font-mono text-[#8b949e] font-bold uppercase tracking-wider">
-              {{ idle: '空闲', running: '运行中', stopping: '停止中', error: '错误' }[activeStatus] || activeStatus}
-            </div>
-          </div>
         </>
       )}
     </div>
