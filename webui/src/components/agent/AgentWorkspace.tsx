@@ -70,12 +70,25 @@ function CsvDownloadLink({ planId, compact = false }: { planId: string; compact?
   )
 }
 
-function PlanCard({ plan, onExecute, executing, onOpenResults }: {
+function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis, updatingAnalysis }: {
   plan: AgentPlan; onExecute: () => void; executing: boolean; onOpenResults: () => void
+  onUpdateAnalysis: (analysis: string[]) => void; updatingAnalysis: boolean
 }) {
   const done = plan.steps.filter((step) => step.status === 'completed').length
   const progress = plan.steps.length ? Math.round(done / plan.steps.length * 100) : 0
   const canExecute = ['awaiting_confirmation', 'failed', 'partially_completed'].includes(plan.status)
+  const [editingAnalysis, setEditingAnalysis] = useState(false)
+  const [analysisDraft, setAnalysisDraft] = useState(plan.plan.analysis)
+  const [analysisInput, setAnalysisInput] = useState('')
+  useEffect(() => {
+    if (!editingAnalysis) setAnalysisDraft(plan.plan.analysis)
+  }, [plan.plan.analysis, editingAnalysis])
+  const addAnalysisGoal = () => {
+    const value = analysisInput.trim()
+    if (!value || analysisDraft.includes(value) || analysisDraft.length >= 8) return
+    setAnalysisDraft((current) => [...current, value])
+    setAnalysisInput('')
+  }
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-cyber-neon-cyan/25 bg-cyber-bg-secondary/55">
       <div className="border-b border-cyber-border-subtle px-4 py-3">
@@ -87,7 +100,22 @@ function PlanCard({ plan, onExecute, executing, onOpenResults }: {
       </div>
       <div className="grid gap-3 p-4 sm:grid-cols-2">
         <div><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{plan.plan.capability && plan.plan.capability !== 'keyword_search' ? '目标' : '关键词'}</p><div className="mt-1.5 flex flex-wrap gap-1.5">{(plan.plan.capability && plan.plan.capability !== 'keyword_search' ? plan.plan.targets || [] : plan.plan.keywords).map((item) => <Badge key={item} variant="outline">{item}</Badge>)}</div></div>
-        <div><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">分析目标</p><p className="mt-1.5 text-xs text-cyber-text-secondary">{plan.plan.analysis.join(' · ')}</p></div>
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">分析目标{plan.plan.analysisSource === 'fallback' ? ' · 默认推荐' : plan.plan.analysisSource === 'user' ? ' · 已自定义' : ''}</p>
+            {plan.status === 'awaiting_confirmation' && !editingAnalysis ? <button type="button" onClick={() => setEditingAnalysis(true)} className="text-[10px] text-cyber-text-muted hover:text-cyber-neon-cyan">编辑</button> : null}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {analysisDraft.map((item) => <Badge key={item} variant="outline" className="gap-1">
+              {item}
+              {editingAnalysis ? <button type="button" onClick={() => setAnalysisDraft((current) => current.filter((goal) => goal !== item))} aria-label={`删除分析目标 ${item}`}><X className="h-3 w-3" /></button> : null}
+            </Badge>)}
+          </div>
+          {editingAnalysis ? <div className="mt-2 space-y-2">
+            <div className="flex gap-2"><Input value={analysisInput} maxLength={40} className="h-8 text-xs" placeholder="添加分析目标" onChange={(event) => setAnalysisInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addAnalysisGoal() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addAnalysisGoal} disabled={!analysisInput.trim() || analysisDraft.length >= 8}><Plus /></Button></div>
+            <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setAnalysisDraft(plan.plan.analysis); setEditingAnalysis(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!analysisDraft.length || updatingAnalysis} onClick={() => { onUpdateAnalysis(analysisDraft); setEditingAnalysis(false) }}>{updatingAnalysis ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
+          </div> : null}
+        </div>
       </div>
       <div className="space-y-2 border-t border-cyber-border-subtle px-4 py-3">
         {plan.steps.map((step) => (
@@ -110,8 +138,9 @@ function PlanCard({ plan, onExecute, executing, onOpenResults }: {
   )
 }
 
-function MessageBubble({ message, plan, onExecute, executing, onOpenResults }: {
+function MessageBubble({ message, plan, onExecute, executing, onOpenResults, onUpdateAnalysis, updatingAnalysis }: {
   message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean; onOpenResults: () => void
+  onUpdateAnalysis: (analysis: string[]) => void; updatingAnalysis: boolean
 }) {
   const isUser = message.role === 'user'
   return (
@@ -129,7 +158,7 @@ function MessageBubble({ message, plan, onExecute, executing, onOpenResults }: {
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
         {message.kind === 'plan' && plan && message.metadata?.plan_id === plan.plan_id
-          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onOpenResults={onOpenResults} /> : null}
+          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onOpenResults={onOpenResults} onUpdateAnalysis={onUpdateAnalysis} updatingAnalysis={updatingAnalysis} /> : null}
         <p className={`mt-1.5 text-[9px] text-cyber-text-muted ${isUser ? 'text-right' : ''}`}>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
       </div>
       {isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>}
@@ -256,6 +285,17 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     mutationFn: (planId: string) => agentApi.executePlan(planId),
     onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('任务已进入本地执行队列') },
     onError: (error) => toast.error(getError(error)),
+  })
+  const updateAnalysis = useMutation({
+    mutationFn: ({ planId, analysis }: { planId: string; analysis: string[] }) => agentApi.updatePlanAnalysis(planId, analysis),
+    onMutate: ({ planId, analysis }) => {
+      client.setQueryData<AgentThread>(['agent-thread', selectedId], (current) => current?.plan?.plan_id === planId ? {
+        ...current,
+        plan: { ...current.plan, plan: { ...current.plan.plan, analysis, analysisSource: 'user' } },
+      } : current)
+    },
+    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('分析目标已更新') },
+    onError: (error) => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.error(getError(error)) },
   })
 
   useEffect(() => {
@@ -504,8 +544,8 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
             {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-            {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} />)}
-            {pendingMessage && !pendingMessageInThread ? <MessageBubble message={pendingMessage} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} /> : null}
+            {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updateAnalysis.mutate({ planId: activePlan.plan_id, analysis })} updatingAnalysis={updateAnalysis.isPending} />)}
+            {pendingMessage && !pendingMessageInThread ? <MessageBubble message={pendingMessage} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updateAnalysis.mutate({ planId: activePlan.plan_id, analysis })} updatingAnalysis={updateAnalysis.isPending} /> : null}
             {pendingMessage && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
             <div ref={bottomRef} />
           </div>

@@ -63,7 +63,7 @@ test('a direct answer continues a clarification turn', () => {
 });
 
 test('plan edits and controls respect current state', () => {
-  for (const message of ['再加上知乎平台', '换一个关键词：科莱特集团', '关键词改成科莱特集团', '更换关键词为科莱特集团']) {
+  for (const message of ['再加上知乎平台', '换一个关键词：科莱特集团', '关键词改成科莱特集团', '更换关键词为科莱特集团', '把分析目标改成价格对比和机构识别', '去掉情感分析']) {
     assert.equal(localIntentDecision(message, { planStatus: 'awaiting_confirmation' }).action, 'revise_plan', message);
   }
   assert.equal(localIntentDecision('停止采集', { planStatus: 'running' }).action, 'stop');

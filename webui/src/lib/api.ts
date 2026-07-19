@@ -235,6 +235,7 @@ export interface ResearchPlanData {
   loginType: 'qrcode' | 'cookie'
   headless: boolean
   analysis: string[]
+  analysisSource?: 'ai' | 'fallback' | 'user'
   outputs: string[]
 }
 
@@ -425,6 +426,8 @@ export const agentApi = {
   } = {}) =>
     api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000 }),
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
+  updatePlanAnalysis: (planId: string, analysis: string[]) =>
+    api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/analysis`, { analysis }),
   getPlanExportUrl: (planId: string) => `/api/agent/plans/${encodeURIComponent(planId)}/export`,
   getModelProfile: () => api.get<ModelProfile>('/agent/model-profile'),
   saveModelProfile: (profile: Partial<ModelProfile> & { apiKey?: string }) => api.put<ModelProfile>('/agent/model-profile', profile),

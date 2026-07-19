@@ -17,6 +17,7 @@ export interface ResearchPlan {
   loginType: 'qrcode' | 'cookie';
   headless: boolean;
   analysis: string[];
+  analysisSource?: 'ai' | 'fallback' | 'user';
   outputs: string[];
 }
 
