@@ -1,9 +1,9 @@
-import { BarChart3, Bot, Bug, Settings2, Wifi } from 'lucide-react'
+import { BarChart3, Bot, Bug, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { useCrawlerStatus } from '@/hooks/useCrawler'
-import { ThemeToggle } from './ThemeToggle'
+import { SettingsDialog } from './SettingsDialog'
 
 interface SidebarProps {
   activeView: 'agent' | 'crawler' | 'results'
@@ -26,7 +26,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         <div className="flex items-center gap-3">
           <Bug className="w-5 h-5 text-cyber-neon-cyan" />
           <span className="hidden font-mono text-sm font-bold tracking-wider text-cyber-text-primary sm:inline">
-            科莱特三组Up
+            全域智搜
           </span>
           {isRunning && (
             <Badge variant="running" className="text-[10px]">
@@ -87,19 +87,8 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           </button>
         </nav>
 
-        {/* Right: Actions and Status */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          {/* Theme Toggle */}
-          <ThemeToggle />
-          {/* Status Info */}
-          <div className="hidden lg:flex items-center gap-2 text-xs font-mono">
-            <div className="flex items-center gap-1.5">
-              <Wifi className="w-3 h-3 text-cyber-text-secondary" />
-              <span className="text-cyber-text-secondary">{t('sidebar.local')}</span>
-              <span className="status-dot status-dot-online" />
-            </div>
-          </div>
-        </div>
+        {/* Right: Settings */}
+        <SettingsDialog />
       </div>
     </header>
   )
