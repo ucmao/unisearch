@@ -406,6 +406,37 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_messages_thread ON agent_messages(thread_id, created_at);
 
+    CREATE TABLE IF NOT EXISTS agent_memory_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 1,
+      auto_capture INTEGER NOT NULL DEFAULT 1,
+      auto_recall INTEGER NOT NULL DEFAULT 1,
+      capture_mode TEXT NOT NULL DEFAULT 'balanced',
+      recall_limit INTEGER NOT NULL DEFAULT 8,
+      updated_at TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO agent_memory_settings
+      (id, enabled, auto_capture, auto_recall, capture_mode, recall_limit, updated_at)
+    VALUES (1, 1, 1, 1, 'balanced', 8, datetime('now'));
+
+    CREATE TABLE IF NOT EXISTS agent_memories (
+      memory_id TEXT PRIMARY KEY,
+      category TEXT NOT NULL DEFAULT 'context',
+      memory_key TEXT NOT NULL UNIQUE,
+      content TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 1,
+      importance REAL NOT NULL DEFAULT 0.5,
+      status TEXT NOT NULL DEFAULT 'active',
+      source_thread_id TEXT,
+      source_message_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_used_at TEXT,
+      FOREIGN KEY(source_thread_id) REFERENCES agent_threads(thread_id) ON DELETE SET NULL,
+      FOREIGN KEY(source_message_id) REFERENCES agent_messages(message_id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_status ON agent_memories(status, importance DESC, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS agent_attachments (
       attachment_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,

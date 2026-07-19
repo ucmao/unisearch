@@ -155,6 +155,56 @@ export class AgentService {
     return { texts, images: images.slice(0, 5) };
   }
 
+  private isExplicitMemoryRequest(text: string): boolean {
+    return /记住|记得我|请记得|别忘了|忘记|删除.*记忆|以后(?:叫我|称呼我|回复|回答)|我叫|我的名字是/.test(text);
+  }
+
+  private scheduleMemoryCapture(threadId: string, latestUserText: string) {
+    const settings = agentRepository.getMemorySettings();
+    if (!settings.enabled || !settings.autoCapture) return;
+    const explicit = this.isExplicitMemoryRequest(latestUserText);
+    const thread = agentRepository.getThread(threadId);
+    const userMessages = (thread?.messages || []).filter((message: any) => message.role === 'user');
+    if (!explicit && (settings.captureMode === 'conservative' || userMessages.length % 6 !== 0)) return;
+
+    const recent = userMessages.slice(-8).map((message: any) => ({
+      messageId: String(message.message_id),
+      content: String(message.content).slice(0, 1200),
+    }));
+    const source = userMessages.at(-1);
+    void modelService.extractMemories(recent).then((memories) => {
+      for (const memory of memories) {
+        if (!['add', 'update', 'delete'].includes(memory.action)) continue;
+        const memoryKey = String(memory.key || '').trim().slice(0, 120);
+        if (!memoryKey) continue;
+        if (memory.action === 'delete') {
+          agentRepository.deleteMemoryByKey(memoryKey);
+          continue;
+        }
+        const category = ['identity', 'preference', 'context', 'rule'].includes(memory.category)
+          ? memory.category
+          : 'context';
+        const confidence = Math.max(0, Math.min(1, Number(memory.confidence) || 0));
+        const importance = Math.max(0, Math.min(1, Number(memory.importance) || 0.5));
+        const status = explicit && confidence >= 0.65
+          ? 'active'
+          : confidence >= 0.86 && importance >= 0.45
+            ? 'active'
+            : 'candidate';
+        agentRepository.upsertMemory({
+          category: category as 'identity' | 'preference' | 'context' | 'rule',
+          memoryKey,
+          content: String(memory.content || ''),
+          confidence,
+          importance,
+          status,
+          sourceThreadId: threadId,
+          sourceMessageId: source?.message_id,
+        });
+      }
+    }).catch((error) => console.warn('[MemoryCapture]', error.message || error));
+  }
+
   async sendMessage(
     threadId: string,
     content: string,
@@ -229,12 +279,14 @@ export class AgentService {
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
         const materials = this.collectMaterials(updatedThread);
-        const reply = (await modelService.converse(messages, { redirectToResearch, materials })).trim();
+        const memories = agentRepository.retrieveMemories(content).map((memory) => ({ category: memory.category, content: memory.content }));
+        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories })).trim();
         if (!reply) throw new Error('模型没有返回文本内容');
         agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
           action: 'chat',
           redirect_reminded: redirectToResearch,
         });
+        this.scheduleMemoryCapture(threadId, content);
         return agentRepository.getThread(threadId);
       } catch (error: any) {
         const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
@@ -288,6 +340,7 @@ export class AgentService {
         action: decision.action,
         missing_fields: decision.missingFields || [],
       });
+      this.scheduleMemoryCapture(threadId, content);
       return agentRepository.getThread(threadId);
     }
 

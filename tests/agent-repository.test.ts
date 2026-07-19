@@ -94,3 +94,59 @@ test('attachments are scoped to their conversation and removed with it', () => {
     db.close();
   }
 });
+
+test('memory settings and permanent memories are stored locally', () => {
+  const { db, repository: repo } = repository();
+  try {
+    assert.deepEqual(repo.getMemorySettings(), {
+      enabled: true,
+      autoCapture: true,
+      autoRecall: true,
+      captureMode: 'balanced',
+      recallLimit: 8,
+    });
+    assert.equal(repo.updateMemorySettings({ captureMode: 'conservative', recallLimit: 5 }).captureMode, 'conservative');
+
+    const thread = repo.createThread('记忆来源');
+    const source = repo.addMessage(thread.thread_id, 'user', 'text', '请记住我叫小青青');
+    const created = repo.upsertMemory({
+      category: 'identity', memoryKey: 'preferred_name', content: '用户希望被称为小青青',
+      confidence: 0.98, importance: 0.9, status: 'active',
+      sourceThreadId: thread.thread_id, sourceMessageId: source.message_id,
+    });
+    repo.upsertMemory({
+      category: 'identity', memoryKey: 'preferred_name', content: '用户希望被称为青青',
+      confidence: 0.99, importance: 0.8, status: 'active',
+      sourceThreadId: thread.thread_id, sourceMessageId: source.message_id,
+    });
+
+    assert.equal(repo.listMemories().length, 1);
+    assert.equal(repo.listMemories()[0].content, '用户希望被称为青青');
+    assert.equal(repo.retrieveMemories('我是谁？', 5)[0].memory_id, created.memory_id);
+
+    repo.deleteThread(thread.thread_id);
+    assert.equal(repo.listMemories().length, 1, 'deleting a conversation must not delete permanent memory');
+    assert.equal(repo.listMemories()[0].source_thread_id, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('candidate and disabled memories are not recalled', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const candidate = repo.upsertMemory({
+      category: 'preference', memoryKey: 'response_style', content: '用户可能喜欢简洁回答',
+      confidence: 0.7, importance: 0.6, status: 'candidate',
+    });
+    assert.deepEqual(repo.retrieveMemories('回答风格'), []);
+
+    repo.updateMemory(candidate.memory_id, { status: 'active' });
+    assert.equal(repo.retrieveMemories('回答风格').length, 1);
+
+    repo.updateMemorySettings({ enabled: false });
+    assert.deepEqual(repo.retrieveMemories('回答风格'), []);
+  } finally {
+    db.close();
+  }
+});

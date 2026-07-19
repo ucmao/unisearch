@@ -3,17 +3,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, FileText, KeyRound,
-  Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, RefreshCw, Search, Send,
+  Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, Search, Send,
   Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
-import { agentApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type ModelProfile } from '@/lib/api'
+import { agentApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MarkdownContent } from './MarkdownContent'
 import { Terminal } from '@/components/console/Terminal'
-import { SettingsDialog } from '@/components/layout/SettingsDialog'
+import { SettingsDialog, type SettingsSection } from '@/components/layout/SettingsDialog'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -29,12 +29,6 @@ function storedPanelSize(key: string, fallback: number) {
   const value = Number(localStorage.getItem(key))
   return Number.isFinite(value) && value > 0 ? value : fallback
 }
-
-const MODEL_PROVIDER_DEFAULTS = {
-  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M3' },
-  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'DeepSeek-V4-Flash' },
-  custom: { baseUrl: '', model: '' },
-} satisfies Record<ModelProfile['provider'], { baseUrl: string; model: string }>
 
 function getError(error: any) {
   return error?.response?.data?.detail || error?.message || '操作失败'
@@ -55,101 +49,6 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error || new Error('读取文件失败'))
     reader.readAsDataURL(file)
   })
-}
-
-function ModelSettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const queryClient = useQueryClient()
-  const profileQuery = useQuery({ queryKey: ['agent-model-profile'], queryFn: async () => (await agentApi.getModelProfile()).data, enabled: open })
-  const [form, setForm] = useState<Partial<ModelProfile> & { apiKey?: string }>({})
-  const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], { baseUrl: string; model: string }>>>({})
-
-  useEffect(() => {
-    if (profileQuery.data) {
-      providerDrafts.current[profileQuery.data.provider] = {
-        baseUrl: profileQuery.data.baseUrl,
-        model: profileQuery.data.model,
-      }
-      setForm({ ...profileQuery.data, apiKey: '' })
-    }
-  }, [profileQuery.data])
-
-  const save = useMutation({
-    mutationFn: () => agentApi.saveModelProfile(form),
-    onSuccess: ({ data }) => {
-      queryClient.setQueryData(['agent-model-profile'], data)
-      setForm((current) => ({ ...current, apiKey: '' }))
-      toast.success('模型配置已保存在本机')
-    },
-    onError: (error) => toast.error(getError(error)),
-  })
-  const test = useMutation({
-    mutationFn: async () => {
-      await agentApi.saveModelProfile(form)
-      return (await agentApi.testModelProfile()).data
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ['agent-model-profile'] })
-      toast.success(`${data.message} · ${data.latency_ms}ms`)
-    },
-    onError: (error) => toast.error(`连接失败：${getError(error)}`),
-  })
-
-  const applyProvider = (provider: ModelProfile['provider']) => {
-    setForm((current) => {
-      if (current.provider) {
-        providerDrafts.current[current.provider] = {
-          baseUrl: current.baseUrl || '',
-          model: current.model || '',
-        }
-      }
-      const providerValues = providerDrafts.current[provider] || MODEL_PROVIDER_DEFAULTS[provider]
-      return { ...current, provider, ...providerValues, apiKey: current.apiKey }
-    })
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl bg-cyber-bg-panel">
-        <DialogHeader>
-          <DialogTitle>本地模型配置</DialogTitle>
-          <DialogDescription>模型凭证保存在本机。采集数据只会在你发起AI分析时发送给所配置的服务。</DialogDescription>
-        </DialogHeader>
-        {form.lastError ? <p className="rounded-lg border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 px-3 py-2 text-xs text-cyber-neon-pink">最近一次模型调用失败：{form.lastError}</p> : null}
-        <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-2">
-            {(['minimax', 'deepseek', 'custom'] as const).map((provider) => (
-              <button key={provider} type="button" onClick={() => applyProvider(provider)}
-                className={`rounded-lg border px-3 py-2 text-xs transition-colors ${form.provider === provider ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default'}`}>
-                {provider === 'minimax' ? 'MiniMax' : provider === 'deepseek' ? 'DeepSeek' : '自定义兼容接口'}
-              </button>
-            ))}
-          </div>
-          <label className="block space-y-1.5">
-            <span className="text-xs text-cyber-text-secondary">API Base URL</span>
-            <Input value={form.baseUrl || ''} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://api.example.com/v1" />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs text-cyber-text-secondary">模型名称</span>
-            <Input value={form.model || ''} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="模型 ID" />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
-              <span>API Key</span><span className="text-[10px]">{form.apiKeyConfigured ? '已配置，留空表示不修改' : '尚未配置'}</span>
-            </span>
-            <Input type="password" value={form.apiKey || ''} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.apiKeyConfigured ? '••••••••••••••••' : '填写你的 API Key'} />
-          </label>
-        </div>
-        <DialogFooter className="gap-2 sm:space-x-0">
-          <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending || save.isPending}>
-            {test.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}测试连接
-          </Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending || test.isPending}>
-            {save.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}保存配置
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
 }
 
 function StepIcon({ status }: { status: string }) {
@@ -244,6 +143,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
@@ -260,6 +160,10 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const autoCreateStartedRef = useRef(false)
+  const openModelSettings = () => {
+    setSettingsSection('models')
+    setSettingsOpen(true)
+  }
   const send = useMutation({
     mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => agentApi.sendMessage(id, content, { attachment_ids: attachmentIds, task_references: references }),
     onMutate: async ({ id, message }) => {
@@ -352,7 +256,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     const content = input.trim()
     if (!content || !selectedId || send.isPending) return
     if (!modelProfileQuery.data?.apiKeyConfigured || !modelProfileQuery.data.connectionVerified || modelProfileQuery.data.lastError) {
-      setSettingsOpen(true)
+      openModelSettings()
       toast.error(modelProfileQuery.data?.lastError
         ? 'AI 模型连接不可用，请先测试连接'
         : modelProfileQuery.data?.apiKeyConfigured
@@ -400,7 +304,6 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     )
   }, [threadSearchQuery, threadsQuery.data])
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
-  const runningCount = useMemo(() => activePlan?.steps.filter((step) => step.status === 'running').length || 0, [activePlan])
   const modelReady = Boolean(modelProfileQuery.data?.apiKeyConfigured && modelProfileQuery.data.connectionVerified && !modelProfileQuery.data.lastError)
   const modelUnavailableText = modelProfileQuery.data?.lastError
     ? `AI 模型连接不可用：${modelProfileQuery.data.lastError}`
@@ -512,8 +415,15 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
           </div>
         </>}
         <div className="mt-auto space-y-1 border-t border-cyber-border-subtle p-2">
-          <button onClick={() => setSettingsOpen(true)} title="模型设置" className={`flex h-10 w-full items-center rounded-lg text-cyber-text-secondary hover:bg-cyber-bg-tertiary ${threadsCollapsed ? 'justify-center px-0' : 'gap-3 px-3'}`}><KeyRound className="h-4 w-4 shrink-0" />{!threadsCollapsed && <span className="text-sm">模型设置</span>}</button>
-          <SettingsDialog compact={threadsCollapsed} />
+          <SettingsDialog
+            compact={threadsCollapsed}
+            open={settingsOpen}
+            onOpenChange={(open) => {
+              setSettingsOpen(open)
+              if (!open) setSettingsSection('appearance')
+            }}
+            initialSection={settingsSection}
+          />
         </div>
         {!threadsCollapsed && <div
           className={`absolute -right-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'left' ? 'bg-cyber-neon-cyan/35' : ''}`}
@@ -526,8 +436,8 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
-          <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || 'UniSearch Agent'}</h1><p className="mt-0.5 text-[10px] text-cyber-text-muted">{runningCount ? `${runningCount} 个平台正在采集` : modelReady ? 'AI 模型已就绪 · 数据保存在当前设备' : 'AI 模型未就绪 · 本地功能仍可使用'}</p></div>
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
+          <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || 'UniSearch Agent'}</h1></div>
           <div className="flex items-center gap-1">
             <Button className="md:hidden" size="icon" variant="ghost" onClick={() => create.mutate()}><MessageSquarePlus /></Button>
             <Button size="icon" variant={terminalOpen ? 'outline' : 'ghost'} onClick={() => setTerminalOpen((open) => !open)} title={terminalOpen ? '隐藏终端' : '显示终端'} aria-pressed={terminalOpen}><PanelBottom /></Button>
@@ -545,10 +455,10 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
           </div>
         </div>
 
-        <div className="shrink-0 bg-cyber-bg-primary/90 px-4 py-4 backdrop-blur sm:px-6">
+        <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
           <div className="mx-auto max-w-4xl">
             {modelProfileQuery.isLoading ? <div className="flex min-h-[88px] items-center justify-center rounded-xl border border-cyber-border-default bg-cyber-bg-panel text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在检查 AI 模型配置…</div> : modelReady ? <>
-              <div className="agent-composer relative rounded-xl border border-cyber-border-default bg-cyber-bg-panel focus-within:border-cyber-neon-cyan/50">
+              <div className="agent-composer relative rounded-2xl border border-cyber-border-default bg-cyber-bg-panel focus-within:border-cyber-neon-cyan/50">
                 {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
                   {attachments.map((attachment) => <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
                     {attachment.kind === 'image' ? <Image className="h-3.5 w-3.5 shrink-0" /> : attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
@@ -562,7 +472,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
                 </div> : null}
                 <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
                   placeholder={activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
-                  className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pb-14 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
+                  className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
                 <div className="absolute bottom-3 left-3">
                   <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
                     {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
@@ -583,10 +493,9 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
                 </div>
                 <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending}><Send /></Button>
               </div>
-              <div className="mt-2 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>＋ 添加资料 · Enter 发送 · Shift+Enter 换行</span><span>附件和引用结果只在本机处理后发送给所配置的模型</span></div>
             </> : <div className="flex min-h-[88px] items-center justify-between gap-4 rounded-xl border border-cyber-neon-pink/25 bg-cyber-neon-pink/5 px-4 py-3">
               <div><p className="text-sm text-cyber-text-primary">{modelUnavailableText}</p><p className="mt-1 text-[10px] text-cyber-text-muted">配置并成功测试连接后，才能开始 AI 对话、生成计划和分析结果。</p></div>
-              <Button variant="outline" className="shrink-0" onClick={() => setSettingsOpen(true)}><KeyRound />配置模型</Button>
+              <Button variant="outline" className="shrink-0" onClick={openModelSettings}><KeyRound />配置模型</Button>
             </div>}
           </div>
         </div>
@@ -654,7 +563,6 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
           <DialogFooter><Button onClick={() => setTaskPickerOpen(false)}>完成{taskReferences.length ? `（已选 ${taskReferences.length}）` : ''}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
-      <ModelSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }
