@@ -91,6 +91,17 @@ export function usePlatforms() {
   })
 }
 
+export function useConnectors() {
+  return useQuery({
+    queryKey: ['connectors'],
+    queryFn: async () => {
+      const { data } = await configApi.getConnectors()
+      return data.connectors
+    },
+    staleTime: Infinity,
+  })
+}
+
 export function useConfigOptions() {
   return useQuery({
     queryKey: ['configOptions'],

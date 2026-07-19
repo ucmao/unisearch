@@ -3,9 +3,10 @@ import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
 import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials } from './ModelService';
+import { connectorLabels, listConnectorManifests } from '../../connectors/registry';
 
-const SUPPORTED = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu'];
-const LABELS: Record<string, string> = { xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎' };
+const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
+const LABELS = connectorLabels();
 
 function normalizePlan(input: any, userText: string): ResearchPlan {
   const platformAliases: Record<string, string> = { 小红书: 'xhs', 抖音: 'dy', 快手: 'ks', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'wb', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu' };

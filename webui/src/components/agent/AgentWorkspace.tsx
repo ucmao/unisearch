@@ -399,7 +399,7 @@ export function AgentWorkspace({ onOpenResults, onOpenManual }: { onOpenResults:
           ))}
         </div>
         <div className="space-y-1 border-t border-cyber-border-subtle p-2">
-          <button onClick={onOpenManual} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary"><Settings2 className="h-4 w-4" />手动采集控制</button>
+          <button onClick={onOpenManual} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary"><Settings2 className="h-4 w-4" />专业搜索</button>
           <button onClick={() => setSettingsOpen(true)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary"><KeyRound className="h-4 w-4" />模型设置</button>
         </div>
       </aside>

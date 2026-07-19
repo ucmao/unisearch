@@ -1,5 +1,8 @@
 export interface CrawlerConfig {
   platform: string
+  connector_id?: string
+  capability?: ConnectorCapabilityId
+  connector_options?: Record<string, unknown>
   login_type: string
   crawler_type: string
   keywords: string
@@ -46,9 +49,66 @@ export interface Platform {
   value: string
   label: string
   icon: string
+  category?: ConnectorCategory
+  capabilities?: ConnectorCapabilityId[]
 }
 
 export interface ConfigOption {
   value: string
   label: string
+}
+
+export type ConnectorCategory = 'social_media' | 'ai_search' | 'web_search' | 'complaint' | 'recruitment'
+export type ConnectorCapabilityId = 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve'
+export type ConnectorFieldType = 'string' | 'number' | 'boolean' | 'select' | 'string_list' | 'secret'
+
+export interface ConnectorInputField {
+  key: string
+  label: string
+  description: string
+  type: ConnectorFieldType
+  required?: boolean
+  default?: string | number | boolean | string[]
+  min?: number
+  max?: number
+  options?: Array<{ value: string; label: string }>
+  legacyConfigKey?: string
+}
+
+export interface ConnectorOutputField {
+  key: string
+  label: string
+  type: 'string' | 'number' | 'boolean' | 'string_list' | 'object'
+  required?: boolean
+}
+
+export interface ConnectorCapability {
+  id: ConnectorCapabilityId
+  label: string
+  description: string
+  legacyCrawlerType: 'search' | 'detail' | 'creator'
+  inputFields: ConnectorInputField[]
+  outputType: string
+  outputFields: ConnectorOutputField[]
+  limitations: string[]
+}
+
+export interface ConnectorManifest {
+  id: string
+  version: string
+  name: string
+  icon: string
+  category: ConnectorCategory
+  description: string
+  auth: {
+    required: boolean
+    methods: Array<'qrcode' | 'cookie'>
+    description: string
+  }
+  runtime: {
+    engine: 'playwright'
+    isolatedProcess: boolean
+    supportsHeadless: boolean
+  }
+  capabilities: ConnectorCapability[]
 }

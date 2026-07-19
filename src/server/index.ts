@@ -11,6 +11,8 @@ import { agentService } from './services/AgentService';
 import { modelService } from './services/ModelService';
 import { agentAttachmentService } from './services/AgentAttachmentService';
 import type { AppConfig } from '../tools/config';
+import { listConnectorManifests } from '../connectors/registry';
+import type { ConnectorStartRequest } from '../connectors/types';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
@@ -132,17 +134,17 @@ export async function startServer(port = 8080): Promise<number> {
   // Config options
   fastify.get('/api/config/platforms', async () => {
     return {
-      platforms: [
-        { value: 'xhs', label: '小红书', icon: 'book-open' },
-        { value: 'dy', label: '抖音', icon: 'music' },
-        { value: 'ks', label: '快手', icon: 'video' },
-        { value: 'bili', label: '哔哩哔哩', icon: 'tv' },
-        { value: 'wb', label: '微博', icon: 'message-circle' },
-        { value: 'tieba', label: '百度贴吧', icon: 'messages-square' },
-        { value: 'zhihu', label: '知乎', icon: 'help-circle' },
-      ],
+      platforms: listConnectorManifests().map((connector) => ({
+        value: connector.id,
+        label: connector.name,
+        icon: connector.icon,
+        category: connector.category,
+        capabilities: connector.capabilities.map((capability) => capability.id),
+      })),
     };
   });
+
+  fastify.get('/api/config/connectors', async () => ({ connectors: listConnectorManifests() }));
 
   fastify.get('/api/config/options', async () => {
     return {
@@ -255,8 +257,13 @@ export async function startServer(port = 8080): Promise<number> {
 
   // Crawler routes
   fastify.post('/api/crawler/start', async (request, reply) => {
-    const body = request.body as any;
-    const success = await crawlerManager.start(body);
+    const body = request.body as ConnectorStartRequest;
+    let success = false;
+    try {
+      success = await crawlerManager.start(body);
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
     if (!success) {
       const status = crawlerManager.getStatus(body.platform);
       if (status.status === 'running' || status.status === 'stopping') {

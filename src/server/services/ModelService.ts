@@ -5,6 +5,7 @@ import { getDatabasePath } from '../../database/connection';
 import type { ResearchPlan } from './AgentRepository';
 import type { AgentDecision } from './AgentIntent';
 import { buildConversationSystemPrompt, UNISEARCH_PRODUCT_MANUAL } from './AgentPrompt';
+import { connectorCatalogForAI } from '../../connectors/registry';
 
 export interface ModelProfile {
   provider: 'minimax' | 'deepseek' | 'custom';
@@ -204,7 +205,7 @@ export class ModelService {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     userText: string,
   ): Promise<ResearchPlan> {
-    const platformHelp = '支持的平台代码：xhs=小红书，dy=抖音，ks=快手，bili=哔哩哔哩，wb=微博，tieba=百度贴吧，zhihu=知乎。';
+    const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const content = await this.chat([
       { role: 'system', content: `你是UniSearch本地情报任务规划器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp} 根据完整对话和用户最新目标生成可执行计划。只输出JSON，不要Markdown。字段必须为 goal:string, platforms:string[], keywords:string[], collectComments:boolean, collectSubComments:boolean, startPage:number, loginType:"qrcode"|"cookie", headless:boolean, analysis:string[], outputs:string[]。platforms只能使用给定代码，至少一个；keywords为简短搜索词，至少一个；默认二维码登录、显示浏览器、从第1页开始。当前合并后的任务表达为：${JSON.stringify(userText)}` },
       ...messages,
@@ -252,7 +253,7 @@ export class ModelService {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     currentPlan: { status: string; plan: ResearchPlan } | null,
   ): Promise<AgentDecision> {
-    const platformHelp = '平台代码：xhs=小红书，dy=抖音，ks=快手，bili=哔哩哔哩，wb=微博，tieba=百度贴吧，zhihu=知乎。';
+    const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const state = currentPlan
       ? JSON.stringify({ status: currentPlan.status, plan: currentPlan.plan })
       : 'null';
