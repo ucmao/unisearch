@@ -230,6 +230,13 @@ export async function startServer(port = 8080): Promise<number> {
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });
 
+  fastify.patch('/api/agent/plans/:plan_id/analysis', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    const { analysis } = (request.body || {}) as { analysis?: string[] };
+    try { return agentService.updatePlanAnalysis(plan_id, analysis); }
+    catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
   fastify.get('/api/agent/memory-settings', async () => agentRepository.getMemorySettings());
 
   fastify.put('/api/agent/memory-settings', async (request) =>

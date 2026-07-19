@@ -5,6 +5,7 @@ import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, typ
 import { modelService, type ConversationMaterials } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
+import { inferAnalysisRevision, normalizeAnalysisGoals } from './ResearchAnalysis';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -30,8 +31,13 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
   const inputTargets = Array.isArray(input?.targets) ? input.targets : [];
   const textTargets = Array.from(userText.matchAll(/https?:\/\/[^\s，。；;]+/g)).map((match) => match[0]);
   const targets = Array.from(new Set([...inputTargets, ...textTargets].map((value) => String(value).trim()).filter(Boolean))).slice(0, 30);
+  const goal = String(input?.goal || userText).slice(0, 300);
+  const suppliedAnalysis = Array.isArray(input?.analysis) && input.analysis.some((value: unknown) => String(value).trim());
+  const analysisSource = ['ai', 'fallback', 'user'].includes(String(input?.analysisSource))
+    ? input.analysisSource
+    : suppliedAnalysis ? 'ai' : 'fallback';
   return {
-    goal: String(input?.goal || userText).slice(0, 300),
+    goal,
     platforms: platforms.length ? platforms : inferredPlatforms.length ? inferredPlatforms : ['xhs', 'bili'],
     keywords: keywords.length ? keywords : [userText.replace(/[，。！？\n]/g, ' ').trim().slice(0, 40)],
     capability,
@@ -42,7 +48,8 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     startPage: Math.max(1, Math.min(20, Number(input?.startPage) || 1)),
     loginType: 'qrcode',
     headless: Boolean(input?.headless),
-    analysis: Array.isArray(input?.analysis) ? input.analysis.map(String).slice(0, 8) : ['内容摘要', '用户观点与情感', '关键发现'],
+    analysis: normalizeAnalysisGoals(input?.analysis, goal),
+    analysisSource,
     outputs: Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['csv'],
   };
 }
@@ -66,6 +73,11 @@ function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPl
 
 function inferPlanRevision(text: string, base: ResearchPlan): Partial<ResearchPlan> | null {
   const patch: Partial<ResearchPlan> = {};
+  const analysis = inferAnalysisRevision(text, base);
+  if (analysis) {
+    patch.analysis = analysis;
+    patch.analysisSource = 'user';
+  }
   if (/关键词/i.test(text)) {
     const keywords = inferResearchKeywords(text);
     if (keywords.length) patch.keywords = keywords;
@@ -431,7 +443,7 @@ export class AgentService {
           const messages = updatedThread.messages
             .filter((message: any) => ['user', 'assistant'].includes(message.role))
             .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-          const answer = await modelService.converse(messages, { materials: referencedMaterials });
+          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis });
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
         } catch (error: any) {
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
@@ -443,7 +455,7 @@ export class AgentService {
         agentRepository.addMessage(threadId, 'assistant', 'analysis', '当前任务没有可分析的数据。可以先检查采集结果，或重试失败的平台。');
       } else {
         try {
-          const answer = await modelService.analyze(latest.goal, content, rows);
+          const answer = await modelService.analyze(latest.goal, latest.plan.analysis, content, rows);
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { sampled_records: rows.length });
         } catch (error: any) {
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}\n\n本次没有生成本地兜底分析，请检查模型配置并测试连接。`, {
@@ -478,18 +490,22 @@ export class AgentService {
       const candidate = mergePlan(latest.plan, decision.plan);
       plan = normalizePlan(candidate, latest.goal);
     } else if (decision.action === 'create_plan') {
-      const explicitPlatforms = inferResearchPlatforms(planningText);
-      const explicitKeywords = inferResearchKeywords(planningText);
       if (decision.plan) plan = normalizePlan(decision.plan, content);
-      else if (explicitPlatforms.length && explicitKeywords.length) {
-        plan = normalizePlan({ platforms: explicitPlatforms, keywords: explicitKeywords }, planningText);
-      }
       else {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = updatedThread.messages
           .filter((message: any) => ['user', 'assistant'].includes(message.role))
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-        try { plan = normalizePlan(await modelService.createPlan(messages, planningText), planningText); }
+        try {
+          const generated = await modelService.createPlan(messages, planningText);
+          const explicitPlatforms = inferResearchPlatforms(planningText);
+          const explicitKeywords = /关键词/i.test(planningText) ? inferResearchKeywords(planningText) : [];
+          plan = normalizePlan({
+            ...generated,
+            platforms: explicitPlatforms.length ? explicitPlatforms : generated.platforms,
+            keywords: explicitKeywords.length ? explicitKeywords : generated.keywords,
+          }, planningText);
+        }
         catch (error: any) {
           const fallbackKeywords = inferResearchKeywords(planningText);
           plan = normalizePlan({
@@ -571,6 +587,15 @@ export class AgentService {
     agentRepository.updatePlanStatus(planId, 'queued');
     void this.tick();
     return agentRepository.getPlan(planId);
+  }
+
+  updatePlanAnalysis(planId: string, analysis: unknown) {
+    const current = agentRepository.getPlan(planId);
+    if (!current) throw new Error('计划不存在');
+    if (current.status !== 'awaiting_confirmation') throw new Error('只有等待确认的计划可以修改分析目标');
+    if (!Array.isArray(analysis)) throw new Error('分析目标格式不正确');
+    const goals = normalizeAnalysisGoals(analysis, current.plan.goal);
+    return agentRepository.updatePendingPlan(planId, { ...current.plan, analysis: goals, analysisSource: 'user' });
   }
 
   async tick() {
