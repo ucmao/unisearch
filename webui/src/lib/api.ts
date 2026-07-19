@@ -283,6 +283,29 @@ export interface ModelProfile {
   lastError?: string
 }
 
+export interface MemorySettings {
+  enabled: boolean
+  autoCapture: boolean
+  autoRecall: boolean
+  captureMode: 'conservative' | 'balanced'
+  recallLimit: number
+}
+
+export interface AgentMemory {
+  memory_id: string
+  category: 'identity' | 'preference' | 'context' | 'rule'
+  memory_key: string
+  content: string
+  confidence: number
+  importance: number
+  status: 'active' | 'candidate'
+  source_thread_id?: string | null
+  source_message_id?: string | null
+  created_at: string
+  updated_at: string
+  last_used_at?: string | null
+}
+
 // API functions
 export const crawlerApi = {
   start: (config: CrawlerConfig) => api.post('/crawler/start', config),
@@ -403,6 +426,13 @@ export const agentApi = {
   getModelProfile: () => api.get<ModelProfile>('/agent/model-profile'),
   saveModelProfile: (profile: Partial<ModelProfile> & { apiKey?: string }) => api.put<ModelProfile>('/agent/model-profile', profile),
   testModelProfile: () => api.post<{ success: boolean; message: string; latency_ms: number }>('/agent/model-profile/test', null, { timeout: 180000 }),
+  getMemorySettings: () => api.get<MemorySettings>('/agent/memory-settings'),
+  saveMemorySettings: (settings: Partial<MemorySettings>) => api.put<MemorySettings>('/agent/memory-settings', settings),
+  listMemories: () => api.get<{ items: AgentMemory[] }>('/agent/memories'),
+  updateMemory: (memoryId: string, input: { content?: string; status?: AgentMemory['status'] }) =>
+    api.patch<AgentMemory>(`/agent/memories/${encodeURIComponent(memoryId)}`, input),
+  deleteMemory: (memoryId: string) => api.delete(`/agent/memories/${encodeURIComponent(memoryId)}`),
+  clearMemories: () => api.delete<{ deleted: number }>('/agent/memories'),
 }
 
 export interface EnvCheckResult {

@@ -218,6 +218,32 @@ export async function startServer(port = 8080): Promise<number> {
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });
 
+  fastify.get('/api/agent/memory-settings', async () => agentRepository.getMemorySettings());
+
+  fastify.put('/api/agent/memory-settings', async (request) =>
+    agentRepository.updateMemorySettings(request.body as any));
+
+  fastify.get('/api/agent/memories', async () => ({ items: agentRepository.listMemories() }));
+
+  fastify.patch('/api/agent/memories/:memory_id', async (request, reply) => {
+    const { memory_id } = request.params as { memory_id: string };
+    try {
+      const memory = agentRepository.updateMemory(memory_id, request.body as any);
+      return memory || reply.status(404).send({ detail: 'Memory not found' });
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.delete('/api/agent/memories/:memory_id', async (request, reply) => {
+    const { memory_id } = request.params as { memory_id: string };
+    return agentRepository.deleteMemory(memory_id)
+      ? { status: 'ok' }
+      : reply.status(404).send({ detail: 'Memory not found' });
+  });
+
+  fastify.delete('/api/agent/memories', async () => ({ deleted: agentRepository.clearMemories() }));
+
   fastify.get('/api/agent/plans/:plan_id/export', async (request, reply) => {
     const { plan_id } = request.params as { plan_id: string };
     const plan = agentRepository.getPlan(plan_id);
