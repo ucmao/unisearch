@@ -151,6 +151,8 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
   const [threadsCollapsed, setThreadsCollapsed] = useState(() => localStorage.getItem('unisearch-threads-collapsed') === 'true')
   const [threadSearchOpen, setThreadSearchOpen] = useState(false)
   const [threadSearchQuery, setThreadSearchQuery] = useState('')
+  const [renamingThread, setRenamingThread] = useState<AgentThreadSummary | null>(null)
+  const [renameTitle, setRenameTitle] = useState('')
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 250))
@@ -231,6 +233,23 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
       client.invalidateQueries({ queryKey: ['agent-thread', id] })
       toast.error(getError(error))
     },
+  })
+  const rename = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => agentApi.renameThread(id, title),
+    onSuccess: ({ data }) => {
+      client.setQueryData<AgentThreadSummary[]>(['agent-threads'], (current) => current?.map((thread) =>
+        thread.thread_id === data.thread_id ? { ...thread, ...data } : thread,
+      ))
+      client.setQueryData<AgentThread>(['agent-thread', data.thread_id], (current) => current ? {
+        ...current,
+        title: data.title,
+        title_source: data.title_source,
+        title_locked: data.title_locked,
+      } : current)
+      setRenamingThread(null)
+      setRenameTitle('')
+    },
+    onError: (error) => toast.error(getError(error)),
   })
   const execute = useMutation({
     mutationFn: (planId: string) => agentApi.executePlan(planId),
@@ -404,12 +423,23 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
           </div>}
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
             {filteredThreads.map((thread) => (
-              <button key={thread.thread_id} type="button" onClick={() => setSelectedId(thread.thread_id)}
-                className={`group w-full rounded-lg px-3 py-2.5 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
-                <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
-                <p className="mt-1 truncate text-[10px] text-cyber-text-muted">{thread.last_message || '暂无消息'}</p>
-                <p className="mt-1 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</p>
-              </button>
+              <div key={thread.thread_id} className="group relative">
+                <button type="button" onClick={() => setSelectedId(thread.thread_id)}
+                  className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
+                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
+                  <p className="mt-1 truncate text-[10px] text-cyber-text-muted">{thread.last_message || '暂无消息'}</p>
+                  <p className="mt-1 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setRenamingThread(thread); setRenameTitle(thread.title) }}
+                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-md text-cyber-text-muted opacity-0 transition-opacity hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary focus:opacity-100 group-hover:opacity-100"
+                  aria-label={`重命名 ${thread.title}`}
+                  title="重命名任务"
+                >
+                  <SquarePen className="h-3.5 w-3.5" />
+                </button>
+              </div>
             ))}
             {threadSearchQuery.trim() && !filteredThreads.length ? <p className="px-3 py-6 text-center text-[11px] text-cyber-text-muted">未找到匹配任务</p> : null}
           </div>
@@ -537,6 +567,38 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             {activePlan.steps.some((step) => step.run_id) && <CsvDownloadLink planId={activePlan.plan_id} compact />}</div>
         </div> : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
       </aside>
+      <Dialog open={Boolean(renamingThread)} onOpenChange={(open) => {
+        if (!open && !rename.isPending) {
+          setRenamingThread(null)
+          setRenameTitle('')
+        }
+      }}>
+        <DialogContent className="max-w-md bg-cyber-bg-panel">
+          <DialogHeader>
+            <DialogTitle>重命名任务</DialogTitle>
+            <DialogDescription>手动命名后，系统不会再自动修改这个标题。</DialogDescription>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={renameTitle}
+            maxLength={40}
+            onChange={(event) => setRenameTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && renamingThread && renameTitle.trim() && !rename.isPending) {
+                rename.mutate({ id: renamingThread.thread_id, title: renameTitle.trim() })
+              }
+            }}
+            aria-label="任务名称"
+            placeholder="输入任务名称"
+          />
+          <DialogFooter>
+            <Button variant="outline" disabled={rename.isPending} onClick={() => { setRenamingThread(null); setRenameTitle('') }}>取消</Button>
+            <Button disabled={!renameTitle.trim() || rename.isPending} onClick={() => renamingThread && rename.mutate({ id: renamingThread.thread_id, title: renameTitle.trim() })}>
+              {rename.isPending && <Loader2 className="animate-spin" />}保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={taskPickerOpen} onOpenChange={setTaskPickerOpen}>
         <DialogContent className="max-w-2xl bg-cyber-bg-panel">
           <DialogHeader>

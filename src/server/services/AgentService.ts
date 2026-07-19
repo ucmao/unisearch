@@ -4,6 +4,7 @@ import { agentRepository, type ResearchPlan } from './AgentRepository';
 import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
+import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -205,6 +206,30 @@ export class AgentService {
     }).catch((error) => console.warn('[MemoryCapture]', error.message || error));
   }
 
+  private scheduleThreadTitle(threadId: string) {
+    const thread = agentRepository.getThread(threadId);
+    if (!thread || thread.title_locked || ['manual', 'generated', 'plan'].includes(String(thread.title_source))) return;
+    const conversation = (thread.messages || [])
+      .filter((message: any) => ['user', 'assistant'].includes(message.role))
+      .map((message: any) => ({
+        role: message.role as 'user' | 'assistant',
+        content: String(message.content),
+      }));
+    const firstMeaningfulUser = conversation.findIndex((message: any) =>
+      message.role === 'user' && isMeaningfulTitleInput(message.content),
+    );
+    if (firstMeaningfulUser < 0) return;
+    const messages = conversation
+      .slice(firstMeaningfulUser)
+      .slice(0, 6)
+      .filter((message: any) => message.role !== 'user' || isMeaningfulTitleInput(message.content));
+
+    void modelService.generateThreadTitle(messages).then((value) => {
+      const title = sanitizeThreadTitle(value);
+      if (title && isMeaningfulTitleInput(title)) agentRepository.updateAutomaticTitle(threadId, title, 'generated');
+    }).catch((error) => console.warn('[ThreadTitle]', error.message || error));
+  }
+
   async sendMessage(
     threadId: string,
     content: string,
@@ -231,8 +256,11 @@ export class AgentService {
       task_references: taskReferences,
     };
     agentRepository.addMessage(threadId, 'user', 'text', content, messageMetadata);
-    if (thread.messages.filter((m: any) => m.role === 'user').length === 0) {
-      agentRepository.touchThread(threadId, content.slice(0, 24));
+    const previousMeaningfulMessage = thread.messages.some((message: any) =>
+      message.role === 'user' && isMeaningfulTitleInput(String(message.content)),
+    );
+    if (!previousMeaningfulMessage && isMeaningfulTitleInput(content) && !thread.title_locked) {
+      agentRepository.updateAutomaticTitle(threadId, fallbackTitleFromText(content), 'fallback');
     }
 
     const profile = modelService.getProfile(false);
@@ -286,6 +314,7 @@ export class AgentService {
           action: 'chat',
           redirect_reminded: redirectToResearch,
         });
+        this.scheduleThreadTitle(threadId);
         this.scheduleMemoryCapture(threadId, content);
         return agentRepository.getThread(threadId);
       } catch (error: any) {
@@ -340,6 +369,7 @@ export class AgentService {
         action: decision.action,
         missing_fields: decision.missingFields || [],
       });
+      this.scheduleThreadTitle(threadId);
       this.scheduleMemoryCapture(threadId, content);
       return agentRepository.getThread(threadId);
     }
@@ -499,6 +529,7 @@ export class AgentService {
       ? plan.keywords.join('、')
       : (plan.targets || []).join('、') || '待识别目标';
     agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n将通过 ${platformNames} 执行“${capabilityLabel}”：${targetDescription}。确认后才会开始执行。`, { plan_id: created.plan_id, action: decision.action });
+    agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
   }
 

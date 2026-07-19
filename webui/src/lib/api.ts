@@ -261,6 +261,8 @@ export interface AgentPlan {
 export interface AgentThreadSummary {
   thread_id: string
   title: string
+  title_source?: 'default' | 'legacy' | 'fallback' | 'generated' | 'plan' | 'manual'
+  title_locked?: number | boolean
   status: string
   updated_at: string
   last_message?: string
@@ -411,6 +413,7 @@ export const agentApi = {
   listReferenceableTasks: () => api.get<{ items: AgentTaskReference[] }>('/agent/referenceable-tasks'),
   createThread: (title?: string) => api.post<AgentThread>('/agent/threads', { title }),
   getThread: (threadId: string) => api.get<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`),
+  renameThread: (threadId: string, title: string) => api.patch<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`, { title }),
   deleteThread: (threadId: string) => api.delete(`/agent/threads/${encodeURIComponent(threadId)}`),
   uploadAttachment: (threadId: string, file: { fileName: string; mimeType: string; dataBase64: string }) =>
     api.post<AgentAttachment>(`/agent/threads/${encodeURIComponent(threadId)}/attachments`, file, { timeout: 120000 }),
