@@ -1,39 +1,8 @@
-import fs from 'fs';
 import readline from 'readline';
-import { chromium, asyncPlaywright, Playwright } from 'playwright';
 import { applyConfig, activeConfig } from '../tools/config';
 import { getDb, closeDb } from '../database/connection';
-import { XiaoHongShuCrawler } from './platforms/xhs';
-import { BilibiliCrawler } from './platforms/bili';
-import { DouyinCrawler } from './platforms/douyin';
-import { KuaishouCrawler } from './platforms/ks';
-import { WeiboCrawler } from './platforms/weibo';
-import { TiebaCrawler } from './platforms/tieba';
-import { ZhihuCrawler } from './platforms/zhihu';
-
-// Crawler Factory
-class CrawlerFactory {
-  public static createCrawler(platform: string) {
-    switch (platform) {
-      case 'xhs':
-        return new XiaoHongShuCrawler();
-      case 'bili':
-        return new BilibiliCrawler();
-      case 'dy':
-        return new DouyinCrawler();
-      case 'ks':
-        return new KuaishouCrawler();
-      case 'wb':
-        return new WeiboCrawler();
-      case 'tieba':
-        return new TiebaCrawler();
-      case 'zhihu':
-        return new ZhihuCrawler();
-      default:
-        throw new Error(`Unsupported platform: ${platform}`);
-    }
-  }
-}
+import { createConnectorExecutor } from '../connectors/executors';
+import { normalizeConnectorRequest } from '../connectors/registry';
 
 let activeCrawler: any = null;
 
@@ -71,7 +40,7 @@ async function run(): Promise<void> {
     throw new Error('Worker received empty configuration payload.');
   }
 
-  const config = JSON.parse(payload);
+  const config = normalizeConnectorRequest(JSON.parse(payload));
   applyConfig(config);
 
   // Initialize DB connection
@@ -79,7 +48,7 @@ async function run(): Promise<void> {
 
   console.log(`[Worker] Running crawler for platform: ${activeConfig.PLATFORM}`);
   
-  activeCrawler = CrawlerFactory.createCrawler(activeConfig.PLATFORM);
+  activeCrawler = createConnectorExecutor(activeConfig.PLATFORM);
   
   // Register graceful exit handlers
   process.on('SIGTERM', async () => {

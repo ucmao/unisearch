@@ -58,8 +58,8 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
           <button
             type="button"
             aria-current={activeView === 'crawler' ? 'page' : undefined}
-            aria-label="采集控制"
-            title="采集控制"
+            aria-label="专业搜索"
+            title="专业搜索"
             onClick={() => onViewChange('crawler')}
             className={`inline-flex h-8 items-center gap-2 rounded-md px-2.5 text-xs font-mono transition-all sm:px-3 ${
               activeView === 'crawler'
@@ -68,7 +68,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
             }`}
           >
             <Settings2 className="h-4 w-4" />
-            <span className="hidden sm:inline">采集控制</span>
+            <span className="hidden sm:inline">专业搜索</span>
           </button>
           <button
             type="button"

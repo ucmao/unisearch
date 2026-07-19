@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { ConnectorManifest } from '@/types/crawler'
 
 const api = axios.create({
   baseURL: '/api',
@@ -30,6 +31,9 @@ export interface CrawlerStatus {
 
 export interface CrawlerConfig {
   platform: string
+  connector_id?: string
+  capability?: string
+  connector_options?: Record<string, unknown>
   login_type: string
   crawler_type: string
   keywords: string
@@ -180,6 +184,8 @@ export interface Platform {
   value: string
   label: string
   icon: string
+  category?: string
+  capabilities?: string[]
 }
 
 export interface ConfigOption {
@@ -365,6 +371,7 @@ export const dataApi = {
 
 export const configApi = {
   getPlatforms: () => api.get<{ platforms: Platform[] }>('/config/platforms'),
+  getConnectors: () => api.get<{ connectors: ConnectorManifest[] }>('/config/connectors'),
   getOptions: () =>
     api.get<{
       login_types: ConfigOption[]

@@ -52,6 +52,7 @@ export function CrawlerSearchHeader() {
   const selectedPlatforms = useCrawlerStore((state) => state.selectedPlatforms)
   const setSelectedPlatforms = useCrawlerStore((state) => state.setSelectedPlatforms)
   const platformCookies = useCrawlerStore((state) => state.platformCookies)
+  const connectorOptions = useCrawlerStore((state) => state.connectorOptions)
 
   const { data: platforms } = usePlatforms()
   const { mutate: startCrawler } = useStartCrawler()
@@ -157,6 +158,8 @@ export function CrawlerSearchHeader() {
         startCrawler({
           ...config,
           platform: p,
+          connector_id: p,
+          connector_options: connectorOptions[p] || {},
           keywords: finalKeywords,
           cookies: config.login_type === 'cookie' ? platformCookies[p] || '' : '',
           task_id: taskId,

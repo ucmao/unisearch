@@ -6,23 +6,10 @@ import { activeConfig, applyConfig } from '../../tools/config';
 import { analyticsRepository } from '../../database/repository';
 import { getDatabasePath } from '../../database/connection';
 import type { LogEntry } from '@/lib/api';
+import { normalizeConnectorRequest } from '../../connectors/registry';
+import type { ConnectorStartRequest } from '../../connectors/types';
 
-export interface CrawlerStartRequest {
-  platform: string;
-  login_type: 'qrcode' | 'cookie' | 'phone';
-  crawler_type: 'search' | 'detail' | 'creator';
-  keywords: string;
-  specified_ids?: string;
-  creator_ids?: string;
-  start_page: number;
-  enable_comments: boolean;
-  enable_sub_comments: boolean;
-  cookies: string;
-  headless: boolean;
-  loop_execution: boolean;
-  task_id?: string;
-  task_title?: string;
-}
+export type CrawlerStartRequest = ConnectorStartRequest;
 
 export class CrawlerTask {
   public platform: string;
@@ -290,14 +277,15 @@ export class CrawlerManager extends EventEmitter {
   }
 
   public async start(config: CrawlerStartRequest): Promise<boolean> {
-    const platform = config.platform;
+    const normalizedConfig = normalizeConnectorRequest(config);
+    const platform = normalizedConfig.platform;
     const existing = this.tasks.get(platform);
     
     if (existing && (existing.status === 'running' || existing.status === 'stopping')) {
       return false;
     }
 
-    const task = new CrawlerTask(platform, config);
+    const task = new CrawlerTask(platform, normalizedConfig);
     this.tasks.set(platform, task);
     
     // Spawn background worker process
