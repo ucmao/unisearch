@@ -4,6 +4,8 @@ import path from 'path';
 import net from 'net';
 import { startServer, stopServer } from '../server';
 
+app.setName('UniSearch');
+
 let mainWindow: BrowserWindow | null = null;
 let apiPort = 8080;
 
