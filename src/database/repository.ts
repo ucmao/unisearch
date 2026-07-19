@@ -37,6 +37,7 @@ export interface ContentRecord {
   views: number;
   engagement: number;
   source_file: string;
+  source_metadata?: string;
   ingested_at?: string;
 }
 
@@ -205,11 +206,11 @@ export class AnalyticsRepository {
       INSERT INTO content_records (
         run_id, platform, platform_label, content_id, content_type, keyword, title, description,
         creator_id, creator_name, cover_url, content_url, published_at, likes, saves,
-        comments, shares, views, engagement, source_file, ingested_at
+        comments, shares, views, engagement, source_file, source_metadata, ingested_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?
+        ?, ?, ?, ?, ?, ?, ?
       )
       ON CONFLICT(run_id, platform, content_id, keyword) DO UPDATE SET
         platform_label = excluded.platform_label,
@@ -228,6 +229,7 @@ export class AnalyticsRepository {
         views = excluded.views,
         engagement = excluded.engagement,
         source_file = excluded.source_file,
+        source_metadata = excluded.source_metadata,
         ingested_at = excluded.ingested_at
     `);
 
@@ -254,6 +256,7 @@ export class AnalyticsRepository {
           item.views || 0,
           item.engagement || 0,
           item.source_file || '',
+          typeof item.source_metadata === 'string' ? item.source_metadata : JSON.stringify(item.source_metadata || {}),
           ingestedAt
         );
       }

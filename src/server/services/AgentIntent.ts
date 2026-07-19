@@ -76,8 +76,13 @@ export function inferResearchKeywords(text: string): string[] {
 
 export function inferResearchPlatforms(text: string): string[] {
   const aliases: Array<[RegExp, string]> = [
-    [/小红书/i, 'xhs'], [/抖音/i, 'dy'], [/快手/i, 'ks'], [/(?:B站|哔哩哔哩)/i, 'bili'],
-    [/微博/i, 'wb'], [/(?:百度贴吧|贴吧)/i, 'tieba'], [/知乎/i, 'zhihu'],
+    [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
+    [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'dy'],
+    [/(?:快手|kuaishou\.com|v\.kuaishou\.com)/i, 'ks'],
+    [/(?:B站|哔哩哔哩|bilibili\.com|b23\.tv)/i, 'bili'],
+    [/(?:微博|weibo\.com|weibo\.cn)/i, 'wb'],
+    [/(?:百度贴吧|贴吧|tieba\.baidu\.com)/i, 'tieba'],
+    [/(?:知乎|zhihu\.com|zhuanlan\.zhihu\.com)/i, 'zhihu'],
   ];
   return aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
 }

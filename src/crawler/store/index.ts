@@ -141,6 +141,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     views,
     engagement: likes + saves + comments + shares,
     source_file: `sqlite:db_store`,
+    source_metadata: JSON.stringify(rawItem),
   };
 
   analyticsRepository.ingestContents(runId, [normalized]);

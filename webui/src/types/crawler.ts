@@ -72,7 +72,7 @@ export interface ConnectorInputField {
   min?: number
   max?: number
   options?: Array<{ value: string; label: string }>
-  legacyConfigKey?: string
+  runtimeConfigKey?: string
 }
 
 export interface ConnectorOutputField {
@@ -86,7 +86,7 @@ export interface ConnectorCapability {
   id: ConnectorCapabilityId
   label: string
   description: string
-  legacyCrawlerType: 'search' | 'detail' | 'creator'
+  runtimeMode: 'search' | 'detail' | 'creator'
   inputFields: ConnectorInputField[]
   outputType: string
   outputFields: ConnectorOutputField[]

@@ -3,7 +3,7 @@ import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
 import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials } from './ModelService';
-import { connectorLabels, listConnectorManifests } from '../../connectors/registry';
+import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -13,11 +13,29 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))
     .filter((p: string) => SUPPORTED.includes(p)))) as string[];
+  const inferredPlatforms = inferResearchPlatforms(userText);
   const keywords = Array.from(new Set((Array.isArray(input?.keywords) ? input.keywords : []).map((v: any) => String(v).trim()).filter(Boolean))).slice(0, 12) as string[];
+  const capabilityIds = ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'];
+  const inferredCapability = /解析.*(?:链接|URL)|短链|真实链接/i.test(userText)
+    ? 'url_resolve'
+    : /(?:作者|博主|UP主|创作者|用户|主页).*(?:作品|内容|帖子|视频)|采集.*主页/i.test(userText)
+      ? 'creator_profile'
+      : /(?:这个|这些|指定|链接|URL).*(?:评论|回复|楼层)/i.test(userText)
+        ? 'comments'
+        : /(?:详情|指定作品|指定内容)|https?:\/\//i.test(userText)
+          ? 'content_detail'
+          : 'keyword_search';
+  const capability = capabilityIds.includes(String(input?.capability)) ? input.capability : inferredCapability;
+  const inputTargets = Array.isArray(input?.targets) ? input.targets : [];
+  const textTargets = Array.from(userText.matchAll(/https?:\/\/[^\s，。；;]+/g)).map((match) => match[0]);
+  const targets = Array.from(new Set([...inputTargets, ...textTargets].map((value) => String(value).trim()).filter(Boolean))).slice(0, 30);
   return {
     goal: String(input?.goal || userText).slice(0, 300),
-    platforms: platforms.length ? platforms : ['xhs', 'bili'],
+    platforms: platforms.length ? platforms : inferredPlatforms.length ? inferredPlatforms : ['xhs', 'bili'],
     keywords: keywords.length ? keywords : [userText.replace(/[，。！？\n]/g, ' ').trim().slice(0, 40)],
+    capability,
+    targets,
+    connectorOptions: input?.connectorOptions && typeof input.connectorOptions === 'object' ? input.connectorOptions : {},
     collectComments: input?.collectComments !== false,
     collectSubComments: Boolean(input?.collectSubComments),
     startPage: Math.max(1, Math.min(20, Number(input?.startPage) || 1)),
@@ -38,6 +56,8 @@ function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPl
     ...patch,
     platforms: Array.isArray(patch.platforms) ? patch.platforms : base.platforms,
     keywords: Array.isArray(patch.keywords) ? patch.keywords : base.keywords,
+    targets: Array.isArray(patch.targets) ? patch.targets : base.targets,
+    connectorOptions: patch.connectorOptions && typeof patch.connectorOptions === 'object' ? patch.connectorOptions : base.connectorOptions,
     analysis: Array.isArray(patch.analysis) ? patch.analysis : base.analysis,
     outputs: Array.isArray(patch.outputs) ? patch.outputs : base.outputs,
   };
@@ -407,13 +427,25 @@ export class AgentService {
       agentRepository.addMessage(threadId, 'assistant', 'text', reply, { action: 'chat' });
       return agentRepository.getThread(threadId);
     }
+    if (plan.capability && plan.capability !== 'keyword_search' && !(plan.targets || []).length) {
+      agentRepository.addMessage(threadId, 'assistant', 'clarify', '这个任务需要明确的内容链接、作品 ID 或主页链接。请把要处理的目标发给我。', {
+        action: 'clarify', missing_fields: ['targets'], capability: plan.capability,
+      });
+      return agentRepository.getThread(threadId);
+    }
     const created = decision.action === 'revise_plan' && latest
       ? agentRepository.updatePendingPlan(latest.plan_id, plan)
       : agentRepository.createPlan(threadId, plan);
     const platformNames = plan.platforms.map((p) => LABELS[p]).join('、');
+    const capabilityLabel = plan.platforms
+      .map((platform) => getConnectorManifest(platform)?.capabilities.find((capability) => capability.id === (plan.capability || 'keyword_search'))?.label)
+      .find(Boolean) || '关键词搜索';
     const lead = decision.reply.trim() || (decision.action === 'revise_plan' ? '我已按你的要求更新采集计划。' : '我已根据你的目标生成采集计划。');
     const messageKind = decision.action === 'revise_plan' ? 'text' : 'plan';
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n将从 ${platformNames} 搜索 ${plan.keywords.join('、')}。确认后才会开始执行。`, { plan_id: created.plan_id, action: decision.action });
+    const targetDescription = plan.capability === 'keyword_search'
+      ? plan.keywords.join('、')
+      : (plan.targets || []).join('、') || '待识别目标';
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n将通过 ${platformNames} 执行“${capabilityLabel}”：${targetDescription}。确认后才会开始执行。`, { plan_id: created.plan_id, action: decision.action });
     return agentRepository.getThread(threadId);
   }
 
@@ -479,12 +511,37 @@ export class AgentService {
       const platformState = crawlerManager.getStatus(step.platform);
       if (platformState.status === 'running' || platformState.status === 'stopping') continue;
       const p = refreshed.plan as ResearchPlan;
-      const ok = await crawlerManager.start({
-        platform: step.platform, login_type: p.loginType, crawler_type: 'search', keywords: p.keywords.join(','),
-        start_page: p.startPage, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
-        cookies: '', headless: p.headless, loop_execution: false,
-        task_id: refreshed.plan_id, task_title: refreshed.goal,
-      });
+      const capabilityId = p.capability || 'keyword_search';
+      const manifest = getConnectorManifest(step.platform);
+      const capability = manifest?.capabilities.find((item) => item.id === capabilityId);
+      if (!capability) {
+        agentRepository.updateStep(step.step_id, 'failed', null, `${manifest?.name || step.platform} 不支持能力 ${capabilityId}`);
+        continue;
+      }
+      const targets = p.targets || [];
+      const connectorOptions = {
+        ...(p.connectorOptions?.[step.platform] || {}),
+        ...(capabilityId === 'creator_profile' ? { creator_ids: targets } : {}),
+        ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
+        enable_comments: capabilityId === 'comments' ? true : p.collectComments,
+        enable_sub_comments: capabilityId === 'comments' ? true : p.collectSubComments,
+      };
+      let ok = false;
+      try {
+        ok = await crawlerManager.start({
+          platform: step.platform, connector_id: step.platform, capability: capabilityId,
+          login_type: p.loginType, crawler_type: capability.runtimeMode, keywords: p.keywords.join(','),
+          specified_ids: ['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? targets.join(',') : '',
+          creator_ids: capabilityId === 'creator_profile' ? targets.join(',') : '',
+          connector_options: connectorOptions,
+          start_page: p.startPage, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
+          cookies: '', headless: p.headless, loop_execution: false,
+          task_id: refreshed.plan_id, task_title: refreshed.goal,
+        });
+      } catch (error: any) {
+        agentRepository.updateStep(step.step_id, 'failed', null, error.message || 'Connector 参数校验失败');
+        continue;
+      }
       if (ok) {
         const state = crawlerManager.getStatus(step.platform);
         agentRepository.updateStep(step.step_id, 'running', state.run_id, null);

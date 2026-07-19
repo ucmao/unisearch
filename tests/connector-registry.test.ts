@@ -30,14 +30,36 @@ assert.equal(normalized.capability, 'keyword_search');
 assert.equal((normalized as any).crawler_max_notes_count, 42);
 assert.equal(normalized.enable_comments, true);
 
-assert.throws(
-  () => normalizeConnectorRequest({ ...baseRequest, platform: 'bili', connector_id: 'bili', capability: 'content_detail', crawler_type: 'detail' }),
-  /does not support capability/,
-);
+for (const manifest of listConnectorManifests()) {
+  assert.deepEqual(
+    manifest.capabilities.map((capability) => capability.id),
+    ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
+    `${manifest.id} should expose the complete connector capability set`,
+  );
+  for (const capability of manifest.capabilities) {
+    assert.ok(capability.inputFields.length > 0, `${manifest.id}:${capability.id} should declare inputs`);
+    assert.ok(capability.outputFields.length > 0, `${manifest.id}:${capability.id} should declare outputs`);
+    assert.ok(capability.limitations.length > 0, `${manifest.id}:${capability.id} should declare boundaries`);
+  }
+}
+
+const biliDetail = normalizeConnectorRequest({
+  ...baseRequest,
+  platform: 'bili',
+  connector_id: 'bili',
+  capability: 'content_detail',
+  crawler_type: 'detail',
+  specified_ids: 'BV1xx411c7mD',
+  connector_options: { specified_ids: ['BV1xx411c7mD'], enable_comments: true },
+});
+assert.equal(biliDetail.crawler_type, 'detail');
+assert.equal(biliDetail.specified_ids, 'BV1xx411c7mD');
+assert.equal(biliDetail.enable_comments, true);
 
 const catalog = connectorCatalogForAI();
 assert.match(catalog, /xhs=小红书/);
 assert.match(catalog, /keyword_search/);
-assert.match(catalog, /输出类型：social_content/);
+assert.match(catalog, /输出类型：xhs_content/);
+assert.match(catalog, /url_resolve/);
 
 console.log('connector registry tests passed');

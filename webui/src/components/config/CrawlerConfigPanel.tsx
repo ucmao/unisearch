@@ -129,7 +129,7 @@ export function CrawlerConfigPanel() {
 
   useEffect(() => {
     if (!selectedCapability || config.capability === selectedCapability.id) return
-    updateConfig({ capability: selectedCapability.id, crawler_type: selectedCapability.legacyCrawlerType })
+    updateConfig({ capability: selectedCapability.id, crawler_type: selectedCapability.runtimeMode })
   }, [config.capability, selectedCapability, updateConfig])
 
   const loginMethods = selectedConnectors.length
@@ -166,7 +166,7 @@ export function CrawlerConfigPanel() {
                   disabled={isDisabled || !capabilities.length}
                   onValueChange={(id) => {
                     const capability = capabilities.find((item) => item.id === id)
-                    if (capability) updateConfig({ capability: capability.id, crawler_type: capability.legacyCrawlerType })
+                    if (capability) updateConfig({ capability: capability.id, crawler_type: capability.runtimeMode })
                   }}
                 >
                   <SelectTrigger className="h-9 text-xs font-mono"><SelectValue placeholder="无共同能力" /></SelectTrigger>

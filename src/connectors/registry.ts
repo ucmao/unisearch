@@ -3,10 +3,6 @@ import type { ConnectorCapability, ConnectorManifest, ConnectorStartRequest } fr
 
 const manifests = new Map(CONNECTOR_MANIFESTS.map((manifest) => [manifest.id, manifest]));
 
-const legacyCapability: Record<string, ConnectorCapability['id']> = {
-  search: 'keyword_search', detail: 'content_detail', creator: 'creator_profile',
-};
-
 export function listConnectorManifests(): ConnectorManifest[] {
   return CONNECTOR_MANIFESTS;
 }
@@ -16,8 +12,8 @@ export function getConnectorManifest(id: string): ConnectorManifest | undefined 
 }
 
 export function getConnectorCapability(manifest: ConnectorManifest, request: ConnectorStartRequest): ConnectorCapability | undefined {
-  const capabilityId = request.capability || legacyCapability[request.crawler_type];
-  return manifest.capabilities.find((capability) => capability.id === capabilityId);
+  if (!request.capability) return undefined;
+  return manifest.capabilities.find((capability) => capability.id === request.capability);
 }
 
 export function normalizeConnectorRequest(input: ConnectorStartRequest): ConnectorStartRequest {
@@ -25,7 +21,7 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
   const manifest = getConnectorManifest(connectorId);
   if (!manifest) throw new Error(`Unsupported connector: ${connectorId}`);
   const capability = getConnectorCapability(manifest, input);
-  if (!capability) throw new Error(`${manifest.name} does not support capability: ${input.capability || input.crawler_type}`);
+  if (!capability) throw new Error(`${manifest.name} requires a supported capability`);
   if (!manifest.auth.methods.includes(input.login_type as 'qrcode' | 'cookie')) {
     throw new Error(`${manifest.name} does not support login method: ${input.login_type}`);
   }
@@ -36,26 +32,26 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
     platform: connectorId,
     connector_id: connectorId,
     capability: capability.id,
-    crawler_type: capability.legacyCrawlerType,
+    crawler_type: capability.runtimeMode,
     connector_options: options,
   };
   for (const field of capability.inputFields) {
-    const raw = options[field.key] ?? (field.legacyConfigKey ? (input as any)[field.legacyConfigKey] : undefined);
+    const raw = options[field.key] ?? (field.runtimeConfigKey ? (input as any)[field.runtimeConfigKey] : undefined);
     const value = raw === undefined ? field.default : raw;
     if (field.required && (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0))) {
       throw new Error(`${manifest.name} missing required parameter: ${field.label}`);
     }
-    if (value === undefined || !field.legacyConfigKey) continue;
+    if (value === undefined || !field.runtimeConfigKey) continue;
     if (field.type === 'number') {
       const numberValue = Number(value);
       if (!Number.isFinite(numberValue)) throw new Error(`${field.label} must be a number`);
       if (field.min !== undefined && numberValue < field.min) throw new Error(`${field.label} must be >= ${field.min}`);
       if (field.max !== undefined && numberValue > field.max) throw new Error(`${field.label} must be <= ${field.max}`);
-      (normalized as any)[field.legacyConfigKey] = numberValue;
+      (normalized as any)[field.runtimeConfigKey] = numberValue;
     } else if (field.type === 'string_list') {
-      (normalized as any)[field.legacyConfigKey] = Array.isArray(value) ? value.join(',') : String(value);
+      (normalized as any)[field.runtimeConfigKey] = Array.isArray(value) ? value.join(',') : String(value);
     } else {
-      (normalized as any)[field.legacyConfigKey] = value;
+      (normalized as any)[field.runtimeConfigKey] = value;
     }
   }
   if (normalized.enable_sub_comments && !normalized.enable_comments) normalized.enable_sub_comments = false;

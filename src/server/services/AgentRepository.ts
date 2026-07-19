@@ -8,6 +8,9 @@ export interface ResearchPlan {
   goal: string;
   platforms: string[];
   keywords: string[];
+  capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve';
+  targets?: string[];
+  connectorOptions?: Record<string, Record<string, unknown>>;
   collectComments: boolean;
   collectSubComments: boolean;
   startPage: number;
@@ -211,7 +214,8 @@ export class AgentRepository {
     return this.db.prepare(`
       SELECT c.platform_label, c.keyword, substr(c.title, 1, 240) AS title,
              substr(c.description, 1, 800) AS description, c.creator_name,
-             c.likes, c.saves, c.comments, c.shares, c.views, c.content_url
+             c.likes, c.saves, c.comments, c.shares, c.views, c.content_url,
+             substr(c.source_metadata, 1, 2000) AS source_metadata
       FROM content_records c
       JOIN agent_plan_steps s ON s.run_id=c.run_id
       WHERE s.plan_id=?${platformClause} ORDER BY c.engagement DESC LIMIT ?

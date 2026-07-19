@@ -4,6 +4,7 @@ import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
 import fs from 'fs';
+import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class DouyinCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -47,6 +48,10 @@ export class DouyinCrawler extends AbstractCrawler {
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
       await this.search();
+    } else if (activeConfig.CRAWLER_TYPE === 'detail') {
+      await this.getSpecifiedAwemes();
+    } else if (activeConfig.CRAWLER_TYPE === 'creator') {
+      await this.getCreatorsAndAwemes();
     }
 
     console.log('[DY] Douyin crawler finished.');
@@ -273,6 +278,7 @@ export class DouyinCrawler extends AbstractCrawler {
           };
 
           await dbStore.storeDouyinAweme(awemeDetail);
+          if (activeConfig.ENABLE_GET_COMMENTS) await this.getAwemeComments(v.aweme_id);
           count++;
           
           await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
@@ -280,6 +286,83 @@ export class DouyinCrawler extends AbstractCrawler {
       } catch (err: any) {
         console.error(`[DY] Search error for keyword ${keyword}:`, err.message);
       }
+    }
+  }
+
+  private async fetchAwemeDetail(target: string, sourceKeyword: string): Promise<any | null> {
+    const resolved = await resolveRedirect(this.page!, target);
+    const awemeId = firstMatch(resolved, [
+      /\/video\/(\d+)/i, /\/note\/(\d+)/i, /[?&](?:modal_id|aweme_id)=(\d+)/i, /^\s*(\d+)\s*$/,
+    ]);
+    const apiUrl = `https://www.douyin.com/aweme/v1/web/aweme/detail/?aweme_id=${encodeURIComponent(awemeId)}&device_platform=webapp&aid=6383`;
+    try {
+      const result = await this.page!.evaluate(async (url) => (await fetch(url, { credentials: 'include' })).json(), apiUrl);
+      const info = result?.aweme_detail;
+      if (!info?.aweme_id) throw new Error(result?.status_msg || `status ${result?.status_code ?? 'unknown'}`);
+      const videoItem = info.video || {};
+      const coverList = (videoItem.raw_cover || videoItem.origin_cover || {}).url_list || [];
+      const playList = videoItem.play_addr_h264?.url_list || videoItem.play_addr?.url_list || [];
+      const images = info.images || [];
+      const record = {
+        aweme_id: String(info.aweme_id), aweme_type: String(info.aweme_type || 'content'),
+        title: info.desc || '', desc: info.desc || '', create_time: info.create_time || 0,
+        creator_hash: String(info.author?.uid || info.author?.sec_uid || ''), nickname: info.author?.nickname || '',
+        liked_count: Number(info.statistics?.digg_count || 0), collected_count: Number(info.statistics?.collect_count || 0),
+        comment_count: Number(info.statistics?.comment_count || 0), share_count: Number(info.statistics?.share_count || 0),
+        aweme_url: `https://www.douyin.com/video/${info.aweme_id}`,
+        cover_url: coverList.at(-1) || '', video_download_url: playList.at(-1) || '',
+        music_download_url: info.music?.play_url?.url_list?.at(-1) || info.music?.play_url?.uri || '',
+        note_download_url: images.map((image: any) => image.url_list?.at(-1) || '').filter(Boolean).join(','),
+        source_keyword: sourceKeyword,
+      };
+      await dbStore.storeDouyinAweme(record);
+      if (activeConfig.ENABLE_GET_COMMENTS) await this.getAwemeComments(record.aweme_id);
+      return record;
+    } catch (error: any) {
+      console.error(`[DY] Failed to collect detail ${target}: ${error.message}`);
+      return null;
+    }
+  }
+
+  private async getAwemeComments(awemeId: string): Promise<void> {
+    const apiUrl = `https://www.douyin.com/aweme/v1/web/comment/list/?aweme_id=${encodeURIComponent(awemeId)}&cursor=0&count=${activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES}&item_type=0&device_platform=webapp&aid=6383`;
+    try {
+      const result = await this.page!.evaluate(async (url) => (await fetch(url, { credentials: 'include' })).json(), apiUrl);
+      const comments = result?.comments || [];
+      const store = async (comment: any, parent = '') => dbStore.storeDouyinComment({
+        comment_id: String(comment.cid || ''), aweme_id: awemeId, content: comment.text || '',
+        create_time: comment.create_time || 0, creator_hash: String(comment.user?.uid || comment.user?.sec_uid || ''),
+        nickname: comment.user?.nickname || '', sub_comment_count: comment.reply_comment_total || 0,
+        parent_comment_id: parent, like_count: comment.digg_count || 0,
+        pictures: (comment.image_list || []).map((image: any) => image.origin_url?.url_list?.at(-1) || '').filter(Boolean).join(','),
+      });
+      for (const comment of comments) {
+        await store(comment);
+        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
+          for (const child of comment.reply_comment || []) await store(child, String(comment.cid || ''));
+        }
+      }
+      console.log(`[DY] Stored ${comments.length} comments for ${awemeId}`);
+    } catch (error: any) {
+      console.error(`[DY] Failed to collect comments for ${awemeId}: ${error.message}`);
+    }
+  }
+
+  public async getSpecifiedAwemes(): Promise<void> {
+    for (const target of configuredTargets('dy', 'detail')) await this.fetchAwemeDetail(target, '指定作品');
+  }
+
+  public async getCreatorsAndAwemes(): Promise<void> {
+    for (const target of configuredTargets('dy', 'creator')) {
+      const resolved = await resolveRedirect(this.page!, target);
+      const secUid = firstMatch(resolved, [/\/user\/([^/?#]+)/i, /[?&]sec_uid=([^&#]+)/i]);
+      await this.page!.goto(`https://www.douyin.com/user/${encodeURIComponent(secUid)}`, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(2500);
+      const ids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/"]'))
+        .map((link) => link.getAttribute('href')?.match(/\/video\/(\d+)/)?.[1] || '').filter(Boolean));
+      const unique = [...new Set(ids)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      console.log(`[DY] Creator ${secUid}: discovered ${unique.length} works`);
+      for (const id of unique) await this.fetchAwemeDetail(id, `创作者:${secUid}`);
     }
   }
 }

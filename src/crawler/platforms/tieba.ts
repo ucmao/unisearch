@@ -4,6 +4,7 @@ import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
 import fs from 'fs';
+import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class TiebaCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -47,6 +48,10 @@ export class TiebaCrawler extends AbstractCrawler {
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
       await this.search();
+    } else if (activeConfig.CRAWLER_TYPE === 'detail') {
+      await this.getSpecifiedThreads();
+    } else if (activeConfig.CRAWLER_TYPE === 'creator') {
+      await this.getSubjectsAndThreads();
     }
 
     console.log('[TIEBA] Tieba crawler finished.');
@@ -54,6 +59,10 @@ export class TiebaCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[TIEBA] Checking login state...');
+    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
+      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.baidu.com');
+      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+    }
     let isLoggedIn = await this.checkLoginState();
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
@@ -181,6 +190,7 @@ export class TiebaCrawler extends AbstractCrawler {
           };
 
           await dbStore.storeTiebaNote(noteDetail);
+          if (activeConfig.ENABLE_GET_COMMENTS) await this.getThreadDetail(p.note_url, keyword);
           count++;
           
           await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
@@ -188,6 +198,82 @@ export class TiebaCrawler extends AbstractCrawler {
       } catch (err: any) {
         console.error(`[TIEBA] Search error for keyword ${keyword}:`, err.message);
       }
+    }
+  }
+
+  private async getThreadDetail(target: string, sourceKeyword: string): Promise<any | null> {
+    const resolved = await resolveRedirect(this.page!, target);
+    const noteId = firstMatch(resolved, [/\/p\/(\d+)/i, /[?&]tid=(\d+)/i, /^\s*(\d+)\s*$/]);
+    const noteUrl = `https://tieba.baidu.com/p/${encodeURIComponent(noteId)}`;
+    try {
+      if (!this.page!.url().includes(`/p/${noteId}`)) await this.page!.goto(noteUrl, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(1200);
+      const detail = await this.page!.evaluate(() => {
+        const title = document.querySelector('.core_title_txt, h1')?.textContent?.trim() || document.title.replace(/_百度贴吧$/, '');
+        const forum = document.querySelector('.card_title_fname, a.card_title_fname')?.textContent?.trim() || '';
+        const posts = Array.from(document.querySelectorAll('.l_post')).map((post, index) => {
+          let field: any = {};
+          try { field = JSON.parse(post.getAttribute('data-field') || '{}'); } catch {}
+          const author = field.author || {};
+          const content = field.content || {};
+          return {
+            id: String(content.post_id || post.getAttribute('data-pid') || `${Date.now()}-${index}`),
+            parentId: String(content.post_id === content.thread_id ? '' : content.thread_id || ''),
+            text: post.querySelector('.d_post_content')?.textContent?.trim() || '',
+            authorId: String(author.user_id || author.portrait || ''),
+            authorName: author.user_name || post.querySelector('.p_author_name')?.textContent?.trim() || '',
+            time: content.date || post.querySelector('.tail-info:last-child')?.textContent?.trim() || '',
+            subCount: Number(content.comment_num || 0),
+          };
+        }).filter((post) => post.text);
+        return { title, forum, posts };
+      });
+      const first = detail.posts[0] || {};
+      const record = {
+        note_id: noteId, title: detail.title || first.text?.slice(0, 100) || '', desc: first.text || '',
+        note_url: noteUrl, publish_time: first.time || '', creator_hash: first.authorId || '',
+        user_nickname: first.authorName || '', tieba_name: detail.forum || '',
+        tieba_link: detail.forum ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(detail.forum.replace(/吧$/, ''))}` : '',
+        total_replay_num: Math.max(0, detail.posts.length - 1), total_replay_page: 1, source_keyword: sourceKeyword,
+      };
+      await dbStore.storeTiebaNote(record);
+      if (activeConfig.ENABLE_GET_COMMENTS) {
+        for (const post of detail.posts.slice(1, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES + 1)) {
+          await dbStore.storeTiebaComment({
+            comment_id: post.id, parent_comment_id: post.parentId, content: post.text,
+            creator_hash: post.authorId, user_nickname: post.authorName,
+            tieba_name: detail.forum || '', tieba_link: record.tieba_link,
+            publish_time: post.time, sub_comment_count: post.subCount,
+            note_id: noteId, note_url: noteUrl,
+          });
+        }
+      }
+      console.log(`[TIEBA] Stored thread ${noteId} with ${Math.max(0, detail.posts.length - 1)} visible replies`);
+      return record;
+    } catch (error: any) {
+      console.error(`[TIEBA] Failed to collect thread ${target}: ${error.message}`);
+      return null;
+    }
+  }
+
+  public async getSpecifiedThreads(): Promise<void> {
+    for (const target of configuredTargets('tieba', 'detail')) await this.getThreadDetail(target, '指定帖子');
+  }
+
+  public async getSubjectsAndThreads(): Promise<void> {
+    for (const target of configuredTargets('tieba', 'creator')) {
+      const isUser = /home\/main|portrait=|un=/.test(target);
+      const resolved = /^https?:\/\//i.test(target) ? await resolveRedirect(this.page!, target) : target;
+      const url = isUser
+        ? resolved
+        : `https://tieba.baidu.com/f?kw=${encodeURIComponent(firstMatch(resolved, [/[?&]kw=([^&#]+)/i]).replace(/吧$/, ''))}`;
+      await this.page!.goto(url, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(1800);
+      const links = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/p/"]'))
+        .map((link) => link.getAttribute('href')?.match(/\/p\/(\d+)/)?.[1] || '').filter(Boolean));
+      const unique = [...new Set(links)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      console.log(`[TIEBA] Subject ${target}: discovered ${unique.length} threads`);
+      for (const id of unique) await this.getThreadDetail(id, `主体:${target}`);
     }
   }
 }

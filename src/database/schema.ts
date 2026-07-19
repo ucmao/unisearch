@@ -350,6 +350,7 @@ export function initSchema(db: Database): void {
       config_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_runs_started_at ON crawl_runs(started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runs_task_id ON crawl_runs(task_id);
 
     -- Content Records Table (Normalized analytical contents)
     CREATE TABLE IF NOT EXISTS content_records (
@@ -374,6 +375,7 @@ export function initSchema(db: Database): void {
       views INTEGER NOT NULL DEFAULT 0,
       engagement INTEGER NOT NULL DEFAULT 0,
       source_file TEXT NOT NULL DEFAULT '',
+      source_metadata TEXT NOT NULL DEFAULT '{}',
       ingested_at TEXT NOT NULL,
       FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE,
       UNIQUE(run_id, platform, content_id, keyword)
@@ -445,38 +447,4 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
   `);
 
-  // Older databases predate the parent task layer. Keep every historical run as
-  // its own task so existing analytics remain selectable after the migration.
-  const runColumns = new Set(
-    db.prepare("PRAGMA table_info(crawl_runs)").all().map((column: any) => column.name)
-  );
-  if (!runColumns.has('task_id')) db.exec("ALTER TABLE crawl_runs ADD COLUMN task_id TEXT NOT NULL DEFAULT ''");
-  if (!runColumns.has('task_title')) db.exec("ALTER TABLE crawl_runs ADD COLUMN task_title TEXT NOT NULL DEFAULT ''");
-  db.exec("UPDATE crawl_runs SET task_id = run_id WHERE task_id = ''");
-  db.exec("UPDATE crawl_runs SET task_title = task_name WHERE task_title = ''");
-  // Runs created by the AI workspace used to have no parent task metadata, but
-  // agent_plan_steps already records the authoritative run -> plan relation.
-  // Reconcile it on every startup so databases migrated by an older build are
-  // corrected as well.
-  db.exec(`
-    UPDATE crawl_runs
-    SET task_id = (
-      SELECT step.plan_id
-      FROM agent_plan_steps step
-      WHERE step.run_id = crawl_runs.run_id
-      LIMIT 1
-    ),
-    task_title = COALESCE((
-      SELECT COALESCE(thread.title, plan.goal)
-      FROM agent_plan_steps step
-      JOIN agent_plans plan ON plan.plan_id = step.plan_id
-      LEFT JOIN agent_threads thread ON thread.thread_id = plan.thread_id
-      WHERE step.run_id = crawl_runs.run_id
-      LIMIT 1
-    ), task_title)
-    WHERE EXISTS (
-      SELECT 1 FROM agent_plan_steps step WHERE step.run_id = crawl_runs.run_id
-    )
-  `);
-  db.exec("CREATE INDEX IF NOT EXISTS idx_runs_task_id ON crawl_runs(task_id)");
 }

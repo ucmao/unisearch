@@ -4,6 +4,7 @@ import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
 import fs from 'fs';
+import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class BilibiliCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -47,6 +48,10 @@ export class BilibiliCrawler extends AbstractCrawler {
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
       await this.search();
+    } else if (activeConfig.CRAWLER_TYPE === 'detail') {
+      await this.getSpecifiedVideos();
+    } else if (activeConfig.CRAWLER_TYPE === 'creator') {
+      await this.getCreatorsAndVideos();
     }
 
     console.log('[BILI] Bilibili crawler finished.');
@@ -54,6 +59,10 @@ export class BilibiliCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[BILI] Checking login state...');
+    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
+      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.bilibili.com');
+      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+    }
     let isLoggedIn = await this.checkLoginState();
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
@@ -187,6 +196,9 @@ export class BilibiliCrawler extends AbstractCrawler {
           };
 
           await dbStore.storeBilibiliVideo(videoDetail);
+          if (activeConfig.ENABLE_GET_COMMENTS && detail.aid) {
+            await this.getVideoComments(String(detail.aid), v.video_id);
+          }
           count++;
           
           await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
@@ -194,6 +206,95 @@ export class BilibiliCrawler extends AbstractCrawler {
       } catch (err: any) {
         console.error(`[BILI] Search error for keyword ${keyword}:`, err.message);
       }
+    }
+  }
+
+  private async fetchVideoDetail(target: string, sourceKeyword: string): Promise<any | null> {
+    const resolved = await resolveRedirect(this.page!, target);
+    const bvid = firstMatch(resolved, [/video\/(BV[a-zA-Z0-9]+)/i, /\b(BV[a-zA-Z0-9]+)\b/i]);
+    const aid = firstMatch(resolved, [/video\/av(\d+)/i, /\bav(\d+)\b/i, /[?&]aid=(\d+)/i, /^\s*(\d+)\s*$/]);
+    const useBvid = /^BV/i.test(bvid);
+    const apiUrl = useBvid
+      ? `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`
+      : `https://api.bilibili.com/x/web-interface/view?aid=${encodeURIComponent(aid)}`;
+    const result = await this.page!.evaluate(async (url) => (await fetch(url)).json(), apiUrl);
+    if (!result || result.code !== 0 || !result.data) {
+      console.error(`[BILI] Detail API rejected target ${target}: ${result?.message || result?.code || 'unknown'}`);
+      return null;
+    }
+    const detail = result.data;
+    const video = {
+      video_id: detail.bvid || String(detail.aid),
+      video_url: `https://www.bilibili.com/video/${detail.bvid || `av${detail.aid}`}`,
+      creator_hash: String(detail.owner?.mid || ''),
+      nickname: detail.owner?.name || '',
+      liked_count: Number(detail.stat?.like || 0),
+      video_type: 'video',
+      title: detail.title || '',
+      desc: detail.desc || '',
+      create_time: detail.pubdate || 0,
+      disliked_count: String(detail.stat?.dislike || 0),
+      video_play_count: String(detail.stat?.view || 0),
+      video_favorite_count: String(detail.stat?.favorite || 0),
+      video_share_count: String(detail.stat?.share || 0),
+      video_coin_count: String(detail.stat?.coin || 0),
+      video_danmaku: String(detail.stat?.danmaku || 0),
+      video_comment: String(detail.stat?.reply || 0),
+      video_cover_url: detail.pic || '',
+      source_keyword: sourceKeyword,
+    };
+    await dbStore.storeBilibiliVideo(video);
+    if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(String(detail.aid), video.video_id);
+    return video;
+  }
+
+  private async getVideoComments(aid: string, videoId: string): Promise<void> {
+    const pageSize = Math.min(activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES, 49);
+    const url = `https://api.bilibili.com/x/v2/reply?type=1&oid=${encodeURIComponent(aid)}&pn=1&ps=${pageSize}&sort=2`;
+    try {
+      const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl)).json(), url);
+      if (!result || result.code !== 0) {
+        throw new Error(result?.message || `Bilibili API code ${result?.code ?? 'unknown'}`);
+      }
+      const replies = result?.data?.replies || [];
+      for (const reply of replies.slice(0, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES)) {
+        await dbStore.storeBilibiliComment({
+          comment_id: String(reply.rpid || ''), video_id: videoId, content: reply.content?.message || '',
+          create_time: reply.ctime || 0, creator_hash: String(reply.mid || ''), nickname: reply.member?.uname || '',
+          sub_comment_count: reply.rcount || 0, parent_comment_id: '', like_count: reply.like || 0,
+        });
+        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
+          for (const child of (reply.replies || [])) {
+            await dbStore.storeBilibiliComment({
+              comment_id: String(child.rpid || ''), video_id: videoId, content: child.content?.message || '',
+              create_time: child.ctime || 0, creator_hash: String(child.mid || ''), nickname: child.member?.uname || '',
+              sub_comment_count: 0, parent_comment_id: String(reply.rpid || ''), like_count: child.like || 0,
+            });
+          }
+        }
+      }
+      console.log(`[BILI] Stored ${replies.length} comments for ${videoId}`);
+    } catch (error: any) {
+      console.error(`[BILI] Failed to collect comments for ${videoId}: ${error.message}`);
+    }
+  }
+
+  public async getSpecifiedVideos(): Promise<void> {
+    const targets = configuredTargets('bili', 'detail');
+    for (const target of targets) await this.fetchVideoDetail(target, '指定作品');
+  }
+
+  public async getCreatorsAndVideos(): Promise<void> {
+    for (const target of configuredTargets('bili', 'creator')) {
+      const mid = firstMatch(target, [/space\.bilibili\.com\/(\d+)/i, /\b(\d+)\b/]);
+      await this.page!.goto(`https://space.bilibili.com/${encodeURIComponent(mid)}/video`, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(2500);
+      const bvids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/BV"]'))
+        .map((link) => link.getAttribute('href')?.match(/\/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '')
+        .filter(Boolean));
+      const unique = [...new Set(bvids)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      console.log(`[BILI] Creator ${mid}: discovered ${unique.length} videos`);
+      for (const bvid of unique) await this.fetchVideoDetail(bvid, `UP:${mid}`);
     }
   }
 }

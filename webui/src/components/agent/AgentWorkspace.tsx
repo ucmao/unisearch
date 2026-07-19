@@ -179,7 +179,7 @@ function PlanCard({ plan, onExecute, executing, onOpenResults }: {
         <p className="mt-2 text-xs leading-relaxed text-cyber-text-secondary">{plan.plan.goal}</p>
       </div>
       <div className="grid gap-3 p-4 sm:grid-cols-2">
-        <div><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">关键词</p><div className="mt-1.5 flex flex-wrap gap-1.5">{plan.plan.keywords.map((item) => <Badge key={item} variant="outline">{item}</Badge>)}</div></div>
+        <div><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{plan.plan.capability && plan.plan.capability !== 'keyword_search' ? '目标' : '关键词'}</p><div className="mt-1.5 flex flex-wrap gap-1.5">{(plan.plan.capability && plan.plan.capability !== 'keyword_search' ? plan.plan.targets || [] : plan.plan.keywords).map((item) => <Badge key={item} variant="outline">{item}</Badge>)}</div></div>
         <div><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">分析目标</p><p className="mt-1.5 text-xs text-cyber-text-secondary">{plan.plan.analysis.join(' · ')}</p></div>
       </div>
       <div className="space-y-2 border-t border-cyber-border-subtle px-4 py-3">
