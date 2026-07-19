@@ -27,8 +27,8 @@ const levelConfig: Record<string, { text: string; bg: string; glow: string }> = 
     glow: 'shadow-[0_0_3px_rgba(255,0,128,0.3)]'
   },
   debug: {
-    text: 'text-[#8b949e]',
-    bg: 'bg-[#21262d]',
+    text: 'text-cyber-text-muted',
+    bg: 'bg-cyber-bg-tertiary',
     glow: ''
   },
 }
@@ -48,9 +48,9 @@ export function TerminalLine({ log }: TerminalLineProps) {
   const message = log.message.replace(mediaRadarLogPrefix, '')
 
   return (
-    <div className="flex gap-2 text-xs leading-relaxed font-mono group hover:bg-[#21262d]/50 px-1 -mx-1 rounded transition-colors">
+    <div className="group -mx-1 flex gap-2 rounded px-1 font-mono text-xs leading-relaxed transition-colors hover:bg-cyber-bg-tertiary/50">
       {/* Timestamp */}
-      <span className="text-[#8b949e] flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+      <span className="flex-shrink-0 text-cyber-text-muted opacity-70 transition-opacity group-hover:opacity-100">
         [{log.timestamp}]
       </span>
 
