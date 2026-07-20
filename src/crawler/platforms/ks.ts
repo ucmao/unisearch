@@ -1,5 +1,5 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium, createHeadlessLaunchOptions } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
@@ -12,10 +12,14 @@ export class KuaishouCrawler extends AbstractCrawler {
   public cdpManager: CDPBrowserManager | null = null;
 
   public async start(): Promise<void> {
-    console.log('[KS] Starting Kuaishou crawler...');
+    console.log('[KS] Starting Kuaishou crawler (headless mode)...');
     const p = require('playwright');
     
-    if (activeConfig.ENABLE_CDP_MODE) {
+    // First try connecting to Electron's built-in Chromium engine
+    this.browserContext = await connectToElectronChromium(p);
+    if (this.browserContext) {
+      this.page = await this.browserContext.newPage();
+    } else if (activeConfig.ENABLE_CDP_MODE) {
       this.cdpManager = new CDPBrowserManager();
       this.browserContext = await this.cdpManager.launchAndConnect(p);
       this.page = await this.cdpManager.newPage();
@@ -26,17 +30,13 @@ export class KuaishouCrawler extends AbstractCrawler {
         'browser_data',
         activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM)
       );
-      this.browserContext = await p.chromium.launchPersistentContext(userDataDir, {
-        headless: activeConfig.HEADLESS,
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-blink-features=AutomationControlled',
-        ],
-      });
+      const launchOptions = createHeadlessLaunchOptions();
+      this.browserContext = await p.chromium.launchPersistentContext(userDataDir, launchOptions);
       this.page = this.browserContext.pages().length > 0 ? this.browserContext.pages()[0] : await this.browserContext.newPage();
     }
+
+
+
 
     const stealthPath = 'libs/stealth.min.js';
     if (fs.existsSync(stealthPath)) {

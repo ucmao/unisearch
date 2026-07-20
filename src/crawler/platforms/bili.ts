@@ -1,5 +1,5 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium, createHeadlessLaunchOptions, notifyLoginQrCodeRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
@@ -12,10 +12,15 @@ export class BilibiliCrawler extends AbstractCrawler {
   public cdpManager: CDPBrowserManager | null = null;
 
   public async start(): Promise<void> {
-    console.log('[BILI] Starting Bilibili crawler...');
+    console.log('[BILI] Starting Bilibili crawler (headless mode)...');
     
     const p = require('playwright');
-    if (activeConfig.ENABLE_CDP_MODE) {
+    
+    // First try connecting to Electron's built-in Chromium engine
+    this.browserContext = await connectToElectronChromium(p);
+    if (this.browserContext) {
+      this.page = await this.browserContext.newPage();
+    } else if (activeConfig.ENABLE_CDP_MODE) {
       this.cdpManager = new CDPBrowserManager();
       this.browserContext = await this.cdpManager.launchAndConnect(p);
       this.page = await this.cdpManager.newPage();
@@ -26,17 +31,13 @@ export class BilibiliCrawler extends AbstractCrawler {
         'browser_data',
         activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM)
       );
-      this.browserContext = await p.chromium.launchPersistentContext(userDataDir, {
-        headless: activeConfig.HEADLESS,
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-blink-features=AutomationControlled',
-        ],
-      });
+      const launchOptions = createHeadlessLaunchOptions();
+      this.browserContext = await p.chromium.launchPersistentContext(userDataDir, launchOptions);
       this.page = this.browserContext.pages().length > 0 ? this.browserContext.pages()[0] : await this.browserContext.newPage();
     }
+
+
+
 
     const stealthPath = 'libs/stealth.min.js';
     if (fs.existsSync(stealthPath)) {
@@ -73,18 +74,37 @@ export class BilibiliCrawler extends AbstractCrawler {
         // Ignored
       }
       
+      await new Promise((r) => setTimeout(r, 1500));
+      // Capture QR code image / modal screenshot
+      try {
+        let qrBase64 = '';
+        const qrEl = await this.page!.$('.bili-mini-login-pop, .login-scan-box, div.qrcode-img, canvas');
+        if (qrEl) {
+          const buf = await qrEl.screenshot({ type: 'png' });
+          qrBase64 = `data:image/png;base64,${buf.toString('base64')}`;
+        } else {
+          const buf = await this.page!.screenshot({ type: 'png' });
+          qrBase64 = `data:image/png;base64,${buf.toString('base64')}`;
+        }
+        notifyLoginQrCodeRequired('bili', qrBase64);
+      } catch (err: any) {
+        console.error('[BILI] Failed to capture QR code:', err.message);
+      }
+
       console.log('[BILI] Waiting for user to scan Bilibili QR code...');
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[BILI] Login successful!');
+          notifyLoginSuccess('bili');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
       }
     }
   }
+
 
   private async checkLoginState(): Promise<boolean> {
     try {

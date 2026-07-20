@@ -169,18 +169,22 @@ export class AgentService {
   }
 
   private isExplicitMemoryRequest(text: string): boolean {
-    return /记住|记得我|请记得|别忘了|忘记|删除.*记忆|以后(?:叫我|称呼我|回复|回答)|我叫|我的名字是/.test(text);
+    return /记住|记得我|请记得|别忘了|忘记|删除.*记忆|以后(?:叫我|称呼我|回复|回答)|我叫|我的名字是|你叫/.test(text);
   }
 
   private scheduleMemoryCapture(threadId: string, latestUserText: string) {
     const settings = agentRepository.getMemorySettings();
     if (!settings.enabled || !settings.autoCapture) return;
-    const explicit = this.isExplicitMemoryRequest(latestUserText);
+
+    // 过滤无实质意义的简单字符
+    const trimmed = latestUserText.trim();
+    if (!trimmed || /^(好|嗯|对|是的|收到|ok|1|666|Thanks|谢谢)$/i.test(trimmed)) return;
+
     const thread = agentRepository.getThread(threadId);
     const userMessages = (thread?.messages || []).filter((message: any) => message.role === 'user');
-    if (!explicit && (settings.captureMode === 'conservative' || userMessages.length % 6 !== 0)) return;
+    if (!userMessages.length) return;
 
-    const recent = userMessages.slice(-8).map((message: any) => ({
+    const recent = userMessages.slice(-6).map((message: any) => ({
       messageId: String(message.message_id),
       content: String(message.content).slice(0, 1200),
     }));
@@ -199,11 +203,10 @@ export class AgentService {
           : 'context';
         const confidence = Math.max(0, Math.min(1, Number(memory.confidence) || 0));
         const importance = Math.max(0, Math.min(1, Number(memory.importance) || 0.5));
-        const status = explicit && confidence >= 0.65
-          ? 'active'
-          : confidence >= 0.86 && importance >= 0.45
-            ? 'active'
-            : 'candidate';
+        
+        // 智能提取出的记忆，置信度达到 0.6 即可直接置为 active (生效)，无需用户手动确认
+        const status = confidence >= 0.6 ? 'active' : 'candidate';
+        
         agentRepository.upsertMemory({
           category: category as 'identity' | 'preference' | 'context' | 'rule',
           memoryKey,

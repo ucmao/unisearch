@@ -7,7 +7,12 @@ import { startServer, stopServer } from '../server';
 app.setName('UniSearch');
 process.title = 'UniSearch';
 
+// Enable CDP remote debugging on Electron's built-in Chromium
+app.commandLine.appendSwitch('remote-debugging-port', '9222');
+app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+
 let mainWindow: BrowserWindow | null = null;
+
 let apiPort = 8080;
 
 function getAppIconPath(): string | undefined {

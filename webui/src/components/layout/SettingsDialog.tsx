@@ -302,73 +302,90 @@ export function SettingsDialog({
               <div className="mx-auto max-w-2xl">
                 <DialogHeader>
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">记忆</DialogTitle>
-                  <DialogDescription>让 AI 在不同对话中记住你的长期偏好和背景。记忆保存在本机。</DialogDescription>
+                  <DialogDescription>配置 UniSearch 如何收集、保留和整合记忆。记忆保存在本机。</DialogDescription>
                 </DialogHeader>
                 {memorySettingsQuery.isLoading || memoriesQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取记忆…</div>
                 ) : memorySettingsQuery.data ? (
-                  <div className="mt-6 space-y-5">
+                  <div className="mt-6 space-y-6">
                     <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
-                      <div className="flex items-center justify-between gap-5 py-3.5">
-                        <div><p className="text-sm font-medium">启用记忆</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">总开关，关闭后不会生成或调用记忆</p></div>
+                      <div className="flex items-center justify-between gap-5 py-4">
+                        <div>
+                          <p className="text-sm font-medium text-cyber-text-primary">启用记忆</p>
+                          <p className="mt-0.5 text-xs text-cyber-text-muted">从对话与任务中自动提取新记忆，并将其带入新对话</p>
+                        </div>
                         <SettingToggle checked={memorySettingsQuery.data.enabled} onChange={(enabled) => saveMemorySettings.mutate({ enabled })} />
                       </div>
-                      <div className="flex items-center justify-between gap-5 py-3.5">
-                        <div><p className="text-sm font-medium">自动生成记忆</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">在明确要求或阶段性对话后提取稳定信息</p></div>
+                      <div className="flex items-center justify-between gap-5 py-4">
+                        <div>
+                          <p className="text-sm font-medium text-cyber-text-primary">允许从采集与分析任务生成记忆</p>
+                          <p className="mt-0.5 text-xs text-cyber-text-muted">根据使用了网页采集、数据检索或工具辅助的任务生成记忆</p>
+                        </div>
                         <SettingToggle disabled={!memorySettingsQuery.data.enabled} checked={memorySettingsQuery.data.autoCapture} onChange={(autoCapture) => saveMemorySettings.mutate({ autoCapture })} />
                       </div>
-                      <div className="flex items-center justify-between gap-5 py-3.5">
-                        <div><p className="text-sm font-medium">自动调用记忆</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">回复前仅选取与当前问题相关的少量记忆</p></div>
-                        <SettingToggle disabled={!memorySettingsQuery.data.enabled} checked={memorySettingsQuery.data.autoRecall} onChange={(autoRecall) => saveMemorySettings.mutate({ autoRecall })} />
-                      </div>
-                      <div className="flex items-center justify-between gap-5 py-3.5">
-                        <div><p className="text-sm font-medium">写入模式</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">保守模式只响应明确的“记住”指令</p></div>
-                        <Select value={memorySettingsQuery.data.captureMode} disabled={!memorySettingsQuery.data.enabled || !memorySettingsQuery.data.autoCapture} onValueChange={(captureMode: MemorySettings['captureMode']) => saveMemorySettings.mutate({ captureMode })}>
-                          <SelectTrigger className="h-9 w-28 shrink-0 bg-cyber-bg-panel text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="balanced">平衡模式</SelectItem><SelectItem value="conservative">保守模式</SelectItem></SelectContent>
-                        </Select>
-                      </div>
-                      <div className="flex items-center justify-between gap-5 py-3.5">
-                        <div><p className="text-sm font-medium">每次调用数量</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">限制单次对话注入的长期记忆数量</p></div>
-                        <Select value={String(memorySettingsQuery.data.recallLimit)} disabled={!memorySettingsQuery.data.enabled || !memorySettingsQuery.data.autoRecall} onValueChange={(value) => saveMemorySettings.mutate({ recallLimit: Number(value) })}>
-                          <SelectTrigger className="h-9 w-28 shrink-0 bg-cyber-bg-panel text-xs"><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="5">5 条</SelectItem><SelectItem value="8">8 条</SelectItem><SelectItem value="12">12 条</SelectItem></SelectContent>
-                        </Select>
+                      <div className="flex items-center justify-between gap-5 py-4">
+                        <div>
+                          <p className="text-sm font-medium text-cyber-text-primary">重置记忆</p>
+                          <p className="mt-0.5 text-xs text-cyber-text-muted">删除所有已保存的 UniSearch 记忆</p>
+                        </div>
+                        {memoriesQuery.data?.length ? (
+                          <DeleteConfirmDialog
+                            trigger={<Button size="sm" variant="destructive" className="h-8 border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20" disabled={clearMemories.isPending}>重置</Button>}
+                            title="重置全部记忆？"
+                            description="所有已保存的偏好和背景记忆都将被删除，此操作无法撤销。"
+                            confirmLabel="确认重置"
+                            onConfirm={() => clearMemories.mutateAsync()}
+                          />
+                        ) : (
+                          <Button size="sm" variant="ghost" disabled className="h-8 opacity-40">重置</Button>
+                        )}
                       </div>
                     </div>
 
-                    <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-[10px] leading-relaxed text-cyber-text-muted">只从你亲自发送的文字中提取记忆，不读取 AI 回复、附件或采集结果。生成记忆时，近期用户消息会发送给当前配置的模型。</p>
-
                     <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <div><p className="text-sm font-medium">已保存的记忆</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">{memoriesQuery.data?.length || 0} 条 · 候选记忆需要确认后才会调用</p></div>
-                        {memoriesQuery.data?.length ? <DeleteConfirmDialog
-                          trigger={<Button size="sm" variant="ghost" className="text-cyber-neon-pink hover:text-cyber-neon-pink" disabled={clearMemories.isPending}><Trash2 />清空</Button>}
-                          title="清空全部永久记忆？"
-                          description="所有已保存和候选记忆都会被删除，此操作无法撤销。"
-                          confirmLabel="全部清空"
-                          onConfirm={() => clearMemories.mutateAsync()}
-                        /> : null}
+                      <div className="mb-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-cyber-text-primary">已保存的记忆</p>
+                          <p className="mt-0.5 text-xs text-cyber-text-muted">共 {memoriesQuery.data?.length || 0} 条记忆</p>
+                        </div>
                       </div>
                       <div className="space-y-2">
-                        {!memoriesQuery.data?.length ? <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-8 text-center text-xs text-cyber-text-muted">还没有记忆。你可以在对话中说“请记住……”</div> : null}
+                        {!memoriesQuery.data?.length ? (
+                          <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-8 text-center text-xs text-cyber-text-muted">
+                            暂无记忆。在与 AI 对话时提及你的称呼、习惯或偏好，AI 会自动智能记住。
+                          </div>
+                        ) : null}
                         {memoriesQuery.data?.map((memory) => (
-                          <div key={memory.memory_id} className={`rounded-xl border p-3 ${memory.status === 'candidate' ? 'border-cyber-neon-orange/35 bg-cyber-neon-orange/5' : 'border-cyber-border-subtle bg-cyber-bg-secondary/35'}`}>
+                          <div key={memory.memory_id} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-3.5 transition-colors hover:border-cyber-border-default">
                             <div className="flex items-start gap-3">
                               <div className="min-w-0 flex-1">
-                                <div className="mb-1.5 flex items-center gap-2"><span className="rounded bg-cyber-bg-tertiary px-1.5 py-0.5 text-[9px] text-cyber-text-secondary">{memoryCategoryLabels[memory.category]}</span>{memory.status === 'candidate' ? <span className="text-[9px] text-cyber-neon-orange">待确认</span> : null}</div>
-                                {editMemoryId === memory.memory_id ? <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" /> : <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>}
-                                <p className="mt-1 text-[9px] text-cyber-text-muted">更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</p>
+                                <div className="mb-1.5 flex items-center gap-2">
+                                  <span className="rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary">
+                                    {memoryCategoryLabels[memory.category] || '记忆'}
+                                  </span>
+                                  {memory.status === 'candidate' ? <span className="text-[10px] text-cyber-neon-orange">待验证</span> : null}
+                                </div>
+                                {editMemoryId === memory.memory_id ? (
+                                  <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />
+                                ) : (
+                                  <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>
+                                )}
+                                <p className="mt-1.5 text-[10px] text-cyber-text-muted">
+                                  更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}
+                                </p>
                               </div>
                               <div className="flex shrink-0 items-center gap-1">
-                                {editMemoryId === memory.memory_id ? <>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check /></Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X /></Button>
-                                </> : <>
-                                  {memory.status === 'candidate' ? <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-green" onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { status: 'active' } })} title="确认记忆"><Check /></Button> : null}
-                                  <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditMemoryId(memory.memory_id); setEditMemoryContent(memory.content) }} title="编辑"><Pencil /></Button>
-                                  <Button size="icon" variant="ghost" className="h-7 w-7 hover:text-cyber-neon-pink" disabled={deleteMemory.isPending} onClick={() => deleteMemory.mutate(memory.memory_id)} title="删除"><Trash2 /></Button>
-                                </>}
+                                {editMemoryId === memory.memory_id ? (
+                                  <>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => { setEditMemoryId(memory.memory_id); setEditMemoryContent(memory.content) }} title="编辑"><Pencil className="h-3.5 w-3.5" /></Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-neon-pink" disabled={deleteMemory.isPending} onClick={() => deleteMemory.mutate(memory.memory_id)} title="删除"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </div>

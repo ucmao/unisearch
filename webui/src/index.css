@@ -141,42 +141,43 @@
    Cyberpunk Scrollbar Styles
    ============================ */
 
-/* Default scrollbar - Light */
+/* Default scrollbar - Ultra-thin, floating overlay style */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--cyber-bg-secondary));
-  border-left: 1px solid rgb(var(--cyber-neon-cyan) / 0.1);
+  background: transparent;
+  border: none;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgb(var(--cyber-neon-cyan) / 0.4), rgb(var(--cyber-neon-pink) / 0.3));
-  border-radius: 0;
+  background: rgb(var(--cyber-text-muted) / 0.2);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgb(var(--cyber-neon-cyan) / 0.6), rgb(var(--cyber-neon-pink) / 0.5));
+  background: rgb(var(--cyber-text-muted) / 0.5);
 }
 
 ::-webkit-scrollbar-corner {
-  background: rgb(var(--cyber-bg-secondary));
+  background: transparent;
 }
 
 /* Terminal scrollbar follows the active theme */
 .terminal-scroll::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 
 .terminal-scroll::-webkit-scrollbar-track {
-  background: rgb(var(--cyber-bg-panel));
+  background: transparent;
 }
 
 .terminal-scroll::-webkit-scrollbar-thumb {
-  background: rgb(var(--cyber-text-muted) / 0.35);
-  border-radius: 999px;
+  background: rgb(var(--cyber-text-muted) / 0.25);
+  border-radius: 9999px;
 }
 
 .terminal-scroll::-webkit-scrollbar-thumb:hover {
