@@ -9,8 +9,17 @@ __pycache__/
 # Distribution / packaging
 .Python
 build/
+!build/
+build/*
+!build/icon.png
+!build/icon-source.png
+!build/icon-windows.png
+!build/icon-circle.png
+!build/icon.icns
+!build/icon.ico
 develop-eggs/
 dist/
+release/
 downloads/
 eggs/
 .eggs/

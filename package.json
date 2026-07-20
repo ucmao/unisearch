@@ -46,11 +46,17 @@
       "api/webui/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "dist/crawler/worker.js"
+    ],
     "mac": {
+      "icon": "build/icon.icns",
       "target": "dmg",
       "category": "public.app-category.utilities"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": "nsis"
     }
   }

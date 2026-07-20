@@ -412,7 +412,8 @@ export const configApi = {
 export const agentApi = {
   listThreads: () => api.get<{ items: AgentThreadSummary[] }>('/agent/threads'),
   listReferenceableTasks: () => api.get<{ items: AgentTaskReference[] }>('/agent/referenceable-tasks'),
-  createThread: (title?: string) => api.post<AgentThread>('/agent/threads', { title }),
+  createThread: (title?: string, addWelcomeMessage = true) =>
+    api.post<AgentThread>('/agent/threads', { title, add_welcome_message: addWelcomeMessage }),
   getThread: (threadId: string) => api.get<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`),
   renameThread: (threadId: string, title: string) => api.patch<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`, { title }),
   deleteThread: (threadId: string) => api.delete(`/agent/threads/${encodeURIComponent(threadId)}`),

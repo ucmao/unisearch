@@ -5,9 +5,16 @@ import net from 'net';
 import { startServer, stopServer } from '../server';
 
 app.setName('UniSearch');
+process.title = 'UniSearch';
 
 let mainWindow: BrowserWindow | null = null;
 let apiPort = 8080;
+
+function getAppIconPath(): string | undefined {
+  const iconFilename = process.platform === 'darwin' ? 'icon.png' : 'icon-windows.png';
+  const iconPath = path.join(app.getAppPath(), 'build', iconFilename);
+  return fs.existsSync(iconPath) ? iconPath : undefined;
+}
 
 // Helper to find a free port
 function getFreePort(startPort = 8080): Promise<number> {
@@ -35,6 +42,7 @@ function createWindow(port: number): void {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    icon: getAppIconPath(),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -67,6 +75,11 @@ function createWindow(port: number): void {
 
 app.on('ready', async () => {
   try {
+    const iconPath = getAppIconPath();
+    if (process.platform === 'darwin' && iconPath) {
+      app.dock.setIcon(iconPath);
+    }
+
     apiPort = await getFreePort(8080);
     console.log(`[Electron] Starting Fastify API on free port: ${apiPort}`);
     

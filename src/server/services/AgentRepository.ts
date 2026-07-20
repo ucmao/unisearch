@@ -69,12 +69,14 @@ export class AgentRepository {
 
   private get db(): Database { return this.databaseProvider(); }
 
-  createThread(title = '新建情报任务', titleLocked = false) {
+  createThread(title = '新建情报任务', titleLocked = false, addWelcomeMessage = true) {
     const threadId = id();
     const now = new Date().toISOString();
     this.db.prepare(`INSERT INTO agent_threads (thread_id, title, title_source, title_locked, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'active', ?, ?)`)
       .run(threadId, title, titleLocked ? 'manual' : 'default', titleLocked ? 1 : 0, now, now);
-    this.addMessage(threadId, 'assistant', 'text', '你好，我既可以陪你正常对话，也可以在需要时帮你规划跨平台内容采集与分析。你想先聊什么？');
+    if (addWelcomeMessage) {
+      this.addMessage(threadId, 'assistant', 'text', '你好，想聊点什么，还是开始一项调研？');
+    }
     return this.getThread(threadId);
   }
 
