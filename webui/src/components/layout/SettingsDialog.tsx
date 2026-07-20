@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select'
 import { agentApi, type AgentMemory, type MemorySettings, type ModelProfile } from '@/lib/api'
 import { useThemeStore } from '@/store/themeStore'
+import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
 export type SettingsSection = 'appearance' | 'models' | 'memory'
@@ -341,7 +342,13 @@ export function SettingsDialog({
                     <div>
                       <div className="mb-2 flex items-center justify-between">
                         <div><p className="text-sm font-medium">已保存的记忆</p><p className="mt-0.5 text-[10px] text-cyber-text-muted">{memoriesQuery.data?.length || 0} 条 · 候选记忆需要确认后才会调用</p></div>
-                        {memoriesQuery.data?.length ? <Button size="sm" variant="ghost" className="text-cyber-neon-pink hover:text-cyber-neon-pink" disabled={clearMemories.isPending} onClick={() => { if (confirm('清空全部永久记忆？此操作无法撤销。')) clearMemories.mutate() }}><Trash2 />清空</Button> : null}
+                        {memoriesQuery.data?.length ? <DeleteConfirmDialog
+                          trigger={<Button size="sm" variant="ghost" className="text-cyber-neon-pink hover:text-cyber-neon-pink" disabled={clearMemories.isPending}><Trash2 />清空</Button>}
+                          title="清空全部永久记忆？"
+                          description="所有已保存和候选记忆都会被删除，此操作无法撤销。"
+                          confirmLabel="全部清空"
+                          onConfirm={() => clearMemories.mutateAsync()}
+                        /> : null}
                       </div>
                       <div className="space-y-2">
                         {!memoriesQuery.data?.length ? <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-8 text-center text-xs text-cyber-text-muted">还没有记忆。你可以在对话中说“请记住……”</div> : null}

@@ -263,6 +263,82 @@
     0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.1);
 }
 
+/* Petdex sprite: 1536x1872, arranged as an 8x9 grid of 192x208 frames. */
+.codex-pet {
+  display: block;
+  width: 96px;
+  height: 104px;
+  flex: none;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background-color: transparent;
+  background-image: url('/assets/codex-pet.webp');
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: 768px 936px;
+  image-rendering: pixelated;
+  cursor: pointer;
+  filter: drop-shadow(0 12px 18px rgb(var(--cyber-neon-purple) / 0.16));
+  animation: codex-pet-idle 0.9s steps(1, end) infinite;
+  transition: filter 160ms ease, transform 160ms ease;
+}
+
+.codex-pet:hover,
+.codex-pet:focus-visible {
+  animation: codex-pet-cool 0.65s steps(1, end) infinite;
+  filter: drop-shadow(0 14px 20px rgb(var(--cyber-neon-purple) / 0.28));
+  outline: none;
+  transform: translateY(-2px);
+}
+
+.codex-pet:focus-visible {
+  border-radius: 18px;
+  box-shadow: 0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.28);
+}
+
+.codex-pet.codex-pet--celebrate,
+.codex-pet.codex-pet--celebrate:hover,
+.codex-pet.codex-pet--celebrate:focus-visible {
+  animation: codex-pet-celebrate 0.8s steps(1, end) both;
+  filter: drop-shadow(0 16px 22px rgb(var(--cyber-neon-cyan) / 0.3));
+  transform: translateY(-3px) scale(1.04);
+}
+
+@keyframes codex-pet-idle {
+  0%, 16.66% { background-position: 0 0; }
+  16.67%, 33.32% { background-position: -96px 0; }
+  33.33%, 49.99% { background-position: -192px 0; }
+  50%, 66.66% { background-position: -288px 0; }
+  66.67%, 83.32% { background-position: -384px 0; }
+  83.33%, 100% { background-position: -480px 0; }
+}
+
+@keyframes codex-pet-cool {
+  0%, 24.99% { background-position: 0 -312px; }
+  25%, 49.99% { background-position: -96px -312px; }
+  50%, 74.99% { background-position: -192px -312px; }
+  75%, 100% { background-position: -288px -312px; }
+}
+
+@keyframes codex-pet-celebrate {
+  0%, 19.99% { background-position: 0 -416px; }
+  20%, 39.99% { background-position: -96px -416px; }
+  40%, 59.99% { background-position: -192px -416px; }
+  60%, 79.99% { background-position: -288px -416px; }
+  80%, 100% { background-position: -384px -416px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codex-pet,
+  .codex-pet:hover,
+  .codex-pet:focus-visible,
+  .codex-pet.codex-pet--celebrate {
+    animation: none;
+    transform: none;
+  }
+}
+
 /* ============================
    Neon Glow Effects
    ============================ */

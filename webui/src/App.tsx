@@ -1,19 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { Toaster } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { EnvironmentCheck, isEnvChecked } from '@/components/env/EnvironmentCheck'
+import { checkEnvironmentInBackground } from '@/components/env/EnvironmentCheck'
 import { ResultWorkbench } from '@/components/analytics/ResultWorkbench'
 import { AgentWorkspace } from '@/components/agent/AgentWorkspace'
 
 function App() {
-  const [envChecked, setEnvChecked] = useState(() => isEnvChecked())
   const [showResults, setShowResults] = useState(false)
+
+  useEffect(() => {
+    void checkEnvironmentInBackground()
+  }, [])
 
   return (
     <div className="relative h-screen overflow-hidden cyber-grid">
-      {!envChecked && <EnvironmentCheck onCheckComplete={() => setEnvChecked(true)} />}
-
       {showResults ? (
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex h-14 shrink-0 items-center border-b border-cyber-border-subtle bg-cyber-bg-primary/90 px-4 backdrop-blur">

@@ -166,9 +166,12 @@ export async function startServer(port = 8080): Promise<number> {
   fastify.get('/api/agent/referenceable-tasks', async () => ({ items: agentRepository.listReferenceableTasks() }));
 
   fastify.post('/api/agent/threads', async (request) => {
-    const body = (request.body || {}) as { title?: string };
+    const body = (request.body || {}) as { title?: string; add_welcome_message?: boolean };
     const title = body.title?.trim();
-    return title ? agentRepository.createThread(title, true) : agentRepository.createThread();
+    const addWelcomeMessage = body.add_welcome_message !== false;
+    return title
+      ? agentRepository.createThread(title, true, addWelcomeMessage)
+      : agentRepository.createThread(undefined, false, addWelcomeMessage);
   });
 
   fastify.get('/api/agent/threads/:thread_id', async (request, reply) => {
@@ -565,7 +568,7 @@ export async function stopServer(): Promise<void> {
   console.log('[Fastify] Server stopped');
 }
 
-if (require.main === module) {
+if (require.main === module && !process.versions.electron) {
   const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
   startServer(port).catch((err) => {
     console.error('Server failed to start:', err);

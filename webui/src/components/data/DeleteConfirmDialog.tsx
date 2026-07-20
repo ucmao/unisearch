@@ -16,7 +16,7 @@ interface DeleteConfirmDialogProps {
   title: string
   description: string
   confirmLabel?: string
-  onConfirm: () => Promise<void>
+  onConfirm: () => Promise<unknown> | unknown
 }
 
 export function DeleteConfirmDialog({
@@ -45,7 +45,10 @@ export function DeleteConfirmDialog({
     <Dialog open={open} onOpenChange={(value) => !isDeleting && setOpen(value)}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent className="max-w-md">
-        <DialogHeader>
+        <div className="mx-auto h-16 w-16 overflow-hidden rounded-full border border-cyber-neon-cyan/20 bg-cyber-bg-tertiary shadow-[0_0_24px_rgba(34,211,238,0.12)]" aria-hidden="true">
+          <img src="/icon-circle.png" alt="" className="h-full w-full object-cover" />
+        </div>
+        <DialogHeader className="text-center sm:text-center">
           <DialogTitle className="text-cyber-neon-pink">{title}</DialogTitle>
           <DialogDescription className="pt-2 leading-6">{description}</DialogDescription>
         </DialogHeader>

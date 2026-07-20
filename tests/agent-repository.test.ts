@@ -62,6 +62,17 @@ test('automatic titles stop changing after a manual rename', () => {
   }
 });
 
+test('a lazily created task starts without a welcome placeholder', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread(undefined, false, false);
+    assert.equal(thread.title, '新建情报任务');
+    assert.deepEqual(thread.messages, []);
+  } finally {
+    db.close();
+  }
+});
+
 test('schema migration adds title controls to an existing conversation table', () => {
   const db = new Database(':memory:');
   try {
