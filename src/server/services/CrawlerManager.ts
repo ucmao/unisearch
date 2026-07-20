@@ -165,9 +165,20 @@ export class CrawlerTask {
         }
       });
 
+      this.process.on('message', (msg: any) => {
+        if (msg && msg.type === 'LOGIN_QRCODE_REQUIRED') {
+          this.addLog(`检测到 ${this.platform} 需扫码登录，已提取二维码推送至界面`, 'warning', manager);
+          manager.emit('qrcode_required', msg);
+        } else if (msg && msg.type === 'LOGIN_SUCCESS') {
+          this.addLog(`${this.platform} 登录成功！`, 'success', manager);
+          manager.emit('login_success', msg);
+        }
+      });
+
       this.process.on('error', (err) => {
         this.addLog(`子进程发生异常: ${err.message}`, 'error', manager);
       });
+
 
       this.process.on('exit', async (code) => {
         const exitCode = code ?? -1;
@@ -311,7 +322,21 @@ export class CrawlerManager extends EventEmitter {
     return true;
   }
 
+  public async skip(platform: string): Promise<boolean> {
+    const task = this.tasks.get(platform);
+    if (!task || !task.process) return false;
+    this.addLog(`收到用户指令，跳过平台 ${platform} 的抓取任务`, 'warning', this);
+    if (task.process.send) {
+      task.process.send({ type: 'SKIP_CONNECTOR' });
+    } else {
+      await task.stop(this);
+    }
+    this.emit('skipped', { platform });
+    return true;
+  }
+
   public getStatus(platform?: string): any {
+
     if (platform) {
       const task = this.tasks.get(platform);
       if (task) {

@@ -297,12 +297,29 @@ export class ModelService {
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是本地 AI 助手的长期记忆提取器。只根据用户亲自说的话提取未来跨对话仍有帮助的稳定事实或偏好。不要从 AI 回复推断，不要把临时问题、一次性任务、采集结果或模型猜测写成记忆。禁止保存密码、API Key、验证码、支付信息、证件号码、精确住址，以及未经用户明确要求保存的医疗或其他高度敏感信息。
+        content: `你是本地 AI 助手的智能记忆提取器。你的任务是分析用户的近期发言，自动且智能地识别跨对话中长久有价值的信息。
 
-类别只能是 identity（称呼或稳定身份）、preference（长期偏好）、context（长期项目或背景）、rule（用户希望助手长期遵守的规则）。相同含义使用稳定简短的 key，例如 preferred_name、response_style、occupation。用户明确要求“忘记/删除”某项时 action=delete。没有合适记忆时返回空数组。
+需要智能识别并提取的信息包括：
+1. 身份与称呼（identity）：
+   - 用户的自称或姓名（例如“我叫小青青” -> key: user_name, content: "用户自称名字是小青青"）
+   - 用户给 AI 助手起的称呼/名字（例如“你叫 悠悠” -> key: assistant_name, content: "用户称呼助手为“悠悠”"）
+   - 用户的职业、角色或身份信息
+2. 长期偏好（preference）：
+   - 用户的习惯、常用语言、代码风格、界面主题偏好、回复风格等
+3. 长期背景（context）：
+   - 用户长期关注的领域、项目背景或生活环境
+4. 明确规则（rule）：
+   - 用户希望助手长期遵循的答复要求或交互规则
 
-只输出 JSON，不要 Markdown：
-{"memories":[{"action":"add|update|delete|none","category":"identity|preference|context|rule","key":"英文或拼音稳定键","content":"简洁、独立、第三人称中文记忆","confidence":0到1,"importance":0到1}]}`,
+提取原则：
+- 不要把临时一次性问答、单次采集搜索要求、临时情绪当成记忆。
+- 当用户明确要求“忘记/删除”某记忆时，设置 action="delete"。
+- 严禁保存敏感安全隐私（密码、API Key、验证码、支付账号、证件号等）。
+- 键名（key）使用稳定简短的英文或拼音标识（如 user_name, assistant_name, language_preference, code_style）。
+- 内容（content）使用简洁清晰的第三人称描述。
+
+只输出 JSON，格式如下：
+{"memories":[{"action":"add|update|delete|none","category":"identity|preference|context|rule","key":"稳定键名","content":"简洁描述","confidence":0.0到1.0,"importance":0.0到1.0}]}`,
       },
       { role: 'user', content: `<user_messages_json>${JSON.stringify(userMessages)}</user_messages_json>` },
     ], 1200);

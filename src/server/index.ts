@@ -337,7 +337,49 @@ export async function startServer(port = 8080): Promise<number> {
     return { status: 'ok', message: `Crawler ${query.platform || 'all'} stopped successfully` };
   });
 
+  fastify.post('/api/crawler/control', async (request, reply) => {
+    const body = request.body as { platform: string; action: 'skip' | 'show_browser' };
+    if (!body || !body.platform) {
+      return reply.status(400).send({ detail: 'Missing platform parameter' });
+    }
+    if (body.action === 'skip') {
+      const success = await crawlerManager.skip(body.platform);
+      return { status: 'ok', success, message: `Skipped platform ${body.platform}` };
+    }
+    return { status: 'ok', message: 'Action processed' };
+  });
+
+  fastify.get('/api/crawler/events', (request, reply) => {
+    reply.raw.setHeader('Content-Type', 'text/event-stream');
+    reply.raw.setHeader('Cache-Control', 'no-cache');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.flushHeaders();
+
+    const onQrCode = (data: any) => {
+      reply.raw.write(`event: qrcode_required\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const onLoginSuccess = (data: any) => {
+      reply.raw.write(`event: login_success\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const onSkipped = (data: any) => {
+      reply.raw.write(`event: skipped\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    crawlerManager.on('qrcode_required', onQrCode);
+    crawlerManager.on('login_success', onLoginSuccess);
+    crawlerManager.on('skipped', onSkipped);
+
+    request.raw.on('close', () => {
+      crawlerManager.off('qrcode_required', onQrCode);
+      crawlerManager.off('login_success', onLoginSuccess);
+      crawlerManager.off('skipped', onSkipped);
+    });
+  });
+
   fastify.get('/api/crawler/status', async (request) => {
+
     const query = request.query as { platform?: string };
     return crawlerManager.getStatus(query.platform);
   });

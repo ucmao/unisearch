@@ -50,7 +50,17 @@ async function run(): Promise<void> {
   
   activeCrawler = createConnectorExecutor(activeConfig.PLATFORM);
   
+  // Register IPC control listeners
+  process.on('message', async (msg: any) => {
+    if (msg && msg.type === 'SKIP_CONNECTOR') {
+      console.log(`[Worker] Received SKIP_CONNECTOR request for platform ${activeConfig.PLATFORM}. Terminating task gracefully.`);
+      await cleanup();
+      process.exit(0);
+    }
+  });
+
   // Register graceful exit handlers
+
   process.on('SIGTERM', async () => {
     console.log('[Worker] Received SIGTERM signal');
     await cleanup();

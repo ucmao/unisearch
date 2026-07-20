@@ -92,7 +92,7 @@ export class AgentRepository {
   getThread(threadId: string): any {
     const thread = this.db.prepare('SELECT * FROM agent_threads WHERE thread_id = ?').get(threadId) as any;
     if (!thread) return null;
-    const messages = (this.db.prepare('SELECT * FROM agent_messages WHERE thread_id = ? ORDER BY created_at').all(threadId) as any[])
+    const messages = (this.db.prepare('SELECT * FROM agent_messages WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC').all(threadId) as any[])
       .map((row) => ({ ...row, metadata: parseJson(row.metadata_json, {}) }));
     const plan = this.getLatestPlan(threadId);
     return { ...thread, messages, plan };

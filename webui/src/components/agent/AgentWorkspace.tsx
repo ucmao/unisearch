@@ -411,8 +411,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     : modelProfileQuery.data?.apiKeyConfigured
       ? 'AI 模型尚未通过连接测试，无法进行思考和对话'
       : '尚未配置 AI 模型 API，无法进行思考和对话'
-  const pendingMessage = send.isPending && send.variables?.id === selectedId ? send.variables.message : null
-  const pendingMessageInThread = Boolean(pendingMessage && threadQuery.data?.messages.some((message) => message.message_id === pendingMessage.message_id))
+  const isThinking = send.isPending && send.variables?.id === selectedId
   const toggleThreads = () => {
     setThreadsCollapsed((current) => {
       localStorage.setItem('unisearch-threads-collapsed', String(!current))
@@ -606,8 +605,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
                 {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updateAnalysis.mutate({ planId: activePlan.plan_id, analysis })} updatingAnalysis={updateAnalysis.isPending} />)}
-                {pendingMessage && !pendingMessageInThread ? <MessageBubble message={pendingMessage} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updateAnalysis.mutate({ planId: activePlan.plan_id, analysis })} updatingAnalysis={updateAnalysis.isPending} /> : null}
-                {pendingMessage && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
+                {isThinking && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
                 <div className="flex -translate-y-2 flex-col items-center text-center">
@@ -648,7 +646,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
                   </span>)}
                 </div> : null}
                 <textarea ref={composerInputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-                  placeholder={!selectedId ? '我们应该在 UniSearch 中研究什么？' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
+                  placeholder={!selectedId ? '输入问题，或描述想调研的主题…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
                   className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
                 <div className="absolute bottom-3 left-3">
                   <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">

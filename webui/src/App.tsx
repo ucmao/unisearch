@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { checkEnvironmentInBackground } from '@/components/env/EnvironmentCheck'
 import { ResultWorkbench } from '@/components/analytics/ResultWorkbench'
 import { AgentWorkspace } from '@/components/agent/AgentWorkspace'
+import { QrCodeLoginModal } from '@/components/crawler/QrCodeLoginModal'
 
 function App() {
   const [showResults, setShowResults] = useState(false)
@@ -30,7 +31,10 @@ function App() {
         <AgentWorkspace onOpenResults={() => setShowResults(true)} />
       )}
 
+      <QrCodeLoginModal />
+
       <Toaster
+
         position="top-right"
         toastOptions={{
           className: 'glass-panel font-mono text-cyber-text-primary',
