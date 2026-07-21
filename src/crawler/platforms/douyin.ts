@@ -1,20 +1,35 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium, notifyLoginQrCodeRequired, notifyLoginSuccess } from '../base/BaseCrawler';
+import {
+  AbstractCrawler,
+  connectToElectronChromium,
+  getElectronCrawlerPage,
+  notifyLoginQrCodeRequired,
+  notifyLoginSuccess,
+  notifyManualVerificationRequired,
+  notifyManualVerificationSuccess,
+} from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
 import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
+interface DouyinSearchCapture {
+  ok: boolean;
+  status: number;
+  data: any;
+  bodyError: string;
+}
+
 export class DouyinCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  private consecutiveCommentFailures = 0;
 
   public async start(): Promise<void> {
     console.log('[DY] Starting Douyin crawler (Electron CDP mode)...');
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
-    const pages = this.browserContext.pages();
-    this.page = pages.length > 0 ? pages[0] : await this.browserContext.newPage();
+    this.page = await getElectronCrawlerPage(this.browserContext, 'dy');
 
 
 
@@ -90,6 +105,12 @@ export class DouyinCrawler extends AbstractCrawler {
         }
         await new Promise((r) => setTimeout(r, 1000));
       }
+
+      if (!isLoggedIn) {
+        throw new Error('抖音登录等待超时。请点击登录提示中的“打开窗口”，完成登录后重新运行任务。');
+      }
+    } else if (!isLoggedIn) {
+      throw new Error('抖音登录状态无效，请改用二维码登录或更新 Cookie。');
     }
   }
 
@@ -118,15 +139,13 @@ export class DouyinCrawler extends AbstractCrawler {
       console.error('[DY] Error checking cookies:', err.message);
     }
 
-    // 3. Check avatar selectors (excluding invalid generic hrefs like a[href*="/user/self"])
+    // 3. Only accept selectors that contain account-specific data. Generic navigation
+    // elements such as `.tab-user_self` are also rendered for visitors.
     try {
       const selectors = [
-        '[data-e2e="user-avatar"]',
-        '.header-user-avatar',
-        '.user-avatar',
-        '.dy-avatar',
-        '.tab-user_self',
-        'div[class*="avatar"] img',
+        'a[href*="/user/"][href*="sec_uid"] img',
+        '[data-e2e="user-avatar"] img[src^="http"]',
+        '.header-user-avatar img[src^="http"]',
       ];
       for (const selector of selectors) {
         const visible = await this.page!.isVisible(selector, { timeout: 500 }).catch(() => false);
@@ -151,112 +170,212 @@ export class DouyinCrawler extends AbstractCrawler {
     return dict;
   }
 
+  private async hasManualVerification(): Promise<boolean> {
+    const selectors = [
+      '#captcha_container',
+      '.captcha_verify_container',
+      '.captcha-verify-container',
+      '[class*="captcha_verify"]',
+      'iframe[src*="captcha"]',
+    ];
+    for (const selector of selectors) {
+      if (await this.page!.isVisible(selector, { timeout: 300 }).catch(() => false)) return true;
+    }
+    const text = await this.page!.locator('body').innerText({ timeout: 1000 }).catch(() => '');
+    return /图形验证|安全验证|完成下列验证|拖动滑块|验证后继续/.test(text);
+  }
+
+  private captureSearchResponse(timeout = 20000): Promise<DouyinSearchCapture | null> {
+    return this.page!.waitForResponse(
+      (response) => /\/aweme\/v1\/web\/(?:general\/search\/single|search\/item)\//i.test(response.url())
+        && response.request().method() === 'GET',
+      { timeout },
+    ).then(async (response) => {
+      try {
+        return { ok: response.ok(), status: response.status(), data: await response.json(), bodyError: '' };
+      } catch (error: any) {
+        return {
+          ok: response.ok(), status: response.status(), data: null,
+          bodyError: error.message || String(error),
+        };
+      }
+    }).catch(() => null);
+  }
+
+  private async waitForManualVerification(keyword: string): Promise<DouyinSearchCapture | null> {
+    console.warn('[DY] Graphical verification detected. Waiting up to 180 seconds for manual completion...');
+    notifyManualVerificationRequired('dy', `搜索“${keyword}”需要完成图形验证`);
+    const responseAfterVerification = this.captureSearchResponse();
+    const startTime = Date.now();
+    let stablePasses = 0;
+    while (Date.now() - startTime < 180 * 1000) {
+      if (await this.hasManualVerification()) {
+        stablePasses = 0;
+      } else {
+        stablePasses++;
+        if (stablePasses >= 2) {
+          console.log('[DY] Manual verification completed. Resuming search...');
+          notifyManualVerificationSuccess('dy');
+          return await responseAfterVerification;
+        }
+      }
+      await this.page!.waitForTimeout(1000);
+    }
+    throw new Error('等待抖音图形验证超时，请重新运行任务并在 3 分钟内完成验证');
+  }
+
+  private searchItemsFromPayload(payload: any): any[] {
+    if (!Array.isArray(payload?.data)) return [];
+    return payload.data.flatMap((item: any) => {
+      const awemeInfo = item.aweme_info || item.aweme_mix_info?.mix_items?.[0];
+      if (!awemeInfo?.aweme_id) return [];
+      const videoItem = awemeInfo.video || {};
+      const rawCoverList = (videoItem.raw_cover || videoItem.origin_cover || {}).url_list || [];
+      const actualUrlList = videoItem.play_addr_h264?.url_list || videoItem.play_addr_256?.url_list || videoItem.play_addr?.url_list || [];
+      const images = awemeInfo.images || [];
+      return [{
+        aweme_id: String(awemeInfo.aweme_id),
+        aweme_type: String(awemeInfo.aweme_type || 'content'),
+        title: awemeInfo.desc || '', desc: awemeInfo.desc || '', create_time: awemeInfo.create_time || 0,
+        creator_hash: awemeInfo.author?.uid || '', nickname: awemeInfo.author?.nickname || '',
+        liked_count: Number(awemeInfo.statistics?.digg_count || 0),
+        collected_count: Number(awemeInfo.statistics?.collect_count || 0),
+        comment_count: Number(awemeInfo.statistics?.comment_count || 0),
+        share_count: Number(awemeInfo.statistics?.share_count || 0),
+        aweme_url: `https://www.douyin.com/video/${awemeInfo.aweme_id}`,
+        cover_url: rawCoverList.at(-1) || '', video_download_url: actualUrlList.at(-1) || '',
+        music_download_url: awemeInfo.music?.play_url?.url_list?.at(-1) || awemeInfo.music?.play_url?.uri || '',
+        note_download_url: images.map((img: any) => img.url_list?.at(-1) || '').filter(Boolean).join(','),
+      }];
+    });
+  }
+
+  private async collectRenderedSearchItems(): Promise<any[]> {
+    return this.page!.locator('a[href*="/video/"], a[href*="/note/"]').evaluateAll((links) => {
+      const seen = new Set<string>();
+      return links.flatMap((link) => {
+        const href = (link as HTMLAnchorElement).href;
+        const id = href.match(/\/(?:video|note)\/(\d+)/)?.[1] || '';
+        if (!id || seen.has(id)) return [];
+        seen.add(id);
+        const img = link.querySelector('img') as HTMLImageElement | null;
+        const text = (link.textContent || img?.alt || '').trim();
+        return [{ aweme_id: id, aweme_type: href.includes('/note/') ? 'note' : 'video', title: text, desc: text,
+          create_time: 0, creator_hash: '', nickname: '', liked_count: 0, collected_count: 0,
+          comment_count: 0, share_count: 0, aweme_url: href, cover_url: img?.src || '',
+          video_download_url: '', music_download_url: '', note_download_url: '' }];
+      });
+    });
+  }
+
   public async search(): Promise<void> {
     const keywords = activeConfig.KEYWORDS.split(',');
     for (const keyword of keywords) {
       console.log(`[DY] Searching keyword: ${keyword}`);
       try {
-        // Ensure we are on the Douyin domain so fetch inherits cookies
-        if (!this.page!.url().includes('douyin.com')) {
-          await this.page!.goto('https://www.douyin.com', { waitUntil: 'domcontentloaded' });
+        // Let Douyin's own page generate the current signed search request. Hand-built
+        // requests quickly become invalid when anti-bot parameters change.
+        const searchCapture = this.captureSearchResponse();
+        const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=general`;
+        await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        let capture = await searchCapture;
+        await this.page!.waitForTimeout(2500);
+
+        if (await this.hasManualVerification()) {
+          const verifiedCapture = await this.waitForManualVerification(keyword);
+          if (verifiedCapture) capture = verifiedCapture;
           await this.page!.waitForTimeout(3000);
         }
 
-        const countToFetch = Math.max(activeConfig.CRAWLER_MAX_NOTES_COUNT, 15);
-        const queryParams: Record<string, string> = {
-          device_platform: 'webapp',
-          aid: '6383',
-          channel: 'channel_pc_web',
-          pc_client_type: '1',
-          version_code: '190600',
-          version_name: '19.6.0',
-          cookie_enabled: 'true',
-          screen_width: '1440',
-          screen_height: '900',
-          browser_language: 'zh-CN',
-          browser_platform: 'MacIntel',
-          browser_name: 'Chrome',
-          browser_version: '126.0.0.0',
-          browser_online: 'true',
-          engine_name: 'Blink',
-          engine_version: '126.0.0.0',
-          os_name: 'Mac OS',
-          os_version: '10.15.7',
-          platform: 'PC',
-          webid: '7378810571505847586',
-          
-          search_channel: 'aweme_general',
-          enable_history: '1',
-          keyword: keyword,
-          search_source: 'tab_search',
-          query_correct_type: '1',
-          is_filter_search: '0',
-          from_group_id: '7378810571505847586',
-          offset: '0',
-          count: String(countToFetch),
-          need_filter_settings: '1',
-          list_type: 'multi',
-        };
+        if (!await this.checkLoginState()) {
+          throw new Error('搜索页显示登录已失效，请重新扫码登录');
+        }
 
-        const queryString = Object.entries(queryParams)
-          .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-          .join('&');
-
-        const apiUrl = `https://www.douyin.com/aweme/v1/web/general/search/single/?${queryString}`;
-
-        const postsRes = await this.page!.evaluate(async ({ url, kw }) => {
-          const resp = await fetch(url, {
-            headers: {
-              'accept': 'application/json, text/plain, */*',
-              'referer': `https://www.douyin.com/search/${encodeURIComponent(kw)}?type=general`,
-            }
-          });
-          return resp.json();
-        }, { url: apiUrl, kw: keyword });
-
-        const videos: any[] = [];
-        if (postsRes && postsRes.data) {
-          for (const item of postsRes.data) {
-            const awemeInfo = item.aweme_info || item.aweme_mix_info?.mix_items?.[0];
-            if (awemeInfo && awemeInfo.aweme_id) {
-              const videoItem = awemeInfo.video || {};
-              const rawCoverList = (videoItem.raw_cover || videoItem.origin_cover || {}).url_list || [];
-              const coverUrl = rawCoverList.length > 1 ? rawCoverList[1] : (rawCoverList.length > 0 ? rawCoverList[0] : '');
-
-              const actualUrlList = videoItem.play_addr_h264?.url_list || videoItem.play_addr_256?.url_list || videoItem.play_addr?.url_list || [];
-              const videoDownloadUrl = actualUrlList.length > 0 ? actualUrlList[actualUrlList.length - 1] : '';
-
-              const musicItem = awemeInfo.music || {};
-              const musicDownloadUrl = musicItem.play_url?.uri || '';
-
-              const images = awemeInfo.images || [];
-              const noteDownloadUrl = images.map((img: any) => img.url_list?.[img.url_list.length - 1] || '').filter(Boolean).join(',');
-
-              videos.push({
-                aweme_id: awemeInfo.aweme_id,
-                aweme_type: String(awemeInfo.aweme_type || 'content'),
-                title: awemeInfo.desc || '',
-                desc: awemeInfo.desc || '',
-                create_time: awemeInfo.create_time || 0,
-                creator_hash: awemeInfo.author?.uid || '',
-                nickname: awemeInfo.author?.nickname || '',
-                liked_count: Number(awemeInfo.statistics?.digg_count || 0),
-                collected_count: Number(awemeInfo.statistics?.collect_count || 0),
-                comment_count: Number(awemeInfo.statistics?.comment_count || 0),
-                share_count: Number(awemeInfo.statistics?.share_count || 0),
-                aweme_url: `https://www.douyin.com/video/${awemeInfo.aweme_id}`,
-                cover_url: coverUrl,
-                video_download_url: videoDownloadUrl,
-                music_download_url: musicDownloadUrl,
-                note_download_url: noteDownloadUrl,
-              });
-            }
+        let postsRes: any = capture?.data || null;
+        if (capture) {
+          if (!capture.ok) {
+            throw new Error(`抖音搜索接口请求失败（HTTP ${capture.status}）`);
+          }
+          if (capture.bodyError) {
+            console.warn(`[DY] Search response body unavailable via CDP (HTTP ${capture.status}); falling back to rendered page: ${capture.bodyError}`);
+          }
+          if (postsRes && Number(postsRes.status_code || 0) !== 0) {
+            throw new Error(`抖音搜索接口拒绝请求（status_code=${postsRes.status_code}${postsRes.status_msg ? `, ${postsRes.status_msg}` : ''}）`);
           }
         }
 
+        const videoMap = new Map<string, any>();
+        const mergeVideos = (items: any[]) => {
+          for (const item of items) {
+            const existing = videoMap.get(String(item.aweme_id));
+            // Prefer signed API metadata over the lean DOM fallback.
+            if (!existing || (!existing.creator_hash && item.creator_hash)) videoMap.set(String(item.aweme_id), item);
+          }
+        };
+        mergeVideos(this.searchItemsFromPayload(postsRes));
+
+        // Some page versions hydrate results without exposing the JSON response to
+        // Playwright. Keep a DOM fallback so that this is not reported as a fake zero.
+        if (videoMap.size === 0) {
+          await this.page!.locator('a[href*="/video/"], a[href*="/note/"]').first()
+            .waitFor({ state: 'attached', timeout: 8000 }).catch(() => {});
+          mergeVideos(await this.collectRenderedSearchItems());
+        }
+
+        if (videoMap.size === 0) {
+          const pageText = (await this.page!.locator('body').innerText().catch(() => '')).slice(0, 2000);
+          if (!capture) {
+            throw new Error(`未捕获到抖音搜索请求，页面可能被风控或尚未完成加载。页面摘要：${pageText}`);
+          }
+          if (capture.bodyError) {
+            throw new Error(`CDP 无法读取搜索响应，且页面未渲染出作品。请打开内置浏览器检查验证或风控提示。页面摘要：${pageText}`);
+          }
+          const isExplicitEmptyResult = /暂无搜索结果|没有找到相关|未找到相关|换个关键词试试/.test(pageText);
+          if (!isExplicitEmptyResult) {
+            throw new Error(`抖音未返回作品，也未显示“无搜索结果”。页面可能仍处于验证或风控状态。页面摘要：${pageText}`);
+          }
+          console.warn(`[DY] Search explicitly returned no matching content. status_code=${postsRes?.status_code ?? 'unknown'}`);
+        }
+
+        // Douyin search is infinite-scroll. Keep scrolling and capture each signed
+        // next-page response until the configured item limit is reached.
+        const targetCount = activeConfig.CRAWLER_MAX_NOTES_COUNT;
+        const maxScrolls = Math.min(30, Math.max(2, Math.ceil(targetCount / 10) + 2));
+        let stalledScrolls = 0;
+        for (let scroll = 0; videoMap.size < targetCount && scroll < maxScrolls; scroll++) {
+          const before = videoMap.size;
+          const nextCapturePromise = this.captureSearchResponse(8000);
+          await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          const nextCapture = await nextCapturePromise;
+          await this.page!.waitForTimeout(1200);
+
+          if (await this.hasManualVerification()) {
+            const verifiedCapture = await this.waitForManualVerification(keyword);
+            if (verifiedCapture?.data) mergeVideos(this.searchItemsFromPayload(verifiedCapture.data));
+          } else if (nextCapture?.data) {
+            if (Number(nextCapture.data.status_code || 0) !== 0) {
+              throw new Error(`抖音搜索翻页被拒绝（status_code=${nextCapture.data.status_code}）`);
+            }
+            mergeVideos(this.searchItemsFromPayload(nextCapture.data));
+          }
+          mergeVideos(await this.collectRenderedSearchItems());
+
+          if (videoMap.size === before) stalledScrolls++;
+          else {
+            stalledScrolls = 0;
+            console.log(`[DY] Loaded more search results: ${videoMap.size}/${targetCount}`);
+          }
+          if (stalledScrolls >= 2) break;
+        }
+
+        const videos = Array.from(videoMap.values()).slice(0, targetCount);
+
         console.log(`[DY] Found ${videos.length} videos. Ingesting...`);
         let count = 0;
-        
+
+        // Persist every discovered content record before optional enrichment. A user
+        // hiding/closing a verification window or a comment failure must not discard
+        // dozens of already discovered videos that only existed in memory.
         for (const v of videos) {
           if (count >= activeConfig.CRAWLER_MAX_NOTES_COUNT) break;
           if (!v.aweme_id) continue;
@@ -282,13 +401,31 @@ export class DouyinCrawler extends AbstractCrawler {
           };
 
           await dbStore.storeDouyinAweme(awemeDetail);
-          if (activeConfig.ENABLE_GET_COMMENTS) await this.getAwemeComments(v.aweme_id);
           count++;
-          
-          await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+        }
+        console.log(`[DY] Persisted ${count} video records before comment enrichment.`);
+
+        if (activeConfig.ENABLE_GET_COMMENTS) {
+          let processedComments = 0;
+          for (const v of videos.slice(0, count)) {
+            if (!this.page || this.page.isClosed()) {
+              console.warn(`[DY] Crawler page is unavailable; keeping ${count} saved videos and stopping comment enrichment.`);
+              break;
+            }
+            await this.getAwemeComments(v.aweme_id);
+            processedComments++;
+            if (this.consecutiveCommentFailures >= 2) break;
+            try {
+              await this.page.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+            } catch {
+              console.warn(`[DY] Crawler page closed after ${processedComments} comment items; saved videos are retained.`);
+              break;
+            }
+          }
         }
       } catch (err: any) {
         console.error(`[DY] Search error for keyword ${keyword}:`, err.message);
+        throw err;
       }
     }
   }
@@ -329,9 +466,38 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   private async getAwemeComments(awemeId: string): Promise<void> {
-    const apiUrl = `https://www.douyin.com/aweme/v1/web/comment/list/?aweme_id=${encodeURIComponent(awemeId)}&cursor=0&count=${activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES}&item_type=0&device_platform=webapp&aid=6383`;
+    if (this.consecutiveCommentFailures >= 2) return;
     try {
-      const result = await this.page!.evaluate(async (url) => (await fetch(url, { credentials: 'include' })).json(), apiUrl);
+      // Opening the real detail page lets Douyin generate the current signed comment
+      // request. Calling the endpoint with a hand-built URL is commonly answered by
+      // an HTML verification page instead of JSON.
+      const commentCapture = this.page!.waitForResponse(
+        (response) => {
+          if (!response.url().includes('/aweme/v1/web/comment/list/')) return false;
+          try {
+            return new URL(response.url()).searchParams.get('aweme_id') === awemeId;
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 12000 },
+      ).then(async (response) => {
+        const contentType = response.headers()['content-type'] || '';
+        if (!response.ok()) throw new Error(`HTTP ${response.status()}`);
+        if (!contentType.includes('json')) throw new Error(`接口返回 ${contentType || '未知内容类型'}，可能触发验证`);
+        return response.json();
+      }).catch((error: any) => ({ __captureError: error.message || String(error) }));
+
+      await this.page!.goto(`https://www.douyin.com/video/${encodeURIComponent(awemeId)}`, {
+        waitUntil: 'domcontentloaded', timeout: 30000,
+      });
+      await this.page!.waitForTimeout(1000);
+      await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      const result = await commentCapture;
+      if (result?.__captureError) throw new Error(result.__captureError);
+      if (Number(result?.status_code || 0) !== 0) {
+        throw new Error(`status_code=${result?.status_code ?? 'unknown'}${result?.status_msg ? `, ${result.status_msg}` : ''}`);
+      }
       const comments = result?.comments || [];
       const store = async (comment: any, parent = '') => dbStore.storeDouyinComment({
         comment_id: String(comment.cid || ''), aweme_id: awemeId, content: comment.text || '',
@@ -346,9 +512,14 @@ export class DouyinCrawler extends AbstractCrawler {
           for (const child of comment.reply_comment || []) await store(child, String(comment.cid || ''));
         }
       }
+      this.consecutiveCommentFailures = 0;
       console.log(`[DY] Stored ${comments.length} comments for ${awemeId}`);
     } catch (error: any) {
-      console.error(`[DY] Failed to collect comments for ${awemeId}: ${error.message}`);
+      this.consecutiveCommentFailures++;
+      console.warn(`[DY] Comments unavailable for ${awemeId}: ${error.message}`);
+      if (this.consecutiveCommentFailures >= 2) {
+        console.warn('[DY] Comment collection paused after 2 consecutive blocked responses; video collection will continue.');
+      }
     }
   }
 

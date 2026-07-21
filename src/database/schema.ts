@@ -352,6 +352,21 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_runs_started_at ON crawl_runs(started_at DESC);
     CREATE INDEX IF NOT EXISTS idx_runs_task_id ON crawl_runs(task_id);
 
+    -- Persistent crawler execution logs. These survive an application restart and
+    -- remain associated with the run that produced them.
+    CREATE TABLE IF NOT EXISTS crawl_run_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      level TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON crawl_run_logs(run_id, id);
+    CREATE INDEX IF NOT EXISTS idx_run_logs_platform ON crawl_run_logs(platform, id DESC);
+
     -- Content Records Table (Normalized analytical contents)
     CREATE TABLE IF NOT EXISTS content_records (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

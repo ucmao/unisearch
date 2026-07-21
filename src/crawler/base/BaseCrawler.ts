@@ -39,7 +39,10 @@ export async function connectToElectronChromium(playwright: Playwright): Promise
       console.log(`[BaseCrawler] Connecting Playwright to Electron CDP target: ${targetUrl}`);
       const browser = await playwright.chromium.connectOverCDP(targetUrl);
       const contexts = browser.contexts();
-      const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
+      const marker = `#unisearch-crawler-${encodeURIComponent(activeConfig.PLATFORM)}`;
+      const context = contexts.find((candidate) => candidate.pages().some((page) => page.url().includes(marker)))
+        || contexts[0]
+        || await browser.newContext();
       console.log('[BaseCrawler] Successfully connected to Electron built-in Chromium engine!');
       return context;
     } catch (err: any) {
@@ -55,6 +58,22 @@ export async function connectToElectronChromium(playwright: Playwright): Promise
   );
   const launchOptions = createHeadlessLaunchOptions();
   return await playwright.chromium.launchPersistentContext(userDataDir, launchOptions);
+}
+
+export async function getElectronCrawlerPage(browserContext: BrowserContext, platform: string, attempts = 20): Promise<Page> {
+  const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const page = browserContext.pages().find((candidate) => candidate.url().includes(marker));
+    if (page) return page;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const fallbackPages = browserContext.pages();
+  if (fallbackPages.length === 1 && fallbackPages[0].url() === 'about:blank') {
+    // Standalone persistent-context fallback, not an Electron CDP target.
+    return fallbackPages[0];
+  }
+  const available = fallbackPages.map((page) => page.url()).join(', ');
+  throw new Error(`未找到平台 ${platform} 的专用采集页面。当前 CDP 页面: ${available || '无'}`);
 }
 
 export function getSystemExecutablePath(): string | undefined {
@@ -163,6 +182,21 @@ export function notifyLoginSuccess(platform: string): void {
   }
 }
 
+export function notifyManualVerificationRequired(platform: string, reason: string): void {
+  console.log(`[Crawler] Manual verification required for ${platform}: ${reason}`);
+  if (process.send) {
+    process.send({
+      type: 'MANUAL_VERIFICATION_REQUIRED',
+      platform,
+      reason,
+    });
+  }
+}
+
+export function notifyManualVerificationSuccess(platform: string): void {
+  if (process.send) process.send({ type: 'MANUAL_VERIFICATION_SUCCESS', platform });
+}
+
 export abstract class AbstractLogin {
   public abstract begin(): Promise<void>;
   public abstract loginByQrcode(): Promise<void>;
@@ -180,4 +214,3 @@ export abstract class AbstractApiClient {
   public abstract request(method: string, url: string, options?: any): Promise<any>;
   public abstract updateCookies(browserContext: BrowserContext): Promise<void>;
 }
-

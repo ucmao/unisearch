@@ -16,7 +16,18 @@ import type { ConnectorStartRequest } from '../connectors/types';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
-export async function startServer(port = 8080): Promise<number> {
+export interface ServerWindowControls {
+  prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
+  showCrawlerWindow?: (platform: string) => boolean;
+  hideCrawlerWindow?: (platform: string) => boolean;
+}
+
+export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
+  crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
+  crawlerManager.on('qrcode_required', (data: any) => windowControls.showCrawlerWindow?.(data.platform));
+  crawlerManager.on('manual_verification_required', (data: any) => windowControls.showCrawlerWindow?.(data.platform));
+  crawlerManager.on('crawler_finished', (data: any) => windowControls.hideCrawlerWindow?.(data.platform));
+
   // Error Handler
   fastify.setErrorHandler((error, request, reply) => {
     console.error('[Fastify Error Handler]', error);
@@ -383,7 +394,14 @@ export async function startServer(port = 8080): Promise<number> {
       const success = await crawlerManager.skip(body.platform);
       return { status: 'ok', success, message: `Skipped platform ${body.platform}` };
     }
-    return { status: 'ok', message: 'Action processed' };
+    if (body.action === 'show_browser') {
+      const success = windowControls.showCrawlerWindow?.(body.platform) ?? false;
+      if (!success) {
+        return reply.status(503).send({ detail: '内置采集浏览器仅可在桌面应用中打开' });
+      }
+      return { status: 'ok', success: true, message: 'Crawler browser opened' };
+    }
+    return reply.status(400).send({ detail: 'Unsupported crawler control action' });
   });
 
   fastify.get('/api/crawler/events', (request, reply) => {
@@ -400,18 +418,36 @@ export async function startServer(port = 8080): Promise<number> {
       reply.raw.write(`event: login_success\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    const onManualVerification = (data: any) => {
+      reply.raw.write(`event: manual_verification_required\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const onManualVerificationSuccess = (data: any) => {
+      reply.raw.write(`event: manual_verification_success\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
     const onSkipped = (data: any) => {
       reply.raw.write(`event: skipped\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    const onCrawlerFinished = (data: any) => {
+      reply.raw.write(`event: crawler_finished\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
     crawlerManager.on('qrcode_required', onQrCode);
     crawlerManager.on('login_success', onLoginSuccess);
+    crawlerManager.on('manual_verification_required', onManualVerification);
+    crawlerManager.on('manual_verification_success', onManualVerificationSuccess);
     crawlerManager.on('skipped', onSkipped);
+    crawlerManager.on('crawler_finished', onCrawlerFinished);
 
     request.raw.on('close', () => {
       crawlerManager.off('qrcode_required', onQrCode);
       crawlerManager.off('login_success', onLoginSuccess);
+      crawlerManager.off('manual_verification_required', onManualVerification);
+      crawlerManager.off('manual_verification_success', onManualVerificationSuccess);
       crawlerManager.off('skipped', onSkipped);
+      crawlerManager.off('crawler_finished', onCrawlerFinished);
     });
   });
 

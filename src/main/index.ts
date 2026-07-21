@@ -13,7 +13,7 @@ app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 app.commandLine.appendSwitch('remote-allow-origins', '*');
 
 let mainWindow: BrowserWindow | null = null;
-let crawlerWindow: BrowserWindow | null = null;
+const crawlerWindows = new Map<string, BrowserWindow>();
 let isQuitting = false;
 
 let apiPort = 8080;
@@ -24,70 +24,100 @@ function getAppIconPath(): string | undefined {
   return fs.existsSync(iconPath) ? iconPath : undefined;
 }
 
-export function createCrawlerWindow(): BrowserWindow {
-  if (crawlerWindow && !crawlerWindow.isDestroyed()) {
-    return crawlerWindow;
+function crawlerMarkerUrl(platform: string): string {
+  return `about:blank#unisearch-crawler-${encodeURIComponent(platform)}`;
+}
+
+function focusMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+export function createCrawlerWindow(platform: string): BrowserWindow {
+  const existing = crawlerWindows.get(platform);
+  if (existing && !existing.isDestroyed()) {
+    return existing;
   }
 
-  crawlerWindow = new BrowserWindow({
+  const crawlerWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false, // 默认隐藏后台无感运行
-    title: 'UniSearch 内置采集浏览器',
+    title: `UniSearch 内置采集浏览器 · ${platform.toUpperCase()}`,
     icon: getAppIconPath(),
     webPreferences: {
       backgroundThrottling: false, // 禁用后台降频，确保隐藏状态下不降速
+      partition: `persist:unisearch-crawler-${platform}`,
     },
   });
+  crawlerWindows.set(platform, crawlerWindow);
 
-  crawlerWindow.loadURL('about:blank');
+  void crawlerWindow.loadURL(crawlerMarkerUrl(platform));
 
-  // 拦截右上角关闭按钮 X，改为隐藏窗口
+  // Closing a crawler window never owns task cancellation. Keep its WebContents
+  // alive, hide it, and return keyboard focus to the application workspace.
   crawlerWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
-      crawlerWindow?.hide();
+      crawlerWindow.hide();
+      focusMainWindow();
     }
   });
 
   crawlerWindow.on('closed', () => {
-    crawlerWindow = null;
+    crawlerWindows.delete(platform);
   });
 
   return crawlerWindow;
 }
 
-export function isCrawlerWindowVisible(): boolean {
-  return crawlerWindow ? crawlerWindow.isVisible() : false;
+export async function prepareCrawlerWindow(platform: string): Promise<boolean> {
+  const win = createCrawlerWindow(platform);
+  if (win.isDestroyed()) return false;
+  await win.loadURL(crawlerMarkerUrl(platform));
+  return true;
 }
 
-export function showCrawlerWindow(): boolean {
-  const win = createCrawlerWindow();
+export function isCrawlerWindowVisible(platform?: string): boolean {
+  if (platform) return crawlerWindows.get(platform)?.isVisible() ?? false;
+  return Array.from(crawlerWindows.values()).some((win) => !win.isDestroyed() && win.isVisible());
+}
+
+export function showCrawlerWindow(platform: string): boolean {
+  const win = createCrawlerWindow(platform);
+  for (const [otherPlatform, otherWindow] of crawlerWindows) {
+    if (otherPlatform !== platform && !otherWindow.isDestroyed()) otherWindow.hide();
+  }
   win.show();
   win.focus();
   return true;
 }
 
-export function hideCrawlerWindow(): boolean {
-  if (crawlerWindow && !crawlerWindow.isDestroyed() && crawlerWindow.isVisible()) {
-    crawlerWindow.hide();
+export function hideCrawlerWindow(platform: string): boolean {
+  const win = crawlerWindows.get(platform);
+  if (win && !win.isDestroyed()) {
+    win.hide();
+    focusMainWindow();
+    return true;
   }
   return false;
 }
 
-export function toggleCrawlerWindow(): boolean {
-  if (isCrawlerWindowVisible()) {
-    return hideCrawlerWindow();
+export function toggleCrawlerWindow(platform: string): boolean {
+  if (isCrawlerWindowVisible(platform)) {
+    return hideCrawlerWindow(platform);
   } else {
-    return showCrawlerWindow();
+    return showCrawlerWindow(platform);
   }
 }
 
 // IPC Handlers
-ipcMain.handle('crawler-window-status', () => isCrawlerWindowVisible());
-ipcMain.handle('crawler-window-show', () => showCrawlerWindow());
-ipcMain.handle('crawler-window-hide', () => hideCrawlerWindow());
-ipcMain.handle('crawler-window-toggle', () => toggleCrawlerWindow());
+ipcMain.handle('crawler-window-status', (_event, platform?: string) => isCrawlerWindowVisible(platform));
+ipcMain.handle('crawler-window-show', (_event, platform: string) => showCrawlerWindow(platform));
+ipcMain.handle('crawler-window-hide', (_event, platform: string) => hideCrawlerWindow(platform));
+ipcMain.handle('crawler-window-toggle', (_event, platform: string) => toggleCrawlerWindow(platform));
 
 // Helper to find a free port
 function getFreePort(startPort = 8080): Promise<number> {
@@ -112,6 +142,10 @@ function getFreePort(startPort = 8080): Promise<number> {
 }
 
 function createWindow(port: number): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusMainWindow();
+    return;
+  }
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -158,6 +192,13 @@ function createWindow(port: number): void {
     });
   });
 
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -174,14 +215,11 @@ app.on('ready', async () => {
       app.dock.setIcon(iconPath);
     }
 
-    // 初始化静默后台窗口
-    createCrawlerWindow();
-
     apiPort = await getFreePort(8080);
     console.log(`[Electron] Starting Fastify API on free port: ${apiPort}`);
     
     // Start local Fastify server
-    await startServer(apiPort);
+    await startServer(apiPort, { prepareCrawlerWindow, showCrawlerWindow, hideCrawlerWindow });
     console.log('[Electron] Fastify server started successfully. Launching UI.');
 
     createWindow(apiPort);
@@ -189,6 +227,11 @@ app.on('ready', async () => {
     console.error('[Electron] Startup failed:', err);
     app.quit();
   }
+});
+
+app.on('activate', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow(apiPort);
+  else focusMainWindow();
 });
 
 app.on('window-all-closed', () => {
@@ -201,4 +244,3 @@ app.on('will-quit', async () => {
   console.log('[Electron] Shutting down Fastify server...');
   await stopServer();
 });
-

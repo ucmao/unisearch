@@ -8,15 +8,9 @@ let activeCrawler: any = null;
 
 async function cleanup(): Promise<void> {
   console.log('[Worker] Cleaning up crawler page...');
-  if (activeCrawler) {
-    try {
-      if (activeCrawler.page && !activeCrawler.page.isClosed()) {
-        await activeCrawler.page.goto('about:blank').catch(() => {});
-      }
-    } catch (err: any) {
-      console.error('[Worker] Error during crawler page cleanup:', err.message);
-    }
-  }
+  // The page belongs to Electron's shared crawler window. Navigating it to
+  // about:blank here leaves a user-opened window as a white screen and can also
+  // interrupt a verification redirect that has just completed.
   closeDb();
   console.log('[Worker] Cleanup complete.');
 }

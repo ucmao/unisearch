@@ -11,6 +11,10 @@ import type { ConnectorStartRequest } from '../../connectors/types';
 
 export type CrawlerStartRequest = ConnectorStartRequest;
 
+export interface CrawlerWindowCoordinator {
+  prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
+}
+
 export class CrawlerTask {
   public platform: string;
   public config: CrawlerStartRequest;
@@ -39,6 +43,14 @@ export class CrawlerTask {
       message,
       platform: this.platform,
     };
+
+    if (this.currentRunId) {
+      try {
+        entry.id = analyticsRepository.appendRunLog(this.currentRunId, entry);
+      } catch (error: any) {
+        console.error(`[CrawlerTask] Failed to persist execution log: ${error.message}`);
+      }
+    }
 
     this.logs.push(entry);
     if (this.logs.length > 500) {
@@ -76,7 +88,6 @@ export class CrawlerTask {
       return;
     }
     const runId = this.currentRunId;
-    this.currentRunId = null;
     this.lastRunId = runId;
 
     try {
@@ -90,6 +101,8 @@ export class CrawlerTask {
     } catch (err: any) {
       analyticsRepository.finishRun(runId, 'failed', exitCode, [], String(err));
       this.addLog(`保存分析结果失败: ${err.message}`, 'error', manager);
+    } finally {
+      this.currentRunId = null;
     }
   }
 
@@ -172,6 +185,12 @@ export class CrawlerTask {
         } else if (msg && msg.type === 'LOGIN_SUCCESS') {
           this.addLog(`${this.platform} 登录成功！`, 'success', manager);
           manager.emit('login_success', msg);
+        } else if (msg && msg.type === 'MANUAL_VERIFICATION_REQUIRED') {
+          this.addLog(`检测到 ${this.platform} 图形验证，请在内置浏览器中手动完成`, 'warning', manager);
+          manager.emit('manual_verification_required', msg);
+        } else if (msg && msg.type === 'MANUAL_VERIFICATION_SUCCESS') {
+          this.addLog(`${this.platform} 图形验证已完成`, 'success', manager);
+          manager.emit('manual_verification_success', msg);
         }
       });
 
@@ -206,6 +225,7 @@ export class CrawlerTask {
           }, 5000);
         } else {
           this.status = 'idle';
+          manager.emit('crawler_finished', { platform: this.platform, status: runStatus });
         }
       });
     } catch (err: any) {
@@ -250,6 +270,11 @@ export class CrawlerTask {
 export class CrawlerManager extends EventEmitter {
   private tasks: Map<string, CrawlerTask> = new Map();
   private globalLogs: LogEntry[] = [];
+  private windowCoordinator: CrawlerWindowCoordinator = {};
+
+  public setWindowCoordinator(coordinator: CrawlerWindowCoordinator): void {
+    this.windowCoordinator = coordinator;
+  }
   
   public get status(): 'idle' | 'running' | 'stopping' {
     const states = Array.from(this.tasks.values()).map((t) => t.status);
@@ -294,6 +319,11 @@ export class CrawlerManager extends EventEmitter {
     
     if (existing && (existing.status === 'running' || existing.status === 'stopping')) {
       return false;
+    }
+
+    if (this.windowCoordinator.prepareCrawlerWindow) {
+      const prepared = await this.windowCoordinator.prepareCrawlerWindow(platform);
+      if (!prepared) throw new Error(`无法创建平台 ${platform} 的专用采集窗口`);
     }
 
     const task = new CrawlerTask(platform, normalizedConfig);
@@ -381,9 +411,11 @@ export class CrawlerManager extends EventEmitter {
   public getLogs(platform?: string, limit = 100): LogEntry[] {
     if (platform) {
       const task = this.tasks.get(platform);
-      return task ? task.logs.slice(-limit) : [];
+      if (task?.logs.length) return task.logs.slice(-limit);
+      return analyticsRepository.listRunLogs(platform, limit) as LogEntry[];
     }
-    return this.globalLogs.slice(-limit);
+    if (this.globalLogs.length) return this.globalLogs.slice(-limit);
+    return analyticsRepository.listRunLogs(undefined, limit) as LogEntry[];
   }
 }
 
