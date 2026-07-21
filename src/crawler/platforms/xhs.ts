@@ -1,42 +1,21 @@
 import { chromium, Playwright, BrowserContext, Page, asyncPlaywright } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium, createHeadlessLaunchOptions } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { CDPBrowserManager } from '../../tools/browser';
 import { dbStore } from '../store';
+import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
-  public cdpManager: CDPBrowserManager | null = null;
 
   public async start(): Promise<void> {
-    console.log('[XHS] Starting XiaoHongShu crawler (headless mode)...');
+    console.log('[XHS] Starting XiaoHongShu crawler (Electron CDP mode)...');
     
-    // Choose standard or CDP launch
     const p = require('playwright');
-    
-    // First try connecting to Electron's built-in Chromium engine
     this.browserContext = await connectToElectronChromium(p);
-    if (this.browserContext) {
-      this.page = await this.browserContext.newPage();
-    } else if (activeConfig.ENABLE_CDP_MODE) {
-      console.log('[XHS] Launching browser in CDP mode');
-      this.cdpManager = new CDPBrowserManager();
-      this.browserContext = await this.cdpManager.launchAndConnect(p);
-      this.page = await this.cdpManager.newPage();
-    } else {
-      console.log('[XHS] Launching browser in standard mode');
-      const path = require('path');
-      const userDataDir = path.join(
-        process.cwd(),
-        'browser_data',
-        activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM)
-      );
-      const launchOptions = createHeadlessLaunchOptions();
-      this.browserContext = await p.chromium.launchPersistentContext(userDataDir, launchOptions);
-      this.page = this.browserContext.pages().length > 0 ? this.browserContext.pages()[0] : await this.browserContext.newPage();
-    }
+    const pages = this.browserContext.pages();
+    this.page = pages.length > 0 ? pages[0] : await this.browserContext.newPage();
 
 
 

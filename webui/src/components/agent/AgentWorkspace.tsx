@@ -2,11 +2,11 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, FileText, KeyRound,
+  Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, Eye, EyeOff, FileText, KeyRound,
   Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, Search, Send,
   Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
-import { agentApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
+import { agentApi, browserApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -179,6 +179,21 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
   const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; platforms: string[] }>>([])
   const [threadsCollapsed, setThreadsCollapsed] = useState(() => localStorage.getItem('unisearch-threads-collapsed') === 'true')
+
+  const browserWindowQuery = useQuery({
+    queryKey: ['browser-window-status'],
+    queryFn: async () => (await browserApi.getWindowStatus()).data,
+    refetchInterval: 3000,
+  })
+
+  const toggleBrowserWindow = useMutation({
+    mutationFn: async () => (await browserApi.toggleWindow('toggle')).data,
+    onSuccess: (data) => {
+      client.setQueryData(['browser-window-status'], data)
+      toast.success(data.visible ? '已打开内置采集浏览器窗口' : '已隐藏内置采集浏览器窗口')
+    },
+    onError: (error) => toast.error(getError(error)),
+  })
   const [threadSearchOpen, setThreadSearchOpen] = useState(false)
   const [threadSearchQuery, setThreadSearchQuery] = useState('')
   const [renamingThread, setRenamingThread] = useState<AgentThreadSummary | null>(null)
@@ -570,6 +585,18 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
           <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1></div>
           <div className="flex items-center gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40' : 'text-cyber-text-muted hover:text-cyber-text-primary'}`}
+              onClick={() => toggleBrowserWindow.mutate()}
+              disabled={toggleBrowserWindow.isPending}
+              title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
+              aria-label={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
+              aria-pressed={browserWindowQuery.data?.visible}
+            >
+              {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : browserWindowQuery.data?.visible ? <Eye className="h-4 w-4 text-cyber-neon-cyan" /> : <EyeOff className="h-4 w-4" />}
+            </Button>
             <Button className="md:hidden" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}</Button>
             {selectedId && <Button
               size="icon"

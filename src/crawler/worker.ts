@@ -7,16 +7,14 @@ import { normalizeConnectorRequest } from '../connectors/registry';
 let activeCrawler: any = null;
 
 async function cleanup(): Promise<void> {
-  console.log('[Worker] Cleaning up crawler browser...');
+  console.log('[Worker] Cleaning up crawler page...');
   if (activeCrawler) {
     try {
-      if (activeCrawler.cdpManager) {
-        await activeCrawler.cdpManager.cleanup(true);
-      } else if (activeCrawler.browserContext) {
-        await activeCrawler.browserContext.close();
+      if (activeCrawler.page && !activeCrawler.page.isClosed()) {
+        await activeCrawler.page.goto('about:blank').catch(() => {});
       }
     } catch (err: any) {
-      console.error('[Worker] Error during browser cleanup:', err.message);
+      console.error('[Worker] Error during crawler page cleanup:', err.message);
     }
   }
   closeDb();

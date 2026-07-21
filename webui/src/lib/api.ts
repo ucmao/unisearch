@@ -453,4 +453,10 @@ export const envApi = {
   check: () => api.get<EnvCheckResult>('/env/check'),
 }
 
+export const browserApi = {
+  getWindowStatus: () => api.get<{ success: boolean; visible: boolean }>('/browser/window'),
+  toggleWindow: (action: 'show' | 'hide' | 'toggle' = 'toggle') =>
+    api.post<{ success: boolean; visible: boolean }>('/browser/window', { action }),
+}
+
 export default api
