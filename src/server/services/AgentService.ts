@@ -16,7 +16,17 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     .map((p: any) => platformAliases[String(p)] || String(p))
     .filter((p: string) => SUPPORTED.includes(p)))) as string[];
   const inferredPlatforms = inferResearchPlatforms(userText);
-  const keywords = Array.from(new Set((Array.isArray(input?.keywords) ? input.keywords : []).map((v: any) => String(v).trim()).filter(Boolean))).slice(0, 12) as string[];
+  const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
+    .map((value: any) => String(value).trim()).filter(Boolean);
+  const keywords = Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
+    // Models occasionally echo the merged clarification scaffold into a keyword,
+    // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
+    // through the deterministic subject extractor.
+    if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎).*(?:采集|搜索)/i.test(keyword)) {
+      return inferResearchKeywords(keyword);
+    }
+    return [keyword];
+  }))).slice(0, 12) as string[];
   const capabilityIds = ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'];
   const inferredCapability = /解析.*(?:链接|URL)|短链|真实链接/i.test(userText)
     ? 'url_resolve'

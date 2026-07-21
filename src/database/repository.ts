@@ -196,6 +196,30 @@ export class AnalyticsRepository {
     stmt.run(status, finishedAt, exitCode, contents.length, errorMessage || null, runId);
   }
 
+  public appendRunLog(runId: string, log: { platform: string; timestamp: string; level: string; message: string }): number {
+    const result = this.db.prepare(`
+      INSERT INTO crawl_run_logs (run_id, platform, timestamp, level, message, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(runId, log.platform, log.timestamp, log.level, log.message, new Date().toISOString());
+    return Number(result.lastInsertRowid);
+  }
+
+  public listRunLogs(platform?: string, limit = 500): Array<{
+    id: number; timestamp: string; level: string; message: string; platform: string;
+  }> {
+    const boundedLimit = Math.max(1, Math.min(Number(limit) || 500, 2000));
+    const rows = platform
+      ? this.db.prepare(`
+          SELECT id, timestamp, level, message, platform
+          FROM crawl_run_logs WHERE platform = ? ORDER BY id DESC LIMIT ?
+        `).all(platform, boundedLimit)
+      : this.db.prepare(`
+          SELECT id, timestamp, level, message, platform
+          FROM crawl_run_logs ORDER BY id DESC LIMIT ?
+        `).all(boundedLimit);
+    return (rows as any[]).reverse();
+  }
+
   public ingestContents(runId: string, contents: any[]): number {
     if (!contents || contents.length === 0) {
       return 0;

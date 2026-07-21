@@ -1,5 +1,5 @@
 import { chromium, Playwright, BrowserContext, Page, asyncPlaywright } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
 import fs from 'fs';
@@ -14,8 +14,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
-    const pages = this.browserContext.pages();
-    this.page = pages.length > 0 ? pages[0] : await this.browserContext.newPage();
+    this.page = await getElectronCrawlerPage(this.browserContext, 'xhs');
 
 
 

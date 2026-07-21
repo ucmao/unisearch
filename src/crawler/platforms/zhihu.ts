@@ -1,5 +1,5 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
 import fs from 'fs';
@@ -13,8 +13,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     console.log('[ZHIHU] Starting Zhihu crawler (Electron CDP mode)...');
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
-    const pages = this.browserContext.pages();
-    this.page = pages.length > 0 ? pages[0] : await this.browserContext.newPage();
+    this.page = await getElectronCrawlerPage(this.browserContext, 'zhihu');
 
     const stealthPath = 'libs/stealth.min.js';
     if (fs.existsSync(stealthPath)) {
