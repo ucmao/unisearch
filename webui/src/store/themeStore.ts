@@ -8,7 +8,7 @@ interface ThemeState {
   setTheme: (theme: Theme) => void
 }
 
-const THEME_KEY = 'mediaradar_theme'
+const THEME_KEY = 'unisearch_theme'
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'

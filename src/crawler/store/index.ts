@@ -14,7 +14,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 
 // Normalized content schema helper
 function normalizeAndIngest(platform: string, rawItem: Record<string, any>): void {
-  const runId = process.env.MEDIARADAR_RUN_ID;
+  const runId = process.env.UNISEARCH_RUN_ID;
   if (!runId) return;
 
   let contentId = '';
