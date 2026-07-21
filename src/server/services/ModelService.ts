@@ -91,7 +91,7 @@ export class ModelService {
     try {
       const { safeStorage } = require('electron');
       if (safeStorage?.isEncryptionAvailable()) return safeStorage.decryptString(Buffer.from(value, 'base64'));
-    } catch {}
+    } catch { }
     return this.apiKeyMemory;
   }
 
@@ -99,7 +99,7 @@ export class ModelService {
     try {
       const { safeStorage } = require('electron');
       if (safeStorage?.isEncryptionAvailable()) return safeStorage.encryptString(value).toString('base64');
-    } catch {}
+    } catch { }
     return undefined;
   }
 
@@ -170,7 +170,7 @@ export class ModelService {
       const raw = this.readRaw();
       delete raw.connectionVerifiedAt;
       fs.writeFileSync(this.configPath, JSON.stringify(raw, null, 2), { mode: 0o600 });
-    } catch {}
+    } catch { }
   }
 
   private async chat(messages: any[], maxTokens = 3000, healthCritical = true): Promise<string> {
@@ -224,7 +224,7 @@ export class ModelService {
   ): Promise<ResearchPlan> {
     const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const content = await this.chat([
-      { role: 'system', content: `你是UniSearch本地情报任务规划器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp} 根据完整对话和用户最新目标生成可执行计划。只输出JSON，不要Markdown。字段必须为 goal:string, platforms:string[], capability:"keyword_search"|"content_detail"|"creator_profile"|"comments"|"url_resolve", targets:string[], keywords:string[], connectorOptions:object, collectComments:boolean, collectSubComments:boolean, startPage:number, loginType:"qrcode"|"cookie", headless:boolean, analysis:string[], outputs:string[]。platforms只能使用给定代码，至少一个；关键词搜索时 keywords 至少一个；详情、主页、评论、URL解析时 targets 必须包含用户给出的 ID 或链接；connectorOptions 按平台代码保存平台专属参数。analysis 必须根据用户真正的调研目的生成3到6个具体、可由采集内容支撑的分析维度，避免固定使用“内容摘要、用户观点与情感、关键发现”等空泛模板。例如机构调研可关注机构识别、课程定位、价格服务、师资案例和用户评价。默认二维码登录、显示浏览器、从第1页开始。当前合并后的任务表达为：${JSON.stringify(userText)}` },
+      { role: 'system', content: `你是UniSearch本地情报任务规划器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp} 根据完整对话和用户最新目标生成可执行计划。只输出JSON，不要Markdown。字段必须为 goal:string, platforms:string[], capability:"keyword_search"|"content_detail"|"creator_profile"|"comments"|"url_resolve", targets:string[], keywords:string[], connectorOptions:object, collectComments:boolean, collectSubComments:boolean, startPage:number, loginType:"qrcode"|"cookie", headless:boolean, analysis:string[], outputs:string[]。platforms只能使用给定代码，至少一个；关键词搜索时 keywords 至少一个；详情、主页、评论、URL解析时 targets 必须包含用户给出的 ID 或链接；connectorOptions 按平台代码保存平台专属参数。analysis 必须根据用户真正的调研目的生成3到5个简要、可由采集内容支撑的分析维度，避免固定使用“内容摘要、用户观点与情感、关键发现”等空泛模板。例如机构调研可关注机构识别、课程定位、价格服务、师资案例和用户评价。当前合并后的任务表达为：${JSON.stringify(userText)}` },
       ...messages,
     ]);
     try { return parseModelJson<ResearchPlan>(content); }

@@ -88,6 +88,16 @@ export function inferResearchPlatforms(text: string): string[] {
   return aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
 }
 
+export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep' | 'custom' {
+  if (/(?:快速|简单|即时|秒级|随便|大概|前几条|抓几条|只要列表|不要评论|不采评论|不集评论|不加评论)/i.test(text)) {
+    return 'quick';
+  }
+  if (/(?:深度|详细|深入|完整|全量|全面|舆情|二级评论|回复|楼层|深入挖掘|深入分析|详细分析)/i.test(text)) {
+    return 'deep';
+  }
+  return 'standard';
+}
+
 /**
  * Safe local router used both as a fast path and when no model is configured.
  * It deliberately prefers conversation/clarification over inventing a task.

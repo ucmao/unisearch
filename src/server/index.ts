@@ -263,6 +263,13 @@ export async function startServer(port = 8080): Promise<number> {
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });
 
+  fastify.patch('/api/agent/plans/:plan_id', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    const body = (request.body || {}) as { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' };
+    try { return agentService.updatePlan(plan_id, body); }
+    catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
   fastify.patch('/api/agent/plans/:plan_id/analysis', async (request, reply) => {
     const { plan_id } = request.params as { plan_id: string };
     const { analysis } = (request.body || {}) as { analysis?: string[] };

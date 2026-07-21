@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointer
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, Eye, EyeOff, FileText, KeyRound,
+  AlertTriangle, Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, Eye, EyeOff, FileText, KeyRound,
   Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, Search, Send,
   Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
@@ -71,9 +71,19 @@ function CsvDownloadLink({ planId, compact = false }: { planId: string; compact?
   )
 }
 
-function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis, updatingAnalysis }: {
+const DEPTH_LABELS: Record<string, string> = {
+  quick: '⚡ 快速 (3页/无评论)',
+  standard: '⚖️ 标准 (5页/含一级评论)',
+  deep: '🔬 深度 (10页/含回复评论)',
+  custom: '⚙️ 自定义',
+}
+
+function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
   plan: AgentPlan; onExecute: () => void; executing: boolean; onOpenResults: () => void
-  onUpdateAnalysis: (analysis: string[]) => void; updatingAnalysis: boolean
+  onUpdateAnalysis: (analysis: string[]) => void
+  onUpdateKeywords: (keywords: string[]) => void
+  onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
+  updatingPlan: boolean
 }) {
   const done = plan.steps.filter((step) => step.status === 'completed').length
   const progress = plan.steps.length ? Math.round(done / plan.steps.length * 100) : 0
@@ -81,15 +91,33 @@ function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis,
   const [editingAnalysis, setEditingAnalysis] = useState(false)
   const [analysisDraft, setAnalysisDraft] = useState(plan.plan.analysis)
   const [analysisInput, setAnalysisInput] = useState('')
+
+  const [editingKeywords, setEditingKeywords] = useState(false)
+  const [keywordsDraft, setKeywordsDraft] = useState(plan.plan.keywords)
+  const [keywordInput, setKeywordInput] = useState('')
+
   useEffect(() => {
     if (!editingAnalysis) setAnalysisDraft(plan.plan.analysis)
   }, [plan.plan.analysis, editingAnalysis])
+
+  useEffect(() => {
+    if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
+  }, [plan.plan.keywords, editingKeywords])
+
   const addAnalysisGoal = () => {
     const value = analysisInput.trim()
     if (!value || analysisDraft.includes(value) || analysisDraft.length >= 8) return
     setAnalysisDraft((current) => [...current, value])
     setAnalysisInput('')
   }
+
+  const addKeyword = () => {
+    const value = keywordInput.trim()
+    if (!value || keywordsDraft.includes(value) || keywordsDraft.length >= 12) return
+    setKeywordsDraft((current) => [...current, value])
+    setKeywordInput('')
+  }
+
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-cyber-neon-cyan/25 bg-cyber-bg-secondary/55">
       <div className="border-b border-cyber-border-subtle px-4 py-3">
@@ -100,7 +128,40 @@ function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis,
         <p className="mt-2 text-xs leading-relaxed text-cyber-text-secondary">{plan.plan.goal}</p>
       </div>
       <div className="grid gap-3 p-4 sm:grid-cols-2">
-        <div><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{plan.plan.capability && plan.plan.capability !== 'keyword_search' ? '目标' : '关键词'}</p><div className="mt-1.5 flex flex-wrap gap-1.5">{(plan.plan.capability && plan.plan.capability !== 'keyword_search' ? plan.plan.targets || [] : plan.plan.keywords).map((item) => <Badge key={item} variant="outline">{item}</Badge>)}</div></div>
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{plan.plan.capability && plan.plan.capability !== 'keyword_search' ? '目标' : '关键词'}</p>
+            {plan.status === 'awaiting_confirmation' && (!plan.plan.capability || plan.plan.capability === 'keyword_search') && !editingKeywords ? (
+              <button type="button" onClick={() => setEditingKeywords(true)} className="text-[10px] text-cyber-text-muted hover:text-cyber-neon-cyan">编辑</button>
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {(editingKeywords ? keywordsDraft : (plan.plan.capability && plan.plan.capability !== 'keyword_search' ? plan.plan.targets || [] : plan.plan.keywords)).map((item) => (
+              <Badge key={item} variant="outline" className="gap-1">
+                {item}
+                {editingKeywords ? (
+                  <button type="button" onClick={() => setKeywordsDraft((current) => current.filter((k) => k !== item))} aria-label={`删除关键词 ${item}`}>
+                    <X className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </Badge>
+            ))}
+          </div>
+          {editingKeywords ? (
+            <div className="mt-2 space-y-2">
+              <div className="flex gap-2">
+                <Input value={keywordInput} maxLength={40} className="h-8 text-xs" placeholder="添加关键词" onChange={(event) => setKeywordInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addKeyword() } }} />
+                <Button size="sm" variant="outline" className="h-8" onClick={addKeyword} disabled={!keywordInput.trim() || keywordsDraft.length >= 12}><Plus /></Button>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" className="h-7" onClick={() => { setKeywordsDraft(plan.plan.keywords); setEditingKeywords(false) }}>取消</Button>
+                <Button size="sm" className="h-7" disabled={!keywordsDraft.length || updatingPlan} onClick={() => { onUpdateKeywords(keywordsDraft); setEditingKeywords(false) }}>
+                  {updatingPlan ? <Loader2 className="animate-spin" /> : null}保存
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">分析目标{plan.plan.analysisSource === 'fallback' ? ' · 默认推荐' : plan.plan.analysisSource === 'user' ? ' · 已自定义' : ''}</p>
@@ -114,7 +175,7 @@ function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis,
           </div>
           {editingAnalysis ? <div className="mt-2 space-y-2">
             <div className="flex gap-2"><Input value={analysisInput} maxLength={40} className="h-8 text-xs" placeholder="添加分析目标" onChange={(event) => setAnalysisInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addAnalysisGoal() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addAnalysisGoal} disabled={!analysisInput.trim() || analysisDraft.length >= 8}><Plus /></Button></div>
-            <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setAnalysisDraft(plan.plan.analysis); setEditingAnalysis(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!analysisDraft.length || updatingAnalysis} onClick={() => { onUpdateAnalysis(analysisDraft); setEditingAnalysis(false) }}>{updatingAnalysis ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
+            <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setAnalysisDraft(plan.plan.analysis); setEditingAnalysis(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!analysisDraft.length || updatingPlan} onClick={() => { onUpdateAnalysis(analysisDraft); setEditingAnalysis(false) }}>{updatingPlan ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
           </div> : null}
         </div>
       </div>
@@ -127,10 +188,30 @@ function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis,
             <span className="w-14 text-right text-[10px] text-cyber-text-muted">{STATUS_LABELS[step.status] || step.status}</span>
           </div>
         ))}
-        {['queued', 'running'].includes(plan.status) ? <p className="pt-1 text-[10px] text-cyber-text-muted">已完成 {done}/{plan.steps.length} · 本机最多同时执行2个平台</p> : null}
+        {['queued', 'running'].includes(plan.status) ? <p className="pt-1 text-[10px] text-cyber-text-muted">已完成 {done}/{plan.steps.length} · 本机最多同时执行3个平台</p> : null}
       </div>
-      <div className="flex items-center justify-between border-t border-cyber-border-subtle bg-cyber-bg-tertiary/20 px-4 py-3">
-        <span className="text-[10px] text-cyber-text-muted">评论 {plan.plan.collectComments ? '开启' : '关闭'} · 浏览器 {plan.plan.headless ? '后台模式' : '可见模式'}</span>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-cyber-border-subtle bg-cyber-bg-tertiary/20 px-4 py-3">
+        {plan.status === 'awaiting_confirmation' ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] text-cyber-text-muted">采集深度：</span>
+            {(['quick', 'standard', 'deep'] as const).map((d) => {
+              const active = (plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')) === d
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  disabled={updatingPlan}
+                  onClick={() => onUpdateDepth(d)}
+                  className={`rounded-md px-2 py-0.5 text-[10px] transition-colors border ${active ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}
+                >
+                  {DEPTH_LABELS[d]}
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <span className="text-[10px] text-cyber-text-muted">深度：{DEPTH_LABELS[plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')]}</span>
+        )}
         {canExecute ? <Button size="sm" onClick={onExecute} disabled={executing}><Play />{plan.status === 'awaiting_confirmation' ? '确认并执行' : '重试失败步骤'}</Button> : null}
         {['completed', 'partially_completed'].includes(plan.status) ? <div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={onOpenResults}><Database />查看结果</Button><CsvDownloadLink planId={plan.plan_id} compact /></div> : null}
       </div>
@@ -139,9 +220,12 @@ function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis,
   )
 }
 
-function MessageBubble({ message, plan, onExecute, executing, onOpenResults, onUpdateAnalysis, updatingAnalysis }: {
+function MessageBubble({ message, plan, onExecute, executing, onOpenResults, onUpdateAnalysis, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
   message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean; onOpenResults: () => void
-  onUpdateAnalysis: (analysis: string[]) => void; updatingAnalysis: boolean
+  onUpdateAnalysis: (analysis: string[]) => void
+  onUpdateKeywords: (keywords: string[]) => void
+  onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
+  updatingPlan: boolean
 }) {
   const isUser = message.role === 'user'
   return (
@@ -159,7 +243,7 @@ function MessageBubble({ message, plan, onExecute, executing, onOpenResults, onU
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
         {message.kind === 'plan' && plan && message.metadata?.plan_id === plan.plan_id
-          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onOpenResults={onOpenResults} onUpdateAnalysis={onUpdateAnalysis} updatingAnalysis={updatingAnalysis} /> : null}
+          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onOpenResults={onOpenResults} onUpdateAnalysis={onUpdateAnalysis} onUpdateKeywords={onUpdateKeywords} onUpdateDepth={onUpdateDepth} updatingPlan={updatingPlan} /> : null}
         <p className={`mt-1.5 text-[9px] text-cyber-text-muted ${isUser ? 'text-right' : ''}`}>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
       </div>
       {isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>}
@@ -334,15 +418,25 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('任务已进入本地执行队列') },
     onError: (error) => toast.error(getError(error)),
   })
-  const updateAnalysis = useMutation({
-    mutationFn: ({ planId, analysis }: { planId: string; analysis: string[] }) => agentApi.updatePlanAnalysis(planId, analysis),
-    onMutate: ({ planId, analysis }) => {
+  const updatePlan = useMutation({
+    mutationFn: ({ planId, updates }: { planId: string; updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' } }) =>
+      agentApi.updatePlan(planId, updates),
+    onMutate: ({ planId, updates }) => {
       client.setQueryData<AgentThread>(['agent-thread', selectedId], (current) => current?.plan?.plan_id === planId ? {
         ...current,
-        plan: { ...current.plan, plan: { ...current.plan.plan, analysis, analysisSource: 'user' } },
+        plan: {
+          ...current.plan,
+          plan: {
+            ...current.plan.plan,
+            ...updates,
+            ...(updates.collectionDepth === 'quick' ? { collectComments: false, collectSubComments: false, startPage: 1 } : {}),
+            ...(updates.collectionDepth === 'standard' ? { collectComments: true, collectSubComments: false, startPage: 1 } : {}),
+            ...(updates.collectionDepth === 'deep' ? { collectComments: true, collectSubComments: true, startPage: 1 } : {}),
+          },
+        },
       } : current)
     },
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('分析目标已更新') },
+    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('计划参数已更新') },
     onError: (error) => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.error(getError(error)) },
   })
 
@@ -631,7 +725,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updateAnalysis.mutate({ planId: activePlan.plan_id, analysis })} updatingAnalysis={updateAnalysis.isPending} />)}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { analysis } })} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} />)}
                 {isThinking && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
@@ -703,7 +797,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             </div>
           </main>
 
-          {rightSidebarOpen && selectedId && <aside className="relative shrink-0 border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4" style={{ width: rightSidebarWidth }}>
+          {rightSidebarOpen && selectedId && <aside className="relative shrink-0 overflow-y-auto border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4" style={{ width: rightSidebarWidth }}>
         <div
           className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
           onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
@@ -712,13 +806,129 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
           })}
           aria-label="调整右侧边栏宽度"
         />
-        <p className="text-[10px] uppercase tracking-[0.16em] text-cyber-text-muted">当前任务</p>
-        {activePlan ? <div className="mt-4 space-y-5">
-          <div><p className="text-xs font-medium">{STATUS_LABELS[activePlan.status] || activePlan.status}</p><p className="mt-1 text-[10px] text-cyber-text-muted">{activePlan.steps.length}个平台 · {activePlan.plan.keywords.length}个关键词</p></div>
-          <div><p className="text-[10px] text-cyber-text-muted">数据采集</p><div className="mt-2 space-y-2">{activePlan.steps.map((step) => <div key={step.step_id} className="flex items-center justify-between text-xs"><span>{PLATFORM_LABELS[step.platform]}</span><StepIcon status={step.status} /></div>)}</div></div>
-          <div className="space-y-2"><Button variant="outline" className="w-full justify-start" onClick={onOpenResults}><Database />结果看板<ChevronRight className="ml-auto" /></Button>
-            {activePlan.steps.some((step) => step.run_id) && <CsvDownloadLink planId={activePlan.plan_id} compact />}</div>
-        </div> : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">当前任务大盘</p>
+          {activePlan ? <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[activePlan.status] || activePlan.status}</Badge> : null}
+        </div>
+
+        {activePlan ? (() => {
+          const totalItems = activePlan.stats?.content_count ?? activePlan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
+          const isRunning = ['queued', 'running'].includes(activePlan.status)
+          const isFinished = ['completed', 'partially_completed'].includes(activePlan.status)
+          const keywordsStr = activePlan.plan.keywords.join(' / ')
+
+          const handleApplyPrompt = (promptText: string) => {
+            setInput(promptText)
+            setTimeout(() => composerInputRef.current?.focus(), 50)
+          }
+
+          return (
+            <div className="mt-4 space-y-5 text-xs">
+              {/* 总数据汇总卡片 */}
+              <div className="rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 shadow-sm">
+                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                  <span>已采集数据总量</span>
+                  <span className="font-mono">{activePlan.steps.length} 平台 · {activePlan.plan.keywords.length} 词</span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className={`text-2xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
+                    {totalItems.toLocaleString()}
+                  </span>
+                  <span className="text-xs text-cyber-text-secondary">条内容</span>
+                </div>
+                {keywordsStr ? (
+                  <p className="mt-2 truncate text-[10px] text-cyber-text-muted" title={keywordsStr}>
+                    关键词：{keywordsStr}
+                  </p>
+                ) : null}
+              </div>
+
+              {/* 分平台采集明细与占比 */}
+              <div>
+                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                  <span>数据分布与状态</span>
+                  {totalItems > 0 ? <span>占比</span> : null}
+                </div>
+                <div className="mt-2 space-y-2">
+                  {activePlan.steps.map((step) => {
+                    const count = step.item_count || 0
+                    const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0
+                    const isZeroSuccess = step.status === 'completed' && count === 0
+
+                    return (
+                      <div key={step.step_id} className="rounded-lg border border-cyber-border-subtle/60 bg-cyber-bg-panel/30 p-2.5 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate font-medium text-cyber-text-primary">
+                              {PLATFORM_LABELS[step.platform] || step.platform}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
+                              {count > 0 ? `${count} 条` : step.status === 'completed' ? '0 条' : ''}
+                            </span>
+                            {isZeroSuccess ? (
+                              <span title="该平台未采集到数据或可能被风控受限">
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                              </span>
+                            ) : (
+                              <StepIcon status={step.status} />
+                            )}
+                          </div>
+                        </div>
+                        {step.status === 'completed' && totalItems > 0 && count > 0 ? (
+                          <div className="mt-2 flex items-center gap-2">
+                            <div className="h-1 flex-1 overflow-hidden rounded-full bg-cyber-bg-tertiary">
+                              <div className="h-full rounded-full bg-cyber-neon-cyan/70 transition-all duration-300" style={{ width: `${percent}%` }} />
+                            </div>
+                            <span className="w-7 text-right font-mono text-[9px] text-cyber-text-muted">{percent}%</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* 动作区 */}
+              <div className="space-y-2 pt-1 border-t border-cyber-border-subtle">
+                <Button variant="outline" className="w-full justify-between h-9 text-xs" onClick={onOpenResults}>
+                  <span className="flex items-center gap-2"><Database className="h-3.5 w-3.5 text-cyber-neon-cyan" />结果看板</span>
+                  <span className="flex items-center text-[10px] text-cyber-text-muted">{totalItems} 条 <ChevronRight className="ml-1 h-3.5 w-3.5" /></span>
+                </Button>
+                {activePlan.steps.some((step) => step.run_id) ? (
+                  <CsvDownloadLink planId={activePlan.plan_id} compact />
+                ) : null}
+              </div>
+
+              {/* AI 快捷提问建议 */}
+              {isFinished ? (
+                <div className="pt-2 border-t border-cyber-border-subtle">
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-cyber-text-muted mb-2">
+                    <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
+                    <span>快捷分析建议</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {[
+                      `分析 ${activePlan.plan.keywords[0] || '关键词'} 各平台的热度与讨论差异`,
+                      `总结抓取数据中用户的主要诉求和评价`,
+                      `提取数据中频繁出现的高频词与热门话题`
+                    ].map((promptText, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => handleApplyPrompt(promptText)}
+                        className="w-full text-left rounded-lg border border-cyber-border-subtle/60 bg-cyber-bg-panel/40 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary transition-colors hover:border-cyber-neon-cyan/40 hover:bg-cyber-neon-cyan/5 hover:text-cyber-neon-cyan"
+                      >
+                        {promptText}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )
+        })() : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
           </aside>}
         </div>
         {terminalOpen && selectedId && (

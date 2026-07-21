@@ -229,6 +229,7 @@ export interface ResearchPlanData {
   capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve'
   targets?: string[]
   connectorOptions?: Record<string, Record<string, unknown>>
+  collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom'
   collectComments: boolean
   collectSubComments: boolean
   startPage: number
@@ -246,6 +247,7 @@ export interface AgentPlanStep {
   status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped'
   run_id: string | null
   error_message: string | null
+  item_count?: number
 }
 
 export interface AgentPlan {
@@ -255,6 +257,10 @@ export interface AgentPlan {
   status: 'awaiting_confirmation' | 'queued' | 'running' | 'completed' | 'partially_completed' | 'failed' | 'stopped'
   plan: ResearchPlanData
   steps: AgentPlanStep[]
+  stats?: {
+    content_count: number
+    by_platform: Array<{ platform: string; platform_label: string; count: number }>
+  }
   created_at: string
   updated_at: string
 }
@@ -427,6 +433,8 @@ export const agentApi = {
   } = {}) =>
     api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000 }),
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
+  updatePlan: (planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) =>
+    api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}`, updates),
   updatePlanAnalysis: (planId: string, analysis: string[]) =>
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/analysis`, { analysis }),
   getPlanExportUrl: (planId: string) => `/api/agent/plans/${encodeURIComponent(planId)}/export`,

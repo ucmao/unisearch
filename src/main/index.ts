@@ -123,6 +123,23 @@ function createWindow(port: number): void {
     title: 'UniSearch Desktop',
   });
 
+  // 拦截新窗口请求（如 target="_blank" 的原帖链接），使用系统默认外部浏览器打开
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  // 拦截主页面内跳转，非本地 API/UI 链接在系统默认外部浏览器中打开
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const isLocal = url.startsWith(`http://127.0.0.1:${port}`) || url.startsWith(`http://localhost:${port}`);
+    if (!isLocal && (url.startsWith('http://') || url.startsWith('https://'))) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
   mainWindow.webContents.session.on('will-download', (_event, item) => {

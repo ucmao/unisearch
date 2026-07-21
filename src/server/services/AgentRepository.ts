@@ -11,6 +11,7 @@ export interface ResearchPlan {
   capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve';
   targets?: string[];
   connectorOptions?: Record<string, Record<string, unknown>>;
+  collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom';
   collectComments: boolean;
   collectSubComments: boolean;
   startPage: number;
@@ -336,8 +337,15 @@ export class AgentRepository {
   }
 
   private hydratePlan(row: any) {
-    const steps = this.db.prepare('SELECT * FROM agent_plan_steps WHERE plan_id=? ORDER BY created_at').all(row.plan_id);
-    return { ...row, plan: parseJson<ResearchPlan>(row.plan_json, {} as ResearchPlan), steps };
+    const steps = this.db.prepare(`
+      SELECT s.*, COALESCE(r.item_count, 0) AS item_count
+      FROM agent_plan_steps s
+      LEFT JOIN crawl_runs r ON s.run_id = r.run_id
+      WHERE s.plan_id=?
+      ORDER BY s.created_at
+    `).all(row.plan_id);
+    const stats = this.getPlanStats(row.plan_id);
+    return { ...row, plan: parseJson<ResearchPlan>(row.plan_json, {} as ResearchPlan), steps, stats };
   }
 
   listActivePlans(): any[] {

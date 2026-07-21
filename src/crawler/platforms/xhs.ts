@@ -215,58 +215,82 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         const notes = searchResult.data?.items;
         if (!Array.isArray(notes)) throw new Error('Search API returned an invalid items payload');
 
-        console.log(`[XHS] Found ${notes.length} notes. Ingesting...`);
+        console.log(`[XHS] Initial page returned ${notes.length} notes.`);
         let count = 0;
-        
-        for (const item of notes) {
-          if (count >= activeConfig.CRAWLER_MAX_NOTES_COUNT) break;
-          if (item.model_type === 'rec_query' || item.model_type === 'hot_query') continue;
+        let pageIndex = 1;
+        const targetCount = activeConfig.CRAWLER_MAX_NOTES_COUNT || 20;
 
-          // v2 search results keep display fields under note_card while the id
-          // and xsec_token remain on the outer item.
-          const card = item.note_card || item;
-          const noteId = item.id || item.note_id || card.note_id;
-          if (!noteId) continue;
+        let currentNotes = notes;
+        while (currentNotes.length > 0 && count < targetCount) {
+          console.log(`[XHS] Processing page ${pageIndex} (${currentNotes.length} notes, collected ${count}/${targetCount})...`);
+          for (const item of currentNotes) {
+            if (count >= targetCount) break;
+            if (item.model_type === 'rec_query' || item.model_type === 'hot_query') continue;
 
-          const user = card.user || item.user || {};
-          const interactInfo = card.interact_info || item.interact_info || {};
-          const imageUrls = (card.image_list || item.image_list || [])
-            .map((image: any) => image.url || image.url_default || image.info_list?.[0]?.url || '')
-            .filter(Boolean);
-          if (imageUrls.length === 0 && card.cover) {
-            imageUrls.push(card.cover.url_default || card.cover.url_pre || '');
+            const card = item.note_card || item;
+            const noteId = item.id || item.note_id || card.note_id;
+            if (!noteId) continue;
+
+            const user = card.user || item.user || {};
+            const interactInfo = card.interact_info || item.interact_info || {};
+            const imageUrls = (card.image_list || item.image_list || [])
+              .map((image: any) => image.url || image.url_default || image.info_list?.[0]?.url || '')
+              .filter(Boolean);
+            if (imageUrls.length === 0 && card.cover) {
+              imageUrls.push(card.cover.url_default || card.cover.url_pre || '');
+            }
+
+            const noteDetail = {
+              note_id: noteId,
+              type: card.type === 'video' ? 'video' : 'normal',
+              title: card.display_title || card.title || item.title || '',
+              desc: card.desc || item.desc || '',
+              video_url: '',
+              time: card.time || item.time || Math.floor(Date.now() / 1000),
+              last_update_time: Math.floor(Date.now() / 1000),
+              creator_hash: user.user_id || user.id || '',
+              nickname: user.nickname || user.nick_name || '',
+              liked_count: interactInfo.liked_count || 0,
+              collected_count: interactInfo.collected_count || 0,
+              comment_count: interactInfo.comment_count || 0,
+              share_count: interactInfo.shared_count || interactInfo.share_count || 0,
+              image_list: imageUrls.filter(Boolean).join(','),
+              tag_list: '',
+              note_url: `${indexUrl}/explore/${noteId}?xsec_token=${encodeURIComponent(item.xsec_token || '')}&xsec_source=pc_search`,
+              source_keyword: keyword,
+              xsec_token: item.xsec_token || '',
+            };
+
+            await dbStore.storeXhsNote(noteDetail);
+            count++;
+
+            // Crawl comments if enabled
+            if (activeConfig.ENABLE_GET_COMMENTS) {
+              await this.crawlComments(noteDetail.note_id, noteDetail.xsec_token);
+            }
+
+            await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
           }
 
-          const noteDetail = {
-            note_id: noteId,
-            type: card.type === 'video' ? 'video' : 'normal',
-            title: card.display_title || card.title || item.title || '',
-            desc: card.desc || item.desc || '',
-            video_url: '',
-            time: card.time || item.time || Math.floor(Date.now() / 1000),
-            last_update_time: Math.floor(Date.now() / 1000),
-            creator_hash: user.user_id || user.id || '',
-            nickname: user.nickname || user.nick_name || '',
-            liked_count: interactInfo.liked_count || 0,
-            collected_count: interactInfo.collected_count || 0,
-            comment_count: interactInfo.comment_count || 0,
-            share_count: interactInfo.shared_count || interactInfo.share_count || 0,
-            image_list: imageUrls.filter(Boolean).join(','),
-            tag_list: '',
-            note_url: `${indexUrl}/explore/${noteId}?xsec_token=${encodeURIComponent(item.xsec_token || '')}&xsec_source=pc_search`,
-            source_keyword: keyword,
-            xsec_token: item.xsec_token || '',
-          };
+          if (count >= targetCount) break;
 
-          await dbStore.storeXhsNote(noteDetail);
-          count++;
-
-          // Crawl comments if enabled
-          if (activeConfig.ENABLE_GET_COMMENTS) {
-            await this.crawlComments(noteDetail.note_id, noteDetail.xsec_token);
+          // Scroll down to trigger next page of search results
+          console.log(`[XHS] Scrolling to fetch next page of notes (${count}/${targetCount})...`);
+          pageIndex++;
+          try {
+            const [nextResponse] = await Promise.all([
+              this.page!.waitForResponse((response) => {
+                const url = response.url();
+                return response.request().method() === 'POST' && url.includes('/api/sns/web/v2/search/notes');
+              }, { timeout: 8000 }),
+              this.page!.evaluate(() => window.scrollBy(0, 3000)),
+            ]);
+            const nextData = await nextResponse.json();
+            currentNotes = nextData.data?.items || [];
+          } catch {
+            console.log('[XHS] No further search pages returned or scroll timeout.');
+            break;
           }
-
-          await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
         }
       } catch (err: any) {
         console.error(`[XHS] Error searching keyword ${keyword}:`, err.message);
@@ -281,7 +305,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
       const comments = await this.page!.evaluate(async ({ id, token }) => {
         try {
           const apiHost = window.location.hostname.includes('rednote.com') ? 'webapi.rednote.com' : 'edith.xiaohongshu.com';
-          const url = `https://${apiHost}/web_api/sns/v2/comment/page?note_id=${id}&xsec_token=${token}&image_formats=jpg,webp,gif`;
+          const url = `https://${apiHost}/api/sns/web/v2/comment/page?note_id=${id}&xsec_token=${token}&image_formats=jpg,webp,gif`;
 
           const resp = await fetch(url, {
             method: 'GET',

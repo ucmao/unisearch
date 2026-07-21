@@ -1,5 +1,5 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium, notifyLoginQrCodeRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
 import fs from 'fs';
@@ -58,16 +58,34 @@ export class DouyinCrawler extends AbstractCrawler {
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
       console.log('[DY] User is not logged in. Waiting for manual login...');
-      // Click login button if exists
+      // Click login button if exists to popup QR code modal
       try {
-        await this.page!.click('.login-guide, .header-login-btn', { timeout: 3000 });
+        await this.page!.click('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 3000 });
       } catch {}
+
+      await new Promise((r) => setTimeout(r, 1500));
+      // Capture QR code image / screenshot for UI frontend
+      try {
+        let qrBase64 = '';
+        const qrEl = await this.page!.$('#login-pannel, .login-mask, .login-guide, div[class*="login-container"]');
+        if (qrEl) {
+          const buf = await qrEl.screenshot({ type: 'png' });
+          qrBase64 = `data:image/png;base64,${buf.toString('base64')}`;
+        } else {
+          const buf = await this.page!.screenshot({ type: 'png' });
+          qrBase64 = `data:image/png;base64,${buf.toString('base64')}`;
+        }
+        notifyLoginQrCodeRequired('dy', qrBase64);
+      } catch (err: any) {
+        console.error('[DY] Failed to capture QR code:', err.message);
+      }
 
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[DY] Login successful!');
+          notifyLoginSuccess('dy');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
@@ -76,13 +94,37 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   private async checkLoginState(): Promise<boolean> {
+    // 1. If explicit login button / guide is visible, definitely NOT logged in
+    try {
+      const isLoginBtn = await this.page!.isVisible('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 1000 }).catch(() => false);
+      if (isLoginBtn) return false;
+    } catch {}
+
+    // 2. Check session cookies
+    try {
+      if (this.browserContext) {
+        const cookies = await this.browserContext.cookies();
+        const hasSession = cookies.some(
+          (c) => c.name === 'sessionid' || c.name === 'sid_guard' || c.name === 'passport_auth_token'
+        );
+        if (hasSession) {
+          const loginBtnExists = await this.page!.isVisible('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 1000 }).catch(() => false);
+          if (loginBtnExists) return false;
+          console.log('[DY] Login state confirmed via cookies.');
+          return true;
+        }
+      }
+    } catch (err: any) {
+      console.error('[DY] Error checking cookies:', err.message);
+    }
+
+    // 3. Check avatar selectors (excluding invalid generic hrefs like a[href*="/user/self"])
     try {
       const selectors = [
         '[data-e2e="user-avatar"]',
         '.header-user-avatar',
         '.user-avatar',
         '.dy-avatar',
-        'a[href*="/user/self"]',
         '.tab-user_self',
         'div[class*="avatar"] img',
       ];
@@ -94,26 +136,7 @@ export class DouyinCrawler extends AbstractCrawler {
         }
       }
     } catch {}
-    try {
-      const isLoginBtn = await this.page!.isVisible('.login-guide, .header-login-btn', { timeout: 1000 });
-      if (isLoginBtn) return false;
-    } catch {}
-    try {
-      if (this.browserContext) {
-        const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some(
-          (c) => c.name === 'sessionid' || c.name === 'sid_guard' || c.name === 'passport_auth_token'
-        );
-        if (hasSession) {
-          const loginBtnExists = await this.page!.isVisible('.login-guide, .header-login-btn', { timeout: 1000 }).catch(() => false);
-          if (loginBtnExists) return false;
-          console.log('[DY] Login state confirmed via cookies.');
-          return true;
-        }
-      }
-    } catch (err: any) {
-      console.error('[DY] Error checking cookies:', err.message);
-    }
+
     return false;
   }
 
