@@ -139,7 +139,7 @@ export class CrawlerTask {
         stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
         env: {
           ...process.env,
-          MEDIARADAR_RUN_ID: runId,
+          UNISEARCH_RUN_ID: runId,
           NODE_ENV: process.env.NODE_ENV,
           UNISEARCH_USER_DATA_DIR: dbDir,
         },

@@ -41,11 +41,11 @@ const levelIcons: Record<string, string> = {
   debug: '调试',
 }
 
-const mediaRadarLogPrefix = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+MediaRadar\s+(?:DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+/
+const uniSearchLogPrefix = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+UniSearch\s+(?:DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+/
 
 export function TerminalLine({ log }: TerminalLineProps) {
   const config = levelConfig[log.level] || levelConfig.info
-  const message = log.message.replace(mediaRadarLogPrefix, '')
+  const message = log.message.replace(uniSearchLogPrefix, '')
 
   return (
     <div className="group -mx-1 flex gap-2 rounded px-1 font-mono text-xs leading-relaxed transition-colors hover:bg-cyber-bg-tertiary/50">

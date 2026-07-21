@@ -5,9 +5,6 @@
   "main": "dist/main/index.js",
   "scripts": {
     "test:agent": "node tests/run-agent-tests.mjs",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs",
     "webui:build": "cd webui && npm run build",
     "build:backend": "tsup",
     "electron:dev": "npm run build:backend && electron .",
@@ -31,12 +28,9 @@
     "@types/node": "^20.14.9",
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3",
-    "mermaid": "^11.12.2",
     "tsup": "^8.1.0",
     "tsx": "^4.16.0",
-    "typescript": "^5.5.2",
-    "vitepress": "^1.3.4",
-    "vitepress-plugin-mermaid": "^2.0.17"
+    "typescript": "^5.5.2"
   },
   "build": {
     "appId": "com.unisearch.app",
@@ -44,6 +38,7 @@
     "files": [
       "dist/**/*",
       "api/webui/**/*",
+      "resources/**/*",
       "package.json"
     ],
     "asarUnpack": [

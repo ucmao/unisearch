@@ -1,5 +1,3 @@
-import path from 'path';
-
 export interface AppConfig {
   PLATFORM: string;
   KEYWORDS: string;
@@ -39,7 +37,6 @@ export interface AppConfig {
   
   ENABLE_GET_WORDCLOUD: boolean;
   STOP_WORDS_FILE: string;
-  FONT_PATH: string;
   CRAWLER_MAX_SLEEP_SEC: number;
   DISABLE_SSL_VERIFY: boolean;
 
@@ -101,8 +98,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   ENABLE_GET_SUB_COMMENTS: false,
   
   ENABLE_GET_WORDCLOUD: false,
-  STOP_WORDS_FILE: './docs/hit_stopwords.txt',
-  FONT_PATH: './docs/STZHONGS.TTF',
+  STOP_WORDS_FILE: './resources/hit_stopwords.txt',
   CRAWLER_MAX_SLEEP_SEC: 2,
   DISABLE_SSL_VERIFY: false,
 

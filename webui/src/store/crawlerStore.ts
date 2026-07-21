@@ -41,7 +41,7 @@ interface CrawlerState {
   reset: (platform?: string) => void
 }
 
-const CLEARED_LOG_ID_PREFIX = 'mediaradar_cleared_log_id_'
+const CLEARED_LOG_ID_PREFIX = 'unisearch_cleared_log_id_'
 
 function getClearedLogIdFromStorage(platform: string): number | null {
   const stored = localStorage.getItem(`${CLEARED_LOG_ID_PREFIX}${platform}`)
