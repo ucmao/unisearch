@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
-import { inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
@@ -36,6 +36,29 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
   const analysisSource = ['ai', 'fallback', 'user'].includes(String(input?.analysisSource))
     ? input.analysisSource
     : suppliedAnalysis ? 'ai' : 'fallback';
+
+  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = ['quick', 'standard', 'deep', 'custom'].includes(String(input?.collectionDepth))
+    ? input.collectionDepth
+    : inferCollectionDepth(userText);
+
+  let collectComments = input?.collectComments !== undefined ? Boolean(input.collectComments) : true;
+  let collectSubComments = Boolean(input?.collectSubComments);
+  let startPage = Math.max(1, Math.min(20, Number(input?.startPage) || 1));
+
+  if (collectionDepth === 'quick') {
+    collectComments = false;
+    collectSubComments = false;
+    startPage = 1;
+  } else if (collectionDepth === 'standard') {
+    collectComments = true;
+    collectSubComments = false;
+    startPage = 1;
+  } else if (collectionDepth === 'deep') {
+    collectComments = true;
+    collectSubComments = true;
+    startPage = 1;
+  }
+
   return {
     goal,
     platforms: platforms.length ? platforms : inferredPlatforms.length ? inferredPlatforms : ['xhs', 'bili'],
@@ -43,9 +66,10 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     capability,
     targets,
     connectorOptions: input?.connectorOptions && typeof input.connectorOptions === 'object' ? input.connectorOptions : {},
-    collectComments: input?.collectComments !== false,
-    collectSubComments: Boolean(input?.collectSubComments),
-    startPage: Math.max(1, Math.min(20, Number(input?.startPage) || 1)),
+    collectionDepth,
+    collectComments,
+    collectSubComments,
+    startPage,
     loginType: 'qrcode',
     headless: Boolean(input?.headless),
     analysis: normalizeAnalysisGoals(input?.analysis, goal),
@@ -592,6 +616,39 @@ export class AgentService {
     return agentRepository.getPlan(planId);
   }
 
+  updatePlan(planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) {
+    const current = agentRepository.getPlan(planId);
+    if (!current) throw new Error('计划不存在');
+    if (current.status !== 'awaiting_confirmation') throw new Error('只有等待确认的计划可以修改参数');
+    let updatedPlan = { ...current.plan };
+    if (Array.isArray(updates.keywords)) {
+      const keywords = Array.from(new Set(updates.keywords.map((v) => String(v).trim()).filter(Boolean))).slice(0, 12);
+      if (keywords.length > 0) updatedPlan.keywords = keywords;
+    }
+    if (Array.isArray(updates.analysis)) {
+      updatedPlan.analysis = normalizeAnalysisGoals(updates.analysis, current.plan.goal);
+      updatedPlan.analysisSource = 'user';
+    }
+    if (updates.collectionDepth && ['quick', 'standard', 'deep', 'custom'].includes(updates.collectionDepth)) {
+      const depth = updates.collectionDepth;
+      updatedPlan.collectionDepth = depth;
+      if (depth === 'quick') {
+        updatedPlan.collectComments = false;
+        updatedPlan.collectSubComments = false;
+        updatedPlan.startPage = 1;
+      } else if (depth === 'standard') {
+        updatedPlan.collectComments = true;
+        updatedPlan.collectSubComments = false;
+        updatedPlan.startPage = 1;
+      } else if (depth === 'deep') {
+        updatedPlan.collectComments = true;
+        updatedPlan.collectSubComments = true;
+        updatedPlan.startPage = 1;
+      }
+    }
+    return agentRepository.updatePendingPlan(planId, updatedPlan);
+  }
+
   updatePlanAnalysis(planId: string, analysis: unknown) {
     const current = agentRepository.getPlan(planId);
     if (!current) throw new Error('计划不存在');
@@ -619,7 +676,7 @@ export class AgentService {
     const refreshed = agentRepository.getPlan(plan.plan_id);
     running = refreshed.steps.filter((s: any) => s.status === 'running').length;
     for (const step of refreshed.steps.filter((s: any) => s.status === 'queued')) {
-      if (running >= 2) break;
+      if (running >= 3) break;
       const platformState = crawlerManager.getStatus(step.platform);
       if (platformState.status === 'running' || platformState.status === 'stopping') continue;
       const p = refreshed.plan as ResearchPlan;
@@ -630,8 +687,14 @@ export class AgentService {
         agentRepository.updateStep(step.step_id, 'failed', null, `${manifest?.name || step.platform} 不支持能力 ${capabilityId}`);
         continue;
       }
-      const targets = p.targets || [];
+      const depth = p.collectionDepth || 'standard';
+      const maxCount = depth === 'quick' ? 30 : depth === 'deep' ? 100 : 50;
+      const maxPages = depth === 'quick' ? 3 : depth === 'deep' ? 10 : 5;
       const connectorOptions = {
+        collection_depth: depth,
+        crawler_max_notes_count: maxCount,
+        max_items: maxCount,
+        max_pages: maxPages,
         ...(p.connectorOptions?.[step.platform] || {}),
         ...(capabilityId === 'creator_profile' ? { creator_ids: targets } : {}),
         ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
@@ -646,7 +709,7 @@ export class AgentService {
           specified_ids: ['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? targets.join(',') : '',
           creator_ids: capabilityId === 'creator_profile' ? targets.join(',') : '',
           connector_options: connectorOptions,
-          start_page: p.startPage, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
+          start_page: p.startPage, collection_depth: depth, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
           cookies: '', headless: p.headless, loop_execution: false,
           task_id: refreshed.plan_id, task_title: refreshed.goal,
         });

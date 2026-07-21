@@ -15,7 +15,6 @@ import {
   MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
-  RefreshCw,
   Search,
   Share2,
   Star,
@@ -343,7 +342,6 @@ export function ResultWorkbench() {
   const summary = summaryQuery.data
   const contents = contentsQuery.data
   const comments = commentsQuery.data
-  const isRefreshing = summaryQuery.isFetching || contentsQuery.isFetching || commentsQuery.isFetching || runsQuery.isFetching
   const keywordRows = useMemo(() => summary?.by_keyword ?? [], [summary])
   const runs = runsQuery.data?.items ?? []
   const tasks = useMemo(() => {
@@ -370,9 +368,6 @@ export function ResultWorkbench() {
     ? '全部任务的最新数据'
     : selectedTask?.task_title || selectedRun?.task_name || '所选任务'
 
-  const refresh = async () => {
-    await Promise.all([runsQuery.refetch(), summaryQuery.refetch(), contentsQuery.refetch(), commentsQuery.refetch()])
-  }
 
   const deleteRun = async (selectedRunId: string) => {
     try {
@@ -610,10 +605,6 @@ export function ResultWorkbench() {
             </Button>
             <Button variant="outline" size="sm" asChild>
               <a href={exportUrl}><Download />导出 CSV</a>
-            </Button>
-            <Button variant="outline" size="sm" onClick={refresh} disabled={isRefreshing}>
-              <RefreshCw className={isRefreshing ? 'animate-spin' : ''} />
-              刷新数据
             </Button>
           </div>
         </div>

@@ -6,34 +6,55 @@ import { activeConfig } from '../../tools/config';
 
 export async function connectToElectronChromium(playwright: Playwright): Promise<BrowserContext> {
   const cdpUrl = 'http://127.0.0.1:9222';
-  console.log(`[BaseCrawler] Attempting to connect directly to Electron built-in Chromium via CDP (${cdpUrl})...`);
-  try {
-    const versionRes = await axios.get(`${cdpUrl}/json/version`, { timeout: 2000 }).catch(() => null);
-    if (versionRes && versionRes.data && versionRes.data.webSocketDebuggerUrl) {
-      const wsUrl = versionRes.data.webSocketDebuggerUrl;
-      console.log(`[BaseCrawler] Found WebSocket CDP URL: ${wsUrl}`);
-      const browser = await playwright.chromium.connectOverCDP(wsUrl);
+  console.log(`[BaseCrawler] Connecting directly to Electron built-in Chromium via CDP (${cdpUrl})...`);
+
+  // Retry to get the WebSocket debugger URL from Electron
+  let wsUrl = '';
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    try {
+      const versionRes = await axios.get('http://127.0.0.1:9222/json/version', { timeout: 2000 });
+      if (versionRes.data && versionRes.data.webSocketDebuggerUrl) {
+        wsUrl = versionRes.data.webSocketDebuggerUrl;
+        break;
+      }
+    } catch {}
+
+    try {
+      const listRes = await axios.get('http://127.0.0.1:9222/json', { timeout: 2000 });
+      if (Array.isArray(listRes.data) && listRes.data.length > 0) {
+        const target = listRes.data.find((t: any) => t.webSocketDebuggerUrl);
+        if (target && target.webSocketDebuggerUrl) {
+          wsUrl = target.webSocketDebuggerUrl;
+          break;
+        }
+      }
+    } catch {}
+
+    if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  const urlsToTry = wsUrl ? [wsUrl] : ['ws://127.0.0.1:9222/devtools/browser', cdpUrl];
+  for (const targetUrl of urlsToTry) {
+    try {
+      console.log(`[BaseCrawler] Connecting Playwright to Electron CDP target: ${targetUrl}`);
+      const browser = await playwright.chromium.connectOverCDP(targetUrl);
       const contexts = browser.contexts();
       const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
-      console.log('[BaseCrawler] Successfully connected to Electron built-in Chromium engine via WebSocket!');
+      console.log('[BaseCrawler] Successfully connected to Electron built-in Chromium engine!');
       return context;
+    } catch (err: any) {
+      console.log(`[BaseCrawler] CDP target ${targetUrl} failed: ${err.message}`);
     }
-
-    const browser = await playwright.chromium.connectOverCDP(cdpUrl);
-    const contexts = browser.contexts();
-    const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
-    console.log('[BaseCrawler] Successfully connected to Electron built-in Chromium engine!');
-    return context;
-  } catch (err: any) {
-    console.warn(`[BaseCrawler] Direct Electron CDP unavailable (${err.message}). Falling back to launching persistent browser context.`);
-    const userDataDir = path.join(
-      process.cwd(),
-      'browser_data',
-      activeConfig.USER_DATA_DIR ? activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM || 'default') : 'default'
-    );
-    const launchOptions = createHeadlessLaunchOptions();
-    return await playwright.chromium.launchPersistentContext(userDataDir, launchOptions);
   }
+
+  console.log('[BaseCrawler] Electron CDP port 9222 unavailable. Fallback to persistent browser context.');
+  const userDataDir = path.join(
+    process.cwd(),
+    'browser_data',
+    activeConfig.USER_DATA_DIR ? activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM || 'default') : 'default'
+  );
+  const launchOptions = createHeadlessLaunchOptions();
+  return await playwright.chromium.launchPersistentContext(userDataDir, launchOptions);
 }
 
 export function getSystemExecutablePath(): string | undefined {

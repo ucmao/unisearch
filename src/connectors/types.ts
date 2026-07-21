@@ -76,6 +76,7 @@ export interface ConnectorStartRequest {
   specified_ids?: string;
   creator_ids?: string;
   start_page: number;
+  collection_depth?: 'quick' | 'standard' | 'deep' | 'custom';
   enable_comments: boolean;
   enable_sub_comments: boolean;
   cookies: string;
