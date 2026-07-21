@@ -131,6 +131,36 @@ export async function startServer(port = 8080): Promise<number> {
     }
   });
 
+  // Browser Window Controller Endpoints
+  fastify.get('/api/browser/window', async () => {
+    try {
+      const { isCrawlerWindowVisible } = require('../main/index');
+      return { success: true, visible: typeof isCrawlerWindowVisible === 'function' ? isCrawlerWindowVisible() : false };
+    } catch {
+      return { success: true, visible: false };
+    }
+  });
+
+  fastify.post('/api/browser/window', async (request) => {
+    try {
+      const { action } = (request.body as any) || {};
+      const main = require('../main/index');
+      let visible = false;
+      if (action === 'show' && typeof main.showCrawlerWindow === 'function') {
+        visible = main.showCrawlerWindow();
+      } else if (action === 'hide' && typeof main.hideCrawlerWindow === 'function') {
+        visible = main.hideCrawlerWindow();
+      } else if (action === 'toggle' && typeof main.toggleCrawlerWindow === 'function') {
+        visible = main.toggleCrawlerWindow();
+      } else if (typeof main.isCrawlerWindowVisible === 'function') {
+        visible = main.isCrawlerWindowVisible();
+      }
+      return { success: true, visible };
+    } catch (err: any) {
+      return { success: false, error: err.message, visible: false };
+    }
+  });
+
   // Config options
   fastify.get('/api/config/platforms', async () => {
     return {

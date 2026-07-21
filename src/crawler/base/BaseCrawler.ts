@@ -1,18 +1,38 @@
 import { BrowserType, BrowserContext, Page, Playwright } from 'playwright';
+import axios from 'axios';
+import path from 'path';
 import { BrowserLauncher } from '../../tools/browser';
+import { activeConfig } from '../../tools/config';
 
-export async function connectToElectronChromium(playwright: Playwright): Promise<BrowserContext | null> {
+export async function connectToElectronChromium(playwright: Playwright): Promise<BrowserContext> {
+  const cdpUrl = 'http://127.0.0.1:9222';
+  console.log(`[BaseCrawler] Attempting to connect directly to Electron built-in Chromium via CDP (${cdpUrl})...`);
   try {
-    const cdpUrl = 'http://127.0.0.1:9222';
-    console.log(`[BaseCrawler] Attempting to connect directly to Electron's built-in Chromium via CDP (${cdpUrl})...`);
+    const versionRes = await axios.get(`${cdpUrl}/json/version`, { timeout: 2000 }).catch(() => null);
+    if (versionRes && versionRes.data && versionRes.data.webSocketDebuggerUrl) {
+      const wsUrl = versionRes.data.webSocketDebuggerUrl;
+      console.log(`[BaseCrawler] Found WebSocket CDP URL: ${wsUrl}`);
+      const browser = await playwright.chromium.connectOverCDP(wsUrl);
+      const contexts = browser.contexts();
+      const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
+      console.log('[BaseCrawler] Successfully connected to Electron built-in Chromium engine via WebSocket!');
+      return context;
+    }
+
     const browser = await playwright.chromium.connectOverCDP(cdpUrl);
     const contexts = browser.contexts();
     const context = contexts.length > 0 ? contexts[0] : await browser.newContext();
     console.log('[BaseCrawler] Successfully connected to Electron built-in Chromium engine!');
     return context;
   } catch (err: any) {
-    console.log(`[BaseCrawler] Direct Electron CDP unavailable (${err.message}). Falling back.`);
-    return null;
+    console.warn(`[BaseCrawler] Direct Electron CDP unavailable (${err.message}). Falling back to launching persistent browser context.`);
+    const userDataDir = path.join(
+      process.cwd(),
+      'browser_data',
+      activeConfig.USER_DATA_DIR ? activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM || 'default') : 'default'
+    );
+    const launchOptions = createHeadlessLaunchOptions();
+    return await playwright.chromium.launchPersistentContext(userDataDir, launchOptions);
   }
 }
 
