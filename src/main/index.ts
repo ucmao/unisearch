@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserView, BrowserWindow, shell, ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
@@ -8,12 +8,15 @@ app.setName('UniSearch');
 process.title = 'UniSearch';
 
 // Enable CDP remote debugging on Electron's built-in Chromium
-app.commandLine.appendSwitch('remote-debugging-port', '9222');
+const cdpDebugPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);
+app.commandLine.appendSwitch('remote-debugging-port', String(cdpDebugPort));
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 app.commandLine.appendSwitch('remote-allow-origins', '*');
 
 let mainWindow: BrowserWindow | null = null;
-const crawlerWindows = new Map<string, BrowserWindow>();
+let crawlerHubWindow: BrowserWindow | null = null;
+const crawlerViews = new Map<string, BrowserView>();
+let activeCrawlerPlatform: string | null = null;
 let isQuitting = false;
 
 let apiPort = 8080;
@@ -28,6 +31,12 @@ function crawlerMarkerUrl(platform: string): string {
   return `about:blank#unisearch-crawler-${encodeURIComponent(platform)}`;
 }
 
+const CRAWLER_TAB_HEIGHT = 48;
+const CRAWLER_PLATFORM_NAMES: Record<string, string> = {
+  dy: '抖音', xhs: '小红书', ks: '快手', bili: '哔哩哔哩',
+  wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
+};
+
 function focusMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -35,82 +44,157 @@ function focusMainWindow(): void {
   mainWindow.focus();
 }
 
-export function createCrawlerWindow(platform: string): BrowserWindow {
-  const existing = crawlerWindows.get(platform);
-  if (existing && !existing.isDestroyed()) {
-    return existing;
-  }
+function crawlerHubHtml(): string {
+  const tabs = Array.from(crawlerViews.keys()).map((platform) => {
+    const active = platform === activeCrawlerPlatform ? ' active' : '';
+    const label = CRAWLER_PLATFORM_NAMES[platform] || platform.toUpperCase();
+    return `<a class="tab${active}" href="unisearch-tab://${encodeURIComponent(platform)}"><span class="dot"></span>${label}</a>`;
+  }).join('');
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#eef4f8;color:#142033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .bar{height:${CRAWLER_TAB_HEIGHT}px;display:flex;align-items:flex-end;gap:4px;padding:7px 10px 0;border-bottom:1px solid #cbd8e2;background:linear-gradient(#f8fbfd,#e8f0f5);-webkit-app-region:drag}
+    .brand{align-self:center;padding:0 10px 4px 2px;font-size:12px;font-weight:650;color:#506273;white-space:nowrap}
+    .tabs{display:flex;min-width:0;height:40px;gap:4px;overflow-x:auto;-webkit-app-region:no-drag}
+    .tab{display:flex;align-items:center;gap:7px;min-width:118px;height:36px;padding:0 16px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap}
+    .tab:hover{background:#f7fbfd;color:#203246}.tab.active{border-color:#cbd8e2;border-bottom-color:#fff;background:#fff;color:#142033}
+    .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12)}
+    .hint{margin-left:auto;align-self:center;padding:0 5px 4px 10px;color:#8393a3;font-size:11px;white-space:nowrap}
+  </style></head><body><div class="bar"><div class="brand">UniSearch 采集浏览器</div><nav class="tabs">${tabs}</nav><div class="hint">各平台登录会话独立保存</div></div></body></html>`;
+}
 
-  const crawlerWindow = new BrowserWindow({
+function refreshCrawlerHubTabs(): void {
+  if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return;
+  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(crawlerHubHtml())}`;
+  void crawlerHubWindow.loadURL(dataUrl);
+}
+
+function layoutActiveCrawlerView(): void {
+  if (!crawlerHubWindow || crawlerHubWindow.isDestroyed() || !activeCrawlerPlatform) return;
+  const view = crawlerViews.get(activeCrawlerPlatform);
+  if (!view || view.webContents.isDestroyed()) return;
+  const [width, height] = crawlerHubWindow.getContentSize();
+  view.setBounds({ x: 0, y: CRAWLER_TAB_HEIGHT, width, height: Math.max(1, height - CRAWLER_TAB_HEIGHT) });
+  view.setAutoResize({ width: true, height: true });
+}
+
+function activateCrawlerView(platform: string): boolean {
+  if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return false;
+  const view = crawlerViews.get(platform);
+  if (!view || view.webContents.isDestroyed()) return false;
+  activeCrawlerPlatform = platform;
+  crawlerHubWindow.setBrowserView(view);
+  crawlerHubWindow.setTitle(`UniSearch 内置采集浏览器 · ${CRAWLER_PLATFORM_NAMES[platform] || platform.toUpperCase()}`);
+  layoutActiveCrawlerView();
+  refreshCrawlerHubTabs();
+  return true;
+}
+
+function createCrawlerHubWindow(): BrowserWindow {
+  if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) return crawlerHubWindow;
+  crawlerHubWindow = new BrowserWindow({
     width: 1280,
     height: 800,
-    show: false, // 默认隐藏后台无感运行
-    title: `UniSearch 内置采集浏览器 · ${platform.toUpperCase()}`,
+    minWidth: 820,
+    minHeight: 560,
+    show: false,
+    title: 'UniSearch 内置采集浏览器',
     icon: getAppIconPath(),
     webPreferences: {
-      backgroundThrottling: false, // 禁用后台降频，确保隐藏状态下不降速
-      partition: `persist:unisearch-crawler-${platform}`,
+      backgroundThrottling: false,
+      contextIsolation: true,
+      nodeIntegration: false,
     },
   });
-  crawlerWindows.set(platform, crawlerWindow);
-
-  void crawlerWindow.loadURL(crawlerMarkerUrl(platform));
-
-  // Closing a crawler window never owns task cancellation. Keep its WebContents
-  // alive, hide it, and return keyboard focus to the application workspace.
-  crawlerWindow.on('close', (event) => {
+  crawlerHubWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('unisearch-tab://')) return;
+    event.preventDefault();
+    activateCrawlerView(decodeURIComponent(new URL(url).hostname));
+  });
+  crawlerHubWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  crawlerHubWindow.on('resize', layoutActiveCrawlerView);
+  crawlerHubWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
-      crawlerWindow.hide();
+      crawlerHubWindow?.hide();
       focusMainWindow();
     }
   });
-
-  crawlerWindow.on('closed', () => {
-    crawlerWindows.delete(platform);
+  crawlerHubWindow.on('closed', () => {
+    crawlerHubWindow = null;
   });
+  refreshCrawlerHubTabs();
+  return crawlerHubWindow;
+}
 
-  return crawlerWindow;
+export function createCrawlerView(platform: string): BrowserView {
+  const existing = crawlerViews.get(platform);
+  if (existing && !existing.webContents.isDestroyed()) return existing;
+  createCrawlerHubWindow();
+  const view = new BrowserView({
+    webPreferences: {
+      backgroundThrottling: false,
+      partition: `persist:unisearch-crawler-${platform}`,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  crawlerViews.set(platform, view);
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  refreshCrawlerHubTabs();
+  return view;
 }
 
 export async function prepareCrawlerWindow(platform: string): Promise<boolean> {
-  const win = createCrawlerWindow(platform);
-  if (win.isDestroyed()) return false;
-  await win.loadURL(crawlerMarkerUrl(platform));
+  const view = createCrawlerView(platform);
+  if (view.webContents.isDestroyed()) return false;
+  await view.webContents.loadURL(crawlerMarkerUrl(platform));
+  if (!activeCrawlerPlatform || !crawlerViews.has(activeCrawlerPlatform)) activateCrawlerView(platform);
+  else refreshCrawlerHubTabs();
   return true;
 }
 
 export function isCrawlerWindowVisible(platform?: string): boolean {
-  if (platform) return crawlerWindows.get(platform)?.isVisible() ?? false;
-  return Array.from(crawlerWindows.values()).some((win) => !win.isDestroyed() && win.isVisible());
+  const visible = Boolean(crawlerHubWindow && !crawlerHubWindow.isDestroyed() && crawlerHubWindow.isVisible());
+  if (!platform) return visible;
+  return visible && activeCrawlerPlatform === platform && crawlerViews.has(platform);
 }
 
-export function showCrawlerWindow(platform: string): boolean {
-  const win = createCrawlerWindow(platform);
-  for (const [otherPlatform, otherWindow] of crawlerWindows) {
-    if (otherPlatform !== platform && !otherWindow.isDestroyed()) otherWindow.hide();
-  }
-  win.show();
-  win.focus();
+function resolveCrawlerPlatform(platform?: string): string | null {
+  if (platform) return crawlerViews.has(platform) ? platform : null;
+  if (activeCrawlerPlatform && crawlerViews.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
+  return crawlerViews.keys().next().value ?? null;
+}
+
+export function showCrawlerWindow(platform?: string): boolean {
+  const resolvedPlatform = resolveCrawlerPlatform(platform);
+  if (!resolvedPlatform) return false;
+  const hub = createCrawlerHubWindow();
+  if (!activateCrawlerView(resolvedPlatform)) return false;
+  if (hub.isMinimized()) hub.restore();
+  hub.show();
+  hub.focus();
   return true;
 }
 
-export function hideCrawlerWindow(platform: string): boolean {
-  const win = crawlerWindows.get(platform);
-  if (win && !win.isDestroyed()) {
-    win.hide();
-    focusMainWindow();
-    return true;
-  }
-  return false;
+export function hideCrawlerWindow(platform?: string): boolean {
+  if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return false;
+  if (platform && activeCrawlerPlatform !== platform) return true;
+  crawlerHubWindow.hide();
+  focusMainWindow();
+  return true;
 }
 
-export function toggleCrawlerWindow(platform: string): boolean {
-  if (isCrawlerWindowVisible(platform)) {
-    return hideCrawlerWindow(platform);
-  } else {
-    return showCrawlerWindow(platform);
+export function toggleCrawlerWindow(platform?: string): boolean {
+  const resolvedPlatform = resolveCrawlerPlatform(platform);
+  if (!resolvedPlatform) return false;
+  if (isCrawlerWindowVisible() && (!platform || activeCrawlerPlatform === resolvedPlatform)) {
+    hideCrawlerWindow(resolvedPlatform);
+    return false;
   }
+  return showCrawlerWindow(resolvedPlatform);
 }
 
 // IPC Handlers
@@ -219,7 +303,13 @@ app.on('ready', async () => {
     console.log(`[Electron] Starting Fastify API on free port: ${apiPort}`);
     
     // Start local Fastify server
-    await startServer(apiPort, { prepareCrawlerWindow, showCrawlerWindow, hideCrawlerWindow });
+    await startServer(apiPort, {
+      prepareCrawlerWindow,
+      isCrawlerWindowVisible,
+      showCrawlerWindow,
+      hideCrawlerWindow,
+      toggleCrawlerWindow,
+    });
     console.log('[Electron] Fastify server started successfully. Launching UI.');
 
     createWindow(apiPort);

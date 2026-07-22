@@ -179,8 +179,11 @@ export class CrawlerTask {
       });
 
       this.process.on('message', (msg: any) => {
-        if (msg && msg.type === 'LOGIN_QRCODE_REQUIRED') {
-          this.addLog(`检测到 ${this.platform} 需扫码登录，已提取二维码推送至界面`, 'warning', manager);
+        if (msg && msg.type === 'LOGIN_REQUIRED') {
+          this.addLog(`${this.platform} 可能需要登录，请在提示中选择是否打开采集浏览器`, 'warning', manager);
+          manager.emit('login_required', msg);
+        } else if (msg && msg.type === 'LOGIN_QRCODE_REQUIRED') {
+          this.addLog(`检测到 ${this.platform} 可能需要登录，请在界面提示中确认`, 'warning', manager);
           manager.emit('qrcode_required', msg);
         } else if (msg && msg.type === 'LOGIN_SUCCESS') {
           this.addLog(`${this.platform} 登录成功！`, 'success', manager);

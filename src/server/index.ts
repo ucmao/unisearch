@@ -18,14 +18,14 @@ const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
 export interface ServerWindowControls {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
-  showCrawlerWindow?: (platform: string) => boolean;
-  hideCrawlerWindow?: (platform: string) => boolean;
+  isCrawlerWindowVisible?: (platform?: string) => boolean;
+  showCrawlerWindow?: (platform?: string) => boolean;
+  hideCrawlerWindow?: (platform?: string) => boolean;
+  toggleCrawlerWindow?: (platform?: string) => boolean;
 }
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
-  crawlerManager.on('qrcode_required', (data: any) => windowControls.showCrawlerWindow?.(data.platform));
-  crawlerManager.on('manual_verification_required', (data: any) => windowControls.showCrawlerWindow?.(data.platform));
   crawlerManager.on('crawler_finished', (data: any) => windowControls.hideCrawlerWindow?.(data.platform));
 
   // Error Handler
@@ -144,28 +144,20 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   // Browser Window Controller Endpoints
   fastify.get('/api/browser/window', async () => {
-    try {
-      const { isCrawlerWindowVisible } = require('../main/index');
-      return { success: true, visible: typeof isCrawlerWindowVisible === 'function' ? isCrawlerWindowVisible() : false };
-    } catch {
-      return { success: true, visible: false };
-    }
+    return { success: true, visible: windowControls.isCrawlerWindowVisible?.() ?? false };
   });
 
   fastify.post('/api/browser/window', async (request) => {
     try {
-      const { action } = (request.body as any) || {};
-      const main = require('../main/index');
-      let visible = false;
-      if (action === 'show' && typeof main.showCrawlerWindow === 'function') {
-        visible = main.showCrawlerWindow();
-      } else if (action === 'hide' && typeof main.hideCrawlerWindow === 'function') {
-        visible = main.hideCrawlerWindow();
-      } else if (action === 'toggle' && typeof main.toggleCrawlerWindow === 'function') {
-        visible = main.toggleCrawlerWindow();
-      } else if (typeof main.isCrawlerWindowVisible === 'function') {
-        visible = main.isCrawlerWindowVisible();
+      const { action, platform } = (request.body as any) || {};
+      if (action === 'show') {
+        windowControls.showCrawlerWindow?.(platform);
+      } else if (action === 'hide') {
+        windowControls.hideCrawlerWindow?.(platform);
+      } else if (action === 'toggle') {
+        windowControls.toggleCrawlerWindow?.(platform);
       }
+      const visible = windowControls.isCrawlerWindowVisible?.(platform) ?? false;
       return { success: true, visible };
     } catch (err: any) {
       return { success: false, error: err.message, visible: false };
@@ -414,6 +406,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       reply.raw.write(`event: qrcode_required\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    const onLoginRequired = (data: any) => {
+      reply.raw.write(`event: login_required\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
     const onLoginSuccess = (data: any) => {
       reply.raw.write(`event: login_success\ndata: ${JSON.stringify(data)}\n\n`);
     };
@@ -434,6 +430,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       reply.raw.write(`event: crawler_finished\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    crawlerManager.on('login_required', onLoginRequired);
     crawlerManager.on('qrcode_required', onQrCode);
     crawlerManager.on('login_success', onLoginSuccess);
     crawlerManager.on('manual_verification_required', onManualVerification);
@@ -442,6 +439,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     crawlerManager.on('crawler_finished', onCrawlerFinished);
 
     request.raw.on('close', () => {
+      crawlerManager.off('login_required', onLoginRequired);
       crawlerManager.off('qrcode_required', onQrCode);
       crawlerManager.off('login_success', onLoginSuccess);
       crawlerManager.off('manual_verification_required', onManualVerification);
