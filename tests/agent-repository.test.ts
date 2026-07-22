@@ -167,6 +167,35 @@ test('attachments are scoped to their conversation and removed with it', () => {
   }
 });
 
+test('batch deleting tasks can retain or cascade analytics data and rejects active tasks', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const retained = repo.createThread('保留数据');
+    const retainedPlan = repo.createPlan(retained.thread_id, plan());
+    repo.updatePlanStatus(retainedPlan.plan_id, 'completed');
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, status, started_at)
+      VALUES ('run-retained', ?, ?, '保留数据', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(retained.thread_id, retainedPlan.plan_id);
+    assert.deepEqual(repo.deleteThreads([retained.thread_id], false), { deleted: 1, analytics_runs_deleted: 0 });
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE run_id='run-retained'").get() as any).count, 1);
+
+    const cascaded = repo.createThread('同步清理');
+    const cascadedPlan = repo.createPlan(cascaded.thread_id, plan());
+    repo.updatePlanStatus(cascadedPlan.plan_id, 'completed');
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, status, started_at)
+      VALUES ('run-cascaded', ?, ?, '同步清理', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(cascaded.thread_id, cascadedPlan.plan_id);
+    assert.deepEqual(repo.deleteThreads([cascaded.thread_id], true), { deleted: 1, analytics_runs_deleted: 1 });
+
+    const active = repo.createThread('运行中');
+    const activePlan = repo.createPlan(active.thread_id, plan());
+    repo.updatePlanStatus(activePlan.plan_id, 'running');
+    assert.throws(() => repo.deleteThreads([active.thread_id]), /停止/);
+  } finally {
+    db.close();
+  }
+});
+
 test('memory settings and permanent memories are stored locally', () => {
   const { db, repository: repo } = repository();
   try {

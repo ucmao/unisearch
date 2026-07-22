@@ -229,9 +229,28 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.delete('/api/agent/threads/:thread_id', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
-    const deleted = agentRepository.deleteThread(thread_id);
-    if (deleted) agentAttachmentService.removeThreadFiles(thread_id);
-    return deleted ? { status: 'ok' } : reply.status(404).send({ detail: 'Task not found' });
+    const body = (request.body || {}) as { delete_analytics_data?: boolean };
+    try {
+      const result = agentRepository.deleteThreads([thread_id], Boolean(body.delete_analytics_data));
+      if (!result.deleted) return reply.status(404).send({ detail: 'Task not found' });
+      agentAttachmentService.removeThreadFiles(thread_id);
+      return { status: 'ok', ...result };
+    } catch (error: any) {
+      return reply.status(409).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/agent/threads/batch-delete', async (request, reply) => {
+    const body = (request.body || {}) as { thread_ids?: string[]; delete_analytics_data?: boolean };
+    const threadIds = Array.isArray(body.thread_ids) ? body.thread_ids : [];
+    if (!threadIds.length) return reply.status(400).send({ detail: '请选择要删除的任务' });
+    try {
+      const result = agentRepository.deleteThreads(threadIds, Boolean(body.delete_analytics_data));
+      for (const threadId of threadIds) agentAttachmentService.removeThreadFiles(threadId);
+      return { status: 'ok', ...result };
+    } catch (error: any) {
+      return reply.status(409).send({ detail: error.message });
+    }
   });
 
   fastify.post('/api/agent/threads/:thread_id/attachments', async (request, reply) => {
@@ -474,14 +493,15 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   // Analytics routes
   fastify.get('/api/data/analytics/summary', async (request) => {
-    const query = request.query as { run_id?: string; task_id?: string; platform?: string; keyword?: string };
-    return analyticsRepository.summary(query.run_id, query.platform, query.keyword, query.task_id);
+    const query = request.query as { run_id?: string; plan_id?: string; thread_id?: string; platform?: string; keyword?: string };
+    return analyticsRepository.summary(query.run_id, query.platform, query.keyword, query.plan_id, query.thread_id);
   });
 
   fastify.get('/api/data/analytics/contents', async (request) => {
     const query = request.query as {
       run_id?: string;
-      task_id?: string;
+      plan_id?: string;
+      thread_id?: string;
       platform?: string;
       keyword?: string;
       query?: string;
@@ -492,7 +512,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     };
     return analyticsRepository.queryContents({
       run_id: query.run_id,
-      task_id: query.task_id,
+      plan_id: query.plan_id,
+      thread_id: query.thread_id,
       platform: query.platform,
       keyword: query.keyword,
       query: query.query,
@@ -506,7 +527,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/data/analytics/comments', async (request) => {
     const query = request.query as {
       run_id?: string;
-      task_id?: string;
+      plan_id?: string;
+      thread_id?: string;
       platform?: string;
       content_id?: string;
       level?: string;
@@ -516,7 +538,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     };
     return analyticsRepository.queryComments({
       run_id: query.run_id,
-      task_id: query.task_id,
+      plan_id: query.plan_id,
+      thread_id: query.thread_id,
       platform: query.platform,
       content_id: query.content_id,
       level: query.level ? parseInt(query.level, 10) : null,
@@ -531,7 +554,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       platform: string;
       content_id: string;
       run_id?: string;
-      task_id?: string;
+      plan_id?: string;
+      thread_id?: string;
       page?: string;
       page_size?: string;
     };
@@ -539,7 +563,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       platform: query.platform,
       content_id: query.content_id,
       run_id: query.run_id,
-      task_id: query.task_id,
+      plan_id: query.plan_id,
+      thread_id: query.thread_id,
       page: query.page ? parseInt(query.page, 10) : 1,
       page_size: query.page_size ? parseInt(query.page_size, 10) : 20,
     });
@@ -551,6 +576,46 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       query.page ? parseInt(query.page, 10) : 1,
       query.page_size ? parseInt(query.page_size, 10) : 20
     );
+  });
+
+  fastify.get('/api/data/analytics/tasks', async () => analyticsRepository.listTaskHierarchy());
+
+  fastify.get('/api/data/storage/summary', async () => analyticsRepository.storageSummary());
+
+  fastify.post('/api/data/storage/cleanup', async (request, reply) => {
+    const { mode } = (request.body || {}) as { mode?: 'failed_empty' | 'older_than_30_days' | 'all' };
+    if (!mode || !['failed_empty', 'older_than_30_days', 'all'].includes(mode)) return reply.status(400).send({ detail: '不支持的清理范围' });
+    return { status: 'ok', deleted: analyticsRepository.cleanupHistory(mode) };
+  });
+
+  fastify.post('/api/data/analytics/runs/batch-delete', async (request, reply) => {
+    const body = (request.body || {}) as { run_ids?: string[] };
+    if (!Array.isArray(body.run_ids) || !body.run_ids.length) return reply.status(400).send({ detail: '请选择要移除的执行记录' });
+    try {
+      return { status: 'ok', deleted: analyticsRepository.deleteRuns(body.run_ids) };
+    } catch (err: any) {
+      return reply.status(409).send({ detail: err.message });
+    }
+  });
+
+  fastify.post('/api/data/analytics/tasks/batch-delete', async (request, reply) => {
+    const body = (request.body || {}) as { thread_ids?: string[] };
+    if (!Array.isArray(body.thread_ids) || !body.thread_ids.length) return reply.status(400).send({ detail: '请选择要移除的 AI 任务' });
+    try {
+      return { status: 'ok', deleted: analyticsRepository.deleteThreads(body.thread_ids) };
+    } catch (err: any) {
+      return reply.status(409).send({ detail: err.message });
+    }
+  });
+
+  fastify.post('/api/data/analytics/rounds/batch-delete', async (request, reply) => {
+    const body = (request.body || {}) as { plan_ids?: string[] };
+    if (!Array.isArray(body.plan_ids) || !body.plan_ids.length) return reply.status(400).send({ detail: '请选择要移除的采集轮次' });
+    try {
+      return { status: 'ok', deleted: analyticsRepository.deletePlans(body.plan_ids) };
+    } catch (err: any) {
+      return reply.status(409).send({ detail: err.message });
+    }
   });
 
   fastify.delete('/api/data/analytics/runs/:run_id', async (request, reply) => {
@@ -566,12 +631,23 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
-  fastify.delete('/api/data/analytics/tasks/:task_id', async (request, reply) => {
-    const params = request.params as { task_id: string };
+  fastify.delete('/api/data/analytics/tasks/:thread_id', async (request, reply) => {
+    const params = request.params as { thread_id: string };
     try {
-      const deleted = analyticsRepository.deleteTask(params.task_id);
+      const deleted = analyticsRepository.deleteThreads([params.thread_id]);
       if (!deleted) return reply.status(404).send({ detail: 'Task not found' });
-      return { status: 'ok', task_id: params.task_id };
+      return { status: 'ok', thread_id: params.thread_id };
+    } catch (err: any) {
+      return reply.status(409).send({ detail: err.message });
+    }
+  });
+
+  fastify.delete('/api/data/analytics/rounds/:plan_id', async (request, reply) => {
+    const params = request.params as { plan_id: string };
+    try {
+      const deleted = analyticsRepository.deletePlans([params.plan_id]);
+      if (!deleted) return reply.status(404).send({ detail: 'Round not found' });
+      return { status: 'ok', plan_id: params.plan_id };
     } catch (err: any) {
       return reply.status(409).send({ detail: err.message });
     }
@@ -581,7 +657,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/data/analytics/export', async (request, reply) => {
     const query = request.query as {
       run_id?: string;
-      task_id?: string;
+      plan_id?: string;
+      thread_id?: string;
       platform?: string;
       keyword?: string;
       query?: string;
@@ -590,7 +667,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
     const res = analyticsRepository.queryContents({
       run_id: query.run_id,
-      task_id: query.task_id,
+      plan_id: query.plan_id,
+      thread_id: query.thread_id,
       platform: query.platform,
       keyword: query.keyword,
       query: query.query,

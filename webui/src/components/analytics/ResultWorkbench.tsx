@@ -26,6 +26,7 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import {
@@ -141,19 +142,21 @@ function KeywordBars({ rows, metric, selected, onSelect }: {
   )
 }
 
-function ContentCommentsDialog({ content, runId, taskId, onOpenChange }: {
+function ContentCommentsDialog({ content, runId, planId, threadId, onOpenChange }: {
   content: NormalizedContent | null
   runId?: string
-  taskId?: string
+  planId?: string
+  threadId?: string
   onOpenChange: (open: boolean) => void
 }) {
   const [page, setPage] = useState(1)
   const commentsQuery = useQuery({
-    queryKey: ['analytics-comment-threads', runId, taskId, content?.platform, content?.content_id, page],
+    queryKey: ['analytics-comment-threads', runId, planId, threadId, content?.platform, content?.content_id, page],
     enabled: Boolean(content),
     queryFn: async () => (await dataApi.getAnalyticsCommentThreads({
       run_id: runId,
-      task_id: taskId,
+      plan_id: planId,
+      thread_id: threadId,
       platform: content!.platform,
       content_id: content!.content_id,
       page,
@@ -281,40 +284,47 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   const [isTaskSidebarCollapsed, setIsTaskSidebarCollapsed] = useState(false)
   const [taskQuery, setTaskQuery] = useState('')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+  const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set())
+  const [taskSelectionMode, setTaskSelectionMode] = useState(false)
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [selectedCommentContent, setSelectedCommentContent] = useState<NormalizedContent | null>(null)
 
-  const runsQuery = useQuery({
-    queryKey: ['analytics-runs'],
-    queryFn: async () => (await dataApi.getAnalyticsRuns(1, 100)).data,
+  const tasksQuery = useQuery({
+    queryKey: ['analytics-tasks'],
+    queryFn: async () => (await dataApi.getAnalyticsTasks()).data,
     refetchInterval: crawlerStatus === 'running' || crawlerStatus === 'stopping' ? 3_000 : false,
   })
 
   useEffect(() => {
     setScope(initialScope)
-    if (initialScope.startsWith('task:')) {
-      const taskId = initialScope.slice(5)
-      setExpandedTasks((current) => new Set(current).add(taskId))
+    if (initialScope.startsWith('thread:')) {
+      const threadId = initialScope.slice(7)
+      setExpandedTasks((current) => new Set(current).add(threadId))
+    } else if (initialScope.startsWith('plan:')) {
+      setExpandedRounds((current) => new Set(current).add(initialScope.slice(5)))
     }
   }, [initialScope])
 
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
-  const selectedTaskId = scope.startsWith('task:') ? scope.slice(5) : undefined
+  const selectedPlanId = scope.startsWith('plan:') ? scope.slice(5) : undefined
+  const selectedThreadId = scope.startsWith('thread:') ? scope.slice(7) : undefined
 
   const summaryQuery = useQuery({
     queryKey: ['analytics-summary', scope, platform, keyword],
-    queryFn: async () => (await dataApi.getAnalyticsSummary(platform, keyword, selectedRunId, selectedTaskId)).data,
+    queryFn: async () => (await dataApi.getAnalyticsSummary(platform, keyword, selectedRunId, selectedPlanId, selectedThreadId)).data,
   })
   const contentsQuery = useQuery({
     queryKey: ['analytics-contents', scope, platform, keyword, query, sortBy, page],
     queryFn: async () => (await dataApi.getAnalyticsContents({
-      run_id: selectedRunId, task_id: selectedTaskId, platform, keyword, query, sort_by: sortBy, sort_order: 'desc', page, page_size: 20,
+      run_id: selectedRunId, plan_id: selectedPlanId, thread_id: selectedThreadId, platform, keyword, query, sort_by: sortBy, sort_order: 'desc', page, page_size: 20,
     })).data,
   })
   const commentsQuery = useQuery({
     queryKey: ['analytics-comments', scope, platform, commentLevel, commentQuery, commentPage],
     queryFn: async () => (await dataApi.getAnalyticsComments({
       run_id: selectedRunId,
-      task_id: selectedTaskId,
+      plan_id: selectedPlanId,
+      thread_id: selectedThreadId,
       platform,
       level: commentLevel === 'all' ? undefined : Number(commentLevel),
       query: commentQuery,
@@ -339,7 +349,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   useEffect(() => {
     const wasActive = previousCrawlerStatus.current === 'running' || previousCrawlerStatus.current === 'stopping'
     if (wasActive && (crawlerStatus === 'idle' || crawlerStatus === 'error')) {
-      queryClient.invalidateQueries({ queryKey: ['analytics-runs'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-contents'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-comments'] })
@@ -351,30 +361,24 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   const contents = contentsQuery.data
   const comments = commentsQuery.data
   const keywordRows = useMemo(() => summary?.by_keyword ?? [], [summary])
-  const runs = runsQuery.data?.items ?? []
-  const tasks = useMemo(() => {
-    const groups = new Map<string, { task_id: string; task_title: string; runs: typeof runs }>()
-    runs.forEach((run) => {
-      const taskId = run.task_id || run.run_id
-      const current = groups.get(taskId)
-      if (current) current.runs.push(run)
-      else groups.set(taskId, { task_id: taskId, task_title: run.task_title || run.task_name, runs: [run] })
-    })
-    return Array.from(groups.values())
-  }, [runs])
+  const tasks = tasksQuery.data?.items ?? []
+  const rounds = useMemo(() => tasks.flatMap((task) => task.rounds), [tasks])
+  const runs = useMemo(() => rounds.flatMap((round) => round.runs), [rounds])
   const filteredTasks = useMemo(() => {
     const normalizedQuery = taskQuery.trim().toLocaleLowerCase()
     if (!normalizedQuery) return tasks
     return tasks.filter((task) =>
       task.task_title.toLocaleLowerCase().includes(normalizedQuery)
-      || task.runs.some((run) => `${run.task_name} ${run.platform} ${run.keywords}`.toLocaleLowerCase().includes(normalizedQuery))
+      || task.rounds.some((round) => round.round_title.toLocaleLowerCase().includes(normalizedQuery)
+        || round.runs.some((run) => `${run.task_name} ${run.platform} ${run.keywords}`.toLocaleLowerCase().includes(normalizedQuery)))
     )
   }, [tasks, taskQuery])
   const selectedRun = runs.find((run) => run.run_id === selectedRunId)
-  const selectedTask = tasks.find((task) => task.task_id === selectedTaskId)
+  const selectedRound = rounds.find((round) => round.plan_id === selectedPlanId)
+  const selectedTask = tasks.find((task) => task.thread_id === selectedThreadId)
   const scopeTitle = scope === 'all'
     ? '全部任务的最新数据'
-    : selectedTask?.task_title || selectedRun?.task_name || '所选任务'
+    : selectedTask?.task_title || selectedRound?.round_title || selectedRun?.task_name || '所选任务'
 
 
   const deleteRun = async (selectedRunId: string) => {
@@ -382,7 +386,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
       await dataApi.deleteAnalyticsRun(selectedRunId)
       if (scope === `run:${selectedRunId}`) setScope('all')
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['analytics-runs'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
@@ -395,17 +399,18 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
     }
   }
 
-  const deleteTask = async (taskId: string) => {
+  const deleteTasks = async (threadIds: string[]) => {
     try {
-      await dataApi.deleteAnalyticsTask(taskId)
-      if (scope === `task:${taskId}` || tasks.find((task) => task.task_id === taskId)?.runs.some((run) => scope === `run:${run.run_id}`)) setScope('all')
+      await dataApi.deleteAnalyticsTasks(threadIds)
+      if (threadIds.some((threadId) => scope === `thread:${threadId}` || tasks.find((task) => task.thread_id === threadId)?.rounds.some((round) => scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`)))) setScope('all')
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['analytics-runs'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
       ])
-      toast.success('任务及其全部执行记录已删除，原始数据文件仍然保留')
+      setSelectedTaskIds(new Set())
+      toast.success(`${threadIds.length} 个 AI 任务已从看板移除，平台原始数据仍然保留`)
     } catch (error) {
       const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
       toast.error(detail || '任务删除失败')
@@ -413,74 +418,136 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
     }
   }
 
+  const deleteTask = (threadId: string) => deleteTasks([threadId])
+
+  const deleteRound = async (planId: string) => {
+    try {
+      await dataApi.deleteAnalyticsRound(planId)
+      if (scope === `plan:${planId}` || rounds.find((round) => round.plan_id === planId)?.runs.some((run) => scope === `run:${run.run_id}`)) setScope('all')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
+        queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
+      ])
+      toast.success('采集轮次已从看板移除，平台原始数据仍然保留')
+    } catch (error) {
+      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
+      toast.error(detail || '采集轮次移除失败')
+      throw error
+    }
+  }
+
+  const toggleSelectedTask = (taskId: string) => setSelectedTaskIds((current) => {
+    const next = new Set(current)
+    if (next.has(taskId)) next.delete(taskId)
+    else next.add(taskId)
+    return next
+  })
+
+  const renderBatchToolbar = () => {
+    const selectableIds = filteredTasks.filter((task) => !task.rounds.some((round) => round.runs.some((run) => run.status === 'running'))).map((task) => task.thread_id)
+    return (
+      <div className="flex items-center gap-2">
+        <Button variant="outline" size="sm" className="h-8 flex-1 text-xs" onClick={() => {
+          setTaskSelectionMode((current) => !current)
+          setSelectedTaskIds(new Set())
+        }}>{taskSelectionMode ? '退出批量管理' : '批量管理'}</Button>
+        {taskSelectionMode ? <>
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedTaskIds((current) => current.size === selectableIds.length ? new Set() : new Set(selectableIds))}>
+            {selectedTaskIds.size === selectableIds.length && selectableIds.length ? '取消全选' : '全选'}
+          </Button>
+          <DeleteConfirmDialog
+            title={`移除 ${selectedTaskIds.size} 个 AI 任务？`}
+            description="将删除所选 AI 任务下全部采集轮次的执行记录、看板分析数据和日志；工作区对话及平台原始采集数据会保留。"
+            confirmLabel="从看板移除"
+            onConfirm={() => deleteTasks([...selectedTaskIds])}
+            trigger={<Button variant="destructive" size="sm" className="h-8 text-xs" disabled={!selectedTaskIds.size}>移除</Button>}
+          />
+        </> : null}
+      </div>
+    )
+  }
+
   const exportUrl = dataApi.getAnalyticsExportUrl({
-    run_id: selectedRunId, task_id: selectedTaskId, platform, keyword, query, sort_by: sortBy,
+    run_id: selectedRunId, plan_id: selectedPlanId, thread_id: selectedThreadId, platform, keyword, query, sort_by: sortBy,
   })
 
   const renderTaskGroups = (mobile = false) => filteredTasks.map((task) => {
-    const isExpanded = expandedTasks.has(task.task_id) || task.runs.some((run) => scope === `run:${run.run_id}`)
-    const isSelected = scope === `task:${task.task_id}`
-    const isRunning = task.runs.some((run) => run.status === 'running')
-    const itemCount = task.runs.reduce((total, run) => total + run.item_count, 0)
-    const latestRun = task.runs[0]
+    const taskRuns = task.rounds.flatMap((round) => round.runs)
+    const isExpanded = expandedTasks.has(task.thread_id) || scope === `thread:${task.thread_id}` || task.rounds.some((round) => scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`))
+    const isSelected = scope === `thread:${task.thread_id}`
+    const isRunning = taskRuns.some((run) => run.status === 'running')
+    const itemCount = taskRuns.reduce((total, run) => total + run.item_count, 0)
+    const latestRun = taskRuns[0]
     return (
-      <div key={task.task_id} className="overflow-hidden rounded-md border border-cyber-border-subtle">
+      <div key={task.thread_id} className="overflow-hidden rounded-md border border-cyber-border-subtle">
         <div className={`group relative transition-colors ${isSelected ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'}`}>
           <button
             type="button"
-            onClick={() => { setScope(`task:${task.task_id}`); if (mobile) setIsRunHistoryOpen(false) }}
-            className={`w-full text-left ${mobile ? 'p-3 pl-9 pr-12' : 'p-2.5 pl-8 pr-9'}`}
+            onClick={() => { if (taskSelectionMode) { if (!isRunning) toggleSelectedTask(task.thread_id) } else { setScope(`thread:${task.thread_id}`); if (mobile) setIsRunHistoryOpen(false) } }}
+            className={`w-full text-left ${mobile ? `p-3 ${taskSelectionMode ? 'pl-16' : 'pl-9'} pr-12` : `p-2.5 ${taskSelectionMode ? 'pl-14' : 'pl-8'} pr-9`}`}
           >
             <span className="block truncate text-xs font-semibold text-cyber-text-primary" title={task.task_title}>{task.task_title}</span>
             <span className={`mt-1 flex items-center justify-between gap-2 text-cyber-text-muted ${mobile ? 'text-[11px]' : 'text-[10px]'}`}>
-              <span>{task.runs.length} 个执行 · {formatRunTime(latestRun?.started_at ?? null)}</span>
+              <span>{task.rounds.length} 轮 · {taskRuns.length} 个执行 · {formatRunTime(latestRun?.started_at ?? null)}</span>
               <span>{itemCount} 条</span>
             </span>
           </button>
+          {taskSelectionMode ? <span className="absolute left-2 top-3 z-10" onClick={(event) => event.stopPropagation()}>
+            <Checkbox checked={selectedTaskIds.has(task.thread_id)} disabled={isRunning} onCheckedChange={() => toggleSelectedTask(task.thread_id)} aria-label={`选择 AI 任务 ${task.task_title}`} />
+          </span> : null}
           <button
             type="button"
             onClick={() => setExpandedTasks((current) => {
               const next = new Set(current)
-              if (next.has(task.task_id)) next.delete(task.task_id)
-              else next.add(task.task_id)
+              if (next.has(task.thread_id)) next.delete(task.thread_id)
+              else next.add(task.thread_id)
               return next
             })}
-            className="absolute left-1.5 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
+            className={`absolute ${taskSelectionMode ? 'left-8' : 'left-1.5'} top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary`}
             aria-label={isExpanded ? `收起任务 ${task.task_title}` : `展开任务 ${task.task_title}`}
           >
             {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           </button>
-          {!isRunning ? (
+          {!isRunning && !taskSelectionMode ? (
             <DeleteConfirmDialog
-              title="删除整个任务？"
-              description={`将删除“${task.task_title}”及其 ${task.runs.length} 个执行记录，但不会删除 SQLite 中的平台原始采集表数据。`}
-              onConfirm={() => deleteTask(task.task_id)}
+              title="从看板移除整个 AI 任务？"
+              description={`将删除“${task.task_title}”下 ${task.rounds.length} 轮采集、${taskRuns.length} 个执行的看板数据，但不会删除工作区对话和平台原始采集数据。`}
+              onConfirm={() => deleteTask(task.thread_id)}
               trigger={<Button variant="ghost" size="icon" aria-label={`删除任务 ${task.task_title}`} className={`absolute right-1 top-1 h-7 w-7 text-cyber-text-muted hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink ${mobile ? '' : 'opacity-0 focus:opacity-100 group-hover:opacity-100'}`}><Trash2 /></Button>}
             />
           ) : null}
         </div>
         {isExpanded ? (
-          <div className="border-t border-cyber-border-subtle bg-cyber-bg-secondary/35 p-1.5">
-            {task.runs.map((run) => (
-              <div key={run.run_id} className={`group/run relative rounded transition-colors ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'}`}>
-                <button type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-2 pl-6 pr-9 text-left">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[11px] font-medium text-cyber-text-secondary" title={run.task_name}>{run.task_name}</span>
-                    <Badge variant="outline" className="shrink-0 text-[9px]">{runStatusLabel[run.status] ?? run.status}</Badge>
-                  </span>
-                  <span className="mt-1 flex items-center justify-between text-[10px] text-cyber-text-muted"><span>{formatRunTime(run.started_at)}</span><span>{run.item_count} 条</span></span>
-                </button>
-                <span className="absolute left-2 top-3 h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan/50" />
-                {run.status !== 'running' ? (
-                  <DeleteConfirmDialog
-                    title="删除执行记录？"
-                    description={`仅删除“${run.task_name}”这一次执行的看板记录。`}
-                    onConfirm={() => deleteRun(run.run_id)}
-                    trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>}
-                  />
-                ) : null}
+          <div className="space-y-1 border-t border-cyber-border-subtle bg-cyber-bg-secondary/35 p-1.5">
+            {task.rounds.map((round, roundIndex) => {
+              const roundExpanded = expandedRounds.has(round.plan_id) || scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`)
+              const roundRunning = round.runs.some((run) => run.status === 'running')
+              const roundItems = round.runs.reduce((sum, run) => sum + run.item_count, 0)
+              return <div key={round.plan_id} className="overflow-hidden rounded border border-cyber-border-subtle/70">
+                <div className={`group/round relative ${scope === `plan:${round.plan_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/60'}`}>
+                  <button type="button" onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-2 pl-8 pr-9 text-left">
+                    <span className="block truncate text-[11px] font-medium text-cyber-text-secondary" title={round.round_title}>第 {task.rounds.length - roundIndex} 轮 · {round.round_title}</span>
+                    <span className="mt-1 flex justify-between text-[9px] text-cyber-text-muted"><span>{round.runs.length} 个平台执行</span><span>{roundItems} 条</span></span>
+                  </button>
+                  <button type="button" onClick={() => setExpandedRounds((current) => { const next = new Set(current); if (next.has(round.plan_id)) next.delete(round.plan_id); else next.add(round.plan_id); return next })} className="absolute left-1 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted" aria-label={roundExpanded ? `收起采集轮次 ${round.round_title}` : `展开采集轮次 ${round.round_title}`}>
+                    {roundExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  </button>
+                  {!roundRunning ? <DeleteConfirmDialog title="移除这个采集轮次？" description={`将删除本轮 ${round.runs.length} 个平台执行的看板数据和日志。`} onConfirm={() => deleteRound(round.plan_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除采集轮次 ${round.round_title}`} className="absolute right-0.5 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/round:opacity-100"><Trash2 /></Button>} /> : null}
+                </div>
+                {roundExpanded ? <div className="border-t border-cyber-border-subtle/70 px-1 py-1">
+                  {round.runs.map((run) => <div key={run.run_id} className={`group/run relative rounded ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/60'}`}>
+                    <button type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-1.5 pl-6 pr-9 text-left">
+                      <span className="flex items-center justify-between gap-2"><span className="truncate text-[10px] text-cyber-text-secondary">{run.platform}</span><Badge variant="outline" className="text-[8px]">{runStatusLabel[run.status] ?? run.status}</Badge></span>
+                      <span className="mt-0.5 flex justify-between text-[9px] text-cyber-text-muted"><span>{formatRunTime(run.started_at)}</span><span>{run.item_count} 条</span></span>
+                    </button>
+                    <span className="absolute left-2 top-2.5 h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan/50" />
+                    {run.status !== 'running' ? <DeleteConfirmDialog title="删除执行记录？" description={`仅删除“${run.task_name}”这一次执行的看板记录。`} onConfirm={() => deleteRun(run.run_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-0.5 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>} /> : null}
+                  </div>)}
+                </div> : null}
               </div>
-            ))}
+            })}
           </div>
         ) : null}
       </div>
@@ -501,7 +568,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
               <History className="h-4 w-4 shrink-0 text-cyber-neon-cyan" />
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold text-cyber-text-primary">任务范围</h2>
-                <p className="text-[10px] text-cyber-text-muted">共 {tasks.length} 个任务 · {runsQuery.data?.total ?? 0} 个执行</p>
+                <p className="text-[10px] text-cyber-text-muted">{tasksQuery.data?.total ?? 0} 个 AI 任务 · {tasksQuery.data?.round_total ?? 0} 轮 · {tasksQuery.data?.run_total ?? 0} 个执行</p>
               </div>
             </div>
           ) : null}
@@ -541,6 +608,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                   className="h-8 pl-8 text-xs"
                 />
               </div>
+              {renderBatchToolbar()}
             <div
               className={`group relative rounded-md border transition-colors ${
                 scope === 'all'
@@ -579,7 +647,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
               {renderTaskGroups()}
-              {!runsQuery.isLoading && !filteredTasks.length ? (
+              {!tasksQuery.isLoading && !filteredTasks.length ? (
                 <div className="py-8 text-center text-xs text-cyber-text-muted">
                   {taskQuery.trim() ? '没有匹配的任务' : '暂无任务记录'}
                 </div>
@@ -869,6 +937,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                 className="h-9 pl-8 text-xs"
               />
             </div>
+            {renderBatchToolbar()}
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               <div
@@ -908,7 +977,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
 
               {renderTaskGroups(true)}
 
-              {!runsQuery.isLoading && !filteredTasks.length ? (
+              {!tasksQuery.isLoading && !filteredTasks.length ? (
                 <div className="py-8 text-center text-xs text-cyber-text-muted">
                   {taskQuery.trim() ? '没有匹配的任务' : '暂无任务记录'}
                 </div>
@@ -920,7 +989,8 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
         <ContentCommentsDialog
           content={selectedCommentContent}
           runId={selectedRunId}
-          taskId={selectedTaskId}
+          planId={selectedPlanId}
+          threadId={selectedThreadId}
           onOpenChange={(open) => { if (!open) setSelectedCommentContent(null) }}
         />
       </div>

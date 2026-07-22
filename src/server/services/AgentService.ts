@@ -723,7 +723,7 @@ export class AgentService {
           connector_options: connectorOptions,
           start_page: p.startPage, collection_depth: depth, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
           cookies: '', headless: p.headless, loop_execution: false,
-          task_id: refreshed.plan_id, task_title: refreshed.goal,
+          thread_id: refreshed.thread_id, plan_id: refreshed.plan_id, task_title: refreshed.goal,
         });
       } catch (error: any) {
         agentRepository.updateStep(step.step_id, 'failed', null, error.message || 'Connector 参数校验失败');

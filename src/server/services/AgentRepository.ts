@@ -104,8 +104,39 @@ export class AgentRepository {
     return { ...thread, messages, plan, plans };
   }
 
-  deleteThread(threadId: string): boolean {
-    return this.db.prepare('DELETE FROM agent_threads WHERE thread_id = ?').run(threadId).changes > 0;
+  deleteThreads(threadIds: string[], deleteAnalyticsData = false): { deleted: number; analytics_runs_deleted: number } {
+    const ids = [...new Set(threadIds.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!ids.length) return { deleted: 0, analytics_runs_deleted: 0 };
+
+    const placeholders = ids.map(() => '?').join(',');
+    const active = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM agent_plans
+      WHERE thread_id IN (${placeholders}) AND status IN ('queued', 'running')
+    `).get(...ids) as { count: number };
+    if (Number(active?.count || 0) > 0) throw new Error('请先停止正在排队或采集中的任务');
+    const runningRuns = this.db.prepare(`
+      SELECT COUNT(*) AS count FROM crawl_runs
+      WHERE status = 'running' AND thread_id IN (${placeholders})
+    `).get(...ids) as { count: number };
+    if (Number(runningRuns?.count || 0) > 0) throw new Error('请先停止正在采集的执行');
+
+    return this.db.transaction(() => {
+      let analyticsRunsDeleted = 0;
+      if (deleteAnalyticsData) {
+        const result = this.db.prepare(`
+          DELETE FROM crawl_runs
+          WHERE thread_id IN (${placeholders})
+        `).run(...ids);
+        analyticsRunsDeleted = result.changes;
+      }
+      const deleted = this.db.prepare(`DELETE FROM agent_threads WHERE thread_id IN (${placeholders})`).run(...ids).changes;
+      return { deleted, analytics_runs_deleted: analyticsRunsDeleted };
+    })();
+  }
+
+  deleteThread(threadId: string, deleteAnalyticsData = false): boolean {
+    return this.deleteThreads([threadId], deleteAnalyticsData).deleted > 0;
   }
 
   createAttachment(input: Omit<AgentAttachmentRecord, 'attachment_id' | 'created_at'>): AgentAttachmentRecord {

@@ -25,7 +25,7 @@ function App() {
             </Button>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden pt-3">
-            <ResultWorkbench initialScope={`task:${resultsContext.planId}`} />
+            <ResultWorkbench initialScope={`thread:${resultsContext.threadId}`} />
           </div>
         </div>
       ) : (

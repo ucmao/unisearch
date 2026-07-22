@@ -157,7 +157,8 @@ export interface AnalyticsCommentThreadsResponse {
 
 export interface CrawlRun {
   run_id: string
-  task_id: string
+  thread_id: string
+  plan_id: string
   task_title: string
   task_name: string
   platform: string
@@ -179,6 +180,32 @@ export interface AnalyticsRunsResponse {
   page: number
   page_size: number
   pages: number
+}
+
+export interface AnalyticsTaskGroup {
+  thread_id: string
+  task_title: string
+  rounds: AnalyticsRoundGroup[]
+}
+
+export interface AnalyticsRoundGroup {
+  plan_id: string
+  round_title: string
+  runs: CrawlRun[]
+}
+
+export interface AnalyticsTasksResponse {
+  items: AnalyticsTaskGroup[]
+  total: number
+  round_total: number
+  run_total: number
+}
+
+export interface StorageSummary {
+  analytics_runs: number
+  analytics_records: number
+  log_records: number
+  raw_records: number
 }
 
 export interface Platform {
@@ -330,13 +357,14 @@ export const crawlerApi = {
 }
 
 export const dataApi = {
-  getAnalyticsSummary: (platform?: string, keyword?: string, runId?: string, taskId?: string) =>
+  getAnalyticsSummary: (platform?: string, keyword?: string, runId?: string, planId?: string, threadId?: string) =>
     api.get<AnalyticsSummary>('/data/analytics/summary', {
       params: {
         platform: platform && platform !== 'all' ? platform : undefined,
         keyword: keyword && keyword !== 'all' ? keyword : undefined,
         run_id: runId && runId !== 'all' ? runId : undefined,
-        task_id: taskId && taskId !== 'all' ? taskId : undefined,
+        plan_id: planId && planId !== 'all' ? planId : undefined,
+        thread_id: threadId && threadId !== 'all' ? threadId : undefined,
       },
     }),
   getAnalyticsContents: (params: {
@@ -348,19 +376,22 @@ export const dataApi = {
     page?: number
     page_size?: number
     run_id?: string
-    task_id?: string
+    plan_id?: string
+    thread_id?: string
   }) => api.get<AnalyticsContentsResponse>('/data/analytics/contents', {
     params: {
       ...params,
       platform: params.platform && params.platform !== 'all' ? params.platform : undefined,
       keyword: params.keyword && params.keyword !== 'all' ? params.keyword : undefined,
       run_id: params.run_id && params.run_id !== 'all' ? params.run_id : undefined,
-      task_id: params.task_id && params.task_id !== 'all' ? params.task_id : undefined,
+      plan_id: params.plan_id && params.plan_id !== 'all' ? params.plan_id : undefined,
+      thread_id: params.thread_id && params.thread_id !== 'all' ? params.thread_id : undefined,
     },
   }),
   getAnalyticsComments: (params: {
     run_id?: string
-    task_id?: string
+    plan_id?: string
+    thread_id?: string
     platform?: string
     content_id?: string
     level?: number
@@ -372,12 +403,14 @@ export const dataApi = {
       ...params,
       platform: params.platform && params.platform !== 'all' ? params.platform : undefined,
       run_id: params.run_id && params.run_id !== 'all' ? params.run_id : undefined,
-      task_id: params.task_id && params.task_id !== 'all' ? params.task_id : undefined,
+      plan_id: params.plan_id && params.plan_id !== 'all' ? params.plan_id : undefined,
+      thread_id: params.thread_id && params.thread_id !== 'all' ? params.thread_id : undefined,
     },
   }),
   getAnalyticsCommentThreads: (params: {
     run_id?: string
-    task_id?: string
+    plan_id?: string
+    thread_id?: string
     platform: string
     content_id: string
     page?: number
@@ -386,18 +419,32 @@ export const dataApi = {
     params: {
       ...params,
       run_id: params.run_id && params.run_id !== 'all' ? params.run_id : undefined,
-      task_id: params.task_id && params.task_id !== 'all' ? params.task_id : undefined,
+      plan_id: params.plan_id && params.plan_id !== 'all' ? params.plan_id : undefined,
+      thread_id: params.thread_id && params.thread_id !== 'all' ? params.thread_id : undefined,
     },
   }),
   getAnalyticsRuns: (page = 1, pageSize = 20) =>
     api.get<AnalyticsRunsResponse>('/data/analytics/runs', { params: { page, page_size: pageSize } }),
+  getAnalyticsTasks: () => api.get<AnalyticsTasksResponse>('/data/analytics/tasks'),
   deleteAnalyticsRun: (runId: string) =>
     api.delete<{ status: string; run_id: string }>(`/data/analytics/runs/${encodeURIComponent(runId)}`),
-  deleteAnalyticsTask: (taskId: string) =>
-    api.delete<{ status: string; task_id: string }>(`/data/analytics/tasks/${encodeURIComponent(taskId)}`),
+  deleteAnalyticsTask: (threadId: string) =>
+    api.delete<{ status: string; thread_id: string }>(`/data/analytics/tasks/${encodeURIComponent(threadId)}`),
+  deleteAnalyticsRound: (planId: string) =>
+    api.delete<{ status: string; plan_id: string }>(`/data/analytics/rounds/${encodeURIComponent(planId)}`),
+  deleteAnalyticsRuns: (runIds: string[]) =>
+    api.post<{ status: string; deleted: number }>('/data/analytics/runs/batch-delete', { run_ids: runIds }),
+  deleteAnalyticsTasks: (threadIds: string[]) =>
+    api.post<{ status: string; deleted: number }>('/data/analytics/tasks/batch-delete', { thread_ids: threadIds }),
+  deleteAnalyticsRounds: (planIds: string[]) =>
+    api.post<{ status: string; deleted: number }>('/data/analytics/rounds/batch-delete', { plan_ids: planIds }),
+  getStorageSummary: () => api.get<StorageSummary>('/data/storage/summary'),
+  cleanupStorage: (mode: 'failed_empty' | 'older_than_30_days' | 'all') =>
+    api.post<{ status: string; deleted: number }>('/data/storage/cleanup', { mode }),
   getAnalyticsExportUrl: (params: {
     run_id?: string
-    task_id?: string
+    plan_id?: string
+    thread_id?: string
     platform?: string
     keyword?: string
     query?: string
@@ -428,7 +475,12 @@ export const agentApi = {
     api.post<AgentThread>('/agent/threads', { title, add_welcome_message: addWelcomeMessage }),
   getThread: (threadId: string) => api.get<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`),
   renameThread: (threadId: string, title: string) => api.patch<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`, { title }),
-  deleteThread: (threadId: string) => api.delete(`/agent/threads/${encodeURIComponent(threadId)}`),
+  deleteThread: (threadId: string, deleteAnalyticsData = false) => api.delete(`/agent/threads/${encodeURIComponent(threadId)}`, { data: { delete_analytics_data: deleteAnalyticsData } }),
+  deleteThreads: (threadIds: string[], deleteAnalyticsData = false) =>
+    api.post<{ status: string; deleted: number; analytics_runs_deleted: number }>('/agent/threads/batch-delete', {
+      thread_ids: threadIds,
+      delete_analytics_data: deleteAnalyticsData,
+    }),
   uploadAttachment: (threadId: string, file: { fileName: string; mimeType: string; dataBase64: string }) =>
     api.post<AgentAttachment>(`/agent/threads/${encodeURIComponent(threadId)}/attachments`, file, { timeout: 120000 }),
   deleteAttachment: (threadId: string, attachmentId: string) =>

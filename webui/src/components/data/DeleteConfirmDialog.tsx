@@ -17,6 +17,7 @@ interface DeleteConfirmDialogProps {
   description: string
   confirmLabel?: string
   onConfirm: () => Promise<unknown> | unknown
+  children?: ReactNode
 }
 
 export function DeleteConfirmDialog({
@@ -25,6 +26,7 @@ export function DeleteConfirmDialog({
   description,
   confirmLabel = '确认删除',
   onConfirm,
+  children,
 }: DeleteConfirmDialogProps) {
   const [open, setOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -52,6 +54,7 @@ export function DeleteConfirmDialog({
           <DialogTitle className="text-cyber-neon-pink">{title}</DialogTitle>
           <DialogDescription className="pt-2 leading-6">{description}</DialogDescription>
         </DialogHeader>
+        {children}
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)} disabled={isDeleting}>取消</Button>
           <Button variant="destructive" onClick={confirm} disabled={isDeleting}>

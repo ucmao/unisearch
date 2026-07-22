@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Database, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,12 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { agentApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
+import { agentApi, dataApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
 import { useThemeStore } from '@/store/themeStore'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
-export type SettingsSection = 'appearance' | 'models' | 'collection' | 'memory'
+export type SettingsSection = 'appearance' | 'models' | 'collection' | 'storage' | 'memory'
 
 const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -43,6 +43,7 @@ const sections: { value: SettingsSection; label: string; description: string; ic
   { value: 'appearance', label: '外观', description: '主题与显示', icon: Palette },
   { value: 'models', label: '模型', description: 'AI 服务与凭证', icon: KeyRound },
   { value: 'collection', label: '采集', description: '并发与资源', icon: Gauge },
+  { value: 'storage', label: '存储', description: '看板数据清理', icon: Database },
   { value: 'memory', label: '记忆', description: '长期偏好与背景', icon: Brain },
 ]
 
@@ -120,6 +121,11 @@ export function SettingsDialog({
     queryFn: async () => (await agentApi.listMemories()).data.items,
     enabled: dialogOpen && activeSection === 'memory',
   })
+  const storageQuery = useQuery({
+    queryKey: ['storage-summary'],
+    queryFn: async () => (await dataApi.getStorageSummary()).data,
+    enabled: dialogOpen && activeSection === 'storage',
+  })
 
   useEffect(() => {
     if (profileQuery.data) {
@@ -182,6 +188,18 @@ export function SettingsDialog({
     onSuccess: ({ data }) => {
       queryClient.setQueryData(['agent-memories'], [])
       toast.success(`已清除 ${data.deleted} 条记忆`)
+    },
+    onError: (error) => toast.error(getError(error)),
+  })
+  const cleanupStorage = useMutation({
+    mutationFn: (mode: 'failed_empty' | 'older_than_30_days' | 'all') => dataApi.cleanupStorage(mode),
+    onSuccess: ({ data }) => {
+      queryClient.invalidateQueries({ queryKey: ['storage-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-contents'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-comments'] })
+      toast.success(`已清理 ${data.deleted} 个看板执行记录`)
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -338,6 +356,41 @@ export function SettingsDialog({
                         {[1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                ) : null}
+              </div>
+            ) : activeSection === 'storage' ? (
+              <div className="mx-auto max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="font-sans text-xl text-cyber-text-primary">存储管理</DialogTitle>
+                  <DialogDescription>清理执行历史和看板分析数据。平台原始采集数据不会在这里删除。</DialogDescription>
+                </DialogHeader>
+                {storageQuery.isLoading ? (
+                  <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在统计本地数据…</div>
+                ) : storageQuery.data ? (
+                  <div className="mt-7 space-y-5">
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      {[
+                        ['执行记录', storageQuery.data.analytics_runs],
+                        ['看板内容', storageQuery.data.analytics_records],
+                        ['执行日志', storageQuery.data.log_records],
+                        ['平台原始数据', storageQuery.data.raw_records],
+                      ].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4"><p className="text-[10px] text-cyber-text-muted">{label}</p><p className="mt-1 text-xl font-semibold text-cyber-text-primary">{Number(value || 0).toLocaleString('zh-CN')}</p></div>)}
+                    </div>
+                    <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
+                      {[
+                        { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '移除失败以及没有采集到内容的看板记录。', confirm: '清理失败或空结果执行？' },
+                        { mode: 'older_than_30_days' as const, title: '清理30天前执行历史', detail: '移除30天前的执行记录、看板内容和日志。', confirm: '清理30天前的执行历史？' },
+                        { mode: 'all' as const, title: '清空看板历史', detail: '清空全部非运行中的看板执行历史。', confirm: '清空全部看板历史？' },
+                      ].map((item) => <div key={item.mode} className="flex items-center justify-between gap-5 py-4"><div><p className="text-sm font-medium text-cyber-text-primary">{item.title}</p><p className="mt-1 text-xs text-cyber-text-muted">{item.detail}</p></div><DeleteConfirmDialog
+                        trigger={<Button size="sm" variant={item.mode === 'all' ? 'destructive' : 'outline'} disabled={cleanupStorage.isPending}>清理</Button>}
+                        title={item.confirm}
+                        description="对应看板分析数据和执行日志会一并删除，工作区任务与平台原始数据保持不变。"
+                        confirmLabel="确认清理"
+                        onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
+                      /></div>)}
+                    </div>
+                    <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">平台原始数据可能被多个任务共同引用。在建立完整的数据来源关系前，不提供按任务物理删除，避免误删其他任务仍需的数据。</p>
                   </div>
                 ) : null}
               </div>
