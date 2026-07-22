@@ -77,8 +77,8 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
 
   return {
     goal,
-    platforms: platforms.length ? platforms : inferredPlatforms.length ? inferredPlatforms : ['xhs', 'bili'],
-    keywords: keywords.length ? keywords : [userText.replace(/[，。！？\n]/g, ' ').trim().slice(0, 40)],
+    platforms: platforms.length ? platforms : inferredPlatforms,
+    keywords,
     capability,
     targets,
     connectorOptions: input?.connectorOptions && typeof input.connectorOptions === 'object' ? input.connectorOptions : {},
@@ -322,7 +322,7 @@ export class AgentService {
     let decision: AgentDecision;
     if (localDecision.action === 'model_info') {
       decision = localDecision;
-    } else if (localDecision.action === 'chat' && ((attachments.length > 0 || taskReferences.length > 0) || (!latest && isSimpleConversation(content)))) {
+    } else if (localDecision.action === 'chat' && ((attachments.length > 0 || taskReferences.length > 0) || isSimpleConversation(content))) {
       try {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = updatedThread.messages
@@ -360,6 +360,11 @@ export class AgentService {
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
           decision = { ...decision, action: 'create_plan' };
+        } else if (decision.action === 'create_plan' && localDecision.action !== 'create_plan') {
+          // Creating a plan changes persistent state. The model may use the full
+          // conversation for semantic routing, but it must not turn assistant
+          // introductions or ordinary chat into collection parameters.
+          decision = localDecision;
         }
       } catch (error: any) {
         if (localDecision.action === 'create_plan') {
@@ -528,7 +533,7 @@ export class AgentService {
       const candidate = mergePlan(latest.plan, decision.plan);
       plan = normalizePlan(candidate, latest.goal);
     } else if (decision.action === 'create_plan') {
-      if (decision.plan) plan = normalizePlan(decision.plan, content);
+      if (decision.plan) plan = normalizePlan(decision.plan, planningText);
       else {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = updatedThread.messages
@@ -556,6 +561,18 @@ export class AgentService {
         return agentRepository.getThread(threadId);
       }
       agentRepository.addMessage(threadId, 'assistant', 'text', reply, { action: 'chat' });
+      return agentRepository.getThread(threadId);
+    }
+    if (!plan.platforms.length) {
+      agentRepository.addMessage(threadId, 'assistant', 'clarify', '你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。', {
+        action: 'clarify', missing_fields: ['platforms'],
+      });
+      return agentRepository.getThread(threadId);
+    }
+    if (plan.capability === 'keyword_search' && !plan.keywords.length) {
+      agentRepository.addMessage(threadId, 'assistant', 'clarify', '你最想调研的具体品牌、产品、事件或主题是什么？', {
+        action: 'clarify', missing_fields: ['subject'],
+      });
       return agentRepository.getThread(threadId);
     }
     if (plan.capability && plan.capability !== 'keyword_search' && !(plan.targets || []).length) {

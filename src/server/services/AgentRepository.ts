@@ -90,7 +90,8 @@ export class AgentRepository {
       SELECT t.*,
         (SELECT content FROM agent_messages m WHERE m.thread_id=t.thread_id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
         (SELECT status FROM agent_plans p WHERE p.thread_id=t.thread_id ORDER BY p.created_at DESC LIMIT 1) AS plan_status
-      FROM agent_threads t ORDER BY t.updated_at DESC
+      FROM agent_threads t
+      ORDER BY (t.pinned_at IS NOT NULL) DESC, t.pinned_at DESC, t.updated_at DESC
     `).all();
   }
 
@@ -104,39 +105,30 @@ export class AgentRepository {
     return { ...thread, messages, plan, plans };
   }
 
-  deleteThreads(threadIds: string[], deleteAnalyticsData = false): { deleted: number; analytics_runs_deleted: number } {
-    const ids = [...new Set(threadIds.map((value) => String(value || '').trim()).filter(Boolean))];
-    if (!ids.length) return { deleted: 0, analytics_runs_deleted: 0 };
-
-    const placeholders = ids.map(() => '?').join(',');
+  deleteThread(threadId: string, deleteAnalyticsData = false): { deleted: number; analytics_runs_deleted: number } {
+    const id = String(threadId || '').trim();
+    if (!id) return { deleted: 0, analytics_runs_deleted: 0 };
     const active = this.db.prepare(`
       SELECT COUNT(*) AS count
       FROM agent_plans
-      WHERE thread_id IN (${placeholders}) AND status IN ('queued', 'running')
-    `).get(...ids) as { count: number };
+      WHERE thread_id=? AND status IN ('queued', 'running')
+    `).get(id) as { count: number };
     if (Number(active?.count || 0) > 0) throw new Error('请先停止正在排队或采集中的任务');
     const runningRuns = this.db.prepare(`
       SELECT COUNT(*) AS count FROM crawl_runs
-      WHERE status = 'running' AND thread_id IN (${placeholders})
-    `).get(...ids) as { count: number };
+      WHERE status = 'running' AND thread_id=?
+    `).get(id) as { count: number };
     if (Number(runningRuns?.count || 0) > 0) throw new Error('请先停止正在采集的执行');
 
     return this.db.transaction(() => {
       let analyticsRunsDeleted = 0;
       if (deleteAnalyticsData) {
-        const result = this.db.prepare(`
-          DELETE FROM crawl_runs
-          WHERE thread_id IN (${placeholders})
-        `).run(...ids);
+        const result = this.db.prepare('DELETE FROM crawl_runs WHERE thread_id=?').run(id);
         analyticsRunsDeleted = result.changes;
       }
-      const deleted = this.db.prepare(`DELETE FROM agent_threads WHERE thread_id IN (${placeholders})`).run(...ids).changes;
+      const deleted = this.db.prepare('DELETE FROM agent_threads WHERE thread_id=?').run(id).changes;
       return { deleted, analytics_runs_deleted: analyticsRunsDeleted };
     })();
-  }
-
-  deleteThread(threadId: string, deleteAnalyticsData = false): boolean {
-    return this.deleteThreads([threadId], deleteAnalyticsData).deleted > 0;
   }
 
   createAttachment(input: Omit<AgentAttachmentRecord, 'attachment_id' | 'created_at'>): AgentAttachmentRecord {
@@ -214,6 +206,12 @@ export class AgentRepository {
     return result.changes ? this.getThread(threadId) : null;
   }
 
+  setThreadPinned(threadId: string, pinned: boolean) {
+    const result = this.db.prepare('UPDATE agent_threads SET pinned_at=? WHERE thread_id=?')
+      .run(pinned ? new Date().toISOString() : null, threadId);
+    return result.changes ? this.getThread(threadId) : null;
+  }
+
   addMessage(threadId: string, role: AgentRole, kind: string, content: string, metadata: any = {}) {
     const messageId = id();
     const now = new Date().toISOString();
@@ -221,6 +219,49 @@ export class AgentRepository {
       .run(messageId, threadId, role, kind, content, JSON.stringify(metadata), now);
     this.touchThread(threadId);
     return { message_id: messageId, thread_id: threadId, role, kind, content, metadata, created_at: now };
+  }
+
+  deleteMessagePair(threadId: string, messageId: string): { deleted: number; attachment_ids: string[] } | null {
+    const rows = this.db.prepare(`
+      SELECT rowid, message_id, role, metadata_json
+      FROM agent_messages
+      WHERE thread_id=?
+      ORDER BY created_at ASC, rowid ASC
+    `).all(threadId) as Array<{ rowid: number; message_id: string; role: AgentRole; metadata_json: string }>;
+    const targetIndex = rows.findIndex((row) => row.message_id === messageId);
+    if (targetIndex < 0) return null;
+
+    let startIndex = targetIndex;
+    if (rows[targetIndex].role === 'assistant') {
+      for (let index = targetIndex - 1; index >= 0; index -= 1) {
+        if (rows[index].role === 'user') {
+          startIndex = index;
+          break;
+        }
+      }
+    }
+    let endIndex = rows.length;
+    for (let index = startIndex + 1; index < rows.length; index += 1) {
+      if (rows[index].role === 'user') {
+        endIndex = index;
+        break;
+      }
+    }
+
+    const selected = rows.slice(startIndex, endIndex);
+    const messageIds = selected.map((row) => row.message_id);
+    const attachmentIds = [...new Set(selected.flatMap((row) => {
+      const metadata = parseJson<{ attachments?: Array<{ attachment_id?: string }> }>(row.metadata_json, {});
+      return (metadata.attachments || []).map((attachment) => String(attachment.attachment_id || '')).filter(Boolean);
+    }))];
+    const placeholders = messageIds.map(() => '?').join(',');
+    const deleted = this.db.transaction(() => {
+      const result = this.db.prepare(`DELETE FROM agent_messages WHERE thread_id=? AND message_id IN (${placeholders})`)
+        .run(threadId, ...messageIds);
+      this.touchThread(threadId);
+      return result.changes;
+    })();
+    return { deleted, attachment_ids: attachmentIds };
   }
 
   getMemorySettings(): MemorySettings {

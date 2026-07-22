@@ -82,12 +82,65 @@ test('automatic titles stop changing after a manual rename', () => {
   }
 });
 
+test('pinned tasks are listed first and return to recent ordering when unpinned', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const older = repo.createThread('较早任务');
+    const newer = repo.createThread('较新任务');
+    db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?').run('2026-01-01T00:00:00.000Z', older.thread_id);
+    db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?').run('2026-02-01T00:00:00.000Z', newer.thread_id);
+
+    const pinned = repo.setThreadPinned(older.thread_id, true);
+    assert.ok(pinned.pinned_at);
+    assert.deepEqual(repo.listThreads().map((thread: any) => thread.thread_id), [older.thread_id, newer.thread_id]);
+
+    const unpinned = repo.setThreadPinned(older.thread_id, false);
+    assert.equal(unpinned.pinned_at, null);
+    assert.deepEqual(repo.listThreads().map((thread: any) => thread.thread_id), [newer.thread_id, older.thread_id]);
+  } finally {
+    db.close();
+  }
+});
+
 test('a lazily created task starts without a welcome placeholder', () => {
   const { db, repository: repo } = repository();
   try {
     const thread = repo.createThread(undefined, false, false);
     assert.equal(thread.title, '新建情报任务');
     assert.deepEqual(thread.messages, []);
+  } finally {
+    db.close();
+  }
+});
+
+test('deleting a conversation pair removes one user turn and all of its assistant replies', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('对话删除', false, false);
+    const firstUser = repo.addMessage(thread.thread_id, 'user', 'text', '第一问');
+    const firstReply = repo.addMessage(thread.thread_id, 'assistant', 'text', '第一答');
+    repo.addMessage(thread.thread_id, 'assistant', 'status', '第一答补充');
+    const secondUser = repo.addMessage(thread.thread_id, 'user', 'text', '第二问');
+    const secondReply = repo.addMessage(thread.thread_id, 'assistant', 'text', '第二答');
+
+    assert.deepEqual(repo.deleteMessagePair(thread.thread_id, firstReply.message_id), { deleted: 3, attachment_ids: [] });
+    assert.deepEqual(repo.getThread(thread.thread_id).messages.map((message: any) => message.message_id), [secondUser.message_id, secondReply.message_id]);
+    assert.equal(repo.deleteMessagePair(thread.thread_id, firstUser.message_id), null);
+  } finally {
+    db.close();
+  }
+});
+
+test('deleting a standalone assistant message does not consume the following user turn', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('欢迎消息');
+    const welcome = thread.messages[0];
+    const user = repo.addMessage(thread.thread_id, 'user', 'text', '你好');
+    const reply = repo.addMessage(thread.thread_id, 'assistant', 'text', '你好呀');
+
+    assert.equal(repo.deleteMessagePair(thread.thread_id, welcome.message_id)?.deleted, 1);
+    assert.deepEqual(repo.getThread(thread.thread_id).messages.map((message: any) => message.message_id), [user.message_id, reply.message_id]);
   } finally {
     db.close();
   }
@@ -109,6 +162,7 @@ test('schema migration adds title controls to an existing conversation table', (
     assert.equal(planIndexes.some((index) => index.name === 'idx_agent_plans_one_per_thread'), false);
     assert.equal(planIndexes.some((index) => index.name === 'idx_agent_plans_thread_created' && index.unique === 0), true);
     assert.equal(columns.some((column) => column.name === 'title_locked'), true);
+    assert.equal(columns.some((column) => column.name === 'pinned_at'), true);
   } finally {
     db.close();
   }
@@ -167,7 +221,7 @@ test('attachments are scoped to their conversation and removed with it', () => {
   }
 });
 
-test('batch deleting tasks can retain or cascade analytics data and rejects active tasks', () => {
+test('deleting a task can retain or cascade analytics data and rejects active tasks', () => {
   const { db, repository: repo } = repository();
   try {
     const retained = repo.createThread('保留数据');
@@ -176,7 +230,7 @@ test('batch deleting tasks can retain or cascade analytics data and rejects acti
     db.prepare(`INSERT INTO crawl_runs
       (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, status, started_at)
       VALUES ('run-retained', ?, ?, '保留数据', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(retained.thread_id, retainedPlan.plan_id);
-    assert.deepEqual(repo.deleteThreads([retained.thread_id], false), { deleted: 1, analytics_runs_deleted: 0 });
+    assert.deepEqual(repo.deleteThread(retained.thread_id, false), { deleted: 1, analytics_runs_deleted: 0 });
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE run_id='run-retained'").get() as any).count, 1);
 
     const cascaded = repo.createThread('同步清理');
@@ -185,12 +239,12 @@ test('batch deleting tasks can retain or cascade analytics data and rejects acti
     db.prepare(`INSERT INTO crawl_runs
       (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, status, started_at)
       VALUES ('run-cascaded', ?, ?, '同步清理', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(cascaded.thread_id, cascadedPlan.plan_id);
-    assert.deepEqual(repo.deleteThreads([cascaded.thread_id], true), { deleted: 1, analytics_runs_deleted: 1 });
+    assert.deepEqual(repo.deleteThread(cascaded.thread_id, true), { deleted: 1, analytics_runs_deleted: 1 });
 
     const active = repo.createThread('运行中');
     const activePlan = repo.createPlan(active.thread_id, plan());
     repo.updatePlanStatus(activePlan.plan_id, 'running');
-    assert.throws(() => repo.deleteThreads([active.thread_id]), /停止/);
+    assert.throws(() => repo.deleteThread(active.thread_id), /停止/);
   } finally {
     db.close();
   }

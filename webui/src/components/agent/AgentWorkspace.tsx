@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, Bot, CheckCircle2, ChevronRight, Clock3, Database, Download, Eye, EyeOff, FileText, KeyRound,
-  Image, Loader2, MessageSquarePlus, Paperclip, Play, Plus, Search, Send,
+  AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, Eye, EyeOff, FileText, KeyRound,
+  Image, Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
   Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
@@ -51,6 +51,22 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error || new Error('读取文件失败'))
     reader.readAsDataURL(file)
   })
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('复制失败')
 }
 
 function StepIcon({ status }: { status: string }) {
@@ -167,14 +183,27 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   )
 }
 
-function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
+function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair }: {
   message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean
   showPlanCard: boolean
   onUpdateKeywords: (keywords: string[]) => void
   onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
   updatingPlan: boolean
+  onDeletePair: () => Promise<unknown>
+  deletingPair: boolean
 }) {
   const isUser = message.role === 'user'
+  const [copied, setCopied] = useState(false)
+  const copyMarkdown = async () => {
+    try {
+      await copyText(message.content)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+      toast.success('已复制 Markdown 原文')
+    } catch (error) {
+      toast.error(getError(error))
+    }
+  }
   return (
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
@@ -191,7 +220,21 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
           : null}
         {SHOW_INLINE_PLAN_CARDS && showPlanCard && plan && message.metadata?.plan_id === plan.plan_id
           ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onUpdateKeywords={onUpdateKeywords} onUpdateDepth={onUpdateDepth} updatingPlan={updatingPlan} /> : null}
-        <p className={`mt-1.5 text-[9px] text-cyber-text-muted ${isUser ? 'text-right' : ''}`}>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
+        <div className={`mt-1.5 flex items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
+          <p className="text-[9px] text-cyber-text-muted">{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
+          <div className="flex items-center opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+            <button type="button" onClick={copyMarkdown} className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary" title="复制 Markdown 原文" aria-label="复制 Markdown 原文">
+              {copied ? <Check className="h-3 w-3 text-cyber-neon-green" /> : <Copy className="h-3 w-3" />}
+            </button>
+            {!isUser ? <DeleteConfirmDialog
+              trigger={<button type="button" disabled={deletingPair} className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink disabled:opacity-40" title="删除这一轮对话" aria-label="删除这一轮对话"><Trash2 className="h-3 w-3" /></button>}
+              title="删除这一轮对话？"
+              description="将删除这条用户消息及其对应的全部 AI 回复；关联的采集任务和看板数据会保留。此操作无法撤销。"
+              confirmLabel="删除这一轮"
+              onConfirm={onDeletePair}
+            /> : null}
+          </div>
+        </div>
       </div>
       {isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>}
     </div>
@@ -232,10 +275,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   })
   const [threadSearchOpen, setThreadSearchOpen] = useState(false)
   const [threadSearchQuery, setThreadSearchQuery] = useState('')
+  const [threadMenuId, setThreadMenuId] = useState<string | null>(null)
   const [renamingThread, setRenamingThread] = useState<AgentThreadSummary | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
-  const [threadSelectionMode, setThreadSelectionMode] = useState(false)
-  const [selectedThreadIds, setSelectedThreadIds] = useState<Set<string>>(new Set())
   const [deleteAnalyticsData, setDeleteAnalyticsData] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(() => localStorage.getItem('unisearch-right-sidebar-open') !== 'false')
@@ -351,17 +393,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       toast.error(getError(error))
     },
   })
-  const removeMany = useMutation({
-    mutationFn: ({ ids, withData }: { ids: string[]; withData: boolean }) => agentApi.deleteThreads(ids, withData),
-    onSuccess: (_response, { ids, withData }) => {
-      const removed = new Set(ids)
-      client.setQueryData<AgentThreadSummary[]>(['agent-threads'], (current) => current?.filter((thread) => !removed.has(thread.thread_id)))
-      for (const id of ids) client.removeQueries({ queryKey: ['agent-thread', id], exact: true })
-      setSelectedId((current) => current && removed.has(current) ? null : current)
-      setSelectedThreadIds(new Set())
-      setDeleteAnalyticsData(false)
+  const removeMessagePair = useMutation({
+    mutationFn: ({ threadId, messageId }: { threadId: string; messageId: string }) => agentApi.deleteMessagePair(threadId, messageId),
+    onSuccess: ({ data }) => {
+      client.setQueryData(['agent-thread', data.thread_id], data)
       client.invalidateQueries({ queryKey: ['agent-threads'] })
-      toast.success(`${ids.length} 个任务已删除${withData ? '，对应看板数据已同步清理' : '，看板数据已保留'}`)
+      toast.success('这一轮对话已删除')
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -379,6 +416,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       } : current)
       setRenamingThread(null)
       setRenameTitle('')
+    },
+    onError: (error) => toast.error(getError(error)),
+  })
+  const pinThread = useMutation({
+    mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => agentApi.setThreadPinned(id, pinned),
+    onSuccess: ({ data }, { pinned }) => {
+      client.setQueryData<AgentThreadSummary[]>(['agent-threads'], (current) => {
+        const updated = current?.map((thread) => thread.thread_id === data.thread_id ? { ...thread, pinned_at: data.pinned_at } : thread)
+        return updated?.sort((a, b) => {
+          if (Boolean(a.pinned_at) !== Boolean(b.pinned_at)) return a.pinned_at ? -1 : 1
+          return String(b.pinned_at || b.updated_at).localeCompare(String(a.pinned_at || a.updated_at))
+        })
+      })
+      client.setQueryData<AgentThread>(['agent-thread', data.thread_id], (current) => current ? { ...current, pinned_at: data.pinned_at } : current)
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+      toast.success(pinned ? '任务已置顶' : '已取消置顶')
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -413,7 +466,16 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setAttachments([])
     setTaskReferences([])
     setAddMenuOpen(false)
+    setThreadMenuId(null)
   }, [selectedId])
+  useEffect(() => {
+    if (!threadMenuId) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setThreadMenuId(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [threadMenuId])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [threadQuery.data?.messages.length, send.isPending])
   useEffect(() => () => {
     if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
@@ -484,13 +546,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     [threadsQuery.data],
   )
   const isCollecting = (threadsQuery.data || []).some((thread) => thread.plan_status === 'running')
-  const selectableThreads = filteredThreads.filter((thread) => !['queued', 'running'].includes(thread.plan_status || ''))
-  const toggleSelectedThread = (threadId: string) => setSelectedThreadIds((current) => {
-    const next = new Set(current)
-    if (next.has(threadId)) next.delete(threadId)
-    else next.add(threadId)
-    return next
-  })
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
   const modelReady = Boolean(modelProfileQuery.data?.apiKeyConfigured && modelProfileQuery.data.connectionVerified && !modelProfileQuery.data.lastError)
   const modelUnavailableText = modelProfileQuery.data?.lastError
@@ -580,12 +635,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           <div className="mx-2 border-t border-cyber-border-subtle" />
           <div className="flex items-center justify-between px-3 py-2">
             <span className="text-[11px] font-medium text-cyber-text-muted">任务</span>
-            <div className="flex items-center gap-1"><button
-              type="button"
-              onClick={() => { setThreadSelectionMode((current) => !current); setSelectedThreadIds(new Set()); setDeleteAnalyticsData(false) }}
-              className={`flex h-7 items-center justify-center rounded-md px-2 text-[10px] transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary ${threadSelectionMode ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted'}`}
-              title={threadSelectionMode ? '退出批量管理' : '批量管理任务'}
-            >{threadSelectionMode ? '完成' : '批量'}</button><button
+            <button
               type="button"
               onClick={() => {
                 setThreadSearchOpen((open) => !open)
@@ -596,7 +646,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               title={threadSearchOpen ? '关闭搜索' : '搜索任务'}
             >
               <Search className="h-3.5 w-3.5" />
-            </button></div>
+            </button>
           </div>
           {threadSearchOpen && <div className="px-2 pb-2">
             <Input
@@ -614,41 +664,48 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               className="h-8 text-xs"
             />
           </div>}
-          {threadSelectionMode ? <div className="flex items-center gap-2 px-2 pb-2">
-            <Button variant="ghost" size="sm" className="h-8 flex-1 text-xs" onClick={() => setSelectedThreadIds((current) => current.size === selectableThreads.length ? new Set() : new Set(selectableThreads.map((thread) => thread.thread_id)))}>
-              {selectedThreadIds.size === selectableThreads.length && selectableThreads.length ? '取消全选' : '全选可删除任务'}
-            </Button>
-            <DeleteConfirmDialog
-              trigger={<Button variant="destructive" size="sm" className="h-8 text-xs" disabled={!selectedThreadIds.size || removeMany.isPending}>删除 {selectedThreadIds.size || ''}</Button>}
-              title={`删除 ${selectedThreadIds.size} 个任务？`}
-              description="将删除所选任务的对话、计划和附件。正在采集或排队中的任务不会被选择。"
-              confirmLabel="批量删除"
-              onConfirm={() => removeMany.mutateAsync({ ids: [...selectedThreadIds], withData: deleteAnalyticsData })}
-            >
-              <label className="flex items-start gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
-                <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                <span><span className="block font-medium text-cyber-text-primary">同时清理对应看板数据</span><span className="mt-1 block text-cyber-text-muted">删除执行记录、分析数据和日志；平台原始采集数据仍然保留。</span></span>
-              </label>
-            </DeleteConfirmDialog>
-          </div> : null}
           <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
-            {filteredThreads.map((thread) => (
-              <div key={thread.thread_id} className="group relative">
-                <button type="button" onClick={() => threadSelectionMode ? (!['queued', 'running'].includes(thread.plan_status || '') && toggleSelectedThread(thread.thread_id)) : setSelectedId(thread.thread_id)}
-                  className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${threadSelectionMode ? 'pl-9' : ''} ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
-                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
+            {threadMenuId ? <button type="button" className="fixed inset-0 z-30 cursor-default" onClick={() => setThreadMenuId(null)} aria-label="关闭任务菜单" /> : null}
+            {filteredThreads.map((thread, index) => (
+              <div key={thread.thread_id} className={`group relative ${threadMenuId === thread.thread_id ? 'z-40' : ''}`}>
+                <button type="button" onClick={() => setSelectedId(thread.thread_id)}
+                  className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
+                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.pinned_at ? <Pin className="h-3 w-3 shrink-0 text-cyber-neon-cyan" aria-label="已置顶" /> : null}{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
                   <p className="mt-1 truncate text-[10px] text-cyber-text-muted">{thread.last_message || '暂无消息'}</p>
                   <p className="mt-1 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</p>
                 </button>
-                {threadSelectionMode ? <span className="absolute left-2 top-3" onClick={(event) => event.stopPropagation()}><Checkbox checked={selectedThreadIds.has(thread.thread_id)} disabled={['queued', 'running'].includes(thread.plan_status || '')} onCheckedChange={() => toggleSelectedThread(thread.thread_id)} aria-label={`选择任务 ${thread.title}`} /></span> : <button
+                <button
                   type="button"
-                  onClick={() => { setRenamingThread(thread); setRenameTitle(thread.title) }}
-                  className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-md text-cyber-text-muted opacity-0 transition-opacity hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary focus:opacity-100 group-hover:opacity-100"
-                  aria-label={`重命名 ${thread.title}`}
-                  title="重命名任务"
+                  onClick={(event) => { event.stopPropagation(); setThreadMenuId((current) => current === thread.thread_id ? null : thread.thread_id) }}
+                  className={`absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-md text-cyber-text-muted transition-opacity hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary focus:opacity-100 group-hover:opacity-100 ${threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary text-cyber-text-primary opacity-100' : selectedId === thread.thread_id ? 'opacity-100' : 'opacity-0'}`}
+                  aria-label={`管理 ${thread.title}`}
+                  aria-haspopup="menu"
+                  aria-expanded={threadMenuId === thread.thread_id}
+                  title="任务操作"
                 >
-                  <SquarePen className="h-3.5 w-3.5" />
-                </button>}
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+                <div role="menu" className={`${threadMenuId === thread.thread_id ? 'absolute' : 'hidden'} right-1.5 z-50 w-32 overflow-hidden rounded-lg border border-cyber-border-default bg-cyber-bg-panel py-1 shadow-xl ${filteredThreads.length > 2 && index >= filteredThreads.length - 2 ? 'bottom-8' : 'top-8'}`}>
+                  <button type="button" role="menuitem" disabled={pinThread.isPending} onClick={() => { setThreadMenuId(null); pinThread.mutate({ id: thread.thread_id, pinned: !thread.pinned_at }) }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary disabled:opacity-50">
+                    {thread.pinned_at ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}{thread.pinned_at ? '取消置顶' : '置顶'}
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => { setThreadMenuId(null); setRenamingThread(thread); setRenameTitle(thread.title) }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                    <SquarePen className="h-3.5 w-3.5" />重命名
+                  </button>
+                  <div className="my-1 border-t border-cyber-border-subtle" />
+                  <DeleteConfirmDialog
+                    trigger={<button type="button" role="menuitem" disabled={remove.isPending || ['queued', 'running'].includes(thread.plan_status || '')} onClick={() => setThreadMenuId(null)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />删除</button>}
+                    title="删除这个任务？"
+                    description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
+                    confirmLabel="删除任务"
+                    onConfirm={() => remove.mutateAsync({ id: thread.thread_id, withData: deleteAnalyticsData })}
+                  >
+                    <label className="flex items-start gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
+                      <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
+                      <span><span className="block font-medium text-cyber-text-primary">同时清理对应看板数据</span><span className="mt-1 block text-cyber-text-muted">不勾选时，看板采集结果会继续保留。</span></span>
+                    </label>
+                  </DeleteConfirmDialog>
+                </div>
               </div>
             ))}
             {threadSearchQuery.trim() && !filteredThreads.length ? <p className="px-3 py-6 text-center text-[11px] text-cyber-text-muted">未找到匹配任务</p> : null}
@@ -710,18 +767,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               aria-label={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
               aria-pressed={rightSidebarOpen}
             ><PanelRight /></Button>}
-            {selectedId && <DeleteConfirmDialog
-              trigger={<Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink" disabled={remove.isPending || send.isPending} title="删除任务" aria-label="删除任务"><Trash2 /></Button>}
-              title="删除这个任务？"
-              description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
-              confirmLabel="删除任务"
-              onConfirm={() => remove.mutateAsync({ id: selectedId, withData: deleteAnalyticsData })}
-            >
-              <label className="flex items-start gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
-                <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                <span><span className="block font-medium text-cyber-text-primary">同时清理对应看板数据</span><span className="mt-1 block text-cyber-text-muted">不勾选时，看板采集结果会继续保留。</span></span>
-              </label>
-            </DeleteConfirmDialog>}
           </div>
         </div>
 
@@ -730,7 +775,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} />)}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} />)}
                 {isThinking && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">

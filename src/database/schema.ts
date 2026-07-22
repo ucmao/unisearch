@@ -420,6 +420,7 @@ export function initSchema(db: Database): void {
       title TEXT NOT NULL,
       title_source TEXT NOT NULL DEFAULT 'default',
       title_locked INTEGER NOT NULL DEFAULT 0,
+      pinned_at TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -531,6 +532,9 @@ export function initSchema(db: Database): void {
   }
   if (!threadColumns.has('title_locked')) {
     db.exec('ALTER TABLE agent_threads ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!threadColumns.has('pinned_at')) {
+    db.exec('ALTER TABLE agent_threads ADD COLUMN pinned_at TEXT');
   }
 
 }
