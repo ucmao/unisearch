@@ -166,7 +166,7 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
               {(editingKeywords ? keywordsDraft : plan.plan.keywords).map((item) => <Badge key={item} variant="outline" className="gap-1">{item}{editingKeywords ? <button type="button" onClick={() => setKeywordsDraft((current) => current.filter((keyword) => keyword !== item))} aria-label={`删除关键词 ${item}`}><X className="h-3 w-3" /></button> : null}</Badge>)}
             </div>
             {editingKeywords ? <div className="mt-2 space-y-2">
-              <div className="flex gap-2"><Input value={keywordInput} maxLength={40} className="h-8 text-xs" placeholder="添加关键词" onChange={(event) => setKeywordInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addKeyword() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addKeyword} disabled={!keywordInput.trim() || keywordsDraft.length >= 12}><Plus /></Button></div>
+              <div className="flex gap-2"><Input value={keywordInput} maxLength={40} className="h-8 text-xs" placeholder="添加关键词" onChange={(event) => setKeywordInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addKeyword() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addKeyword} disabled={!keywordInput.trim() || keywordsDraft.length >= 12}><Plus /></Button></div>
               <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setKeywordsDraft(plan.plan.keywords); setEditingKeywords(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!keywordsDraft.length || updatingPlan} onClick={() => { onUpdateKeywords(keywordsDraft); setEditingKeywords(false) }}>{updatingPlan ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
             </div> : null}
           </div>
@@ -271,7 +271,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mutationFn: async () => (await browserApi.toggleWindow('toggle')).data,
     onSuccess: (data) => {
       client.setQueryData(['browser-window-status'], data)
-      toast.success(data.visible ? '已打开内置采集浏览器窗口' : '已隐藏内置采集浏览器窗口')
+      if (data.has_views === false) {
+        toast.info('当前任务为后台 HTTP 接口采集，无需网页浏览器视窗')
+      } else {
+        toast.success(data.visible ? '已打开内置采集浏览器窗口' : '已隐藏内置采集浏览器窗口')
+      }
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -666,13 +670,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               className="h-8 text-xs"
             />
           </div>}
-          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-3">
+          <div className="min-h-0 flex-1 flex flex-col gap-1 overflow-y-auto px-2 pb-3">
             {threadMenuId ? <button type="button" className="fixed inset-0 z-30 cursor-default" onClick={() => setThreadMenuId(null)} aria-label="关闭任务菜单" /> : null}
             {filteredThreads.map((thread, index) => (
               <div key={thread.thread_id} className={`group relative ${threadMenuId === thread.thread_id ? 'z-40' : ''}`}>
                 <button type="button" onClick={() => setSelectedId(thread.thread_id)}
-                  className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
-                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.pinned_at ? <Pin className="h-3 w-3 shrink-0 text-cyber-neon-cyan" aria-label="已置顶" /> : null}{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
+                  className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
+                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
                   <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
                     <span className="min-w-0 flex-1 truncate">
                       {['running', 'queued'].includes(thread.plan_status || '') ? (
@@ -692,14 +696,32 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 </button>
                 <button
                   type="button"
-                  onClick={(event) => { event.stopPropagation(); setThreadMenuId((current) => current === thread.thread_id ? null : thread.thread_id) }}
-                  className={`absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-md text-cyber-text-muted transition-opacity hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary focus:opacity-100 group-hover:opacity-100 ${threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary text-cyber-text-primary opacity-100' : selectedId === thread.thread_id ? 'opacity-100' : 'opacity-0'}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setThreadMenuId((current) => current === thread.thread_id ? null : thread.thread_id);
+                  }}
+                  className={`absolute right-1.5 top-2 z-40 flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
+                    threadMenuId === thread.thread_id
+                      ? 'bg-white/70 text-cyber-text-primary opacity-100 shadow-sm ring-1 ring-black/5 dark:bg-white/15'
+                      : thread.pinned_at
+                      ? 'opacity-100 text-cyber-neon-cyan hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10'
+                      : 'opacity-0 hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10 focus:opacity-100 group-hover:opacity-100'
+                  }`}
                   aria-label={`管理 ${thread.title}`}
                   aria-haspopup="menu"
                   aria-expanded={threadMenuId === thread.thread_id}
                   title="任务操作"
                 >
-                  <MoreHorizontal className="h-4 w-4" />
+                  {threadMenuId === thread.thread_id ? (
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  ) : thread.pinned_at ? (
+                    <>
+                      <Pin className="h-3.5 w-3.5 block group-hover:hidden" />
+                      <MoreHorizontal className="h-3.5 w-3.5 hidden group-hover:block text-cyber-text-secondary" />
+                    </>
+                  ) : (
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  )}
                 </button>
                 <div role="menu" className={`${threadMenuId === thread.thread_id ? 'absolute' : 'hidden'} right-1.5 z-50 w-32 overflow-hidden rounded-lg border border-cyber-border-default bg-cyber-bg-panel py-1 shadow-xl ${filteredThreads.length > 2 && index >= filteredThreads.length - 2 ? 'bottom-8' : 'top-8'}`}>
                   <button type="button" role="menuitem" disabled={pinThread.isPending} onClick={() => { setThreadMenuId(null); pinThread.mutate({ id: thread.thread_id, pinned: !thread.pinned_at }) }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary disabled:opacity-50">
@@ -752,7 +774,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
           <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1></div>
           <div className="flex items-center gap-1">
-            {isCollecting && <Button
+            {isCollecting && browserWindowQuery.data?.has_views !== false && <Button
               size="icon"
               variant="ghost"
               className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40' : 'text-cyber-text-muted hover:text-cyber-text-primary'}`}
@@ -832,7 +854,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
                   </span>)}
                 </div> : null}
-                <textarea ref={composerInputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+                <textarea ref={composerInputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() } }}
                   placeholder={!selectedId ? '输入问题，或描述想调研的主题…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
                   className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
                 <div className="absolute bottom-3 left-3">
@@ -1055,6 +1077,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               planStatus={activePlan?.status}
               docked
               onClose={() => setTerminalOpen(false)}
+              threadId={selectedId}
             />
           </div>
         )}
@@ -1076,7 +1099,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             maxLength={40}
             onChange={(event) => setRenameTitle(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && renamingThread && renameTitle.trim() && !rename.isPending) {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing && renamingThread && renameTitle.trim() && !rename.isPending) {
                 rename.mutate({ id: renamingThread.thread_id, title: renameTitle.trim() })
               }
             }}

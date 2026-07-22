@@ -215,6 +215,10 @@ export function isCrawlerWindowVisible(platform?: string): boolean {
   return visible && activeCrawlerPlatform === platform && crawlerViews.has(platform);
 }
 
+export function hasActiveCrawlerViews(): boolean {
+  return crawlerViews.size > 0;
+}
+
 function resolveCrawlerPlatform(platform?: string): string | null {
   if (platform) return crawlerViews.has(platform) ? platform : null;
   if (activeCrawlerPlatform && crawlerViews.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
@@ -360,6 +364,7 @@ app.on('ready', async () => {
       prepareCrawlerWindow,
       releaseCrawlerWindow,
       isCrawlerWindowVisible,
+      hasActiveCrawlerViews,
       showCrawlerWindow,
       hideCrawlerWindow,
       toggleCrawlerWindow,

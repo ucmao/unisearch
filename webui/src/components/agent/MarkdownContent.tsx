@@ -5,15 +5,19 @@ function safeHref(value: string) {
 }
 
 function inlineMarkdown(text: string): ReactNode[] {
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/g
+  const pattern = /(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/g
   const nodes: ReactNode[] = []
   let cursor = 0
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0
     if (index > cursor) nodes.push(text.slice(cursor, index))
     const token = match[0]
-    if (token.startsWith('**')) {
+    if (token.startsWith('***')) {
+      nodes.push(<strong key={`${index}-strong-italic`} className="font-semibold italic text-cyber-text-primary">{token.slice(3, -3)}</strong>)
+    } else if (token.startsWith('**')) {
       nodes.push(<strong key={`${index}-strong`} className="font-semibold text-cyber-text-primary">{token.slice(2, -2)}</strong>)
+    } else if (token.startsWith('~~')) {
+      nodes.push(<del key={`${index}-del`} className="line-through opacity-75">{token.slice(2, -2)}</del>)
     } else if (token.startsWith('`')) {
       nodes.push(<code key={`${index}-code`} className="rounded bg-cyber-bg-tertiary px-1.5 py-0.5 font-mono text-[0.9em] text-cyber-neon-cyan">{token.slice(1, -1)}</code>)
     } else {
@@ -37,24 +41,44 @@ export function MarkdownContent({ content }: { content: string }) {
     const line = lines[index]
     if (!line.trim()) { index++; continue }
 
+    // 多行代码块 ```language ... ```
     if (line.trimStart().startsWith('```')) {
-      const language = line.trim().slice(3)
+      const language = line.trim().slice(3).trim()
       const code: string[] = []
       index++
       while (index < lines.length && !lines[index].trimStart().startsWith('```')) code.push(lines[index++])
       if (index < lines.length) index++
-      blocks.push(<pre key={`code-${index}`} className="my-3 overflow-x-auto rounded-lg border border-cyber-border-subtle bg-cyber-bg-tertiary p-3 text-xs leading-5"><code className="font-mono">{language ? `${language}\n` : ''}{code.join('\n')}</code></pre>)
+      blocks.push(
+        <div key={`code-${index}`} className="my-3 overflow-hidden rounded-lg border border-cyber-border-subtle bg-cyber-bg-tertiary">
+          {language ? (
+            <div className="border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-cyber-text-muted">
+              {language}
+            </div>
+          ) : null}
+          <pre className="overflow-x-auto p-3 text-xs leading-5"><code className="font-mono text-cyber-text-primary">{code.join('\n')}</code></pre>
+        </div>,
+      )
       continue
     }
 
-    const heading = line.match(/^(#{1,3})\s+(.+)$/)
+    // 分隔线 (---, ***, ___)
+    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      blocks.push(<hr key={`hr-${index}`} className="my-4 border-t border-cyber-border-subtle" />)
+      index++
+      continue
+    }
+
+    // 标题 (# 到 ######)
+    const heading = line.match(/^(#{1,6})\s+(.+)$/)
     if (heading) {
-      const size = heading[1].length === 1 ? 'text-base' : 'text-sm'
+      const level = heading[1].length
+      const size = level === 1 ? 'text-base' : level === 2 ? 'text-sm font-bold' : 'text-xs font-semibold'
       blocks.push(<div key={`heading-${index}`} className={`mb-1 mt-3 font-semibold ${size}`}>{inlineMarkdown(heading[2])}</div>)
       index++
       continue
     }
 
+    // 表格
     const nextLine = lines[index + 1] || ''
     if (line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(nextLine)) {
       const splitRow = (row: string) => row.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim())
@@ -73,6 +97,7 @@ export function MarkdownContent({ content }: { content: string }) {
       continue
     }
 
+    // 无序列表
     if (/^\s*[-*+]\s+/.test(line)) {
       const items: string[] = []
       while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*[-*+]\s+/, ''))
@@ -80,6 +105,7 @@ export function MarkdownContent({ content }: { content: string }) {
       continue
     }
 
+    // 有序列表
     if (/^\s*\d+[.)]\s+/.test(line)) {
       const items: string[] = []
       while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*\d+[.)]\s+/, ''))
@@ -87,6 +113,7 @@ export function MarkdownContent({ content }: { content: string }) {
       continue
     }
 
+    // 引用块
     if (/^>\s?/.test(line)) {
       const quote: string[] = []
       while (index < lines.length && /^>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^>\s?/, ''))
@@ -94,9 +121,16 @@ export function MarkdownContent({ content }: { content: string }) {
       continue
     }
 
+    // 普通段落
     const paragraph: string[] = [line]
     index++
-    while (index < lines.length && lines[index].trim() && !/^(?:#{1,3}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s?|\s*```)/.test(lines[index])) paragraph.push(lines[index++])
+    while (
+      index < lines.length &&
+      lines[index].trim() &&
+      !/^(?:#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s?|\s*```|\s*(?:-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[index]) &&
+      !(lines[index].includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] || '')) &&
+      !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index])
+    ) paragraph.push(lines[index++])
     blocks.push(<p key={`p-${index}`} className="my-2 first:mt-0 last:mb-0">{paragraph.map((item, lineIndex) => <Fragment key={lineIndex}>{inlineMarkdown(item)}{lineIndex < paragraph.length - 1 ? <br /> : null}</Fragment>)}</p>)
   }
   return <div className="break-words text-sm leading-6 text-cyber-text-primary">{blocks}</div>

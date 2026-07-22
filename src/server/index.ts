@@ -20,6 +20,7 @@ export interface ServerWindowControls {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
   releaseCrawlerWindow?: (platform: string, status?: string) => boolean;
   isCrawlerWindowVisible?: (platform?: string) => boolean;
+  hasActiveCrawlerViews?: () => boolean;
   showCrawlerWindow?: (platform?: string) => boolean;
   hideCrawlerWindow?: (platform?: string) => boolean;
   toggleCrawlerWindow?: (platform?: string) => boolean;
@@ -146,23 +147,29 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   // Browser Window Controller Endpoints
   fastify.get('/api/browser/window', async () => {
-    return { success: true, visible: windowControls.isCrawlerWindowVisible?.() ?? false };
+    return {
+      success: true,
+      visible: windowControls.isCrawlerWindowVisible?.() ?? false,
+      has_views: windowControls.hasActiveCrawlerViews?.() ?? false,
+    };
   });
 
   fastify.post('/api/browser/window', async (request) => {
     try {
       const { action, platform } = (request.body as any) || {};
+      let toggled = false;
       if (action === 'show') {
-        windowControls.showCrawlerWindow?.(platform);
+        toggled = windowControls.showCrawlerWindow?.(platform) ?? false;
       } else if (action === 'hide') {
-        windowControls.hideCrawlerWindow?.(platform);
+        toggled = windowControls.hideCrawlerWindow?.(platform) ?? false;
       } else if (action === 'toggle') {
-        windowControls.toggleCrawlerWindow?.(platform);
+        toggled = windowControls.toggleCrawlerWindow?.(platform) ?? false;
       }
       const visible = windowControls.isCrawlerWindowVisible?.(platform) ?? false;
-      return { success: true, visible };
+      const hasViews = windowControls.hasActiveCrawlerViews?.() ?? false;
+      return { success: true, visible, toggled, has_views: hasViews };
     } catch (err: any) {
-      return { success: false, error: err.message, visible: false };
+      return { success: false, error: err.message, visible: false, has_views: false };
     }
   });
 
@@ -482,9 +489,9 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/crawler/logs', async (request) => {
-    const query = request.query as { platform?: string; limit?: string };
-    const limit = query.limit ? parseInt(query.limit, 10) : 100;
-    const logs = crawlerManager.getLogs(query.platform, limit);
+    const query = request.query as { platform?: string; limit?: string; thread_id?: string };
+    const limit = query.limit ? parseInt(query.limit, 10) : 500;
+    const logs = crawlerManager.getLogs(query.platform, limit, query.thread_id);
     return { logs };
   });
 

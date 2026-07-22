@@ -213,19 +213,32 @@ export class AnalyticsRepository {
     return Number(result.lastInsertRowid);
   }
 
-  public listRunLogs(platform?: string, limit = 500): Array<{
-    id: number; timestamp: string; level: string; message: string; platform: string;
+  public listRunLogs(platform?: string, limit = 500, threadId?: string): Array<{
+    id: number; timestamp: string; level: string; message: string; platform: string; run_id?: string; thread_id?: string;
   }> {
     const boundedLimit = Math.max(1, Math.min(Number(limit) || 500, 2000));
-    const rows = platform
-      ? this.db.prepare(`
-          SELECT id, timestamp, level, message, platform
-          FROM crawl_run_logs WHERE platform = ? ORDER BY id DESC LIMIT ?
-        `).all(platform, boundedLimit)
-      : this.db.prepare(`
-          SELECT id, timestamp, level, message, platform
-          FROM crawl_run_logs ORDER BY id DESC LIMIT ?
-        `).all(boundedLimit);
+    let sql = `
+      SELECT l.id, l.timestamp, l.level, l.message, l.platform, l.run_id, r.thread_id
+      FROM crawl_run_logs l
+      LEFT JOIN crawl_runs r ON l.run_id = r.run_id
+    `;
+    const where: string[] = [];
+    const params: any[] = [];
+    if (threadId) {
+      where.push('r.thread_id = ?');
+      params.push(threadId);
+    }
+    if (platform) {
+      where.push('l.platform = ?');
+      params.push(platform);
+    }
+    if (where.length > 0) {
+      sql += ' WHERE ' + where.join(' AND ');
+    }
+    sql += ' ORDER BY l.id DESC LIMIT ?';
+    params.push(boundedLimit);
+
+    const rows = this.db.prepare(sql).all(...params);
     return (rows as any[]).reverse();
   }
 

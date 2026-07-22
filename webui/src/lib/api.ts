@@ -53,6 +53,8 @@ export interface LogEntry {
   level: 'info' | 'warning' | 'error' | 'success' | 'debug'
   message: string
   platform?: string
+  run_id?: string
+  thread_id?: string
 }
 
 export interface AnalyticsTotals {
@@ -355,7 +357,7 @@ export const crawlerApi = {
   start: (config: CrawlerConfig) => api.post('/crawler/start', config),
   stop: (platform?: string) => api.post('/crawler/stop', null, { params: { platform } }),
   getStatus: (platform?: string) => api.get<CrawlerStatus>('/crawler/status', { params: { platform } }),
-  getLogs: (platform?: string, limit = 100) => api.get<{ logs: LogEntry[] }>('/crawler/logs', { params: { platform, limit } }),
+  getLogs: (platform?: string, limit = 500, thread_id?: string) => api.get<{ logs: LogEntry[] }>('/crawler/logs', { params: { platform, limit, thread_id } }),
 }
 
 export const dataApi = {
@@ -522,9 +524,9 @@ export const envApi = {
 }
 
 export const browserApi = {
-  getWindowStatus: () => api.get<{ success: boolean; visible: boolean }>('/browser/window'),
+  getWindowStatus: () => api.get<{ success: boolean; visible: boolean; has_views?: boolean }>('/browser/window'),
   toggleWindow: (action: 'show' | 'hide' | 'toggle' = 'toggle') =>
-    api.post<{ success: boolean; visible: boolean }>('/browser/window', { action }),
+    api.post<{ success: boolean; visible: boolean; toggled?: boolean; has_views?: boolean }>('/browser/window', { action }),
 }
 
 export default api

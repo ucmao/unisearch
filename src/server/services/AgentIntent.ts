@@ -14,6 +14,7 @@ export interface IntentContext {
   planStatus?: string | null;
   awaitingClarification?: boolean;
   previousUserText?: string;
+  hasPreviousPlanKeywords?: boolean;
 }
 
 const GREETING = /^(?:hi|hello|hey|ni\s*hao|你好(?:呀|啊)?|您好|嗨|哈喽|在吗|早上好|早安|下午好|晚上好|晚安)[!！,.，。?？~～\s]*$/i;
@@ -102,6 +103,8 @@ export function inferResearchKeywords(text: string): string[] {
 
 export function inferResearchPlatforms(text: string): string[] {
   if (/(?:全部|所有|全)(?:支持的)?平台|全网|各平台/.test(text)) return [...ALL_PLATFORM_IDS];
+  if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) return ['baidu', 'bing', 'so360', 'sogou'];
+  if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) return ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu'];
   const aliases: Array<[RegExp, string]> = [
     [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
     [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'dy'],
@@ -119,11 +122,14 @@ export function inferResearchPlatforms(text: string): string[] {
 }
 
 export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep' | 'custom' {
-  if (/(?:快速|简单|即时|秒级|随便|大概|前几条|抓几条|只要列表|不要评论|不采评论|不集评论|不加评论)/i.test(text)) {
+  if (/(?:快速|简单|即时|秒级|随便|大概|前几条|抓几条|只要列表|不要评论|不采评论|不集评论|不加评论|前[一二两三1-3]\s*页|[1-3]\s*页|前[1-3]0\s*条)/i.test(text)) {
     return 'quick';
   }
-  if (/(?:深度|详细|深入|完整|全量|全面|舆情|二级评论|回复|楼层|深入挖掘|深入分析|详细分析)/i.test(text)) {
+  if (/(?:深度|详细|深入|完整|全量|全面|舆情|二级评论|回复|楼层|深入挖掘|深入分析|详细分析|前[六七八九十6-9]|10\s*页|100\s*条)/i.test(text)) {
     return 'deep';
+  }
+  if (/(?:标准|常规|前[四五4-5]\s*页|5\s*页|50\s*条)/i.test(text)) {
+    return 'standard';
   }
   return 'standard';
 }
@@ -175,7 +181,8 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
   }
 
   if (RESEARCH.test(value)) {
-    if (!hasResearchSubject(value)) {
+    const hasSubject = hasResearchSubject(value) || Boolean(context.hasPreviousPlanKeywords) || (Boolean(context.previousUserText) && hasResearchSubject(context.previousUserText || ''));
+    if (!hasSubject) {
       return { action: 'clarify', reply: '可以。你最想调研的具体品牌、产品、事件或主题是什么？', missingFields: ['subject'] };
     }
     if (!inferResearchPlatforms(value).length) {

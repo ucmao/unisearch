@@ -80,6 +80,18 @@ export function useCrawlerLogs() {
   })
 }
 
+export function useThreadLogs(threadId?: string, platform?: string) {
+  return useQuery({
+    queryKey: ['crawlerLogs', threadId, platform],
+    queryFn: async () => {
+      if (!threadId) return []
+      const { data } = await crawlerApi.getLogs(platform, 500, threadId)
+      return data.logs
+    },
+    enabled: Boolean(threadId),
+  })
+}
+
 export function usePlatforms() {
   return useQuery({
     queryKey: ['platforms'],

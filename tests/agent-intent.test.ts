@@ -124,3 +124,14 @@ test('unsupported realtime weather questions get an honest contextual answer', (
   assert.equal(followUp.action, 'chat');
   assert.match(followUp.reply, /福州.*没有天气接口/);
 });
+
+test('search engine alias and page range expressions are parsed correctly', () => {
+  const { inferCollectionDepth } = require('../src/server/services/AgentIntent');
+  assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou']);
+  assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou']);
+  assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']);
+  assert.equal(inferCollectionDepth('范围改成 前三页'), 'quick');
+  assert.equal(inferCollectionDepth('改为前3页'), 'quick');
+  assert.equal(inferCollectionDepth('改成前5页'), 'standard');
+  assert.equal(inferCollectionDepth('改为前10页'), 'deep');
+});
