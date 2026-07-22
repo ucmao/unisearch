@@ -44,6 +44,8 @@ export interface LogEntry {
   level: 'info' | 'warning' | 'error' | 'success' | 'debug'
   message: string
   platform?: string
+  run_id?: string
+  thread_id?: string
 }
 
 export interface Platform {

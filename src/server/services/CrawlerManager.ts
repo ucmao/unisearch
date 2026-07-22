@@ -6,7 +6,7 @@ import { activeConfig, applyConfig } from '../../tools/config';
 import { analyticsRepository } from '../../database/repository';
 import { getDatabasePath } from '../../database/connection';
 import type { LogEntry } from '@/lib/api';
-import { normalizeConnectorRequest } from '../../connectors/registry';
+import { getConnectorManifest, normalizeConnectorRequest } from '../../connectors/registry';
 import type { ConnectorStartRequest } from '../../connectors/types';
 
 export type CrawlerStartRequest = ConnectorStartRequest;
@@ -42,6 +42,8 @@ export class CrawlerTask {
       level,
       message,
       platform: this.platform,
+      run_id: this.currentRunId || undefined,
+      thread_id: (this.config.thread_id || this.currentRunId) || undefined,
     };
 
     if (this.currentRunId) {
@@ -189,6 +191,9 @@ export class CrawlerTask {
           this.addLog(`${this.platform} 登录成功！`, 'success', manager);
           manager.emit('login_success', msg);
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_REQUIRED') {
+          if (manager.getWindowCoordinator().prepareCrawlerWindow) {
+            void manager.getWindowCoordinator().prepareCrawlerWindow(this.platform);
+          }
           this.addLog(`检测到 ${this.platform} 图形验证，请在内置浏览器中手动完成`, 'warning', manager);
           manager.emit('manual_verification_required', msg);
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_SUCCESS') {
@@ -281,6 +286,10 @@ export class CrawlerManager extends EventEmitter {
     this.windowCoordinator = coordinator;
   }
 
+  public getWindowCoordinator(): CrawlerWindowCoordinator {
+    return this.windowCoordinator;
+  }
+
   public setMaxConcurrentTasks(value: number): number {
     const parsed = Number(value);
     const normalized = Number.isFinite(parsed) ? Math.round(parsed) : 3;
@@ -350,7 +359,10 @@ export class CrawlerManager extends EventEmitter {
 
     this.startingPlatforms.add(platform);
     try {
-      if (this.windowCoordinator.prepareCrawlerWindow) {
+      const manifest = getConnectorManifest(platform);
+      const isHttpEngine = manifest?.runtime?.engine === 'http';
+
+      if (!isHttpEngine && this.windowCoordinator.prepareCrawlerWindow) {
         const prepared = await this.windowCoordinator.prepareCrawlerWindow(platform);
         if (!prepared) throw new Error(`无法创建平台 ${platform} 的专用采集窗口`);
       }
@@ -408,7 +420,7 @@ export class CrawlerManager extends EventEmitter {
           crawler_type: task.config.crawler_type,
           started_at: task.startedAt,
           error_message: null,
-          run_id: task.currentRunId || task.lastRunId,
+          run_id: task.currentRunId || null,
         };
       }
       return {
@@ -430,7 +442,7 @@ export class CrawlerManager extends EventEmitter {
         crawler_type: t.config.crawler_type,
         started_at: t.startedAt,
         error_message: null,
-        run_id: t.currentRunId || t.lastRunId,
+        run_id: t.currentRunId || null,
       };
     }
 
@@ -440,7 +452,18 @@ export class CrawlerManager extends EventEmitter {
     };
   }
 
-  public getLogs(platform?: string, limit = 100): LogEntry[] {
+  public getLogs(platform?: string, limit = 500, threadId?: string): LogEntry[] {
+    if (threadId) {
+      let memoryLogs = this.globalLogs.filter((l) => l.thread_id === threadId);
+      if (platform) {
+        memoryLogs = memoryLogs.filter((l) => l.platform === platform);
+      }
+      if (memoryLogs.length > 0) {
+        return memoryLogs.slice(-limit);
+      }
+      return analyticsRepository.listRunLogs(platform, limit, threadId) as LogEntry[];
+    }
+
     if (platform) {
       const task = this.tasks.get(platform);
       if (task?.logs.length) return task.logs.slice(-limit);

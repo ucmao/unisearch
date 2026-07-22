@@ -466,7 +466,7 @@ export class AgentRepository {
     return this.db.prepare('SELECT * FROM crawl_runs WHERE run_id=?').get(runId);
   }
 
-  getPlanContents(planId: string, limit = 60, platforms: string[] = []): any[] {
+  getPlanContents(planId: string, limit = 100, platforms: string[] = []): any[] {
     const selectedPlatforms = platforms.filter(Boolean);
     const platformClause = selectedPlatforms.length
       ? ` AND c.platform IN (${selectedPlatforms.map(() => '?').join(',')})`

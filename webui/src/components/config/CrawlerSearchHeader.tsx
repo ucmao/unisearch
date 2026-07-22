@@ -102,7 +102,7 @@ export function CrawlerSearchHeader() {
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' || e.key === ',') {
+    if ((e.key === 'Enter' || e.key === ',') && !e.nativeEvent.isComposing) {
       e.preventDefault()
       addKeyword()
     }

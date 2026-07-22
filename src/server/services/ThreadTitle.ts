@@ -41,8 +41,14 @@ export function fallbackTitleFromText(value: string): string {
 }
 
 export function titleFromPlan(plan: ResearchPlan): string {
-  let goal = sanitizeThreadTitle(plan.goal, 24);
-  if (!goal) goal = sanitizeThreadTitle(plan.keywords?.join('、') || '', 20);
+  const keywordsText = (plan.keywords || []).filter(Boolean).join('、');
+  let topic = keywordsText;
+  if (!topic && plan.goal) {
+    topic = plan.goal
+      .replace(/^(?:在[\s\S]*?(?:中|上)?\s*(?:搜索|采集|检索|查找)|采集|搜索|检索|查找)\s*(?:关键词[:："“']*)?/i, '')
+      .trim();
+  }
+  let goal = sanitizeThreadTitle(topic || plan.goal || '', 24);
   const platforms = (plan.platforms || []).map((platform) => PLATFORM_LABELS[platform] || platform);
   if (platforms.length === 1 && goal && !goal.includes(platforms[0])) {
     goal = sanitizeThreadTitle(`${platforms[0]}·${goal}`, 24);

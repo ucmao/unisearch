@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, MouseEvent } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useState, useEffect, useRef, useMemo, MouseEvent } from 'react'
 import { ChevronDown, ChevronUp, Square, TerminalSquare, X } from 'lucide-react'
 import { TerminalLine } from './TerminalLine'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
-import { useStopCrawler } from '@/hooks/useCrawler'
+import { useStopCrawler, useThreadLogs } from '@/hooks/useCrawler'
+import type { LogEntry } from '@/types/crawler'
 
 const PLATFORM_LABELS: { [key: string]: string } = {
   xhs: '小红书',
@@ -33,10 +33,10 @@ interface TerminalProps {
   planStatus?: string
   docked?: boolean
   onClose?: () => void
+  threadId?: string
 }
 
-export function Terminal({ showCollapseButton = true, platforms, planStatus, docked = false, onClose }: TerminalProps) {
-  const { t } = useTranslation('terminal')
+export function Terminal({ showCollapseButton = true, platforms, planStatus, docked = false, onClose, threadId }: TerminalProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
 
   // Store variables
@@ -54,7 +54,28 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
 
   const visiblePlatforms = platforms ?? storedPlatforms
   const activePlatform = visiblePlatforms.includes(activePlatformTab) ? activePlatformTab : visiblePlatforms[0] || ''
-  const activeLogs = activePlatform ? logs[activePlatform] || [] : []
+
+  // Fetch historical logs for current thread & active platform
+  const { data: threadLogs = [] } = useThreadLogs(threadId, activePlatform)
+
+  // Real-time logs from crawlerStore
+  const storeLogs = useMemo(() => (activePlatform ? logs[activePlatform] || [] : []), [logs, activePlatform])
+
+  // Filter store logs by threadId if threadId is provided
+  const filteredStoreLogs = useMemo(() => {
+    if (!threadId) return storeLogs
+    return storeLogs.filter((log) => !log.thread_id || log.thread_id === threadId)
+  }, [storeLogs, threadId])
+
+  // Combine and deduplicate logs
+  const activeLogs = useMemo(() => {
+    if (!threadId) return filteredStoreLogs
+    const logMap = new Map<number, LogEntry>()
+    threadLogs.forEach((log) => logMap.set(log.id, log))
+    filteredStoreLogs.forEach((log) => logMap.set(log.id, log))
+    return Array.from(logMap.values()).sort((a, b) => a.id - b.id)
+  }, [threadId, threadLogs, filteredStoreLogs])
+
   const activeStatus = activePlatform ? statuses[activePlatform] || 'idle' : 'idle'
 
   // Auto scroll to bottom
@@ -130,18 +151,13 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
 
         {/* Right Side: Actions & Status */}
         <div className="flex items-center justify-end gap-3 px-2">
-          {/* Active Log count & status */}
-          <div className="flex items-center gap-3 text-[11px] font-mono">
-            <span className="text-cyber-text-muted">
-              {activePlatform ? `${activePlatform.toUpperCase()}: ${t('header.entries', { count: activeLogs.length })}` : null}
-            </span>
-            {activeStatus === 'running' && (
-              <div className="flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-cyber-neon-green rounded-full shadow-glow-green-sm animate-pulse-fast" />
-                <span className="text-cyber-neon-green font-bold text-[10px] uppercase">运行中</span>
-              </div>
-            )}
-          </div>
+          {/* Active status */}
+          {activeStatus === 'running' && (
+            <div className="flex items-center gap-1 text-[11px] font-mono">
+              <span className="w-1.5 h-1.5 bg-cyber-neon-green rounded-full shadow-glow-green-sm animate-pulse-fast" />
+              <span className="text-cyber-neon-green font-bold text-[10px] uppercase">运行中</span>
+            </div>
+          )}
 
           {onClose && (
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0 text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary" title="隐藏终端">

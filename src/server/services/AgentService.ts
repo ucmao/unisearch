@@ -10,7 +10,7 @@ import { normalizeAnalysisGoals } from './ResearchAnalysis';
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
 
-function normalizePlan(input: any, userText: string): ResearchPlan {
+function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan): ResearchPlan {
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'dy', 快手: 'ks', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'wb', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou',
@@ -21,7 +21,7 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
   const inferredPlatforms = inferResearchPlatforms(userText);
   const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
     .map((value: any) => String(value).trim()).filter(Boolean);
-  const keywords = Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
+  let keywords = Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
     // Models occasionally echo the merged clarification scaffold into a keyword,
     // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
     // through the deterministic subject extractor.
@@ -30,6 +30,10 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     }
     return [keyword];
   }))).slice(0, 12) as string[];
+
+  if (!keywords.length && fallbackPlan?.keywords?.length) {
+    keywords = fallbackPlan.keywords;
+  }
   const capabilityIds = ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'];
   const inferredCapability = /解析.*(?:链接|URL)|短链|真实链接/i.test(userText)
     ? 'url_resolve'
@@ -244,7 +248,7 @@ export class AgentService {
 
   private scheduleThreadTitle(threadId: string) {
     const thread = agentRepository.getThread(threadId);
-    if (!thread || thread.title_locked || ['manual', 'generated', 'plan'].includes(String(thread.title_source))) return;
+    if (!thread || thread.title_locked || ['manual', 'generated'].includes(String(thread.title_source))) return;
     const conversation = (thread.messages || [])
       .filter((message: any) => ['user', 'assistant'].includes(message.role))
       .map((message: any) => ({
@@ -325,6 +329,7 @@ export class AgentService {
       planStatus: latest?.status,
       awaitingClarification,
       previousUserText: lastUserMessage?.content,
+      hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
     });
     let decision: AgentDecision;
     if (localDecision.action === 'model_info') {
@@ -496,7 +501,7 @@ export class AgentService {
         }
         return agentRepository.getThread(threadId);
       }
-      const rows = agentRepository.getPlanContents(latest.plan_id);
+      const rows = agentRepository.getPlanContents(latest.plan_id, 100);
       if (!rows.length) {
         agentRepository.addMessage(threadId, 'assistant', 'analysis', '当前任务没有可分析的数据。可以先检查采集结果，或重试失败的平台。');
       } else {
@@ -530,17 +535,21 @@ export class AgentService {
 
     let plan: ResearchPlan;
     if (decision.action === 'revise_plan' && latest?.status === 'awaiting_confirmation') {
-      if (!decision.plan) {
-        agentRepository.addMessage(threadId, 'assistant', 'status', 'AI 模型没有返回有效的计划修改内容。本次未修改计划，请重试。', {
-          action: 'model_error',
-          error: 'missing_plan',
-        });
-        return agentRepository.getThread(threadId);
+      let patch = decision.plan;
+      if (!patch || typeof patch !== 'object') {
+        const fallbackPlatforms = inferResearchPlatforms(planningText);
+        const fallbackKeywords = inferResearchKeywords(planningText);
+        const fallbackDepth = inferCollectionDepth(planningText);
+        patch = {
+          ...(fallbackPlatforms.length ? { platforms: fallbackPlatforms } : {}),
+          ...(fallbackKeywords.length ? { keywords: fallbackKeywords } : {}),
+          collectionDepth: fallbackDepth,
+        };
       }
-      const candidate = mergePlan(latest.plan, decision.plan);
-      plan = normalizePlan(candidate, latest.goal);
+      const candidate = mergePlan(latest.plan, patch);
+      plan = normalizePlan(candidate, latest.goal, latest?.plan);
     } else if (decision.action === 'create_plan') {
-      if (decision.plan) plan = normalizePlan(decision.plan, planningText);
+      if (decision.plan) plan = normalizePlan(decision.plan, planningText, latest?.plan);
       else {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = updatedThread.messages
@@ -548,14 +557,14 @@ export class AgentService {
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         try {
           const generated = await modelService.createPlan(messages, planningText);
-          plan = normalizePlan(generated, planningText);
+          plan = normalizePlan(generated, planningText, latest?.plan);
         }
         catch (error: any) {
           const fallbackKeywords = inferResearchKeywords(planningText);
           plan = normalizePlan({
             platforms: inferResearchPlatforms(planningText),
             keywords: fallbackKeywords,
-          }, planningText);
+          }, planningText, latest?.plan);
         }
       }
     } else {
