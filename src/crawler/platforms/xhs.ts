@@ -8,7 +8,6 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
-import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
@@ -24,12 +23,6 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
 
 
 
-
-    // Add stealth init script
-    const stealthPath = 'libs/stealth.min.js';
-    if (fs.existsSync(stealthPath)) {
-      await this.browserContext.addInitScript({ path: stealthPath });
-    }
 
     // Navigate to homepage
     const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
@@ -277,7 +270,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
               await this.crawlComments(noteDetail.note_id, noteDetail.xsec_token);
             }
 
-            await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+            await this.humanDelay(this.page!);
           }
 
           if (count >= targetCount) break;

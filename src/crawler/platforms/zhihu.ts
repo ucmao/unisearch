@@ -2,7 +2,6 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
-import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class ZhihuCrawler extends AbstractCrawler {
@@ -14,11 +13,6 @@ export class ZhihuCrawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'zhihu');
-
-    const stealthPath = 'libs/stealth.min.js';
-    if (fs.existsSync(stealthPath)) {
-      await this.browserContext.addInitScript({ path: stealthPath });
-    }
 
     await this.page.goto('https://www.zhihu.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
@@ -163,7 +157,7 @@ export class ZhihuCrawler extends AbstractCrawler {
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(it.content_id, it.content_type);
           count++;
           
-          await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+          await this.humanDelay(this.page!);
         }
       } catch (err: any) {
         console.error(`[ZHIHU] Search error for keyword ${keyword}:`, err.message);

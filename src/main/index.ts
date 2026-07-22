@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import net from 'net';
 import { startServer, stopServer } from '../server';
+import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../tools/browserIdentity';
 
 app.setName('UniSearch');
 process.title = 'UniSearch';
@@ -12,6 +13,12 @@ const cdpDebugPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);
 app.commandLine.appendSwitch('remote-debugging-port', String(cdpDebugPort));
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 app.commandLine.appendSwitch('remote-allow-origins', '*');
+// Never expose Electron/UniSearch tokens from any current or future WebContents.
+app.commandLine.appendSwitch('user-agent', CRAWLER_USER_AGENT);
+app.commandLine.appendSwitch('lang', CRAWLER_LOCALE);
+app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
+// Avoid WebRTC bypassing a configured HTTP proxy and exposing a different local/public IP.
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 
 let mainWindow: BrowserWindow | null = null;
 let crawlerHubWindow: BrowserWindow | null = null;
@@ -138,6 +145,8 @@ export function createCrawlerView(platform: string): BrowserView {
       nodeIntegration: false,
     },
   });
+  view.webContents.session.setUserAgent(CRAWLER_USER_AGENT, CRAWLER_ACCEPT_LANGUAGE);
+  view.webContents.setUserAgent(CRAWLER_USER_AGENT);
   crawlerViews.set(platform, view);
   view.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url);

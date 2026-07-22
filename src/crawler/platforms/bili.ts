@@ -2,7 +2,6 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, notifyLoginQrCodeRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
-import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class BilibiliCrawler extends AbstractCrawler {
@@ -18,11 +17,6 @@ export class BilibiliCrawler extends AbstractCrawler {
 
 
 
-
-    const stealthPath = 'libs/stealth.min.js';
-    if (fs.existsSync(stealthPath)) {
-      await this.browserContext.addInitScript({ path: stealthPath });
-    }
 
     await this.page.goto('https://www.bilibili.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
@@ -201,7 +195,7 @@ export class BilibiliCrawler extends AbstractCrawler {
           }
           count++;
           
-          await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+          await this.humanDelay(this.page!);
         }
       } catch (err: any) {
         console.error(`[BILI] Search error for keyword ${keyword}:`, err.message);

@@ -1,8 +1,39 @@
 import { BrowserType, BrowserContext, Page, Playwright } from 'playwright';
 import axios from 'axios';
+import fs from 'fs';
 import path from 'path';
 import { BrowserLauncher } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
+import { CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
+
+const configuredCrawlerContexts = new WeakSet<BrowserContext>();
+
+async function configureCrawlerPage(browserContext: BrowserContext, page: Page): Promise<Page> {
+  if (!configuredCrawlerContexts.has(browserContext)) {
+    const stealthPath = path.join(process.cwd(), 'libs', 'stealth.min.js');
+    if (fs.existsSync(stealthPath) && typeof (browserContext as any).addInitScript === 'function') {
+      await browserContext.addInitScript({ path: stealthPath }).catch((error: any) => {
+        console.warn(`[BaseCrawler] Failed to install shared stealth script: ${error.message}`);
+      });
+    }
+    configuredCrawlerContexts.add(browserContext);
+  }
+  try {
+    if (typeof (browserContext as any).newCDPSession !== 'function' || typeof (page as any).addInitScript !== 'function') {
+      return page;
+    }
+    const session = await browserContext.newCDPSession(page);
+    await session.send('Emulation.setTimezoneOverride', { timezoneId: CRAWLER_TIMEZONE });
+    await session.send('Emulation.setLocaleOverride', { locale: CRAWLER_LOCALE });
+    await page.addInitScript(() => {
+      Object.defineProperty(Navigator.prototype, 'language', { configurable: true, get: () => 'zh-CN' });
+      Object.defineProperty(Navigator.prototype, 'languages', { configurable: true, get: () => ['zh-CN', 'zh'] });
+    });
+  } catch (error: any) {
+    console.warn(`[BaseCrawler] Failed to align browser locale/timezone: ${error.message}`);
+  }
+  return page;
+}
 
 export async function connectToElectronChromium(playwright: Playwright): Promise<BrowserContext> {
   const cdpPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);
@@ -65,13 +96,13 @@ export async function getElectronCrawlerPage(browserContext: BrowserContext, pla
   const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
   for (let attempt = 0; attempt < attempts; attempt++) {
     const page = browserContext.pages().find((candidate) => candidate.url().includes(marker));
-    if (page) return page;
+    if (page) return configureCrawlerPage(browserContext, page);
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const fallbackPages = browserContext.pages();
   if (fallbackPages.length === 1 && fallbackPages[0].url() === 'about:blank') {
     // Standalone persistent-context fallback, not an Electron CDP target.
-    return fallbackPages[0];
+    return configureCrawlerPage(browserContext, fallbackPages[0]);
   }
   const available = fallbackPages.map((page) => page.url()).join(', ');
   throw new Error(`未找到平台 ${platform} 的专用采集页面。当前 CDP 页面: ${available || '无'}`);
@@ -92,7 +123,7 @@ export function getSystemExecutablePath(): string | undefined {
 export function createHeadlessLaunchOptions(): any {
   const options: any = {
     headless: true, // 强制所有平台 100% 不可见/无感模式
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    userAgent: CRAWLER_USER_AGENT,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -110,6 +141,11 @@ export function createHeadlessLaunchOptions(): any {
 export abstract class AbstractCrawler {
   public abstract start(): Promise<void>;
   public abstract search(): Promise<void>;
+
+  protected async humanDelay(page: Page, seconds = activeConfig.CRAWLER_MAX_SLEEP_SEC): Promise<void> {
+    const jitter = 0.8 + Math.random() * 0.5;
+    await page.waitForTimeout(Math.max(250, Math.round(seconds * 1000 * jitter)));
+  }
   
   public async launchBrowser(
     chromium: BrowserType,

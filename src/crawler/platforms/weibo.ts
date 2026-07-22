@@ -2,7 +2,6 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
-import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class WeiboCrawler extends AbstractCrawler {
@@ -14,11 +13,6 @@ export class WeiboCrawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'wb');
-
-    const stealthPath = 'libs/stealth.min.js';
-    if (fs.existsSync(stealthPath)) {
-      await this.browserContext.addInitScript({ path: stealthPath });
-    }
 
     await this.page.goto('https://weibo.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
@@ -171,7 +165,7 @@ export class WeiboCrawler extends AbstractCrawler {
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(c.note_id);
           count++;
           
-          await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+          await this.humanDelay(this.page!);
         }
       } catch (err: any) {
         console.error(`[WEIBO] Search error for keyword ${keyword}:`, err.message);
