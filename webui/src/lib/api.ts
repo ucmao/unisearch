@@ -298,6 +298,7 @@ export interface AgentThreadSummary {
   title: string
   title_source?: 'default' | 'legacy' | 'fallback' | 'generated' | 'plan' | 'manual'
   title_locked?: number | boolean
+  pinned_at?: string | null
   status: string
   updated_at: string
   last_message?: string
@@ -475,12 +476,8 @@ export const agentApi = {
     api.post<AgentThread>('/agent/threads', { title, add_welcome_message: addWelcomeMessage }),
   getThread: (threadId: string) => api.get<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`),
   renameThread: (threadId: string, title: string) => api.patch<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`, { title }),
+  setThreadPinned: (threadId: string, pinned: boolean) => api.patch<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}`, { pinned }),
   deleteThread: (threadId: string, deleteAnalyticsData = false) => api.delete(`/agent/threads/${encodeURIComponent(threadId)}`, { data: { delete_analytics_data: deleteAnalyticsData } }),
-  deleteThreads: (threadIds: string[], deleteAnalyticsData = false) =>
-    api.post<{ status: string; deleted: number; analytics_runs_deleted: number }>('/agent/threads/batch-delete', {
-      thread_ids: threadIds,
-      delete_analytics_data: deleteAnalyticsData,
-    }),
   uploadAttachment: (threadId: string, file: { fileName: string; mimeType: string; dataBase64: string }) =>
     api.post<AgentAttachment>(`/agent/threads/${encodeURIComponent(threadId)}/attachments`, file, { timeout: 120000 }),
   deleteAttachment: (threadId: string, attachmentId: string) =>
@@ -490,6 +487,8 @@ export const agentApi = {
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
   } = {}) =>
     api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000 }),
+  deleteMessagePair: (threadId: string, messageId: string) =>
+    api.delete<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`),
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
   updatePlan: (planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) =>
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}`, updates),

@@ -218,9 +218,11 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.patch('/api/agent/threads/:thread_id', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
-    const { title } = (request.body || {}) as { title?: string };
+    const body = (request.body || {}) as { title?: string; pinned?: boolean };
     try {
-      const thread = agentRepository.renameThread(thread_id, String(title || ''));
+      const thread = typeof body.pinned === 'boolean'
+        ? agentRepository.setThreadPinned(thread_id, body.pinned)
+        : agentRepository.renameThread(thread_id, String(body.title || ''));
       return thread || reply.status(404).send({ detail: 'Task not found' });
     } catch (error: any) {
       return reply.status(400).send({ detail: error.message || 'Invalid task name' });
@@ -231,22 +233,9 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const { thread_id } = request.params as { thread_id: string };
     const body = (request.body || {}) as { delete_analytics_data?: boolean };
     try {
-      const result = agentRepository.deleteThreads([thread_id], Boolean(body.delete_analytics_data));
+      const result = agentRepository.deleteThread(thread_id, Boolean(body.delete_analytics_data));
       if (!result.deleted) return reply.status(404).send({ detail: 'Task not found' });
       agentAttachmentService.removeThreadFiles(thread_id);
-      return { status: 'ok', ...result };
-    } catch (error: any) {
-      return reply.status(409).send({ detail: error.message });
-    }
-  });
-
-  fastify.post('/api/agent/threads/batch-delete', async (request, reply) => {
-    const body = (request.body || {}) as { thread_ids?: string[]; delete_analytics_data?: boolean };
-    const threadIds = Array.isArray(body.thread_ids) ? body.thread_ids : [];
-    if (!threadIds.length) return reply.status(400).send({ detail: '请选择要删除的任务' });
-    try {
-      const result = agentRepository.deleteThreads(threadIds, Boolean(body.delete_analytics_data));
-      for (const threadId of threadIds) agentAttachmentService.removeThreadFiles(threadId);
       return { status: 'ok', ...result };
     } catch (error: any) {
       return reply.status(409).send({ detail: error.message });
@@ -279,6 +268,14 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
     try { return await agentService.sendMessage(thread_id, content.trim(), { attachment_ids, task_references }); }
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
+  fastify.delete('/api/agent/threads/:thread_id/messages/:message_id', async (request, reply) => {
+    const { thread_id, message_id } = request.params as { thread_id: string; message_id: string };
+    const result = agentRepository.deleteMessagePair(thread_id, message_id);
+    if (!result) return reply.status(404).send({ detail: 'Message not found' });
+    for (const attachmentId of result.attachment_ids) agentAttachmentService.remove(thread_id, attachmentId);
+    return agentRepository.getThread(thread_id);
   });
 
   fastify.post('/api/agent/plans/:plan_id/execute', async (request, reply) => {
