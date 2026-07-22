@@ -263,6 +263,7 @@ export interface AgentPlan {
   }
   created_at: string
   updated_at: string
+  round_number?: number
 }
 
 export interface AgentThreadSummary {
@@ -279,6 +280,7 @@ export interface AgentThreadSummary {
 export interface AgentThread extends AgentThreadSummary {
   messages: AgentMessage[]
   plan: AgentPlan | null
+  plans: AgentPlan[]
 }
 
 export interface ModelProfile {
@@ -298,6 +300,10 @@ export interface MemorySettings {
   autoRecall: boolean
   captureMode: 'conservative' | 'balanced'
   recallLimit: number
+}
+
+export interface RuntimeSettings {
+  maxConcurrentCrawlers: number
 }
 
 export interface AgentMemory {
@@ -443,6 +449,8 @@ export const agentApi = {
   testModelProfile: () => api.post<{ success: boolean; message: string; latency_ms: number }>('/agent/model-profile/test', null, { timeout: 180000 }),
   getMemorySettings: () => api.get<MemorySettings>('/agent/memory-settings'),
   saveMemorySettings: (settings: Partial<MemorySettings>) => api.put<MemorySettings>('/agent/memory-settings', settings),
+  getRuntimeSettings: () => api.get<RuntimeSettings>('/agent/runtime-settings'),
+  saveRuntimeSettings: (settings: Partial<RuntimeSettings>) => api.put<RuntimeSettings>('/agent/runtime-settings', settings),
   listMemories: () => api.get<{ items: AgentMemory[] }>('/agent/memories'),
   updateMemory: (memoryId: string, input: { content?: string; status?: AgentMemory['status'] }) =>
     api.patch<AgentMemory>(`/agent/memories/${encodeURIComponent(memoryId)}`, input),

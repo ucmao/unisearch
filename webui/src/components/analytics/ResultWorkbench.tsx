@@ -254,7 +254,7 @@ function ContentCommentsDialog({ content, runId, taskId, onOpenChange }: {
   )
 }
 
-export function ResultWorkbench() {
+export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: string }) {
   const queryClient = useQueryClient()
   const statuses = useCrawlerStore((state) => state.statuses)
   const crawlerStatus = Object.values(statuses).some((s) => s === 'running')
@@ -265,7 +265,7 @@ export function ResultWorkbench() {
     ? 'error'
     : 'idle'
   const previousCrawlerStatus = useRef(crawlerStatus)
-  const [scope, setScope] = useState('all')
+  const [scope, setScope] = useState(initialScope)
   const [platform, setPlatform] = useState('all')
   const [keyword, setKeyword] = useState('all')
   const [metric, setMetric] = useState<MetricKey>('engagement')
@@ -288,6 +288,14 @@ export function ResultWorkbench() {
     queryFn: async () => (await dataApi.getAnalyticsRuns(1, 100)).data,
     refetchInterval: crawlerStatus === 'running' || crawlerStatus === 'stopping' ? 3_000 : false,
   })
+
+  useEffect(() => {
+    setScope(initialScope)
+    if (initialScope.startsWith('task:')) {
+      const taskId = initialScope.slice(5)
+      setExpandedTasks((current) => new Set(current).add(taskId))
+    }
+  }, [initialScope])
 
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
   const selectedTaskId = scope.startsWith('task:') ? scope.slice(5) : undefined

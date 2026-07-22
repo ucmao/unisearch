@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,12 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { agentApi, type AgentMemory, type MemorySettings, type ModelProfile } from '@/lib/api'
+import { agentApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
 import { useThemeStore } from '@/store/themeStore'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
-export type SettingsSection = 'appearance' | 'models' | 'memory'
+export type SettingsSection = 'appearance' | 'models' | 'collection' | 'memory'
 
 const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -42,6 +42,7 @@ const MODEL_PROVIDER_DEFAULTS = {
 const sections: { value: SettingsSection; label: string; description: string; icon: typeof Palette }[] = [
   { value: 'appearance', label: '外观', description: '主题与显示', icon: Palette },
   { value: 'models', label: '模型', description: 'AI 服务与凭证', icon: KeyRound },
+  { value: 'collection', label: '采集', description: '并发与资源', icon: Gauge },
   { value: 'memory', label: '记忆', description: '长期偏好与背景', icon: Brain },
 ]
 
@@ -109,6 +110,11 @@ export function SettingsDialog({
     queryFn: async () => (await agentApi.getMemorySettings()).data,
     enabled: dialogOpen && activeSection === 'memory',
   })
+  const runtimeSettingsQuery = useQuery({
+    queryKey: ['agent-runtime-settings'],
+    queryFn: async () => (await agentApi.getRuntimeSettings()).data,
+    enabled: dialogOpen && activeSection === 'collection',
+  })
   const memoriesQuery = useQuery({
     queryKey: ['agent-memories'],
     queryFn: async () => (await agentApi.listMemories()).data.items,
@@ -148,6 +154,14 @@ export function SettingsDialog({
   const saveMemorySettings = useMutation({
     mutationFn: (patch: Partial<MemorySettings>) => agentApi.saveMemorySettings(patch),
     onSuccess: ({ data }) => queryClient.setQueryData(['agent-memory-settings'], data),
+    onError: (error) => toast.error(getError(error)),
+  })
+  const saveRuntimeSettings = useMutation({
+    mutationFn: (patch: Partial<RuntimeSettings>) => agentApi.saveRuntimeSettings(patch),
+    onSuccess: ({ data }) => {
+      queryClient.setQueryData(['agent-runtime-settings'], data)
+      toast.success('采集并发设置已保存')
+    },
     onError: (error) => toast.error(getError(error)),
   })
   const updateMemory = useMutation({
@@ -297,6 +311,35 @@ export function SettingsDialog({
                     </DialogFooter>
                   </div>
                 )}
+              </div>
+            ) : activeSection === 'collection' ? (
+              <div className="mx-auto max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="font-sans text-xl text-cyber-text-primary">采集</DialogTitle>
+                  <DialogDescription>控制整个应用同时运行的平台采集数量。</DialogDescription>
+                </DialogHeader>
+                {runtimeSettingsQuery.isLoading ? (
+                  <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取采集设置…</div>
+                ) : runtimeSettingsQuery.data ? (
+                  <div className="mt-7 flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                    <div>
+                      <div className="text-sm font-medium text-cyber-text-primary">全局平台并发数</div>
+                      <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。默认 3，设备性能充足时可提高到 5。</div>
+                    </div>
+                    <Select
+                      value={String(runtimeSettingsQuery.data.maxConcurrentCrawlers)}
+                      onValueChange={(value) => saveRuntimeSettings.mutate({ maxConcurrentCrawlers: Number(value) })}
+                      disabled={saveRuntimeSettings.isPending}
+                    >
+                      <SelectTrigger className="h-9 w-28 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="全局平台并发数">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="mx-auto max-w-2xl">

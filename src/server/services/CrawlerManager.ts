@@ -272,11 +272,34 @@ export class CrawlerTask {
 
 export class CrawlerManager extends EventEmitter {
   private tasks: Map<string, CrawlerTask> = new Map();
+  private startingPlatforms = new Set<string>();
   private globalLogs: LogEntry[] = [];
   private windowCoordinator: CrawlerWindowCoordinator = {};
+  private maxConcurrentTasks = 3;
 
   public setWindowCoordinator(coordinator: CrawlerWindowCoordinator): void {
     this.windowCoordinator = coordinator;
+  }
+
+  public setMaxConcurrentTasks(value: number): number {
+    const parsed = Number(value);
+    const normalized = Number.isFinite(parsed) ? Math.round(parsed) : 3;
+    this.maxConcurrentTasks = Math.max(1, Math.min(5, normalized));
+    return this.maxConcurrentTasks;
+  }
+
+  public getMaxConcurrentTasks(): number {
+    return this.maxConcurrentTasks;
+  }
+
+  public getActiveTaskCount(): number {
+    return this.startingPlatforms.size + Array.from(this.tasks.values()).filter(
+      (task) => task.status === 'running' || task.status === 'stopping'
+    ).length;
+  }
+
+  public hasCapacity(): boolean {
+    return this.getActiveTaskCount() < this.maxConcurrentTasks;
   }
   
   public get status(): 'idle' | 'running' | 'stopping' {
@@ -320,21 +343,27 @@ export class CrawlerManager extends EventEmitter {
     const platform = normalizedConfig.platform;
     const existing = this.tasks.get(platform);
     
-    if (existing && (existing.status === 'running' || existing.status === 'stopping')) {
+    if (this.startingPlatforms.has(platform) || (existing && (existing.status === 'running' || existing.status === 'stopping'))) {
       return false;
     }
+    if (!this.hasCapacity()) return false;
 
-    if (this.windowCoordinator.prepareCrawlerWindow) {
-      const prepared = await this.windowCoordinator.prepareCrawlerWindow(platform);
-      if (!prepared) throw new Error(`无法创建平台 ${platform} 的专用采集窗口`);
+    this.startingPlatforms.add(platform);
+    try {
+      if (this.windowCoordinator.prepareCrawlerWindow) {
+        const prepared = await this.windowCoordinator.prepareCrawlerWindow(platform);
+        if (!prepared) throw new Error(`无法创建平台 ${platform} 的专用采集窗口`);
+      }
+
+      const task = new CrawlerTask(platform, normalizedConfig);
+      this.tasks.set(platform, task);
+
+      // Spawn background worker process
+      task.startProcess(this);
+      return true;
+    } finally {
+      this.startingPlatforms.delete(platform);
     }
-
-    const task = new CrawlerTask(platform, normalizedConfig);
-    this.tasks.set(platform, task);
-    
-    // Spawn background worker process
-    task.startProcess(this);
-    return true;
   }
 
   public async stop(platform?: string): Promise<boolean> {

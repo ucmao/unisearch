@@ -358,6 +358,8 @@ export class AgentService {
         if (localDecision.action === 'create_plan' && decision.action === 'chat') {
           const generated = await modelService.createPlan(messages, planningText);
           decision = { action: 'create_plan', reply: '', plan: generated };
+        } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
+          decision = { ...decision, action: 'create_plan' };
         }
       } catch (error: any) {
         if (localDecision.action === 'create_plan') {
@@ -500,14 +502,18 @@ export class AgentService {
     }
 
     if (decision.action === 'create_plan' && latest) {
-      const reply = latest.status === 'awaiting_confirmation'
-        ? '当前任务已经生成过采集执行计划。你可以修改现有计划，或确认后开始执行。'
-        : '当前任务已经生成并使用过采集执行计划，不能再次生成。若要采集新的主题，请新建一个任务。';
-      agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
-        action: 'plan_already_exists',
-        plan_id: latest.plan_id,
-      });
-      return agentRepository.getThread(threadId);
+      if (latest.status === 'awaiting_confirmation') {
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前轮次仍在等待确认。你可以继续修改范围，或确认后开始执行。', {
+          action: 'plan_already_exists', plan_id: latest.plan_id,
+        });
+        return agentRepository.getThread(threadId);
+      }
+      if (['queued', 'running'].includes(latest.status)) {
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前采集轮次仍在执行。完成后可以直接在这个任务里发起下一轮采集。', {
+          action: 'plan_round_active', plan_id: latest.plan_id,
+        });
+        return agentRepository.getThread(threadId);
+      }
     }
 
     let plan: ResearchPlan;
@@ -579,7 +585,7 @@ export class AgentService {
         ? '每个关键词最多 50 条，并采集一级评论'
         : '每个关键词最多 30 条，不采集评论';
     agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}\n范围：${depthSummary}\n\n如果范围没问题，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
-    agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
+    if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
   }
 
@@ -666,24 +672,23 @@ export class AgentService {
   }
 
   async tick() {
+    crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
     for (const plan of agentRepository.listActivePlans()) await this.tickPlan(plan);
   }
 
   private async tickPlan(plan: any) {
-    let running = 0;
     for (const step of plan.steps) {
       if (step.status !== 'running') continue;
       const state = crawlerManager.getStatus(step.platform);
-      if (state.status === 'running' || state.status === 'stopping') { running++; continue; }
+      if (state.status === 'running' || state.status === 'stopping') continue;
       const run = step.run_id ? agentRepository.getCrawlRun(step.run_id) : null;
       if (run?.status === 'completed') agentRepository.updateStep(step.step_id, 'completed', step.run_id, null);
       else agentRepository.updateStep(step.step_id, run?.status === 'stopped' ? 'stopped' : 'failed', step.run_id, run?.error_message || '采集进程未正常完成');
     }
 
     const refreshed = agentRepository.getPlan(plan.plan_id);
-    running = refreshed.steps.filter((s: any) => s.status === 'running').length;
     for (const step of refreshed.steps.filter((s: any) => s.status === 'queued')) {
-      if (running >= 3) break;
+      if (!crawlerManager.hasCapacity()) break;
       const platformState = crawlerManager.getStatus(step.platform);
       if (platformState.status === 'running' || platformState.status === 'stopping') continue;
       const p = refreshed.plan as ResearchPlan;
@@ -727,7 +732,6 @@ export class AgentService {
       if (ok) {
         const state = crawlerManager.getStatus(step.platform);
         agentRepository.updateStep(step.step_id, 'running', state.run_id, null);
-        running++;
       }
     }
 

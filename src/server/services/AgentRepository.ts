@@ -42,6 +42,10 @@ export interface MemorySettings {
   recallLimit: number;
 }
 
+export interface RuntimeSettings {
+  maxConcurrentCrawlers: number;
+}
+
 export interface AgentMemoryRecord {
   memory_id: string;
   category: 'identity' | 'preference' | 'context' | 'rule';
@@ -96,7 +100,8 @@ export class AgentRepository {
     const messages = (this.db.prepare('SELECT * FROM agent_messages WHERE thread_id = ? ORDER BY created_at ASC, rowid ASC').all(threadId) as any[])
       .map((row) => ({ ...row, metadata: parseJson(row.metadata_json, {}) }));
     const plan = this.getLatestPlan(threadId);
-    return { ...thread, messages, plan };
+    const plans = this.listPlans(threadId);
+    return { ...thread, messages, plan, plans };
   }
 
   deleteThread(threadId: string): boolean {
@@ -212,6 +217,23 @@ export class AgentRepository {
     return this.getMemorySettings();
   }
 
+  getRuntimeSettings(): RuntimeSettings {
+    const row = this.db.prepare('SELECT * FROM agent_runtime_settings WHERE id=1').get() as any;
+    return {
+      maxConcurrentCrawlers: Math.max(1, Math.min(5, Number(row?.max_concurrent_crawlers) || 3)),
+    };
+  }
+
+  updateRuntimeSettings(input: Partial<RuntimeSettings>): RuntimeSettings {
+    const current = this.getRuntimeSettings();
+    const parsed = Number(input.maxConcurrentCrawlers ?? current.maxConcurrentCrawlers);
+    const normalized = Number.isFinite(parsed) ? Math.round(parsed) : current.maxConcurrentCrawlers;
+    const maxConcurrentCrawlers = Math.max(1, Math.min(5, normalized));
+    this.db.prepare('UPDATE agent_runtime_settings SET max_concurrent_crawlers=?, updated_at=? WHERE id=1')
+      .run(maxConcurrentCrawlers, new Date().toISOString());
+    return this.getRuntimeSettings();
+  }
+
   listMemories(): AgentMemoryRecord[] {
     return this.db.prepare(`SELECT * FROM agent_memories ORDER BY CASE status WHEN 'candidate' THEN 0 ELSE 1 END, importance DESC, updated_at DESC`)
       .all() as AgentMemoryRecord[];
@@ -299,7 +321,7 @@ export class AgentRepository {
     const planId = id();
     const now = new Date().toISOString();
     const tx = this.db.transaction(() => {
-      const existing = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at DESC LIMIT 1`).get(threadId) as any;
+      const existing = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status IN ('awaiting_confirmation','queued','running') ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(threadId) as any;
       if (existing) return this.hydratePlan(existing);
 
       this.db.prepare(`INSERT INTO agent_plans (plan_id, thread_id, goal, status, plan_json, created_at, updated_at) VALUES (?, ?, ?, 'awaiting_confirmation', ?, ?, ?)`)
@@ -327,8 +349,13 @@ export class AgentRepository {
   }
 
   getLatestPlan(threadId: string) {
-    const row = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at DESC LIMIT 1`).get(threadId) as any;
+    const row = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(threadId) as any;
     return row ? this.hydratePlan(row) : null;
+  }
+
+  listPlans(threadId: string) {
+    return (this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at ASC, rowid ASC`).all(threadId) as any[])
+      .map((row, index) => ({ ...this.hydratePlan(row), round_number: index + 1 }));
   }
 
   getPlan(planId: string) {

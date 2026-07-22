@@ -384,6 +384,7 @@ export class ModelService {
 6. 回复自然、简短，像可以协作讨论的助手，而不是表单。
 7. “你采集到了多少信息”“采集了多少条”“任务完成了吗”必须是 status，绝不能 create_plan。
 8. 分析目标不阻塞采集。只有历史对话中明确出现分析目的时才提炼到 analysis；单纯采集请求的 analysis 输出空数组。
+9. 一个对话可以包含多轮采集。currentPlan 已完成、部分完成、失败或停止后，用户要求补平台、换关键词、重新搜索或新增范围时使用 create_plan 创建新轮；只有 currentPlan 为 awaiting_confirmation 时才使用 revise_plan。currentPlan 为 queued/running 时不要创建新轮，应说明需等待当前轮结束。
 
 只输出 JSON，不要 Markdown。格式：
 {"action":"chat|clarify|model_info|create_plan|revise_plan|execute|stop|status|analyze|export","reply":"只做简短确认，不得自行描述数量、评论等执行参数","missingFields":["可选字段"],"plan":null或{"goal":"...","platforms":["xhs"],"capability":"keyword_search","targets":[],"keywords":["..."],"connectorOptions":{},"collectionDepth":"quick|standard|deep","collectComments":true,"collectSubComments":false,"startPage":1,"loginType":"qrcode","headless":false,"analysis":["..."],"outputs":["csv"]}}

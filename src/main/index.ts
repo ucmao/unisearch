@@ -23,6 +23,8 @@ app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_pro
 let mainWindow: BrowserWindow | null = null;
 let crawlerHubWindow: BrowserWindow | null = null;
 const crawlerViews = new Map<string, BrowserView>();
+type CrawlerTabStatus = 'running' | 'completed' | 'failed' | 'stopped';
+const crawlerTabStates = new Map<string, CrawlerTabStatus>();
 let activeCrawlerPlatform: string | null = null;
 let isQuitting = false;
 
@@ -52,19 +54,25 @@ function focusMainWindow(): void {
 }
 
 function crawlerHubHtml(): string {
-  const tabs = Array.from(crawlerViews.keys()).map((platform) => {
+  const tabs = Array.from(crawlerTabStates.entries()).map(([platform, status]) => {
     const active = platform === activeCrawlerPlatform ? ' active' : '';
     const label = CRAWLER_PLATFORM_NAMES[platform] || platform.toUpperCase();
-    return `<a class="tab${active}" href="unisearch-tab://${encodeURIComponent(platform)}"><span class="dot"></span>${label}</a>`;
+    const statusLabel = status === 'running' ? '采集中' : status === 'completed' ? '已完成' : status === 'stopped' ? '已停止' : '失败';
+    const content = `<span class="dot ${status}"></span><span>${label}</span><small>${statusLabel}</small>`;
+    return status === 'running' && crawlerViews.has(platform)
+      ? `<a class="tab${active}" href="unisearch-tab://${encodeURIComponent(platform)}">${content}</a>`
+      : `<span class="tab readonly">${content}</span>`;
   }).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#eef4f8;color:#142033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     .bar{height:${CRAWLER_TAB_HEIGHT}px;display:flex;align-items:flex-end;gap:4px;padding:7px 10px 0;border-bottom:1px solid #cbd8e2;background:linear-gradient(#f8fbfd,#e8f0f5);-webkit-app-region:drag}
     .brand{align-self:center;padding:0 10px 4px 2px;font-size:12px;font-weight:650;color:#506273;white-space:nowrap}
     .tabs{display:flex;min-width:0;height:40px;gap:4px;overflow-x:auto;-webkit-app-region:no-drag}
-    .tab{display:flex;align-items:center;gap:7px;min-width:118px;height:36px;padding:0 16px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap}
+    .tab{display:flex;align-items:center;gap:7px;min-width:142px;height:36px;padding:0 14px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap}
     .tab:hover{background:#f7fbfd;color:#203246}.tab.active{border-color:#cbd8e2;border-bottom-color:#fff;background:#fff;color:#142033}
+    .tab.readonly{opacity:.72}.tab small{margin-left:auto;color:#8796a5;font-size:10px;font-weight:500}
     .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12)}
+    .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
     .hint{margin-left:auto;align-self:center;padding:0 5px 4px 10px;color:#8393a3;font-size:11px;white-space:nowrap}
   </style></head><body><div class="bar"><div class="brand">UniSearch 采集浏览器</div><nav class="tabs">${tabs}</nav><div class="hint">各平台登录会话独立保存</div></div></body></html>`;
 }
@@ -135,7 +143,10 @@ function createCrawlerHubWindow(): BrowserWindow {
 
 export function createCrawlerView(platform: string): BrowserView {
   const existing = crawlerViews.get(platform);
-  if (existing && !existing.webContents.isDestroyed()) return existing;
+  if (existing && !existing.webContents.isDestroyed()) {
+    crawlerTabStates.set(platform, 'running');
+    return existing;
+  }
   createCrawlerHubWindow();
   const view = new BrowserView({
     webPreferences: {
@@ -148,6 +159,7 @@ export function createCrawlerView(platform: string): BrowserView {
   view.webContents.session.setUserAgent(CRAWLER_USER_AGENT, CRAWLER_ACCEPT_LANGUAGE);
   view.webContents.setUserAgent(CRAWLER_USER_AGENT);
   crawlerViews.set(platform, view);
+  crawlerTabStates.set(platform, 'running');
   view.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url);
     return { action: 'deny' };
@@ -162,6 +174,37 @@ export async function prepareCrawlerWindow(platform: string): Promise<boolean> {
   await view.webContents.loadURL(crawlerMarkerUrl(platform));
   if (!activeCrawlerPlatform || !crawlerViews.has(activeCrawlerPlatform)) activateCrawlerView(platform);
   else refreshCrawlerHubTabs();
+  return true;
+}
+
+export function releaseCrawlerWindow(platform: string, status = 'completed'): boolean {
+  const view = crawlerViews.get(platform);
+  const finalStatus: CrawlerTabStatus = status === 'failed' || status === 'stopped' ? status : 'completed';
+  crawlerTabStates.set(platform, finalStatus);
+
+  if (!view) {
+    refreshCrawlerHubTabs();
+    return false;
+  }
+
+  const wasActive = activeCrawlerPlatform === platform;
+  if (wasActive && crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+    crawlerHubWindow.setBrowserView(null);
+    activeCrawlerPlatform = null;
+  }
+  crawlerViews.delete(platform);
+  if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
+
+  if (wasActive) {
+    const nextPlatform = crawlerViews.keys().next().value as string | undefined;
+    if (nextPlatform) activateCrawlerView(nextPlatform);
+  }
+  refreshCrawlerHubTabs();
+
+  if (crawlerViews.size === 0 && crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+    crawlerHubWindow.hide();
+    focusMainWindow();
+  }
   return true;
 }
 
@@ -314,6 +357,7 @@ app.on('ready', async () => {
     // Start local Fastify server
     await startServer(apiPort, {
       prepareCrawlerWindow,
+      releaseCrawlerWindow,
       isCrawlerWindowVisible,
       showCrawlerWindow,
       hideCrawlerWindow,
