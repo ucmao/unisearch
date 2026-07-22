@@ -1,6 +1,19 @@
 import type { Database } from 'better-sqlite3';
 
 export function initSchema(db: Database): void {
+  // Rebuild databases that predate the explicit task hierarchy. Historical
+  // crawler data is intentionally discarded instead of being ambiguously mapped.
+  const crawlRunsExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='crawl_runs'").get();
+  if (crawlRunsExists) {
+    const runColumns = new Set((db.prepare('PRAGMA table_info(crawl_runs)').all() as Array<{ name: string }>).map((column) => column.name));
+    if (!runColumns.has('thread_id') || !runColumns.has('plan_id')) {
+      db.pragma('foreign_keys = OFF');
+      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>;
+      for (const { name } of tables) db.exec(`DROP TABLE IF EXISTS "${name.replace(/"/g, '""')}"`);
+      db.pragma('foreign_keys = ON');
+    }
+  }
+
   db.exec(`
     -- Bilibili Video Table
     CREATE TABLE IF NOT EXISTS bilibili_video (
@@ -334,7 +347,8 @@ export function initSchema(db: Database): void {
     -- Crawl Runs Table (Analytics tracking)
     CREATE TABLE IF NOT EXISTS crawl_runs (
       run_id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL DEFAULT '',
+      thread_id TEXT NOT NULL DEFAULT '',
+      plan_id TEXT NOT NULL DEFAULT '',
       task_title TEXT NOT NULL DEFAULT '',
       task_name TEXT NOT NULL,
       platform TEXT NOT NULL,
@@ -350,7 +364,8 @@ export function initSchema(db: Database): void {
       config_json TEXT NOT NULL DEFAULT '{}'
     );
     CREATE INDEX IF NOT EXISTS idx_runs_started_at ON crawl_runs(started_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_runs_task_id ON crawl_runs(task_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_thread_id ON crawl_runs(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_plan_id ON crawl_runs(plan_id);
 
     -- Persistent crawler execution logs. These survive an application restart and
     -- remain associated with the run that produced them.

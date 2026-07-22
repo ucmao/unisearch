@@ -13,6 +13,8 @@ export interface RunConfig {
   cookies?: string;
   headless?: boolean;
   loop_execution?: boolean;
+  thread_id?: string;
+  plan_id?: string;
   [key: string]: any;
 }
 
@@ -150,8 +152,10 @@ export function parseTimestamp(value: any): number {
 }
 
 export class AnalyticsRepository {
+  constructor(private readonly databaseProvider: () => Database = getDb) {}
+
   private get db(): Database {
-    return getDb();
+    return this.databaseProvider();
   }
 
   public createRun(config: RunConfig, taskName = ''): string {
@@ -160,7 +164,8 @@ export class AnalyticsRepository {
     const keywords = config.keywords || '';
     const platformLabel = PLATFORM_LABELS[platform] || platform;
     const displayName = taskName.trim() || `${platformLabel} · ${keywords || config.crawler_type || '任务'}`;
-    const taskId = String(config.task_id || runId);
+    const threadId = String(config.thread_id || runId);
+    const planId = String(config.plan_id || runId);
     const taskTitle = String(config.task_title || keywords || displayName).trim() || displayName;
 
     const configJson = JSON.stringify(config);
@@ -168,11 +173,11 @@ export class AnalyticsRepository {
 
     const stmt = this.db.prepare(`
       INSERT INTO crawl_runs 
-      (run_id, task_id, task_title, task_name, platform, crawler_type, keywords, save_option, status, started_at, config_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'sqlite', 'running', ?, ?)
+      (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, keywords, save_option, status, started_at, config_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sqlite', 'running', ?, ?)
     `);
     
-    stmt.run(runId, taskId, taskTitle, displayName, platform, config.crawler_type || '', keywords, startedAt, configJson);
+    stmt.run(runId, threadId, planId, taskTitle, displayName, platform, config.crawler_type || '', keywords, startedAt, configJson);
     return runId;
   }
 
@@ -290,17 +295,23 @@ export class AnalyticsRepository {
     return contents.length;
   }
 
-  private getScopeSql(runId?: string | null, taskId?: string | null): { sql: string; params: any[] } {
+  private getScopeSql(runId?: string | null, planId?: string | null, threadId?: string | null): { sql: string; params: any[] } {
     if (runId && runId !== 'all') {
       return {
         sql: 'SELECT * FROM content_records WHERE run_id = ?',
         params: [runId],
       };
     }
-    if (taskId && taskId !== 'all') {
+    if (planId && planId !== 'all') {
       return {
-        sql: 'SELECT c.* FROM content_records c JOIN crawl_runs r ON r.run_id = c.run_id WHERE r.task_id = ?',
-        params: [taskId],
+        sql: 'SELECT c.* FROM content_records c JOIN crawl_runs r ON r.run_id = c.run_id WHERE r.plan_id = ?',
+        params: [planId],
+      };
+    }
+    if (threadId && threadId !== 'all') {
+      return {
+        sql: 'SELECT c.* FROM content_records c JOIN crawl_runs r ON r.run_id = c.run_id WHERE r.thread_id = ?',
+        params: [threadId],
       };
     }
     return {
@@ -346,7 +357,8 @@ export class AnalyticsRepository {
 
   public queryContents(params: {
     run_id?: string | null;
-    task_id?: string | null;
+    plan_id?: string | null;
+    thread_id?: string | null;
     platform?: string | null;
     keyword?: string | null;
     query?: string | null;
@@ -378,7 +390,7 @@ export class AnalyticsRepository {
       throw new Error(`Unsupported sort field: ${sortBy}`);
     }
 
-    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, params.task_id);
+    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, params.plan_id, params.thread_id);
     const { sql: filterSql, params: filterParams } = this.getFiltersSql(platform, keyword, query);
 
     const countSql = `SELECT COUNT(*) AS total FROM (${scopeSql}) scoped${filterSql}`;
@@ -412,9 +424,10 @@ export class AnalyticsRepository {
     runId?: string | null,
     platform?: string | null,
     keyword?: string | null,
-    taskId?: string | null
+    planId?: string | null,
+    threadId?: string | null,
   ): any {
-    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, taskId);
+    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, planId, threadId);
     const { sql: platformFilterSql, params: platformParams } = this.getFiltersSql(platform, null, null);
     const { sql: selectedFilterSql, params: selectedParams } = this.getFiltersSql(platform, keyword, null);
 
@@ -481,7 +494,8 @@ export class AnalyticsRepository {
 
   public queryComments(params: {
     run_id?: string | null;
-    task_id?: string | null;
+    plan_id?: string | null;
+    thread_id?: string | null;
     platform?: string | null;
     content_id?: string | null;
     level?: number | null;
@@ -498,12 +512,12 @@ export class AnalyticsRepository {
     const pageSize = params.page_size || 20;
 
     let allowedContentIds: Set<string> | null = null;
-    if ((runId && runId !== 'all') || (params.task_id && params.task_id !== 'all')) {
+    if ((runId && runId !== 'all') || (params.plan_id && params.plan_id !== 'all') || (params.thread_id && params.thread_id !== 'all')) {
+      const scopedColumn = runId ? 'c.run_id' : params.plan_id ? 'r.plan_id' : 'r.thread_id';
+      const scopedValue = runId || params.plan_id || params.thread_id;
       const allowed = this.db
-        .prepare(runId
-          ? 'SELECT DISTINCT platform, content_id FROM content_records WHERE run_id = ?'
-          : 'SELECT DISTINCT c.platform, c.content_id FROM content_records c JOIN crawl_runs r ON r.run_id=c.run_id WHERE r.task_id = ?')
-        .all(runId || params.task_id) as { platform: string; content_id: string }[];
+        .prepare(`SELECT DISTINCT c.platform, c.content_id FROM content_records c JOIN crawl_runs r ON r.run_id=c.run_id WHERE ${scopedColumn} = ?`)
+        .all(scopedValue) as { platform: string; content_id: string }[];
       allowedContentIds = new Set(allowed.map((r) => `${r.platform}:${r.content_id}`));
     }
 
@@ -590,7 +604,8 @@ export class AnalyticsRepository {
     platform: string;
     content_id: string;
     run_id?: string | null;
-    task_id?: string | null;
+    plan_id?: string | null;
+    thread_id?: string | null;
     page?: number;
     page_size?: number;
   }): {
@@ -608,7 +623,8 @@ export class AnalyticsRepository {
 
     const result = this.queryComments({
       run_id: params.run_id,
-      task_id: params.task_id,
+      plan_id: params.plan_id,
+      thread_id: params.thread_id,
       platform: params.platform,
       content_id: params.content_id,
       page: 1,
@@ -665,16 +681,14 @@ export class AnalyticsRepository {
     const rows = this.db
       .prepare(`
         SELECT
-          r.run_id,
-          COALESCE(step.plan_id, r.task_id, r.run_id) AS task_id,
+          r.run_id, r.thread_id, r.plan_id,
           COALESCE(thread.title, plan.goal, r.task_title, r.task_name) AS task_title,
           r.task_name, r.platform, r.crawler_type, r.keywords, r.save_option,
           r.status, r.started_at, r.finished_at, r.exit_code, r.item_count,
           r.error_message, r.config_json
         FROM crawl_runs r
-        LEFT JOIN agent_plan_steps step ON step.run_id = r.run_id
-        LEFT JOIN agent_plans plan ON plan.plan_id = step.plan_id
-        LEFT JOIN agent_threads thread ON thread.thread_id = plan.thread_id
+        LEFT JOIN agent_plans plan ON plan.plan_id = r.plan_id
+        LEFT JOIN agent_threads thread ON thread.thread_id = r.thread_id
         ORDER BY r.started_at DESC
         LIMIT ? OFFSET ?
       `)
@@ -689,30 +703,107 @@ export class AnalyticsRepository {
     };
   }
 
-  public deleteTask(taskId: string): boolean {
-    const rows = this.db.prepare('SELECT status FROM crawl_runs WHERE task_id = ?').all(taskId) as { status: string }[];
-    if (!rows.length) return false;
-    if (rows.some((row) => row.status === 'running')) throw new Error('A running task cannot be deleted');
-    this.db.prepare('DELETE FROM crawl_runs WHERE task_id = ?').run(taskId);
-    return true;
+  public listTaskHierarchy(): { items: Array<{ thread_id: string; task_title: string; rounds: Array<{ plan_id: string; round_title: string; runs: any[] }> }>; total: number; round_total: number; run_total: number } {
+    const rows = this.db.prepare(`
+      SELECT
+        r.run_id, r.thread_id, r.plan_id,
+        COALESCE(thread.title, r.task_title, r.task_name) AS task_title,
+        COALESCE(plan.goal, r.task_title, r.task_name) AS round_title,
+        r.task_name, r.platform, r.crawler_type, r.keywords, r.save_option,
+        r.status, r.started_at, r.finished_at, r.exit_code, r.item_count,
+        r.error_message, r.config_json
+      FROM crawl_runs r
+      LEFT JOIN agent_plans plan ON plan.plan_id = r.plan_id
+      LEFT JOIN agent_threads thread ON thread.thread_id = r.thread_id
+      ORDER BY r.started_at DESC
+    `).all() as any[];
+    const tasks = new Map<string, { thread_id: string; task_title: string; rounds: Map<string, { plan_id: string; round_title: string; runs: any[] }> }>();
+    for (const run of rows) {
+      const threadId = String(run.thread_id || run.run_id);
+      const planId = String(run.plan_id || run.run_id);
+      let task = tasks.get(threadId);
+      if (!task) {
+        task = { thread_id: threadId, task_title: run.task_title || run.task_name, rounds: new Map() };
+        tasks.set(threadId, task);
+      }
+      const round = task.rounds.get(planId);
+      if (round) round.runs.push(run);
+      else task.rounds.set(planId, { plan_id: planId, round_title: run.round_title || run.task_title || run.task_name, runs: [run] });
+    }
+    const items = [...tasks.values()].map((task) => ({ ...task, rounds: [...task.rounds.values()] }));
+    return { items, total: items.length, round_total: items.reduce((sum, task) => sum + task.rounds.length, 0), run_total: rows.length };
+  }
+
+  public storageSummary(): { analytics_runs: number; analytics_records: number; log_records: number; raw_records: number } {
+    const count = (table: string) => Number((this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number })?.count || 0);
+    const tables = new Set((this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
+    const rawTables = [...Object.values(SQLITE_CONTENT_TABLES), ...Object.values(SQLITE_COMMENT_TABLES).map(([table]) => table)];
+    return {
+      analytics_runs: count('crawl_runs'),
+      analytics_records: count('content_records'),
+      log_records: count('crawl_run_logs'),
+      raw_records: rawTables.filter((table) => tables.has(table)).reduce((total, table) => total + count(table), 0),
+    };
+  }
+
+  public cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all'): number {
+    const predicate = mode === 'failed_empty'
+      ? "status != 'running' AND (status = 'failed' OR item_count = 0)"
+      : mode === 'older_than_30_days'
+        ? "status != 'running' AND started_at < datetime('now', '-30 days')"
+        : "status != 'running'";
+    const rows = this.db.prepare(`SELECT run_id FROM crawl_runs WHERE ${predicate}`).all() as Array<{ run_id: string }>;
+    return rows.length ? this.deleteRuns(rows.map((row) => row.run_id)) : 0;
+  }
+
+  private deleteRunScope(column: 'thread_id' | 'plan_id', values: string[]): number {
+    const ids = [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!ids.length) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    const running = this.db.prepare(`SELECT COUNT(*) AS count FROM crawl_runs WHERE ${column} IN (${placeholders}) AND status = 'running'`).get(...ids) as { count: number };
+    if (Number(running?.count || 0) > 0) throw new Error('请先停止所选任务中正在采集的执行');
+    return this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE agent_plan_steps SET run_id = NULL, error_message = '看板数据已清理', updated_at = ?
+        WHERE run_id IN (SELECT run_id FROM crawl_runs WHERE ${column} IN (${placeholders}))
+      `).run(new Date().toISOString(), ...ids);
+      return this.db.prepare(`DELETE FROM crawl_runs WHERE ${column} IN (${placeholders})`).run(...ids).changes;
+    })();
+  }
+
+  public deleteThreads(threadIds: string[]): number {
+    return this.deleteRunScope('thread_id', threadIds);
+  }
+
+  public deletePlans(planIds: string[]): number {
+    return this.deleteRunScope('plan_id', planIds);
+  }
+
+  public deleteRuns(runIds: string[]): number {
+    const ids = [...new Set(runIds.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (!ids.length) return 0;
+    const deleteAll = ids.includes('all');
+    const where = deleteAll ? "status != 'running'" : `run_id IN (${ids.map(() => '?').join(',')})`;
+    const params = deleteAll ? [] : ids;
+    if (!deleteAll) {
+      const running = this.db.prepare(`SELECT COUNT(*) AS count FROM crawl_runs WHERE ${where} AND status = 'running'`).get(...params) as { count: number };
+      if (Number(running?.count || 0) > 0) throw new Error('请先停止所选执行中的采集任务');
+    }
+    return this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE agent_plan_steps SET run_id = NULL, error_message = '看板数据已清理', updated_at = ?
+        WHERE run_id IN (SELECT run_id FROM crawl_runs WHERE ${where})
+      `).run(new Date().toISOString(), ...params);
+      return this.db.prepare(`DELETE FROM crawl_runs WHERE ${where}`).run(...params).changes;
+    })();
   }
 
   public deleteRun(runId: string): boolean {
     if (runId === 'all') {
-      this.db.prepare("DELETE FROM crawl_runs WHERE status != 'running'").run();
+      this.deleteRuns(['all']);
       return true;
     }
-
-    const row = this.db.prepare('SELECT status FROM crawl_runs WHERE run_id = ?').get(runId) as { status: string } | undefined;
-    if (!row) {
-      return false;
-    }
-    if (row.status === 'running') {
-      throw new Error('A running task cannot be deleted');
-    }
-
-    this.db.prepare('DELETE FROM crawl_runs WHERE run_id = ?').run(runId);
-    return true;
+    return this.deleteRuns([runId]) > 0;
   }
 }
 

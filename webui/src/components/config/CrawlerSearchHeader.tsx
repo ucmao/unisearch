@@ -162,7 +162,8 @@ export function CrawlerSearchHeader() {
           connector_options: connectorOptions[p] || {},
           keywords: finalKeywords,
           cookies: config.login_type === 'cookie' ? platformCookies[p] || '' : '',
-          task_id: taskId,
+          thread_id: taskId,
+          plan_id: taskId,
           task_title: taskTitle,
         })
       }

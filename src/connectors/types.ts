@@ -82,6 +82,7 @@ export interface ConnectorStartRequest {
   cookies: string;
   headless: boolean;
   loop_execution: boolean;
-  task_id?: string;
+  thread_id?: string;
+  plan_id?: string;
   task_title?: string;
 }
