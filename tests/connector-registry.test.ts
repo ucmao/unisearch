@@ -22,7 +22,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 7);
+assert.equal(listConnectorManifests().length, 11);
 
 const normalized = normalizeConnectorRequest(baseRequest);
 assert.equal(normalized.platform, 'xhs');
@@ -31,9 +31,12 @@ assert.equal((normalized as any).crawler_max_notes_count, 42);
 assert.equal(normalized.enable_comments, true);
 
 for (const manifest of listConnectorManifests()) {
+  const expectedCapabilities = manifest.category === 'web_search'
+    ? ['keyword_search']
+    : ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'];
   assert.deepEqual(
     manifest.capabilities.map((capability) => capability.id),
-    ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
+    expectedCapabilities,
     `${manifest.id} should expose the complete connector capability set`,
   );
   for (const capability of manifest.capabilities) {

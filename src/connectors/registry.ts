@@ -12,8 +12,13 @@ export function getConnectorManifest(id: string): ConnectorManifest | undefined 
 }
 
 export function getConnectorCapability(manifest: ConnectorManifest, request: ConnectorStartRequest): ConnectorCapability | undefined {
-  if (!request.capability) return undefined;
-  return manifest.capabilities.find((capability) => capability.id === request.capability);
+  if (request.capability) {
+    return manifest.capabilities.find((capability) => capability.id === request.capability);
+  }
+  if (request.crawler_type === 'search') {
+    return manifest.capabilities.find((capability) => capability.id === 'keyword_search');
+  }
+  return manifest.capabilities[0];
 }
 
 export function normalizeConnectorRequest(input: ConnectorStartRequest): ConnectorStartRequest {
@@ -22,8 +27,14 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
   if (!manifest) throw new Error(`Unsupported connector: ${connectorId}`);
   const capability = getConnectorCapability(manifest, input);
   if (!capability) throw new Error(`${manifest.name} requires a supported capability`);
-  if (!manifest.auth.methods.includes(input.login_type as 'qrcode' | 'cookie')) {
-    throw new Error(`${manifest.name} does not support login method: ${input.login_type}`);
+  let loginType = input.login_type;
+  if (!manifest.auth.required || manifest.auth.methods.includes('none')) {
+    loginType = 'none';
+  } else if (!loginType || !manifest.auth.methods.includes(loginType as 'qrcode' | 'cookie' | 'none')) {
+    loginType = manifest.auth.methods[0] as 'qrcode' | 'cookie' | 'none';
+  }
+  if (!manifest.auth.methods.includes(loginType as 'qrcode' | 'cookie' | 'none')) {
+    throw new Error(`${manifest.name} does not support login method: ${loginType}`);
   }
 
   const options = input.connector_options || {};
@@ -33,6 +44,7 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
     connector_id: connectorId,
     capability: capability.id,
     crawler_type: capability.runtimeMode,
+    login_type: loginType as 'qrcode' | 'cookie' | 'none',
     connector_options: options,
   };
   for (const field of capability.inputFields) {

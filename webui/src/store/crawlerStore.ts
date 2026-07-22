@@ -76,7 +76,7 @@ const defaultConfig: CrawlerConfig = {
   loop_execution: false,
 }
 
-const SUPPORTED_PLATFORMS = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']
+const SUPPORTED_PLATFORMS = ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou']
 
 const initialStatuses = SUPPORTED_PLATFORMS.reduce((acc, p) => ({ ...acc, [p]: 'idle' as const }), {})
 const initialRunningInfo = SUPPORTED_PLATFORMS.reduce(

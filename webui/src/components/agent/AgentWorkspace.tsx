@@ -20,6 +20,7 @@ import { useLogWebSocket } from '@/hooks/useWebSocket'
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
+  baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -81,9 +82,10 @@ function CsvDownloadLink({ planId, compact = false }: { planId: string; compact?
     <a
       href={agentApi.getPlanExportUrl(planId)}
       download
-      className={`inline-flex items-center justify-center gap-2 rounded-md border border-cyber-border-default text-xs font-medium transition-colors hover:border-cyber-neon-cyan/60 hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan ${compact ? 'h-9 min-w-0 px-3' : 'mt-3 h-10 px-4'}`}
+      className={`inline-flex items-center justify-center rounded-md border border-cyber-border-default text-xs font-medium transition-colors hover:border-cyber-neon-cyan/60 hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan ${compact ? 'h-9 min-w-0 gap-1.5 px-2' : 'mt-3 h-10 min-w-0 gap-2 px-4'}`}
     >
-      <Download className="h-4 w-4" />下载 CSV
+      <Download className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} shrink-0 text-cyber-neon-cyan`} />
+      <span className="truncate">下载 CSV</span>
     </a>
   )
 }
@@ -671,8 +673,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 <button type="button" onClick={() => setSelectedId(thread.thread_id)}
                   className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60'}`}>
                   <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.pinned_at ? <Pin className="h-3 w-3 shrink-0 text-cyber-neon-cyan" aria-label="已置顶" /> : null}{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
-                  <p className="mt-1 truncate text-[10px] text-cyber-text-muted">{thread.last_message || '暂无消息'}</p>
-                  <p className="mt-1 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</p>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
+                    <span className="min-w-0 flex-1 truncate">
+                      {['running', 'queued'].includes(thread.plan_status || '') ? (
+                        <span className="font-medium text-cyber-neon-green">⚡ 任务采集分析中...</span>
+                      ) : ['completed', 'partially_completed'].includes(thread.plan_status || '') ? (
+                        <span className="text-cyber-text-secondary">
+                          ✓ {thread.total_items ? `已采集 ${thread.total_items} 条数据` : '采集分析完成'}
+                        </span>
+                      ) : thread.plan_status === 'failed' ? (
+                        <span className="text-cyber-neon-pink">✕ 采集中断</span>
+                      ) : (
+                        thread.last_message || '暂无消息'
+                      )}
+                    </span>
+                    <span className="shrink-0 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</span>
+                  </div>
                 </button>
                 <button
                   type="button"

@@ -303,6 +303,7 @@ export interface AgentThreadSummary {
   updated_at: string
   last_message?: string
   plan_status?: string
+  total_items?: number
 }
 
 export interface AgentThread extends AgentThreadSummary {

@@ -54,11 +54,11 @@ export interface ConnectorManifest {
   description: string;
   auth: {
     required: boolean;
-    methods: Array<'qrcode' | 'cookie'>;
+    methods: Array<'qrcode' | 'cookie' | 'none'>;
     description: string;
   };
   runtime: {
-    engine: 'playwright';
+    engine: 'playwright' | 'http';
     isolatedProcess: boolean;
     supportsHeadless: boolean;
   };
@@ -70,7 +70,7 @@ export interface ConnectorStartRequest {
   connector_id?: string;
   capability?: ConnectorCapabilityId;
   connector_options?: Record<string, unknown>;
-  login_type: 'qrcode' | 'cookie' | 'phone';
+  login_type: 'qrcode' | 'cookie' | 'phone' | 'none';
   crawler_type: 'search' | 'detail' | 'creator';
   keywords: string;
   specified_ids?: string;

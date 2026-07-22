@@ -11,7 +11,10 @@ const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
 
 function normalizePlan(input: any, userText: string): ResearchPlan {
-  const platformAliases: Record<string, string> = { 小红书: 'xhs', 抖音: 'dy', 快手: 'ks', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'wb', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu' };
+  const platformAliases: Record<string, string> = {
+    小红书: 'xhs', 抖音: 'dy', 快手: 'ks', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'wb', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
+    百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou',
+  };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))
     .filter((p: string) => SUPPORTED.includes(p)))) as string[];
@@ -22,7 +25,7 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     // Models occasionally echo the merged clarification scaffold into a keyword,
     // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
     // through the deterministic subject extractor.
-    if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎).*(?:采集|搜索)/i.test(keyword)) {
+    if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗).*(?:采集|搜索)/i.test(keyword)) {
       return inferResearchKeywords(keyword);
     }
     return [keyword];
@@ -75,9 +78,13 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     startPage = 1;
   }
 
+  const selectedPlatforms = platforms.length ? platforms : inferredPlatforms;
+  const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
+  const loginType = requiresAuth ? 'qrcode' : 'none';
+
   return {
     goal,
-    platforms: platforms.length ? platforms : inferredPlatforms,
+    platforms: selectedPlatforms,
     keywords,
     capability,
     targets,
@@ -86,7 +93,7 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     collectComments,
     collectSubComments,
     startPage,
-    loginType: 'qrcode',
+    loginType,
     headless: Boolean(input?.headless),
     analysis: normalizeAnalysisGoals(input?.analysis, goal),
     analysisSource,

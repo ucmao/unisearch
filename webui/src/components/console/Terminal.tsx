@@ -14,6 +14,10 @@ const PLATFORM_LABELS: { [key: string]: string } = {
   wb: '微博',
   tieba: '百度贴吧',
   zhihu: '知乎',
+  baidu: '百度',
+  bing: '必应',
+  so360: '360搜索',
+  sogou: '搜狗',
 }
 
 const STATUS_DOTS: { [key: string]: string } = {
