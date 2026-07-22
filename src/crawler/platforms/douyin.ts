@@ -10,7 +10,6 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
-import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 interface DouyinSearchCapture {
@@ -33,11 +32,6 @@ export class DouyinCrawler extends AbstractCrawler {
 
 
 
-
-    const stealthPath = 'libs/stealth.min.js';
-    if (fs.existsSync(stealthPath)) {
-      await this.browserContext.addInitScript({ path: stealthPath });
-    }
 
     await this.page.goto('https://www.douyin.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
@@ -431,7 +425,7 @@ export class DouyinCrawler extends AbstractCrawler {
             processedComments++;
             if (this.consecutiveCommentFailures >= 2) break;
             try {
-              await this.page.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+              await this.humanDelay(this.page);
             } catch {
               console.warn(`[DY] Crawler page closed after ${processedComments} comment items; saved videos are retained.`);
               break;

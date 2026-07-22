@@ -8,7 +8,6 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
-import fs from 'fs';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class KuaishouCrawler extends AbstractCrawler {
@@ -24,12 +23,11 @@ export class KuaishouCrawler extends AbstractCrawler {
 
 
 
-    const stealthPath = 'libs/stealth.min.js';
-    if (fs.existsSync(stealthPath)) {
-      await this.browserContext.addInitScript({ path: stealthPath });
+    await this.page.goto('https://www.kuaishou.com?isHome=1', { waitUntil: 'domcontentloaded' });
+    const landingText = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
+    if (/"result"\s*:\s*2/.test(landingText)) {
+      throw new Error('快手拒绝了当前浏览器指纹（result=2）。请完全退出并重启 UniSearch 后重试。');
     }
-
-    await this.page.goto('https://www.kuaishou.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
@@ -54,7 +52,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
       console.log('[KS] User is not logged in. Waiting for manual login...');
       try {
-        await this.page!.click('.login-btn, .header-login', { timeout: 3000 });
+        await this.page!.locator('xpath=//p[normalize-space(text())="登录"] | //button[normalize-space(.)="登录"] | //a[normalize-space(.)="登录"]').first().click({ timeout: 3000 });
       } catch {}
 
       notifyLoginRequired('ks', '快手当前会话未登录，需要在采集浏览器中确认或完成登录');
@@ -77,32 +75,10 @@ export class KuaishouCrawler extends AbstractCrawler {
 
   private async checkLoginState(): Promise<boolean> {
     try {
-      const selectors = [
-        '.header-user-avatar',
-        '.avatar-wrap',
-        '.user.item',
-        '.text-name',
-        'a[href*="/profile"]'
-      ];
-      for (const selector of selectors) {
-        const visible = await this.page!.isVisible(selector, { timeout: 500 }).catch(() => false);
-        if (visible) {
-          console.log(`[KS] Login state confirmed via selector: ${selector}`);
-          return true;
-        }
-      }
-    } catch {}
-    try {
-      const isLoginBtn = await this.page!.isVisible('.login-btn, .header-login', { timeout: 1000 });
-      if (isLoginBtn) return false;
-    } catch {}
-    try {
       if (this.browserContext) {
         const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some((c) => c.name === 'passToken');
+        const hasSession = cookies.some((c) => c.name === 'passToken' && c.value.trim().length > 0);
         if (hasSession) {
-          const loginBtnExists = await this.page!.isVisible('.login-btn, .header-login', { timeout: 1000 }).catch(() => false);
-          if (loginBtnExists) return false;
           console.log('[KS] Login state confirmed via cookies.');
           return true;
         }
@@ -120,93 +96,75 @@ export class KuaishouCrawler extends AbstractCrawler {
       try {
         const videos: any[] = [];
         const seenIds = new Set<string>();
-
-        const addFeeds = (feeds: any[]) => {
-          if (!feeds) return;
+        const query = `
+          fragment photoFields on PhotoEntity {
+            id caption originCaption likeCount realLikeCount viewCount commentCount
+            coverUrl coverUrls { url } timestamp
+          }
+          fragment recoPhotoFields on recoPhotoEntity {
+            id caption originCaption likeCount realLikeCount viewCount commentCount
+            coverUrl coverUrls { url } timestamp
+          }
+          query visionSearchPhoto($keyword: String, $pcursor: String, $searchSessionId: String, $page: String) {
+            visionSearchPhoto(keyword: $keyword, pcursor: $pcursor, searchSessionId: $searchSessionId, page: $page) {
+              result searchSessionId pcursor
+              feeds {
+                author { id name }
+                photo { ...photoFields ...recoPhotoFields }
+              }
+            }
+          }`;
+        let pageNumber = Math.max(1, activeConfig.START_PAGE || 1);
+        let searchSessionId = '';
+        const maxPages = Math.max(1, Math.ceil(activeConfig.CRAWLER_MAX_NOTES_COUNT / 20));
+        for (let requestIndex = 0; requestIndex < maxPages && videos.length < activeConfig.CRAWLER_MAX_NOTES_COUNT; requestIndex++) {
+          const payload = await this.page!.evaluate(async ({ query, keyword, pcursor, searchSessionId }) => {
+            const response = await fetch('/graphql', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+              body: JSON.stringify({
+                operationName: 'visionSearchPhoto',
+                variables: { keyword, pcursor, page: 'search', searchSessionId },
+                query,
+              }),
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+          }, { query, keyword, pcursor: String(pageNumber), searchSessionId });
+          const result = payload?.data?.visionSearchPhoto;
+          if (!result || result.result !== 1) {
+            throw new Error(`快手搜索接口拒绝请求（result=${result?.result ?? 'unknown'}），登录状态可能已失效`);
+          }
+          const feeds = Array.isArray(result.feeds) ? result.feeds : [];
+          console.log(`[KS] GraphQL search page ${pageNumber}: ${feeds.length} feeds`);
           for (const feed of feeds) {
-            const photo = feed.photo;
-            const author = feed.author;
-            if (photo && photo.id && !seenIds.has(photo.id)) {
-              seenIds.add(photo.id);
-              
-              // Extract first cover URL from coverUrls if coverUrl is empty
-              let cover = photo.coverUrl || '';
-              if (!cover && photo.coverUrls && photo.coverUrls[0]) {
-                cover = photo.coverUrls[0].url || '';
-              }
-
-              videos.push({
-                video_id: photo.id,
-                title: photo.caption || photo.originCaption || '',
-                desc: photo.caption || photo.originCaption || '',
-                video_url: `https://www.kuaishou.com/short-video/${photo.id}`,
-                video_cover_url: cover,
-                liked_count: String(photo.realLikeCount || photo.likeCount || '0'),
-                viewd_count: String(photo.viewCount || '0'),
-                comment_count: String(photo.commentCount || '0'),
-                nickname: author ? author.name : '',
-                creator_hash: author ? author.id : '',
-                create_time: photo.timestamp ? Math.floor(photo.timestamp / 1000) : Math.floor(Date.now() / 1000),
-              });
-            }
+            const photo = feed?.photo;
+            const author = feed?.author;
+            if (!photo?.id || seenIds.has(photo.id)) continue;
+            seenIds.add(photo.id);
+            videos.push({
+              video_id: photo.id,
+              title: photo.caption || photo.originCaption || '',
+              desc: photo.caption || photo.originCaption || '',
+              video_url: `https://www.kuaishou.com/short-video/${photo.id}`,
+              video_cover_url: photo.coverUrl || photo.coverUrls?.[0]?.url || '',
+              liked_count: String(photo.realLikeCount || photo.likeCount || '0'),
+              viewd_count: String(photo.viewCount || '0'),
+              comment_count: String(photo.commentCount || '0'),
+              nickname: author?.name || '',
+              creator_hash: author?.id || '',
+              create_time: photo.timestamp ? Math.floor(Number(photo.timestamp) / 1000) : 0,
+            });
           }
-        };
-
-        // 1. Set up network interception for subsequent scrolled pages
-        const responseHandler = async (response: any) => {
-          if (response.url().includes('/graphql')) {
-            try {
-              const req = response.request();
-              const postData = req.postData();
-              if (postData && postData.includes('visionSearchPhoto')) {
-                const text = await response.text();
-                const json = JSON.parse(text);
-                const feeds = json.data?.visionSearchPhoto?.feeds || [];
-                console.log(`[KS] Intercepted GraphQL page: ${feeds.length} feeds`);
-                addFeeds(feeds);
-              }
-            } catch (err: any) {
-              // Ignore parsing errors (e.g. aborted requests)
-            }
-          }
-        };
-
-        this.page!.on('response', responseHandler);
-
-        // 2. Navigate to search page
-        const searchUrl = `https://www.kuaishou.com/search/video?searchKey=${encodeURIComponent(keyword)}`;
-        await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-        await this.page!.waitForTimeout(3000);
-
-        // 3. Extract initial SSR page feeds from window.INIT_STATE
-        const initialFeeds = await this.page!.evaluate(() => {
-          if (!(window as any).INIT_STATE) return [];
-          const decoded: any = {};
-          // Decode Caesar cipher key names (shift -1 charcode)
-          for (const [k, v] of Object.entries((window as any).INIT_STATE)) {
-            const dk = k.split('').map(c => String.fromCharCode(c.charCodeAt(0) - 1)).join('');
-            decoded[dk] = v;
-          }
-          const searchFeedKey = Object.keys(decoded).find(k => k.includes('search/feed'));
-          return decoded[searchFeedKey || '']?.feeds || [];
-        });
-        console.log(`[KS] Extracted initial SSR page: ${initialFeeds.length} feeds`);
-        addFeeds(initialFeeds);
-
-        // 4. Scroll to trigger client-side GraphQL requests to fetch more pages if needed
-        let scrollAttempts = 0;
-        const maxScrolls = Math.max(1, Math.ceil(activeConfig.CRAWLER_MAX_NOTES_COUNT / 20) - 1);
-        while (videos.length < activeConfig.CRAWLER_MAX_NOTES_COUNT && scrollAttempts < maxScrolls) {
-          console.log(`[KS] Scrolling to load next page (attempt ${scrollAttempts + 1}/${maxScrolls})...`);
-          await this.page!.evaluate(() => window.scrollBy(0, document.body.scrollHeight));
-          await this.page!.waitForTimeout(3000);
-          scrollAttempts++;
+          if (!feeds.length) break;
+          searchSessionId = result.searchSessionId || searchSessionId;
+          pageNumber++;
+          await this.humanDelay(this.page!);
         }
 
-        // Clean up response listener
-        this.page!.off('response', responseHandler);
-
         console.log(`[KS] Found ${videos.length} videos. Ingesting...`);
+        if (!videos.length) throw new Error(`快手未返回“${keyword}”的搜索结果`);
         let count = 0;
         
         for (const v of videos) {
@@ -232,10 +190,11 @@ export class KuaishouCrawler extends AbstractCrawler {
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(v.video_id);
           count++;
           
-          await this.page!.waitForTimeout(activeConfig.CRAWLER_MAX_SLEEP_SEC * 1000);
+          await this.humanDelay(this.page!);
         }
       } catch (err: any) {
         console.error(`[KS] Search error for keyword ${keyword}:`, err.message);
+        throw err;
       }
     }
   }
