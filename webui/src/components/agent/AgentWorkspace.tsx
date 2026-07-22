@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -197,10 +197,15 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
   )
 }
 
-export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void }) {
+type AgentWorkspaceProps = {
+  selectedId: string | null
+  onSelectedIdChange: Dispatch<SetStateAction<string | null>>
+  onOpenResults: (context: { threadId: string; planId: string }) => void
+}
+
+export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, onOpenResults }: AgentWorkspaceProps) {
   const client = useQueryClient()
   useLogWebSocket()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
@@ -460,6 +465,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     () => (threadsQuery.data || []).filter((thread) => ['queued', 'running'].includes(thread.plan_status || '')),
     [threadsQuery.data],
   )
+  const isCollecting = (threadsQuery.data || []).some((thread) => thread.plan_status === 'running')
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
   const modelReady = Boolean(modelProfileQuery.data?.apiKeyConfigured && modelProfileQuery.data.connectionVerified && !modelProfileQuery.data.lastError)
   const modelUnavailableText = modelProfileQuery.data?.lastError
@@ -626,7 +632,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
           <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1></div>
           <div className="flex items-center gap-1">
-            <Button
+            {isCollecting && <Button
               size="icon"
               variant="ghost"
               className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40' : 'text-cyber-text-muted hover:text-cyber-text-primary'}`}
@@ -637,7 +643,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
               aria-pressed={browserWindowQuery.data?.visible}
             >
               {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : browserWindowQuery.data?.visible ? <Eye className="h-4 w-4 text-cyber-neon-cyan" /> : <EyeOff className="h-4 w-4" />}
-            </Button>
+            </Button>}
             <Button className="md:hidden" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}</Button>
             {selectedId && <Button
               size="icon"
@@ -759,6 +765,9 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
         </div>
 
         {activePlan ? (() => {
+          const allPlans = threadQuery.data?.plans || [activePlan]
+          const currentRound = allPlans.find((plan) => plan.plan_id === activePlan.plan_id)?.round_number || allPlans.length
+          const previousPlans = allPlans.filter((plan) => plan.plan_id !== activePlan.plan_id).slice().reverse()
           const totalItems = activePlan.stats?.content_count ?? activePlan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
           const isPending = activePlan.status === 'awaiting_confirmation'
           const isRunning = ['queued', 'running'].includes(activePlan.status)
@@ -778,7 +787,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
               {/* 总数据汇总卡片 */}
               <div className="rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 shadow-sm">
                 <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                  <span>{isPending ? '待确认采集范围' : isRunning ? '当前已采集' : '已采集数据总量'}</span>
+                  <span>第 {currentRound} 轮 · {isPending ? '待确认采集范围' : isRunning ? '当前已采集' : '已采集数据总量'}</span>
                   <span className="font-mono">{activePlan.steps.length} 平台 · {activePlan.plan.keywords.length} 词</span>
                 </div>
                 <div className="mt-2 flex items-baseline gap-2">
@@ -846,7 +855,9 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
               {/* 动作区 */}
               <div className="space-y-2 pt-1 border-t border-cyber-border-subtle">
                 {isPending ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />确认并开始</Button> : null}
-                {totalItems > 0 ? <Button variant="outline" className="w-full justify-between h-9 text-xs" onClick={onOpenResults}>
+                {totalItems > 0 ? <Button variant="outline" className="w-full justify-between h-9 text-xs" onClick={() => {
+                  if (selectedId) onOpenResults({ threadId: selectedId, planId: activePlan.plan_id })
+                }}>
                   <span className="flex items-center gap-2"><Database className="h-3.5 w-3.5 text-cyber-neon-cyan" />结果看板</span>
                   <span className="flex items-center text-[10px] text-cyber-text-muted">{totalItems} 条 <ChevronRight className="ml-1 h-3.5 w-3.5" /></span>
                 </Button> : null}
@@ -855,6 +866,22 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
                   <CsvDownloadLink planId={activePlan.plan_id} compact />
                 ) : null}
               </div>
+
+              {previousPlans.length ? <div className="border-t border-cyber-border-subtle pt-3">
+                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted"><span>历史采集轮次</span><span>{previousPlans.length} 轮</span></div>
+                <div className="mt-2 space-y-1.5">
+                  {previousPlans.map((plan) => {
+                    const count = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
+                    return <div key={plan.plan_id} className="rounded-lg border border-cyber-border-subtle/60 bg-cyber-bg-panel/30 px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-medium text-cyber-text-primary">第 {plan.round_number || 1} 轮</span>
+                        <span className="text-[9px] text-cyber-text-muted">{STATUS_LABELS[plan.status] || plan.status} · {count} 条</span>
+                      </div>
+                      <p className="mt-1 truncate text-[10px] text-cyber-text-muted" title={plan.plan.keywords.join(' / ')}>{plan.plan.keywords.join(' / ')}</p>
+                    </div>
+                  })}
+                </div>
+              </div> : null}
 
               {/* AI 快捷提问建议 */}
               {isFinished ? (

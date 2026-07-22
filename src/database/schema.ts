@@ -436,6 +436,15 @@ export function initSchema(db: Database): void {
       (id, enabled, auto_capture, auto_recall, capture_mode, recall_limit, updated_at)
     VALUES (1, 1, 1, 1, 'balanced', 8, datetime('now'));
 
+    CREATE TABLE IF NOT EXISTS agent_runtime_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      max_concurrent_crawlers INTEGER NOT NULL DEFAULT 3,
+      updated_at TEXT NOT NULL
+    );
+    INSERT OR IGNORE INTO agent_runtime_settings
+      (id, max_concurrent_crawlers, updated_at)
+    VALUES (1, 3, datetime('now'));
+
     CREATE TABLE IF NOT EXISTS agent_memories (
       memory_id TEXT PRIMARY KEY,
       category TEXT NOT NULL DEFAULT 'context',
@@ -478,9 +487,6 @@ export function initSchema(db: Database): void {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
     );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_plans_one_per_thread
-      ON agent_plans(thread_id);
-
     CREATE TABLE IF NOT EXISTS agent_plan_steps (
       step_id TEXT PRIMARY KEY,
       plan_id TEXT NOT NULL,
@@ -494,6 +500,11 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
   `);
+
+  // Older versions allowed only one collection plan per conversation. A
+  // conversation is now a research task containing multiple immutable rounds.
+  db.exec('DROP INDEX IF EXISTS idx_agent_plans_one_per_thread');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_plans_thread_created ON agent_plans(thread_id, created_at)');
 
   // CREATE TABLE IF NOT EXISTS does not add newly introduced columns to an
   // existing local database, so keep these lightweight migrations idempotent.

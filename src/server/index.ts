@@ -18,6 +18,7 @@ const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
 export interface ServerWindowControls {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
+  releaseCrawlerWindow?: (platform: string, status?: string) => boolean;
   isCrawlerWindowVisible?: (platform?: string) => boolean;
   showCrawlerWindow?: (platform?: string) => boolean;
   hideCrawlerWindow?: (platform?: string) => boolean;
@@ -26,7 +27,8 @@ export interface ServerWindowControls {
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
-  crawlerManager.on('crawler_finished', (data: any) => windowControls.hideCrawlerWindow?.(data.platform));
+  crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
+  crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status));
 
   // Error Handler
   fastify.setErrorHandler((error, request, reply) => {
@@ -284,6 +286,14 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.put('/api/agent/memory-settings', async (request) =>
     agentRepository.updateMemorySettings(request.body as any));
+
+  fastify.get('/api/agent/runtime-settings', async () => agentRepository.getRuntimeSettings());
+
+  fastify.put('/api/agent/runtime-settings', async (request) => {
+    const settings = agentRepository.updateRuntimeSettings(request.body as any);
+    crawlerManager.setMaxConcurrentTasks(settings.maxConcurrentCrawlers);
+    return settings;
+  });
 
   fastify.get('/api/agent/memories', async () => ({ items: agentRepository.listMemories() }));
 

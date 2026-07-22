@@ -27,7 +27,7 @@ function repository() {
   return { db, repository: new AgentRepository(() => db) };
 }
 
-test('creating a plan twice is idempotent for one task', () => {
+test('creating a plan twice reuses the current active round', () => {
   const { db, repository: repo } = repository();
   try {
     const thread = repo.createThread('测试任务');
@@ -37,6 +37,26 @@ test('creating a plan twice is idempotent for one task', () => {
     assert.equal(second.plan_id, first.plan_id);
     assert.equal(second.plan.goal, first.plan.goal);
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_plans WHERE thread_id=?').get(thread.thread_id) as any).count, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('a completed round allows a new collection round in the same task', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('多轮调研任务');
+    const first = repo.createPlan(thread.thread_id, plan({ keywords: ['第一轮'] }));
+    repo.updatePlanStatus(first.plan_id, 'completed');
+
+    const second = repo.createPlan(thread.thread_id, plan({ platforms: ['zhihu'], keywords: ['第二轮'] }));
+    const updated = repo.getThread(thread.thread_id);
+
+    assert.notEqual(second.plan_id, first.plan_id);
+    assert.equal(updated.plan.plan_id, second.plan_id);
+    assert.deepEqual(updated.plans.map((item: any) => item.round_number), [1, 2]);
+    assert.deepEqual(updated.plans.map((item: any) => item.plan.keywords), [['第一轮'], ['第二轮']]);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_plans WHERE thread_id=?').get(thread.thread_id) as any).count, 2);
   } finally {
     db.close();
   }
@@ -85,6 +105,9 @@ test('schema migration adds title controls to an existing conversation table', (
     initSchema(db);
     const columns = db.prepare('PRAGMA table_info(agent_threads)').all() as Array<{ name: string }>;
     assert.equal(columns.some((column) => column.name === 'title_source'), true);
+    const planIndexes = db.prepare('PRAGMA index_list(agent_plans)').all() as Array<{ name: string; unique: number }>;
+    assert.equal(planIndexes.some((index) => index.name === 'idx_agent_plans_one_per_thread'), false);
+    assert.equal(planIndexes.some((index) => index.name === 'idx_agent_plans_thread_created' && index.unique === 0), true);
     assert.equal(columns.some((column) => column.name === 'title_locked'), true);
   } finally {
     db.close();
@@ -176,6 +199,18 @@ test('memory settings and permanent memories are stored locally', () => {
     repo.deleteThread(thread.thread_id);
     assert.equal(repo.listMemories().length, 1, 'deleting a conversation must not delete permanent memory');
     assert.equal(repo.listMemories()[0].source_thread_id, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('runtime settings persist and clamp the global crawler limit', () => {
+  const { db, repository: repo } = repository();
+  try {
+    assert.deepEqual(repo.getRuntimeSettings(), { maxConcurrentCrawlers: 3 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 5 }), { maxConcurrentCrawlers: 5 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 99 }), { maxConcurrentCrawlers: 5 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 0 }), { maxConcurrentCrawlers: 1 });
   } finally {
     db.close();
   }
