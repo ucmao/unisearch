@@ -1,11 +1,11 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
-import { inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
-import { inferAnalysisRevision, normalizeAnalysisGoals } from './ResearchAnalysis';
+import { normalizeAnalysisGoals } from './ResearchAnalysis';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -47,9 +47,15 @@ function normalizePlan(input: any, userText: string): ResearchPlan {
     ? input.analysisSource
     : suppliedAnalysis ? 'ai' : 'fallback';
 
-  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = ['quick', 'standard', 'deep', 'custom'].includes(String(input?.collectionDepth))
-    ? input.collectionDepth
-    : inferCollectionDepth(userText);
+  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = input?.collectSubComments === true
+    ? 'deep'
+    : input?.collectComments === false
+      ? 'quick'
+      : input?.collectComments === true
+        ? 'standard'
+        : ['quick', 'standard', 'deep', 'custom'].includes(String(input?.collectionDepth))
+          ? input.collectionDepth
+          : inferCollectionDepth(userText);
 
   let collectComments = input?.collectComments !== undefined ? Boolean(input.collectComments) : true;
   let collectSubComments = Boolean(input?.collectSubComments);
@@ -93,6 +99,13 @@ function isAnalysisIntent(text: string) {
 }
 
 function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPlan {
+  const collectionDepth = patch.collectSubComments === true
+    ? 'deep'
+    : patch.collectComments === false
+      ? 'quick'
+      : patch.collectComments === true
+        ? 'standard'
+        : patch.collectionDepth || base.collectionDepth;
   return {
     ...base,
     ...patch,
@@ -100,43 +113,10 @@ function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPl
     keywords: Array.isArray(patch.keywords) ? patch.keywords : base.keywords,
     targets: Array.isArray(patch.targets) ? patch.targets : base.targets,
     connectorOptions: patch.connectorOptions && typeof patch.connectorOptions === 'object' ? patch.connectorOptions : base.connectorOptions,
+    collectionDepth,
     analysis: Array.isArray(patch.analysis) ? patch.analysis : base.analysis,
     outputs: Array.isArray(patch.outputs) ? patch.outputs : base.outputs,
   };
-}
-
-function inferPlanRevision(text: string, base: ResearchPlan): Partial<ResearchPlan> | null {
-  const patch: Partial<ResearchPlan> = {};
-  const analysis = inferAnalysisRevision(text, base);
-  if (analysis) {
-    patch.analysis = analysis;
-    patch.analysisSource = 'user';
-  }
-  if (/关键词/i.test(text)) {
-    const keywords = inferResearchKeywords(text);
-    if (keywords.length) patch.keywords = keywords;
-  }
-
-  const mentionedPlatforms = inferResearchPlatforms(text);
-  if (mentionedPlatforms.length) {
-    if (/去掉|删除|移除|不要/.test(text)) {
-      patch.platforms = base.platforms.filter((platform) => !mentionedPlatforms.includes(platform));
-    } else if (/加上|增加|添加|再加|也要/.test(text)) {
-      patch.platforms = Array.from(new Set([...base.platforms, ...mentionedPlatforms]));
-    } else {
-      patch.platforms = mentionedPlatforms;
-    }
-  }
-
-  if (/(?:不要|关闭|不采集).*(?:评论|留言)/.test(text)) patch.collectComments = false;
-  else if (/(?:开启|打开|采集|需要).*(?:评论|留言)/.test(text)) patch.collectComments = true;
-  if (/(?:不要|关闭|不采集).*(?:二级评论|子评论|回复)/.test(text)) patch.collectSubComments = false;
-  else if (/(?:开启|打开|采集|需要).*(?:二级评论|子评论|回复)/.test(text)) patch.collectSubComments = true;
-  if (/后台|无头/.test(text)) patch.headless = true;
-  else if (/可见|显示浏览器|打开浏览器/.test(text)) patch.headless = false;
-  const page = text.match(/(?:第|从)?\s*(\d{1,2})\s*页/);
-  if (page) patch.startPage = Number(page[1]);
-  return Object.keys(patch).length ? patch : null;
 }
 
 function conversationalTurnsSinceReminder(messages: any[]): number {
@@ -340,15 +320,9 @@ export class AgentService {
       previousUserText: lastUserMessage?.content,
     });
     let decision: AgentDecision;
-    const deterministicRevision = localDecision.action === 'revise_plan' && latest?.status === 'awaiting_confirmation'
-      ? inferPlanRevision(content, latest.plan)
-      : null;
-
-    if (deterministicRevision) {
-      decision = { action: 'revise_plan', reply: '已按你的要求更新采集计划，请确认后执行。', plan: deterministicRevision };
-    } else if (['model_info', 'execute', 'stop', 'status', 'analyze', 'export', 'clarify', 'create_plan'].includes(localDecision.action)) {
+    if (localDecision.action === 'model_info') {
       decision = localDecision;
-    } else if (localDecision.action === 'chat') {
+    } else if (localDecision.action === 'chat' && ((attachments.length > 0 || taskReferences.length > 0) || (!latest && isSimpleConversation(content)))) {
       try {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = updatedThread.messages
@@ -375,20 +349,41 @@ export class AgentService {
         return agentRepository.getThread(threadId);
       }
     } else {
+      const updatedThread = agentRepository.getThread(threadId);
+      const messages = updatedThread.messages
+        .filter((message: any) => ['user', 'assistant'].includes(message.role))
+        .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
       try {
-        const updatedThread = agentRepository.getThread(threadId);
-        const messages = updatedThread.messages
-          .filter((message: any) => ['user', 'assistant'].includes(message.role))
-          .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null);
-        if (localDecision.action === 'clarify' && ['create_plan', 'revise_plan'].includes(decision.action)) decision = localDecision;
+        if (localDecision.action === 'create_plan' && decision.action === 'chat') {
+          const generated = await modelService.createPlan(messages, planningText);
+          decision = { action: 'create_plan', reply: '', plan: generated };
+        }
       } catch (error: any) {
-        const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
-        agentRepository.addMessage(threadId, 'assistant', 'status', `AI 服务连接失败：${reason}\n\n本次没有生成 AI 回复，请到“模型设置”检查配置并测试连接。`, {
-          action: 'model_error',
-          error: reason,
-        });
-        return agentRepository.getThread(threadId);
+        if (localDecision.action === 'create_plan') {
+          try {
+            const generated = await modelService.createPlan(messages, planningText);
+            decision = { action: 'create_plan', reply: '', plan: generated };
+          } catch (planError: any) {
+            const reason = modelService.getRuntimeStatus().lastError || planError.message || error.message || '未知错误';
+            agentRepository.addMessage(threadId, 'assistant', 'status', `AI 计划解析失败：${reason}\n\n本次没有创建或执行任何任务，请重新描述采集平台和关键词后再试。`, {
+              action: 'model_error', error: reason,
+            });
+            return agentRepository.getThread(threadId);
+          }
+        } else if (localDecision.action === 'clarify') {
+          decision = localDecision;
+        } else if (localDecision.action === 'status') {
+          // Status is read-only, so the deterministic result is a safe fallback
+          // when the model cannot return a valid structured decision.
+          decision = localDecision;
+        } else {
+          const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
+          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 服务连接失败：${reason}\n\n本次没有生成 AI 回复，请到“模型设置”检查配置并测试连接。`, {
+            action: 'model_error', error: reason,
+          });
+          return agentRepository.getThread(threadId);
+        }
       }
     }
 
@@ -535,13 +530,7 @@ export class AgentService {
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         try {
           const generated = await modelService.createPlan(messages, planningText);
-          const explicitPlatforms = inferResearchPlatforms(planningText);
-          const explicitKeywords = /关键词/i.test(planningText) ? inferResearchKeywords(planningText) : [];
-          plan = normalizePlan({
-            ...generated,
-            platforms: explicitPlatforms.length ? explicitPlatforms : generated.platforms,
-            keywords: explicitKeywords.length ? explicitKeywords : generated.keywords,
-          }, planningText);
+          plan = normalizePlan(generated, planningText);
         }
         catch (error: any) {
           const fallbackKeywords = inferResearchKeywords(planningText);
@@ -576,12 +565,20 @@ export class AgentService {
     const capabilityLabel = plan.platforms
       .map((platform) => getConnectorManifest(platform)?.capabilities.find((capability) => capability.id === (plan.capability || 'keyword_search'))?.label)
       .find(Boolean) || '关键词搜索';
-    const lead = decision.reply.trim() || (decision.action === 'revise_plan' ? '我已按你的要求更新采集计划。' : '我已根据你的目标生成采集计划。');
-    const messageKind = decision.action === 'revise_plan' ? 'text' : 'plan';
+    const lead = decision.action === 'revise_plan'
+      ? '已按你的补充更新采集范围。'
+      : '已识别并创建待确认的采集计划。';
+    const messageKind = 'plan';
     const targetDescription = plan.capability === 'keyword_search'
       ? plan.keywords.join('、')
       : (plan.targets || []).join('、') || '待识别目标';
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n将通过 ${platformNames} 执行“${capabilityLabel}”：${targetDescription}。确认后才会开始执行。`, { plan_id: created.plan_id, action: decision.action });
+    const depth = plan.collectionDepth || (plan.collectSubComments ? 'deep' : plan.collectComments ? 'standard' : 'quick');
+    const depthSummary = depth === 'deep'
+      ? '每个关键词最多 100 条，并采集一级评论和回复评论'
+      : depth === 'standard'
+        ? '每个关键词最多 50 条，并采集一级评论'
+        : '每个关键词最多 30 条，不采集评论';
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}\n范围：${depthSummary}\n\n如果范围没问题，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
     agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
   }

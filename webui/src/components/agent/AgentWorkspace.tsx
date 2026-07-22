@@ -78,38 +78,31 @@ const DEPTH_LABELS: Record<string, string> = {
   custom: '⚙️ 自定义',
 }
 
-function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
-  plan: AgentPlan; onExecute: () => void; executing: boolean; onOpenResults: () => void
-  onUpdateAnalysis: (analysis: string[]) => void
+// Conversation stays text-first. The legacy inline card is kept behind a
+// feature flag for comparison, while the right task panel is the source of truth.
+const SHOW_INLINE_PLAN_CARDS = false
+
+function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
+  plan: AgentPlan
+  onExecute: () => void
+  executing: boolean
   onUpdateKeywords: (keywords: string[]) => void
   onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
   updatingPlan: boolean
 }) {
-  const done = plan.steps.filter((step) => step.status === 'completed').length
-  const progress = plan.steps.length ? Math.round(done / plan.steps.length * 100) : 0
-  const canExecute = ['awaiting_confirmation', 'failed', 'partially_completed'].includes(plan.status)
-  const [editingAnalysis, setEditingAnalysis] = useState(false)
-  const [analysisDraft, setAnalysisDraft] = useState(plan.plan.analysis)
-  const [analysisInput, setAnalysisInput] = useState('')
-
   const [editingKeywords, setEditingKeywords] = useState(false)
   const [keywordsDraft, setKeywordsDraft] = useState(plan.plan.keywords)
   const [keywordInput, setKeywordInput] = useState('')
-
-  useEffect(() => {
-    if (!editingAnalysis) setAnalysisDraft(plan.plan.analysis)
-  }, [plan.plan.analysis, editingAnalysis])
+  const isPending = plan.status === 'awaiting_confirmation'
+  const isActive = ['queued', 'running'].includes(plan.status)
+  const isFinished = ['completed', 'partially_completed'].includes(plan.status)
+  const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
+  const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
+  const depth = plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')
 
   useEffect(() => {
     if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
   }, [plan.plan.keywords, editingKeywords])
-
-  const addAnalysisGoal = () => {
-    const value = analysisInput.trim()
-    if (!value || analysisDraft.includes(value) || analysisDraft.length >= 8) return
-    setAnalysisDraft((current) => [...current, value])
-    setAnalysisInput('')
-  }
 
   const addKeyword = () => {
     const value = keywordInput.trim()
@@ -118,111 +111,64 @@ function PlanCard({ plan, onExecute, executing, onOpenResults, onUpdateAnalysis,
     setKeywordInput('')
   }
 
+  if (!isPending) {
+    return (
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {isActive ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-cyber-neon-cyan" /> : isFinished ? <CheckCircle2 className="h-4 w-4 shrink-0 text-cyber-neon-green" /> : <XCircle className="h-4 w-4 shrink-0 text-cyber-neon-pink" />}
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-cyber-text-primary">
+              {isActive ? '采集任务正在执行' : isFinished ? `已采集 ${totalItems} 条内容` : STATUS_LABELS[plan.status] || plan.status}
+            </p>
+            <p className="mt-0.5 text-[10px] text-cyber-text-muted">
+              {isActive ? '各平台实时进度和异常信息请查看右侧任务大盘' : `${completedPlatforms}/${plan.steps.length} 个平台完成，详细分布和结果操作在右侧`}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-3 overflow-hidden rounded-xl border border-cyber-neon-cyan/25 bg-cyber-bg-secondary/55">
-      <div className="border-b border-cyber-border-subtle px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-cyber-neon-cyan" /><span className="text-sm font-medium">采集执行计划</span></div>
-          <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[plan.status] || plan.status}</Badge>
-        </div>
-        <p className="mt-2 text-xs leading-relaxed text-cyber-text-secondary">{plan.plan.goal}</p>
+      <div className="flex items-center justify-between gap-3 border-b border-cyber-border-subtle px-4 py-3">
+        <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-cyber-neon-cyan" /><span className="text-sm font-medium">确认采集范围</span></div>
+        <Badge variant="outline" className="text-[10px]">等待确认</Badge>
       </div>
-      <div className="grid gap-3 p-4 sm:grid-cols-2">
-        <div>
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{plan.plan.capability && plan.plan.capability !== 'keyword_search' ? '目标' : '关键词'}</p>
-            {plan.status === 'awaiting_confirmation' && (!plan.plan.capability || plan.plan.capability === 'keyword_search') && !editingKeywords ? (
-              <button type="button" onClick={() => setEditingKeywords(true)} className="text-[10px] text-cyber-text-muted hover:text-cyber-neon-cyan">编辑</button>
-            ) : null}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {(editingKeywords ? keywordsDraft : (plan.plan.capability && plan.plan.capability !== 'keyword_search' ? plan.plan.targets || [] : plan.plan.keywords)).map((item) => (
-              <Badge key={item} variant="outline" className="gap-1">
-                {item}
-                {editingKeywords ? (
-                  <button type="button" onClick={() => setKeywordsDraft((current) => current.filter((k) => k !== item))} aria-label={`删除关键词 ${item}`}>
-                    <X className="h-3 w-3" />
-                  </button>
-                ) : null}
-              </Badge>
-            ))}
-          </div>
-          {editingKeywords ? (
-            <div className="mt-2 space-y-2">
-              <div className="flex gap-2">
-                <Input value={keywordInput} maxLength={40} className="h-8 text-xs" placeholder="添加关键词" onChange={(event) => setKeywordInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addKeyword() } }} />
-                <Button size="sm" variant="outline" className="h-8" onClick={addKeyword} disabled={!keywordInput.trim() || keywordsDraft.length >= 12}><Plus /></Button>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button size="sm" variant="ghost" className="h-7" onClick={() => { setKeywordsDraft(plan.plan.keywords); setEditingKeywords(false) }}>取消</Button>
-                <Button size="sm" className="h-7" disabled={!keywordsDraft.length || updatingPlan} onClick={() => { onUpdateKeywords(keywordsDraft); setEditingKeywords(false) }}>
-                  {updatingPlan ? <Loader2 className="animate-spin" /> : null}保存
-                </Button>
-              </div>
+      <div className="space-y-3 px-4 py-3 text-xs">
+        <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
+          <span className="text-cyber-text-muted">采集平台</span>
+          <div className="flex flex-wrap gap-1.5">{plan.plan.platforms.map((platform) => <Badge key={platform} variant="outline">{PLATFORM_LABELS[platform] || platform}</Badge>)}</div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
+          <div className="flex items-center justify-between gap-2"><span className="text-cyber-text-muted">关键词</span>{!editingKeywords ? <button type="button" onClick={() => setEditingKeywords(true)} className="text-[10px] text-cyber-neon-cyan">编辑</button> : null}</div>
+          <div>
+            <div className="flex flex-wrap gap-1.5">
+              {(editingKeywords ? keywordsDraft : plan.plan.keywords).map((item) => <Badge key={item} variant="outline" className="gap-1">{item}{editingKeywords ? <button type="button" onClick={() => setKeywordsDraft((current) => current.filter((keyword) => keyword !== item))} aria-label={`删除关键词 ${item}`}><X className="h-3 w-3" /></button> : null}</Badge>)}
             </div>
-          ) : null}
+            {editingKeywords ? <div className="mt-2 space-y-2">
+              <div className="flex gap-2"><Input value={keywordInput} maxLength={40} className="h-8 text-xs" placeholder="添加关键词" onChange={(event) => setKeywordInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addKeyword() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addKeyword} disabled={!keywordInput.trim() || keywordsDraft.length >= 12}><Plus /></Button></div>
+              <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setKeywordsDraft(plan.plan.keywords); setEditingKeywords(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!keywordsDraft.length || updatingPlan} onClick={() => { onUpdateKeywords(keywordsDraft); setEditingKeywords(false) }}>{updatingPlan ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
+            </div> : null}
+          </div>
         </div>
-        <div>
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">分析目标{plan.plan.analysisSource === 'fallback' ? ' · 默认推荐' : plan.plan.analysisSource === 'user' ? ' · 已自定义' : ''}</p>
-            {plan.status === 'awaiting_confirmation' && !editingAnalysis ? <button type="button" onClick={() => setEditingAnalysis(true)} className="text-[10px] text-cyber-text-muted hover:text-cyber-neon-cyan">编辑</button> : null}
-          </div>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {analysisDraft.map((item) => <Badge key={item} variant="outline" className="gap-1">
-              {item}
-              {editingAnalysis ? <button type="button" onClick={() => setAnalysisDraft((current) => current.filter((goal) => goal !== item))} aria-label={`删除分析目标 ${item}`}><X className="h-3 w-3" /></button> : null}
-            </Badge>)}
-          </div>
-          {editingAnalysis ? <div className="mt-2 space-y-2">
-            <div className="flex gap-2"><Input value={analysisInput} maxLength={40} className="h-8 text-xs" placeholder="添加分析目标" onChange={(event) => setAnalysisInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addAnalysisGoal() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addAnalysisGoal} disabled={!analysisInput.trim() || analysisDraft.length >= 8}><Plus /></Button></div>
-            <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setAnalysisDraft(plan.plan.analysis); setEditingAnalysis(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!analysisDraft.length || updatingPlan} onClick={() => { onUpdateAnalysis(analysisDraft); setEditingAnalysis(false) }}>{updatingPlan ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
-          </div> : null}
+        <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
+          <span className="text-cyber-text-muted">采集深度</span>
+          <div className="flex flex-wrap gap-1.5">{(['quick', 'standard', 'deep'] as const).map((item) => <button key={item} type="button" disabled={updatingPlan} onClick={() => onUpdateDepth(item)} className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${depth === item ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}>{DEPTH_LABELS[item]}</button>)}</div>
         </div>
+        {plan.plan.analysisSource !== 'fallback' && plan.plan.analysis.length ? <div className="grid gap-2 sm:grid-cols-[72px_1fr]"><span className="text-cyber-text-muted">分析方向</span><p className="leading-5 text-cyber-text-secondary">{plan.plan.analysis.join('、')} <span className="text-[10px] text-cyber-text-muted">（根据对话提炼，不影响采集执行）</span></p></div> : null}
+        <p className="border-t border-cyber-border-subtle pt-2 text-[10px] text-cyber-text-muted">需要更换平台或补充条件，可以直接在对话中告诉我。</p>
       </div>
-      <div className="space-y-2 border-t border-cyber-border-subtle px-4 py-3">
-        {plan.steps.map((step) => (
-          <div key={step.step_id} className="flex items-center gap-3 text-xs">
-            <StepIcon status={step.status} />
-            <span className="w-20 text-cyber-text-primary">{PLATFORM_LABELS[step.platform] || step.platform}</span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-cyber-bg-tertiary"><div className={`h-full rounded-full ${step.status === 'completed' ? 'w-full bg-cyber-neon-green' : step.status === 'running' ? 'w-2/3 animate-pulse bg-cyber-neon-cyan' : step.status === 'failed' ? 'w-full bg-cyber-neon-pink' : 'w-0'}`} /></div>
-            <span className="w-14 text-right text-[10px] text-cyber-text-muted">{STATUS_LABELS[step.status] || step.status}</span>
-          </div>
-        ))}
-        {['queued', 'running'].includes(plan.status) ? <p className="pt-1 text-[10px] text-cyber-text-muted">已完成 {done}/{plan.steps.length} · 本机最多同时执行3个平台</p> : null}
+      <div className="flex justify-end border-t border-cyber-border-subtle bg-cyber-bg-tertiary/20 px-4 py-3">
+        <Button size="sm" onClick={onExecute} disabled={executing}><Play />确认并开始</Button>
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-cyber-border-subtle bg-cyber-bg-tertiary/20 px-4 py-3">
-        {plan.status === 'awaiting_confirmation' ? (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] text-cyber-text-muted">采集深度：</span>
-            {(['quick', 'standard', 'deep'] as const).map((d) => {
-              const active = (plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')) === d
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  disabled={updatingPlan}
-                  onClick={() => onUpdateDepth(d)}
-                  className={`rounded-md px-2 py-0.5 text-[10px] transition-colors border ${active ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}
-                >
-                  {DEPTH_LABELS[d]}
-                </button>
-              )
-            })}
-          </div>
-        ) : (
-          <span className="text-[10px] text-cyber-text-muted">深度：{DEPTH_LABELS[plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')]}</span>
-        )}
-        {canExecute ? <Button size="sm" onClick={onExecute} disabled={executing}><Play />{plan.status === 'awaiting_confirmation' ? '确认并执行' : '重试失败步骤'}</Button> : null}
-        {['completed', 'partially_completed'].includes(plan.status) ? <div className="flex items-center gap-2"><Button size="sm" variant="outline" onClick={onOpenResults}><Database />查看结果</Button><CsvDownloadLink planId={plan.plan_id} compact /></div> : null}
-      </div>
-      {plan.status === 'running' ? <div className="h-0.5 bg-cyber-bg-tertiary"><div className="h-full bg-cyber-neon-cyan transition-all" style={{ width: `${Math.max(8, progress)}%` }} /></div> : null}
     </div>
   )
 }
 
-function MessageBubble({ message, plan, onExecute, executing, onOpenResults, onUpdateAnalysis, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
-  message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean; onOpenResults: () => void
-  onUpdateAnalysis: (analysis: string[]) => void
+function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
+  message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean
+  showPlanCard: boolean
   onUpdateKeywords: (keywords: string[]) => void
   onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
   updatingPlan: boolean
@@ -242,8 +188,8 @@ function MessageBubble({ message, plan, onExecute, executing, onOpenResults, onU
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
-        {message.kind === 'plan' && plan && message.metadata?.plan_id === plan.plan_id
-          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onOpenResults={onOpenResults} onUpdateAnalysis={onUpdateAnalysis} onUpdateKeywords={onUpdateKeywords} onUpdateDepth={onUpdateDepth} updatingPlan={updatingPlan} /> : null}
+        {SHOW_INLINE_PLAN_CARDS && showPlanCard && plan && message.metadata?.plan_id === plan.plan_id
+          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onUpdateKeywords={onUpdateKeywords} onUpdateDepth={onUpdateDepth} updatingPlan={updatingPlan} /> : null}
         <p className={`mt-1.5 text-[9px] text-cyber-text-muted ${isUser ? 'text-right' : ''}`}>{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
       </div>
       {isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>}
@@ -285,7 +231,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(() => localStorage.getItem('unisearch-right-sidebar-open') !== 'false')
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 250))
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 300))
   const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
   const [activeResize, setActiveResize] = useState<'left' | 'terminal' | 'right' | null>(null)
   const [petCelebrating, setPetCelebrating] = useState(false)
@@ -502,6 +448,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
     setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
   }
   const activePlan = threadQuery.data?.plan || null
+  const latestPlanMessageId = useMemo(() => [...(threadQuery.data?.messages || [])].reverse().find((message) => message.metadata?.plan_id === activePlan?.plan_id && (message.kind === 'plan' || message.metadata?.action === 'revise_plan'))?.message_id || null, [threadQuery.data?.messages, activePlan?.plan_id])
   const filteredThreads = useMemo(() => {
     const query = threadSearchQuery.trim().toLocaleLowerCase()
     if (!query) return threadsQuery.data || []
@@ -725,7 +672,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onOpenResults={onOpenResults} onUpdateAnalysis={(analysis) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { analysis } })} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} />)}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} />)}
                 {isThinking && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
@@ -767,7 +714,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
                   </span>)}
                 </div> : null}
                 <textarea ref={composerInputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-                  placeholder={!selectedId ? '输入问题，或描述想调研的主题…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
+                  placeholder={!selectedId ? '输入问题，或描述想调研的主题…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
                   className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
                 <div className="absolute bottom-3 left-3">
                   <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
@@ -813,9 +760,13 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
 
         {activePlan ? (() => {
           const totalItems = activePlan.stats?.content_count ?? activePlan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
+          const isPending = activePlan.status === 'awaiting_confirmation'
           const isRunning = ['queued', 'running'].includes(activePlan.status)
           const isFinished = ['completed', 'partially_completed'].includes(activePlan.status)
+          const canRetry = ['failed', 'partially_completed'].includes(activePlan.status)
           const keywordsStr = activePlan.plan.keywords.join(' / ')
+          const depth = activePlan.plan.collectionDepth || (activePlan.plan.collectSubComments ? 'deep' : activePlan.plan.collectComments ? 'standard' : 'quick')
+          const rangeText = depth === 'deep' ? '深度 · 100 条/词 · 含回复评论' : depth === 'standard' ? '标准 · 50 条/词 · 含一级评论' : '快速 · 30 条/词 · 不含评论'
 
           const handleApplyPrompt = (promptText: string) => {
             setInput(promptText)
@@ -827,20 +778,21 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
               {/* 总数据汇总卡片 */}
               <div className="rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 shadow-sm">
                 <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                  <span>已采集数据总量</span>
+                  <span>{isPending ? '待确认采集范围' : isRunning ? '当前已采集' : '已采集数据总量'}</span>
                   <span className="font-mono">{activePlan.steps.length} 平台 · {activePlan.plan.keywords.length} 词</span>
                 </div>
                 <div className="mt-2 flex items-baseline gap-2">
                   <span className={`text-2xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
                     {totalItems.toLocaleString()}
                   </span>
-                  <span className="text-xs text-cyber-text-secondary">条内容</span>
+                  <span className="text-xs text-cyber-text-secondary">{isPending ? '条（尚未开始）' : '条内容'}</span>
                 </div>
                 {keywordsStr ? (
                   <p className="mt-2 truncate text-[10px] text-cyber-text-muted" title={keywordsStr}>
                     关键词：{keywordsStr}
                   </p>
                 ) : null}
+                <p className="mt-1 text-[10px] text-cyber-text-muted">范围：{rangeText}</p>
               </div>
 
               {/* 分平台采集明细与占比 */}
@@ -884,6 +836,7 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
                             <span className="w-7 text-right font-mono text-[9px] text-cyber-text-muted">{percent}%</span>
                           </div>
                         ) : null}
+                        {step.error_message ? <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={step.error_message}>{step.error_message}</p> : null}
                       </div>
                     )
                   })}
@@ -892,10 +845,12 @@ export function AgentWorkspace({ onOpenResults }: { onOpenResults: () => void })
 
               {/* 动作区 */}
               <div className="space-y-2 pt-1 border-t border-cyber-border-subtle">
-                <Button variant="outline" className="w-full justify-between h-9 text-xs" onClick={onOpenResults}>
+                {isPending ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />确认并开始</Button> : null}
+                {totalItems > 0 ? <Button variant="outline" className="w-full justify-between h-9 text-xs" onClick={onOpenResults}>
                   <span className="flex items-center gap-2"><Database className="h-3.5 w-3.5 text-cyber-neon-cyan" />结果看板</span>
                   <span className="flex items-center text-[10px] text-cyber-text-muted">{totalItems} 条 <ChevronRight className="ml-1 h-3.5 w-3.5" /></span>
-                </Button>
+                </Button> : null}
+                {canRetry ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />重试失败平台</Button> : null}
                 {activePlan.steps.some((step) => step.run_id) ? (
                   <CsvDownloadLink planId={activePlan.plan_id} compact />
                 ) : null}

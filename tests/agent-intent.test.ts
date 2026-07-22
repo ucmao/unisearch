@@ -24,9 +24,9 @@ test('mentioning a platform or asking a normal question does not create a task',
 
 test('concrete collection requests create a plan decision', () => {
   for (const message of [
-    '在小红书搜扫地机器人', '调研华为手机的口碑', '收集关于新能源汽车的评论',
-    '我想了解折叠屏手机', '帮我看看扫地机器人在知乎的讨论', '科莱特教育最近网上口碑怎么样',
-    '看看大家怎么评价 MiniMax M3', '去小红书看看科莱特教育',
+    '在小红书搜扫地机器人', '调研华为手机在全网的口碑', '收集微博上关于新能源汽车的评论',
+    '我想了解各平台的折叠屏手机', '帮我看看扫地机器人在知乎的讨论', '科莱特教育最近全网口碑怎么样',
+    '看看各平台大家怎么评价 MiniMax M3', '去小红书看看科莱特教育',
   ]) {
     assert.equal(hasResearchSubject(message), true, message);
     assert.equal(localIntentDecision(message).action, 'create_plan', message);
@@ -40,6 +40,9 @@ test('fallback keywords contain the subject rather than the whole request', () =
   assert.deepEqual(inferResearchKeywords('帮我在小红书调研一下\n用户补充：华为手机'), ['华为手机']);
   assert.deepEqual(inferResearchKeywords('采集小红书，关键词 科莱特教育'), ['科莱特教育']);
   assert.deepEqual(inferResearchKeywords('关键词改成科莱特集团'), ['科莱特集团']);
+  assert.deepEqual(inferResearchKeywords('我要采集快手 两个关键词 sap sap学习'), ['sap', 'sap学习']);
+  assert.deepEqual(inferResearchKeywords('采集小红书 2个关键词：华为手机 小米手机'), ['华为手机', '小米手机']);
+  assert.deepEqual(inferResearchKeywords('采集关键词 MiniMax M3'), ['MiniMax M3']);
   assert.deepEqual(inferResearchPlatforms('采集小红书和知乎'), ['xhs', 'zhihu']);
   assert.deepEqual(inferResearchPlatforms('解析 https://www.bilibili.com/video/BV1xx411c7mD'), ['bili']);
   assert.deepEqual(inferResearchPlatforms('抓取 https://v.douyin.com/example/ 的评论'), ['dy']);
@@ -50,11 +53,24 @@ test('platform-only collection asks for a subject, then accepts a keyword', () =
   assert.equal(localIntentDecision('采集小红书，关键词 科莱特教育').action, 'create_plan');
 });
 
+test('subject-only collection asks for platforms before creating a plan', () => {
+  const first = localIntentDecision('帮我采集微秒数智相关内容');
+  assert.equal(first.action, 'clarify');
+  assert.deepEqual(first.missingFields, ['platforms']);
+  assert.equal(localIntentDecision('小红书和微博', {
+    awaitingClarification: true,
+    previousUserText: '帮我采集微秒数智相关内容',
+  }).action, 'create_plan');
+  assert.deepEqual(inferResearchPlatforms('全部平台'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']);
+});
+
 test('confirmation only executes a pending plan', () => {
   for (const message of ['开始吧', '就按这个执行吧', '按上面的计划来', '执行这个计划', '直接采集']) {
     assert.equal(localIntentDecision(message, { planStatus: 'awaiting_confirmation' }).action, 'execute', message);
   }
   assert.equal(localIntentDecision('开始吧').action, 'chat');
+  assert.equal(localIntentDecision('执行').action, 'execute');
+  assert.equal(localIntentDecision('开跑').action, 'execute');
 });
 
 test('a direct answer continues a clarification turn', () => {
@@ -71,7 +87,7 @@ test('plan edits and controls respect current state', () => {
 });
 
 test('result count questions inspect the current task instead of creating a plan', () => {
-  for (const message of ['你采集到了多少信息', '一共采集了多少条？', '任务完成了吗', '现在采集进度怎么样']) {
+  for (const message of ['你采集到了多少信息', '一共采集了多少条？', '任务完成了吗', '现在采集进度怎么样', '执行了吗', '开跑了吗']) {
     assert.equal(localIntentDecision(message, { planStatus: 'completed' }).action, 'status', message);
   }
 });
