@@ -1,5 +1,11 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
+import {
+  AbstractCrawler,
+  connectToElectronChromium,
+  getElectronCrawlerPage,
+  notifyLoginRequired,
+  notifyLoginSuccess,
+} from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { dbStore } from '../store';
 import fs from 'fs';
@@ -51,14 +57,20 @@ export class KuaishouCrawler extends AbstractCrawler {
         await this.page!.click('.login-btn, .header-login', { timeout: 3000 });
       } catch {}
 
+      notifyLoginRequired('ks', '快手当前会话未登录，需要在采集浏览器中确认或完成登录');
+
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[KS] Login successful!');
+          notifyLoginSuccess('ks');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (!isLoggedIn) {
+        throw new Error('快手登录等待超时。请在内置采集浏览器中完成登录后重新运行任务。');
       }
     }
   }

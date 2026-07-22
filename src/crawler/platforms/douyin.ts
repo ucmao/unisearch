@@ -3,7 +3,7 @@ import {
   AbstractCrawler,
   connectToElectronChromium,
   getElectronCrawlerPage,
-  notifyLoginQrCodeRequired,
+  notifyLoginRequired,
   notifyLoginSuccess,
   notifyManualVerificationRequired,
   notifyManualVerificationSuccess,
@@ -77,23 +77,7 @@ export class DouyinCrawler extends AbstractCrawler {
       try {
         await this.page!.click('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 3000 });
       } catch {}
-
-      await new Promise((r) => setTimeout(r, 1500));
-      // Capture QR code image / screenshot for UI frontend
-      try {
-        let qrBase64 = '';
-        const qrEl = await this.page!.$('#login-pannel, .login-mask, .login-guide, div[class*="login-container"]');
-        if (qrEl) {
-          const buf = await qrEl.screenshot({ type: 'png' });
-          qrBase64 = `data:image/png;base64,${buf.toString('base64')}`;
-        } else {
-          const buf = await this.page!.screenshot({ type: 'png' });
-          qrBase64 = `data:image/png;base64,${buf.toString('base64')}`;
-        }
-        notifyLoginQrCodeRequired('dy', qrBase64);
-      } catch (err: any) {
-        console.error('[DY] Failed to capture QR code:', err.message);
-      }
+      notifyLoginRequired('dy', '抖音当前会话未登录，需要在采集浏览器中确认或完成登录');
 
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
@@ -119,6 +103,15 @@ export class DouyinCrawler extends AbstractCrawler {
     try {
       const isLoginBtn = await this.page!.isVisible('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 1000 }).catch(() => false);
       if (isLoginBtn) return false;
+    } catch {}
+
+    // Douyin can retain session-looking cookies after the server has invalidated
+    // them. The rendered login wall is authoritative and must win over cookies.
+    try {
+      const bodyText = await this.page!.locator('body').innerText({ timeout: 1500 }).catch(() => '');
+      if (/登录后即可搜索更多精彩视频|扫码登录[\s\S]{0,200}验证码登录/.test(bodyText)) {
+        return false;
+      }
     } catch {}
 
     // 2. Check session cookies
@@ -202,6 +195,42 @@ export class DouyinCrawler extends AbstractCrawler {
     }).catch(() => null);
   }
 
+  private async waitForInteractiveLogin(reason: string): Promise<void> {
+    console.warn(`[DY] Login is required: ${reason}`);
+    notifyLoginRequired('dy', reason);
+    const startTime = Date.now();
+    while (Date.now() - startTime < 120 * 1000) {
+      if (await this.checkLoginState()) {
+        console.log('[DY] Login successful. Resuming crawler...');
+        notifyLoginSuccess('dy');
+        return;
+      }
+      await this.page!.waitForTimeout(1000);
+    }
+    throw new Error('抖音登录等待超时。请点击工作区登录提示，打开采集浏览器完成登录后重试。');
+  }
+
+  private async openSearchPage(keyword: string, allowLoginRetry = true): Promise<DouyinSearchCapture | null> {
+    const searchCapture = this.captureSearchResponse();
+    const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=general`;
+    await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    let capture = await searchCapture;
+    await this.page!.waitForTimeout(2500);
+
+    if (await this.hasManualVerification()) {
+      const verifiedCapture = await this.waitForManualVerification(keyword);
+      if (verifiedCapture) capture = verifiedCapture;
+      await this.page!.waitForTimeout(3000);
+    }
+
+    if (!await this.checkLoginState()) {
+      if (!allowLoginRetry) throw new Error('搜索页显示登录仍未生效，请重新登录后再试');
+      await this.waitForInteractiveLogin(`搜索“${keyword}”时抖音判定当前登录已失效`);
+      return this.openSearchPage(keyword, false);
+    }
+    return capture;
+  }
+
   private async waitForManualVerification(keyword: string): Promise<DouyinSearchCapture | null> {
     console.warn('[DY] Graphical verification detected. Waiting up to 180 seconds for manual completion...');
     notifyManualVerificationRequired('dy', `搜索“${keyword}”需要完成图形验证`);
@@ -275,21 +304,7 @@ export class DouyinCrawler extends AbstractCrawler {
       try {
         // Let Douyin's own page generate the current signed search request. Hand-built
         // requests quickly become invalid when anti-bot parameters change.
-        const searchCapture = this.captureSearchResponse();
-        const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=general`;
-        await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        let capture = await searchCapture;
-        await this.page!.waitForTimeout(2500);
-
-        if (await this.hasManualVerification()) {
-          const verifiedCapture = await this.waitForManualVerification(keyword);
-          if (verifiedCapture) capture = verifiedCapture;
-          await this.page!.waitForTimeout(3000);
-        }
-
-        if (!await this.checkLoginState()) {
-          throw new Error('搜索页显示登录已失效，请重新扫码登录');
-        }
+        const capture = await this.openSearchPage(keyword);
 
         let postsRes: any = capture?.data || null;
         if (capture) {

@@ -5,14 +5,15 @@ import { BrowserLauncher } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
 
 export async function connectToElectronChromium(playwright: Playwright): Promise<BrowserContext> {
-  const cdpUrl = 'http://127.0.0.1:9222';
+  const cdpPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);
+  const cdpUrl = `http://127.0.0.1:${cdpPort}`;
   console.log(`[BaseCrawler] Connecting directly to Electron built-in Chromium via CDP (${cdpUrl})...`);
 
   // Retry to get the WebSocket debugger URL from Electron
   let wsUrl = '';
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      const versionRes = await axios.get('http://127.0.0.1:9222/json/version', { timeout: 2000 });
+      const versionRes = await axios.get(`${cdpUrl}/json/version`, { timeout: 2000 });
       if (versionRes.data && versionRes.data.webSocketDebuggerUrl) {
         wsUrl = versionRes.data.webSocketDebuggerUrl;
         break;
@@ -20,7 +21,7 @@ export async function connectToElectronChromium(playwright: Playwright): Promise
     } catch {}
 
     try {
-      const listRes = await axios.get('http://127.0.0.1:9222/json', { timeout: 2000 });
+      const listRes = await axios.get(`${cdpUrl}/json`, { timeout: 2000 });
       if (Array.isArray(listRes.data) && listRes.data.length > 0) {
         const target = listRes.data.find((t: any) => t.webSocketDebuggerUrl);
         if (target && target.webSocketDebuggerUrl) {
@@ -33,7 +34,7 @@ export async function connectToElectronChromium(playwright: Playwright): Promise
     if (attempt < 4) await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  const urlsToTry = wsUrl ? [wsUrl] : ['ws://127.0.0.1:9222/devtools/browser', cdpUrl];
+  const urlsToTry = wsUrl ? [wsUrl] : [`ws://127.0.0.1:${cdpPort}/devtools/browser`, cdpUrl];
   for (const targetUrl of urlsToTry) {
     try {
       console.log(`[BaseCrawler] Connecting Playwright to Electron CDP target: ${targetUrl}`);
@@ -50,7 +51,7 @@ export async function connectToElectronChromium(playwright: Playwright): Promise
     }
   }
 
-  console.log('[BaseCrawler] Electron CDP port 9222 unavailable. Fallback to persistent browser context.');
+  console.log(`[BaseCrawler] Electron CDP port ${cdpPort} unavailable. Fallback to persistent browser context.`);
   const userDataDir = path.join(
     process.cwd(),
     'browser_data',
@@ -168,6 +169,17 @@ export function notifyLoginQrCodeRequired(platform: string, qrCodeBase64: string
       type: 'LOGIN_QRCODE_REQUIRED',
       platform,
       qrCode: qrCodeBase64,
+    });
+  }
+}
+
+export function notifyLoginRequired(platform: string, reason: string): void {
+  console.log(`[Crawler] Login may be required for ${platform}: ${reason}`);
+  if (process.send) {
+    process.send({
+      type: 'LOGIN_REQUIRED',
+      platform,
+      reason,
     });
   }
 }
