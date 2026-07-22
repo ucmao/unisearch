@@ -10,6 +10,10 @@ const PLATFORM_LABELS: Record<string, string> = {
   wb: '微博',
   tieba: '贴吧',
   zhihu: '知乎',
+  baidu: '百度',
+  bing: '必应中国',
+  so360: '360搜索',
+  sogou: '搜狗搜索',
 };
 
 // Normalized content schema helper
@@ -119,6 +123,16 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     contentType = rawItem.content_type || 'content';
     likes = parseMetric(rawItem.voteup_count);
     comments = parseMetric(rawItem.comment_count);
+  } else if (['baidu', 'bing', 'so360', 'sogou'].includes(platform)) {
+    contentId = rawItem.real_url || rawItem.url || '';
+    title = rawItem.title || '';
+    description = rawItem.snippet || '';
+    creatorName = rawItem.publisher || PLATFORM_LABELS[platform] || platform;
+    creatorId = rawItem.publisher || '';
+    contentUrl = rawItem.real_url || rawItem.url || '';
+    coverUrl = Array.isArray(rawItem.images) ? (rawItem.images[0] || '') : (rawItem.images?.split(',')[0] || '');
+    publishedAt = parseTimestamp(rawItem.publish_time);
+    contentType = 'web_page';
   }
 
   const normalized = {
@@ -683,6 +697,36 @@ export class DatabaseStore {
       addTs,
       lastModifyTs
     );
+  }
+
+  public async storeSearchEngineResult(item: Record<string, any>): Promise<void> {
+    const addTs = Math.floor(Date.now() / 1000);
+    const lastModifyTs = addTs;
+    const imagesStr = Array.isArray(item.images) ? item.images.join(',') : (item.images || '');
+
+    const stmt = this.db.prepare(`
+      INSERT INTO search_engine_result (
+        search_engine, title, url, real_url, snippet, publisher,
+        publish_time, images, search_rank, source_keyword, add_ts, last_modify_ts
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      item.search_engine || item.engine || '',
+      item.title || '',
+      item.url || '',
+      item.real_url || item.url || '',
+      item.snippet || '',
+      item.publisher || '',
+      item.publish_time || item.time || '',
+      imagesStr,
+      item.search_rank || item.rank || 0,
+      item.source_keyword || '',
+      addTs,
+      lastModifyTs
+    );
+
+    normalizeAndIngest(item.search_engine || item.engine, item);
   }
 }
 

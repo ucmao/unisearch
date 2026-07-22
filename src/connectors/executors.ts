@@ -5,6 +5,7 @@ import { TiebaCrawler } from '../crawler/platforms/tieba';
 import { WeiboCrawler } from '../crawler/platforms/weibo';
 import { XiaoHongShuCrawler } from '../crawler/platforms/xhs';
 import { ZhihuCrawler } from '../crawler/platforms/zhihu';
+import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler } from '../crawler/platforms/search_engine';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -15,6 +16,10 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   wb: () => new WeiboCrawler(),
   tieba: () => new TiebaCrawler(),
   zhihu: () => new ZhihuCrawler(),
+  baidu: () => new BaiduCrawler(),
+  bing: () => new BingCrawler(),
+  so360: () => new So360Crawler(),
+  sogou: () => new SogouCrawler(),
 };
 
 export function createConnectorExecutor(id: string) {

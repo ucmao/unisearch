@@ -515,6 +515,25 @@ export function initSchema(db: Database): void {
       FOREIGN KEY(plan_id) REFERENCES agent_plans(plan_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
+
+    -- Search Engine Result Table
+    CREATE TABLE IF NOT EXISTS search_engine_result (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      search_engine TEXT NOT NULL,
+      title TEXT NOT NULL,
+      url TEXT NOT NULL,
+      real_url TEXT NOT NULL,
+      snippet TEXT,
+      publisher TEXT,
+      publish_time TEXT,
+      images TEXT,
+      search_rank INTEGER DEFAULT 0,
+      source_keyword TEXT DEFAULT '',
+      add_ts INTEGER,
+      last_modify_ts INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_se_res_engine ON search_engine_result(search_engine);
+    CREATE INDEX IF NOT EXISTS idx_se_res_kw ON search_engine_result(source_keyword);
   `);
 
   // Older versions allowed only one collection plan per conversation. A

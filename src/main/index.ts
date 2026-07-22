@@ -44,6 +44,7 @@ const CRAWLER_TAB_HEIGHT = 48;
 const CRAWLER_PLATFORM_NAMES: Record<string, string> = {
   dy: '抖音', xhs: '小红书', ks: '快手', bili: '哔哩哔哩',
   wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
+  baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗',
 };
 
 function focusMainWindow(): void {

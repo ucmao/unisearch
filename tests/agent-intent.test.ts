@@ -68,7 +68,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
     awaitingClarification: true,
     previousUserText: '帮我采集微秒数智相关内容',
   }).action, 'create_plan');
-  assert.deepEqual(inferResearchPlatforms('全部平台'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']);
+  assert.deepEqual(inferResearchPlatforms('全部平台'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou']);
 });
 
 test('confirmation only executes a pending plan', () => {

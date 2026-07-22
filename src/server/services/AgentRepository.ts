@@ -89,7 +89,8 @@ export class AgentRepository {
     return this.db.prepare(`
       SELECT t.*,
         (SELECT content FROM agent_messages m WHERE m.thread_id=t.thread_id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
-        (SELECT status FROM agent_plans p WHERE p.thread_id=t.thread_id ORDER BY p.created_at DESC LIMIT 1) AS plan_status
+        (SELECT status FROM agent_plans p WHERE p.thread_id=t.thread_id ORDER BY p.created_at DESC LIMIT 1) AS plan_status,
+        (SELECT COALESCE(SUM(item_count), 0) FROM crawl_runs r WHERE r.thread_id=t.thread_id) AS total_items
       FROM agent_threads t
       ORDER BY (t.pinned_at IS NOT NULL) DESC, t.pinned_at DESC, t.updated_at DESC
     `).all();

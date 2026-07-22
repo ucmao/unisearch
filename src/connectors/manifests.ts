@@ -128,6 +128,39 @@ const social = (
   capabilities: capabilities(id, name, nouns),
 });
 
+const searchEngine = (
+  id: string,
+  name: string,
+  icon: string,
+): ConnectorManifest => ({
+  id, version: '1.0.0', name, icon, category: 'web_search',
+  description: `${name}公开网页全网搜索与摘要数据采集连接器。`,
+  auth: {
+    required: false, methods: ['none'],
+    description: '无需登录，直接通过 HTTP 接口免认证全网搜索。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '关键词全网搜索', description: `在${name}上按关键词进行网页搜索并提取结果摘要。`, runtimeMode: 'search',
+      inputFields: [
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的搜索结果条目数。',
+          type: 'number', default: 15, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: `${id}_search_result`, outputFields: [
+        { key: 'content_id', label: '结果 URL/ID', type: 'string', required: true },
+        { key: 'title', label: '网页标题', type: 'string' },
+        { key: 'description', label: '网页摘要', type: 'string' },
+        { key: 'content_url', label: '真实网页链接', type: 'string' },
+        { key: 'creator_name', label: '来源/发布者', type: 'string' },
+        { key: 'published_at', label: '发布时间', type: 'number' },
+      ], limitations: ['依靠公开 SERP 搜索结果 HTML。', '不受用户登录态限制。'],
+    },
+  ],
+});
+
 export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('xhs', '小红书', 'book-open', { content: '作品', creator: '创作者', comment: '评论与子评论' }),
   social('dy', '抖音', 'music', { content: '作品', creator: '创作者', comment: '评论与回复' }),
@@ -136,4 +169,8 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('wb', '微博', 'message-circle', { content: '博文', creator: '用户', comment: '评论与回复' }),
   social('tieba', '百度贴吧', 'messages-square', { content: '帖子', creator: '吧/用户主体', comment: '楼层回复' }),
   social('zhihu', '知乎', 'help-circle', { content: '问题/回答/文章', creator: '作者', comment: '评论与回复' }),
+  searchEngine('baidu', '百度', 'search'),
+  searchEngine('bing', '必应中国', 'globe'),
+  searchEngine('so360', '360搜索', 'compass'),
+  searchEngine('sogou', '搜狗搜索', 'search'),
 ];
