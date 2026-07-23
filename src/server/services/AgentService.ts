@@ -677,7 +677,7 @@ export class AgentService {
 
     const isOnlyAiQA = plan.platforms.length > 0 && plan.platforms.every((p: string) => {
       const manifest = getConnectorManifest(p);
-      return manifest?.category === 'ai_web_qa' || ['deepseek', 'kimi'].includes(p);
+      return manifest?.category === 'ai_web_qa' || ['deepseek', 'kimi', 'doubao'].includes(p);
     });
 
     let scopeLine = '';

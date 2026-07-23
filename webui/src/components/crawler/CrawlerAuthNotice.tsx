@@ -20,6 +20,7 @@ const PLATFORM_NAMES: Record<string, string> = {
   bing: '必应',
   so360: '360搜索',
   sogou: '搜狗',
+  doubao: '豆包',
 }
 
 export const CrawlerAuthNotice: React.FC = () => {

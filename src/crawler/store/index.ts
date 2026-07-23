@@ -17,6 +17,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   media_parser: '综合解析',
   deepseek: 'DeepSeek AI',
   kimi: 'Kimi AI',
+  doubao: '豆包',
 };
 
 // Normalized content schema helper
@@ -136,7 +137,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     coverUrl = Array.isArray(rawItem.images) ? (rawItem.images[0] || '') : (rawItem.images?.split(',')[0] || '');
     publishedAt = parseTimestamp(rawItem.publish_time);
     contentType = 'web_page';
-  } else if (['deepseek', 'kimi'].includes(platform)) {
+  } else if (['deepseek', 'kimi', 'doubao'].includes(platform)) {
     contentId = rawItem.id || rawItem.url || String(Date.now());
     title = rawItem.title || rawItem.question || '';
     description = rawItem.reasoning_content
@@ -144,7 +145,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
       : (rawItem.answer || rawItem.snippet || '');
     creatorName = PLATFORM_LABELS[platform] || platform;
     creatorId = platform;
-    contentUrl = rawItem.url || (platform === 'kimi' ? 'https://kimi.moonshot.cn/' : 'https://chat.deepseek.com/');
+    contentUrl = rawItem.url || (platform === 'kimi' ? 'https://kimi.moonshot.cn/' : platform === 'doubao' ? 'https://www.doubao.com/chat/' : 'https://chat.deepseek.com/');
     publishedAt = parseTimestamp(rawItem.time || Date.now());
     contentType = 'ai_qa';
   } else if (platform === 'media_parser') {
@@ -846,6 +847,19 @@ export class DatabaseStore {
       search_rank: 1,
       publish_time: item.time || '',
     });
+  }
+
+  public async storeDoubaoResult(item: Record<string, any>): Promise<void> {
+    const citations = Array.isArray(item.citations)
+      ? item.citations.map((citation: any) => typeof citation === 'string' ? citation : `${citation.title || ''} (${citation.url || ''})`).join('\n')
+      : String(item.citations || '');
+    const snippet = item.reasoning_content
+      ? `【思考过程】：\n${item.reasoning_content}\n\n【回答正文】：\n${item.answer || item.desc || ''}`
+      : (item.answer || item.desc || '');
+    await this.storeSearchEngineResult({ engine: 'doubao', title: item.question || item.title || '',
+      url: item.url || 'https://www.doubao.com/chat/', real_url: item.url || 'https://www.doubao.com/chat/',
+      snippet, publisher: '豆包', images: citations, source_keyword: item.source_keyword || item.question || '',
+      search_rank: 1, publish_time: item.time || '' });
   }
 }
 
