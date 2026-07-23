@@ -22,7 +22,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 14);
+assert.equal(listConnectorManifests().length, 15);
 
 const normalized = normalizeConnectorRequest(baseRequest);
 assert.equal(normalized.platform, 'xhs');

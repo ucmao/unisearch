@@ -246,4 +246,5 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   utilityParser('media_parser', '综合无水印解析', 'link'),
   aiWebQA('deepseek', 'DeepSeek AI', 'brain'),
   aiWebQA('kimi', 'Kimi AI', 'sparkles'),
+  aiWebQA('doubao', '豆包', 'bot'),
 ];

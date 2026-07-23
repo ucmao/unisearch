@@ -9,6 +9,7 @@ import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler } from '../crawle
 import { MediaParserCrawler } from '../crawler/platforms/media_parser';
 import { DeepSeekCrawler } from '../crawler/platforms/deepseek';
 import { KimiCrawler } from '../crawler/platforms/kimi';
+import { DoubaoCrawler } from '../crawler/platforms/doubao';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -26,6 +27,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   media_parser: () => new MediaParserCrawler(),
   deepseek: () => new DeepSeekCrawler(),
   kimi: () => new KimiCrawler(),
+  doubao: () => new DoubaoCrawler(),
 };
 
 export function createConnectorExecutor(id: string) {

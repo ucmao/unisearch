@@ -119,7 +119,7 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
   const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
   const depth = plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')
-  const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi'].includes(p))
+  const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi', 'doubao'].includes(p))
 
   useEffect(() => {
     if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
