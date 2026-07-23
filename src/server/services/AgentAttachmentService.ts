@@ -117,6 +117,15 @@ export class AgentAttachmentService {
   toPublic(record: AgentAttachmentRecord) {
     return publicAttachment(record);
   }
+
+  getAttachmentRecord(threadId: string, attachmentId: string) {
+    const record = agentRepository.getAttachment(threadId, attachmentId);
+    if (!record || !record.storage_path || !fs.existsSync(record.storage_path)) return null;
+    return {
+      mimeType: record.mime_type,
+      filePath: record.storage_path,
+    };
+  }
 }
 
 export const agentAttachmentService = new AgentAttachmentService();

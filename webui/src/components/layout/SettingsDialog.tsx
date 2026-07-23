@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Database, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,6 +26,7 @@ import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
 export type SettingsSection = 'appearance' | 'models' | 'collection' | 'storage' | 'memory'
+type ModelForm = Partial<ModelProfile> & { apiKey?: string; clearApiKey?: boolean }
 
 const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -86,10 +87,11 @@ export function SettingsDialog({
   const { theme, setTheme } = useThemeStore()
   const [internalOpen, setInternalOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection)
-  const [form, setForm] = useState<Partial<ModelProfile> & { apiKey?: string }>({})
+  const [form, setForm] = useState<ModelForm>({})
+  const [showApiKey, setShowApiKey] = useState(false)
   const [editMemoryId, setEditMemoryId] = useState<string | null>(null)
   const [editMemoryContent, setEditMemoryContent] = useState('')
-  const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], { baseUrl: string; model: string }>>>({})
+  const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
   const dialogOpen = open ?? internalOpen
 
   const setDialogOpen = (nextOpen: boolean) => {
@@ -101,9 +103,9 @@ export function SettingsDialog({
     if (dialogOpen) setActiveSection(initialSection)
   }, [dialogOpen, initialSection])
 
-  const profileQuery = useQuery({
-    queryKey: ['agent-model-profile'],
-    queryFn: async () => (await agentApi.getModelProfile()).data,
+  const profilesQuery = useQuery({
+    queryKey: ['agent-model-profiles'],
+    queryFn: async () => (await agentApi.getModelProfiles()).data,
     enabled: dialogOpen && activeSection === 'models',
   })
   const memorySettingsQuery = useQuery({
@@ -128,20 +130,22 @@ export function SettingsDialog({
   })
 
   useEffect(() => {
-    if (profileQuery.data) {
-      providerDrafts.current[profileQuery.data.provider] = {
-        baseUrl: profileQuery.data.baseUrl,
-        model: profileQuery.data.model,
+    if (profilesQuery.data) {
+      const drafts: Partial<Record<ModelProfile['provider'], ModelForm>> = {}
+      for (const profile of profilesQuery.data.profiles) {
+        drafts[profile.provider] = { ...profile, apiKey: profile.apiKey || '', clearApiKey: false }
       }
-      setForm({ ...profileQuery.data, apiKey: '' })
+      providerDrafts.current = drafts
+      setForm(drafts[profilesQuery.data.activeProvider] || {})
     }
-  }, [profileQuery.data])
+  }, [profilesQuery.data])
 
   const save = useMutation({
     mutationFn: () => agentApi.saveModelProfile(form),
     onSuccess: ({ data }) => {
       queryClient.setQueryData(['agent-model-profile'], data)
-      setForm((current) => ({ ...current, apiKey: '' }))
+      queryClient.invalidateQueries({ queryKey: ['agent-model-profiles'] })
+      setForm({ ...data, apiKey: data.apiKey || '', clearApiKey: false })
       toast.success('模型配置已保存在本机')
     },
     onError: (error) => toast.error(getError(error)),
@@ -153,6 +157,7 @@ export function SettingsDialog({
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['agent-model-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-model-profiles'] })
       toast.success(`${data.message} · ${data.latency_ms}ms`)
     },
     onError: (error) => toast.error(`连接失败：${getError(error)}`),
@@ -207,13 +212,20 @@ export function SettingsDialog({
   const applyProvider = (provider: ModelProfile['provider']) => {
     setForm((current) => {
       if (current.provider) {
-        providerDrafts.current[current.provider] = {
-          baseUrl: current.baseUrl || '',
-          model: current.model || '',
-        }
+        providerDrafts.current[current.provider] = { ...current }
       }
-      const providerValues = providerDrafts.current[provider] || MODEL_PROVIDER_DEFAULTS[provider]
-      return { ...current, provider, ...providerValues, apiKey: current.apiKey }
+      const providerValues = providerDrafts.current[provider]
+      return providerValues || {
+        provider,
+        ...MODEL_PROVIDER_DEFAULTS[provider],
+        temperature: current.temperature ?? 0.2,
+        timeoutMs: current.timeoutMs ?? 120000,
+        apiKey: '',
+        apiKeyConfigured: false,
+        connectionVerified: false,
+        lastError: '',
+        clearApiKey: false,
+      }
     })
   }
 
@@ -289,7 +301,7 @@ export function SettingsDialog({
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">模型</DialogTitle>
                   <DialogDescription>配置 AI 服务、模型和本机凭证。采集数据只会在发起 AI 分析时发送。</DialogDescription>
                 </DialogHeader>
-                {profileQuery.isLoading ? (
+                {profilesQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取模型配置…</div>
                 ) : (
                   <div className="mt-7 space-y-5">
@@ -315,9 +327,33 @@ export function SettingsDialog({
                     </label>
                     <label className="block space-y-1.5">
                       <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
-                        <span>API Key</span><span className="text-[10px]">{form.apiKeyConfigured ? '已配置，留空表示不修改' : '尚未配置'}</span>
+                        <span>API Key</span>
+                        {form.apiKeyConfigured ? (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-500">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            已配置
+                          </span>
+                        ) : null}
                       </span>
-                      <Input type="password" value={form.apiKey || ''} onChange={(event) => setForm({ ...form, apiKey: event.target.value })} placeholder={form.apiKeyConfigured ? '••••••••••••••••' : '填写你的 API Key'} />
+                      <div className="relative flex items-center">
+                        <Input
+                          type={showApiKey ? 'text' : 'password'}
+                          value={form.apiKey || ''}
+                          onChange={(event) => setForm({ ...form, apiKey: event.target.value, clearApiKey: false })}
+                          placeholder="填写 API Key"
+                          className={form.apiKey ? 'pr-9' : ''}
+                        />
+                        {form.apiKey ? (
+                          <button
+                            type="button"
+                            title={showApiKey ? '隐藏 Key' : '显示 Key'}
+                            onClick={() => setShowApiKey(!showApiKey)}
+                            className="absolute right-2.5 rounded-md p-1 text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
+                          >
+                            {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        ) : null}
+                      </div>
                     </label>
                     <DialogFooter className="gap-2 border-t border-cyber-border-subtle pt-5 sm:space-x-0">
                       <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending || save.isPending}>

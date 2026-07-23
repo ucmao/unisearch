@@ -106,7 +106,7 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
 }
 
 function isAnalysisIntent(text: string) {
-  return /分析|总结|结论|对比|洞察|报告|原因|评价如何|怎么看/.test(text);
+  return /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/.test(text);
 }
 
 function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPlan {
@@ -163,7 +163,13 @@ export class AgentService {
         referenceMap.set(reference.plan_id, selected);
       }
     }
-    if (includePlanId && !referenceMap.has(includePlanId)) referenceMap.set(includePlanId, new Set());
+    const autoPlanId = includePlanId || agentRepository.getLatestPlan(thread.thread_id)?.plan_id;
+    if (autoPlanId && !referenceMap.has(autoPlanId)) {
+      const targetPlan = agentRepository.getPlan(autoPlanId);
+      if (targetPlan && ['completed', 'partially_completed'].includes(targetPlan.status)) {
+        referenceMap.set(autoPlanId, new Set());
+      }
+    }
 
     const texts: ConversationMaterials['texts'] = [];
     const images: ConversationMaterials['images'] = [];
@@ -304,18 +310,28 @@ export class AgentService {
     }
 
     const profile = modelService.getProfile(false);
-    if (!profile.apiKeyConfigured || !profile.connectionVerified || profile.lastError) {
-      const reason = !profile.apiKeyConfigured
-        ? 'AI 模型尚未配置'
-        : profile.lastError
-          ? `AI 模型连接不可用：${profile.lastError}`
-          : 'AI 模型尚未通过连接测试';
-      agentRepository.addMessage(threadId, 'assistant', 'status', `${reason}，无法进行思考和对话。请打开“模型设置”并成功测试连接。`, {
-        action: 'model_error',
-        error: !profile.apiKeyConfigured ? 'unconfigured' : profile.lastError || 'unverified',
+    if (!profile.apiKeyConfigured) {
+      agentRepository.addMessage(threadId, 'assistant', 'text', '还没有配置 AI 模型 API Key。请打开“模型设置”完成配置，然后重新发送这条问题。', {
+        action: 'model_setup_required',
+        error: 'unconfigured',
       });
       return agentRepository.getThread(threadId);
     }
+
+    const onRetry = (retryCount: number, maxRetries: number, delaySec: number, reason: string) => {
+      crawlerManager.emit('log', {
+        id: Date.now() * 1000 + Math.floor(Math.random() * 1000),
+        level: 'warning',
+        message: `AI 接口调用失败，正在自动重试 ${retryCount} / ${maxRetries}（等待 ${delaySec}s）...`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        platform: 'system',
+        thread_id: threadId,
+        retry_count: retryCount,
+        max_retries: maxRetries,
+        delay_sec: delaySec,
+        retry_reason: reason,
+      });
+    };
 
     const latest = agentRepository.getLatestPlan(threadId);
     const previousMessage = thread.messages.at(-1);
@@ -343,7 +359,7 @@ export class AgentService {
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
         const materials = this.collectMaterials(updatedThread);
         const memories = agentRepository.retrieveMemories(content).map((memory) => ({ category: memory.category, content: memory.content }));
-        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories })).trim();
+        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry })).trim();
         if (!reply) throw new Error('模型没有返回文本内容');
         agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
           action: 'chat',
@@ -366,9 +382,9 @@ export class AgentService {
         .filter((message: any) => ['user', 'assistant'].includes(message.role))
         .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
       try {
-        decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null);
+        decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry);
         if (localDecision.action === 'create_plan' && decision.action === 'chat') {
-          const generated = await modelService.createPlan(messages, planningText);
+          const generated = await modelService.createPlan(messages, planningText, onRetry);
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
           decision = { ...decision, action: 'create_plan' };
@@ -381,7 +397,7 @@ export class AgentService {
       } catch (error: any) {
         if (localDecision.action === 'create_plan') {
           try {
-            const generated = await modelService.createPlan(messages, planningText);
+            const generated = await modelService.createPlan(messages, planningText, onRetry);
             decision = { action: 'create_plan', reply: '', plan: generated };
           } catch (planError: any) {
             const reason = modelService.getRuntimeStatus().lastError || planError.message || error.message || '未知错误';
@@ -494,7 +510,7 @@ export class AgentService {
           const messages = updatedThread.messages
             .filter((message: any) => ['user', 'assistant'].includes(message.role))
             .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis });
+          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry });
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
         } catch (error: any) {
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
@@ -506,7 +522,7 @@ export class AgentService {
         agentRepository.addMessage(threadId, 'assistant', 'analysis', '当前任务没有可分析的数据。可以先检查采集结果，或重试失败的平台。');
       } else {
         try {
-          const answer = await modelService.analyze(latest.goal, latest.plan.analysis, content, rows);
+          const answer = await modelService.analyze(latest.goal, latest.plan.analysis, content, rows, onRetry);
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { sampled_records: rows.length });
         } catch (error: any) {
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}\n\n本次没有生成本地兜底分析，请检查模型配置并测试连接。`, {
@@ -556,7 +572,7 @@ export class AgentService {
           .filter((message: any) => ['user', 'assistant'].includes(message.role))
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         try {
-          const generated = await modelService.createPlan(messages, planningText);
+          const generated = await modelService.createPlan(messages, planningText, onRetry);
           plan = normalizePlan(generated, planningText, latest?.plan);
         }
         catch (error: any) {
@@ -580,6 +596,20 @@ export class AgentService {
       return agentRepository.getThread(threadId);
     }
     if (!plan.platforms.length) {
+      if (latest && ['completed', 'partially_completed'].includes(latest.status)) {
+        const updatedThread = agentRepository.getThread(threadId);
+        const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
+        if (referencedMaterials.texts.length || referencedMaterials.images.length) {
+          try {
+            const messages = updatedThread.messages
+              .filter((message: any) => ['user', 'assistant'].includes(message.role))
+              .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+            const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry });
+            agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
+            return agentRepository.getThread(threadId);
+          } catch (error: any) {}
+        }
+      }
       agentRepository.addMessage(threadId, 'assistant', 'clarify', '你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。', {
         action: 'clarify', missing_fields: ['platforms'],
       });
