@@ -22,6 +22,8 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
   baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗',
+  deepseek: 'DeepSeek', doubao: '豆包', kimi: 'Kimi', nami: '纳米 AI',
+  qwen: '通义千问', wenxin: '文心一言', yuanbao: '腾讯元宝',
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -119,7 +121,7 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
   const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
   const depth = plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')
-  const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi', 'doubao'].includes(p))
+  const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'].includes(p))
 
   useEffect(() => {
     if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
