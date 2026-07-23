@@ -106,20 +106,36 @@ export class AgentRepository {
     return { ...thread, messages, plan, plans };
   }
 
+  reconcileStuckTasks() {
+    try {
+      this.db.transaction(() => {
+        const now = new Date().toISOString();
+        this.db.prepare(`
+          UPDATE agent_plans
+          SET status = 'failed', updated_at = ?
+          WHERE status IN ('queued', 'running')
+        `).run(now);
+
+        this.db.prepare(`
+          UPDATE agent_plan_steps
+          SET status = 'failed', error_message = COALESCE(error_message, '服务重启或采集中断')
+          WHERE status IN ('queued', 'running')
+        `).run();
+
+        this.db.prepare(`
+          UPDATE crawl_runs
+          SET status = 'failed', error_message = COALESCE(error_message, '服务重启或采集中断'), end_time = COALESCE(end_time, ?)
+          WHERE status IN ('queued', 'running')
+        `).run(now);
+      })();
+    } catch (e) {
+      console.error('[AgentRepository] reconcileStuckTasks failed:', e);
+    }
+  }
+
   deleteThread(threadId: string, deleteAnalyticsData = false): { deleted: number; analytics_runs_deleted: number } {
     const id = String(threadId || '').trim();
     if (!id) return { deleted: 0, analytics_runs_deleted: 0 };
-    const active = this.db.prepare(`
-      SELECT COUNT(*) AS count
-      FROM agent_plans
-      WHERE thread_id=? AND status IN ('queued', 'running')
-    `).get(id) as { count: number };
-    if (Number(active?.count || 0) > 0) throw new Error('请先停止正在排队或采集中的任务');
-    const runningRuns = this.db.prepare(`
-      SELECT COUNT(*) AS count FROM crawl_runs
-      WHERE status = 'running' AND thread_id=?
-    `).get(id) as { count: number };
-    if (Number(runningRuns?.count || 0) > 0) throw new Error('请先停止正在采集的执行');
 
     return this.db.transaction(() => {
       let analyticsRunsDeleted = 0;
@@ -127,6 +143,11 @@ export class AgentRepository {
         const result = this.db.prepare('DELETE FROM crawl_runs WHERE thread_id=?').run(id);
         analyticsRunsDeleted = result.changes;
       }
+      this.db.prepare('DELETE FROM agent_plan_steps WHERE plan_id IN (SELECT plan_id FROM agent_plans WHERE thread_id=?)').run(id);
+      this.db.prepare('DELETE FROM agent_plans WHERE thread_id=?').run(id);
+      this.db.prepare('DELETE FROM agent_messages WHERE thread_id=?').run(id);
+      this.db.prepare('DELETE FROM agent_attachments WHERE thread_id=?').run(id);
+
       const deleted = this.db.prepare('DELETE FROM agent_threads WHERE thread_id=?').run(id).changes;
       return { deleted, analytics_runs_deleted: analyticsRunsDeleted };
     })();

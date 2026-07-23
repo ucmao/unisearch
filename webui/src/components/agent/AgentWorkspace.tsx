@@ -26,6 +26,10 @@ const PLATFORM_LABELS: Record<string, string> = {
   qwen: '通义千问', wenxin: '文心一言', yuanbao: '腾讯元宝',
 }
 
+const AI_PLATFORMS = new Set([
+  'deepseek', 'doubao', 'kimi', 'nami', 'qwen', 'wenxin', 'yuanbao',
+])
+
 const STATUS_LABELS: Record<string, string> = {
   awaiting_confirmation: '等待确认', queued: '排队中', running: '采集中', completed: '已完成',
   partially_completed: '部分完成', failed: '失败', stopped: '已停止',
@@ -191,6 +195,55 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   )
 }
 
+function ChatCrawlingStatusBanner({
+  activePlan,
+  rightSidebarOpen,
+  onToggleRightSidebar,
+  onTriggerPulse,
+}: {
+  activePlan: AgentPlan
+  rightSidebarOpen: boolean
+  onToggleRightSidebar: () => void
+  onTriggerPulse: () => void
+}) {
+  if (!activePlan) return null
+
+  const isRunning = ['queued', 'running'].includes(activePlan.status)
+  if (!isRunning) return null
+
+  const totalSteps = activePlan.steps.length
+  const completedSteps = activePlan.steps.filter((s) => s.status === 'completed').length
+
+  const handleClick = () => {
+    if (!rightSidebarOpen) {
+      onToggleRightSidebar()
+      toast.info('已在右侧展开任务大盘', { duration: 2000 })
+    } else {
+      onTriggerPulse()
+      toast.info('任务详情已在右侧大盘中显示', { duration: 2000 })
+    }
+  }
+
+  return (
+    <div className="flex gap-3 text-xs text-cyber-text-muted">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
+        <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+      </div>
+      <div className="flex items-center gap-2 py-1">
+        <button
+          type="button"
+          onClick={handleClick}
+          className="inline-flex items-center gap-1.5 transition-colors hover:text-cyber-text-primary"
+          title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
+        >
+          <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
+          <span>🔍 正在采集数据 ({completedSteps}/{totalSteps})</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair, onPreviewImage }: {
   message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean
   showPlanCard: boolean
@@ -320,6 +373,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [deleteAnalyticsData, setDeleteAnalyticsData] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(() => localStorage.getItem('unisearch-right-sidebar-open') !== 'false')
+  const [rightSidebarPulsing, setRightSidebarPulsing] = useState(false)
+  const triggerRightSidebarPulse = () => {
+    setRightSidebarPulsing(true)
+    window.setTimeout(() => setRightSidebarPulsing(false), 1200)
+  }
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 300))
   const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
@@ -812,8 +870,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {filteredThreads.map((thread, index) => (
               <div key={thread.thread_id} className={`group relative ${threadMenuId === thread.thread_id ? 'z-40' : ''}`}>
                 <button type="button" onClick={() => setSelectedId(thread.thread_id)}
-                  className={`w-full rounded-lg px-3 py-2.5 pr-9 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
-                  <div className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
+                  className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
+                  <div className="flex items-center gap-2 pr-6"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
                   <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
                     <span className="min-w-0 flex-1 truncate">
                       {['running', 'queued'].includes(thread.plan_status || '') ? (
@@ -869,7 +927,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   </button>
                   <div className="my-1 border-t border-cyber-border-subtle" />
                   <DeleteConfirmDialog
-                    trigger={<button type="button" role="menuitem" disabled={remove.isPending || ['queued', 'running'].includes(thread.plan_status || '')} onClick={() => setThreadMenuId(null)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />删除</button>}
+                    trigger={<button type="button" role="menuitem" disabled={remove.isPending} onClick={() => setThreadMenuId(null)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />删除</button>}
                     title="删除这个任务？"
                     description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
                     confirmLabel="删除任务"
@@ -951,20 +1009,30 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
                 {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} />)}
+                {activePlan && activePlan.status !== 'awaiting_confirmation' && (
+                  <ChatCrawlingStatusBanner
+                    activePlan={activePlan}
+                    rightSidebarOpen={rightSidebarOpen}
+                    onToggleRightSidebar={toggleRightSidebar}
+                    onTriggerPulse={triggerRightSidebarPulse}
+                  />
+                )}
                 {isThinking && (
-                  <div className="flex items-center gap-3 text-xs text-cyber-text-muted">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
+                  <div className="flex gap-3 text-xs text-cyber-text-muted">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
                       <Bot className="h-4 w-4 text-cyber-neon-cyan" />
                     </div>
-                    <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" />
-                    <span className="flex items-center gap-2">
-                      AI 正在思考…
+                    <div className="flex flex-col justify-center gap-1 leading-5">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-cyber-neon-cyan" />
+                        <span>AI 正在思考…</span>
+                      </div>
                       {aiRetryState ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-cyber-neon-yellow/40 bg-cyber-neon-yellow/10 px-2.5 py-0.5 text-[11px] font-medium text-cyber-neon-yellow animate-pulse">
+                        <p className="text-cyber-text-muted">
                           重试计数 {aiRetryState.count} / {aiRetryState.max} (等待 {aiRetryState.delaySec}s)
-                        </span>
+                        </p>
                       ) : null}
-                    </span>
+                    </div>
                   </div>
                 )}
                 <div ref={bottomRef} />
@@ -1073,7 +1141,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             </div>
           </main>
 
-          {rightSidebarOpen && selectedId && <aside className="relative shrink-0 overflow-y-auto border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4" style={{ width: rightSidebarWidth }}>
+          {rightSidebarOpen && selectedId && <aside className={`relative shrink-0 overflow-y-auto border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4 transition-all duration-300 ${rightSidebarPulsing ? 'ring-2 ring-inset ring-cyber-neon-cyan/80 bg-cyber-neon-cyan/10 shadow-[0_0_25px_rgba(0,240,255,0.25)]' : ''}`} style={{ width: rightSidebarWidth }}>
         <div
           className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
           onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
@@ -1140,16 +1208,24 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 <p className="mt-1 text-[10px] text-cyber-text-muted">范围：{rangeText}</p>
               </button>
 
-              {/* 分平台采集明细与占比 */}
+              {/* 分平台采集明细与目标完成度 */}
               <div>
                 <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
                   <span>数据分布与状态</span>
-                  {totalItems > 0 ? <span>占比</span> : null}
+                  {totalItems > 0 ? <span>目标完成度</span> : null}
                 </div>
                 <div className="mt-1 divide-y divide-cyber-border-subtle/60">
                   {activePlan.steps.map((step) => {
+                    const isAI = AI_PLATFORMS.has(step.platform)
+                    const keywordCount = activePlan.plan.keywords.length || 1
+                    const depthTarget = depth === 'deep' ? 100 : depth === 'standard' ? 50 : 30
+                    const stepTarget = isAI ? (1 * keywordCount) : (depthTarget * keywordCount)
                     const count = step.item_count || 0
-                    const percent = totalItems > 0 ? Math.round((count / totalItems) * 100) : 0
+                    const unit = isAI ? '份' : '条'
+                    
+                    const rawPercent = stepTarget > 0 ? Math.round((count / stepTarget) * 100) : 0
+                    const percent = Math.min(100, rawPercent)
+                    const isOverflow = count > stepTarget
                     const isZeroSuccess = step.status === 'completed' && count === 0
 
                     return (
@@ -1159,10 +1235,15 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             <span className="truncate font-medium text-cyber-text-primary">
                               {PLATFORM_LABELS[step.platform] || step.platform}
                             </span>
+                            {isAI ? (
+                              <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
+                                AI
+                              </span>
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
-                              {count > 0 ? `${count} 条` : step.status === 'completed' ? '0 条' : ''}
+                              {count > 0 ? `${count} ${unit}` : step.status === 'completed' ? `0 ${unit}` : ''}
                             </span>
                             {isZeroSuccess ? (
                               <span title="该平台未采集到数据或可能被风控受限">
@@ -1173,12 +1254,23 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             )}
                           </div>
                         </div>
-                        {step.status === 'completed' && totalItems > 0 && count > 0 ? (
+                        {(step.status === 'completed' || step.status === 'running') && count > 0 ? (
                           <div className="mt-2 flex items-center gap-2">
                             <div className="h-1 flex-1 overflow-hidden rounded-full bg-cyber-bg-tertiary">
-                              <div className="h-full rounded-full bg-cyber-neon-cyan/70 transition-all duration-300" style={{ width: `${percent}%` }} />
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  isOverflow
+                                    ? 'bg-gradient-to-r from-cyber-neon-cyan to-emerald-400'
+                                    : percent >= 100
+                                    ? 'bg-emerald-400'
+                                    : 'bg-cyber-neon-cyan/70'
+                                }`}
+                                style={{ width: `${percent}%` }}
+                              />
                             </div>
-                            <span className="w-7 text-right font-mono text-[9px] text-cyber-text-muted">{percent}%</span>
+                            <span className="w-9 text-right font-mono text-[9px] text-cyber-text-muted">
+                              {isOverflow ? '100%+' : `${percent}%`}
+                            </span>
                           </div>
                         ) : null}
                         {step.error_message ? <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={step.error_message}>{step.error_message}</p> : null}
@@ -1191,13 +1283,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               {/* 动作区 */}
               <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
                 {isPending ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />确认并开始</Button> : null}
-                {totalItems > 0 || activePlan.steps.some((step) => step.run_id) ? (
+                {totalItems > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
-                    {totalItems > 0 ? <Button variant="outline" className="h-9 min-w-0 gap-1.5 px-2 text-xs" onClick={handleOpenResults}>
+                    <Button variant="outline" className="h-9 min-w-0 gap-1.5 px-2 text-xs" onClick={handleOpenResults}>
                       <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
                       <span className="truncate">结果看板</span>
-                    </Button> : <span />}
-                    {activePlan.steps.some((step) => step.run_id) ? <CsvDownloadLink planId={activePlan.plan_id} compact /> : null}
+                    </Button>
+                    <CsvDownloadLink planId={activePlan.plan_id} compact />
                   </div>
                 ) : null}
                 {canRetry ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />重试失败平台</Button> : null}

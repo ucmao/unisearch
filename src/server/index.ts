@@ -27,6 +27,7 @@ export interface ServerWindowControls {
 }
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
+  agentRepository.reconcileStuckTasks();
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
   crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
   crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
