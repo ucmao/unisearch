@@ -141,7 +141,7 @@ export class SystemHttpClient {
       }
 
       try {
-        const response = await axios.get(url, axiosConfig);
+        const response = await axios({ url, ...axiosConfig });
 
         if (autoCookie && response.headers['set-cookie']) {
           this.cookieStore.saveCookies(url, response.headers['set-cookie']);
@@ -171,6 +171,10 @@ export class SystemHttpClient {
 
   public async get(url: string, options: SystemRequestOptions = {}): Promise<AxiosResponse<any>> {
     return this.request(url, { ...options, method: 'GET' });
+  }
+
+  public async post(url: string, data?: any, options: SystemRequestOptions = {}): Promise<AxiosResponse<any>> {
+    return this.request(url, { ...options, method: 'POST', data });
   }
 
   public async head(url: string, options: SystemRequestOptions = {}): Promise<AxiosResponse<any>> {

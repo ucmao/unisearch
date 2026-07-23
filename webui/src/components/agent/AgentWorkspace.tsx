@@ -870,9 +870,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     confirmLabel="删除任务"
                     onConfirm={() => remove.mutateAsync({ id: thread.thread_id, withData: deleteAnalyticsData })}
                   >
-                    <label className="flex items-start gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
+                    <label className="flex items-center gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
                       <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                      <span><span className="block font-medium text-cyber-text-primary">同时清理对应看板数据</span><span className="mt-1 block text-cyber-text-muted">不勾选时，看板采集结果会继续保留。</span></span>
+                      <span className="font-medium text-cyber-text-primary">同时清理对应看板数据</span>
                     </label>
                   </DeleteConfirmDialog>
                 </div>

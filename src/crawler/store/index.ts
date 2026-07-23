@@ -14,6 +14,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   bing: '必应中国',
   so360: '360搜索',
   sogou: '搜狗搜索',
+  media_parser: '综合解析',
 };
 
 // Normalized content schema helper
@@ -133,6 +134,15 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     coverUrl = Array.isArray(rawItem.images) ? (rawItem.images[0] || '') : (rawItem.images?.split(',')[0] || '');
     publishedAt = parseTimestamp(rawItem.publish_time);
     contentType = 'web_page';
+  } else if (platform === 'media_parser') {
+    contentId = rawItem.video_id || String(Date.now());
+    title = rawItem.title || '';
+    description = rawItem.title || '';
+    creatorName = rawItem.author?.nickname || rawItem.nickname || '';
+    creatorId = rawItem.author?.author_id || rawItem.creator_hash || '';
+    coverUrl = rawItem.cover_url || (Array.isArray(rawItem.images) ? rawItem.images[0] : '') || '';
+    contentUrl = rawItem.video_url || rawItem.source_keyword || '';
+    contentType = rawItem.images && rawItem.images.length > 0 && !rawItem.video_url ? 'image' : 'video';
   }
 
   const normalized = {
@@ -727,6 +737,56 @@ export class DatabaseStore {
     );
 
     normalizeAndIngest(item.search_engine || item.engine, item);
+  }
+
+  public async storeMediaParsedResult(item: Record<string, any>): Promise<void> {
+    const livePhotoVideo = Array.isArray(item.live_photos) && item.live_photos[0]?.live_photo_url
+      ? item.live_photos[0].live_photo_url
+      : '';
+    const finalVideoUrl = item.video_url || livePhotoVideo || '';
+    const isImage = Array.isArray(item.images) && item.images.length > 0 && !finalVideoUrl;
+
+    if (isImage) {
+      await this.storeXhsNote({
+        note_id: item.video_id || String(Date.now()),
+        type: 'normal',
+        title: item.title || '',
+        desc: item.title || '',
+        nickname: item.author?.nickname || '无名作者',
+        creator_hash: item.author?.author_id || '',
+        cover_url: item.cover_url || (item.images?.[0] || ''),
+        video_url: '',
+        image_list: item.images?.join(',') || '',
+        note_url: item.source_keyword || '',
+        liked_count: 0,
+        collected_count: 0,
+        comment_count: 0,
+        share_count: 0,
+        source_keyword: item.source_keyword || '',
+      });
+    } else {
+      await this.storeDouyinAweme({
+        aweme_id: item.video_id || String(Date.now()),
+        title: item.title || '',
+        desc: item.title || '',
+        nickname: item.author?.nickname || '无名作者',
+        creator_hash: item.author?.author_id || '',
+        cover_url: item.cover_url || '',
+        aweme_url: item.source_keyword || '',
+        video_url: finalVideoUrl,
+        image_list: Array.isArray(item.images) ? item.images.join(',') : '',
+        music_url: item.audio_url || '',
+        liked_count: 0,
+        comment_count: 0,
+        collected_count: 0,
+        share_count: 0,
+        source_keyword: item.source_keyword || '',
+      });
+    }
+    normalizeAndIngest('media_parser', {
+      ...item,
+      video_url: finalVideoUrl,
+    });
   }
 }
 

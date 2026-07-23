@@ -161,6 +161,41 @@ const searchEngine = (
   ],
 });
 
+const utilityParser = (
+  id: string,
+  name: string,
+  icon: string,
+): ConnectorManifest => ({
+  id, version: '2.0.0', name, icon, category: 'utility',
+  description: '全网综合无水印解析工具。支持小红书、抖音、快手、可灵、哔哩哔哩、好看视频、梨视频、皮皮搞笑、微视、腾讯频道、视频号、微博、知乎、西瓜视频、A站、最右、皮皮虾、逗拍、全民K歌、汽水音乐、网易云音乐、QQ音乐、绿洲、6间房、新片场、美拍、虎牙、豆包、Soul、千问、即梦、剪映、今日头条、闲鱼等数十个平台的视频、图集、实况无水印原画解析。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '免登录 API 接口，无需任何平台账号或登录态。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'url_resolve', label: '全网无水印解析', description: '输入任意支持平台的作品链接、分享短链或分享文案，自动解析无水印高清原视频、原图、音频与元数据。', runtimeMode: 'detail',
+      inputFields: [
+        {
+          key: 'specified_ids', label: '目标链接或短链', description: '支持作品链接、短链或分享文本，多个目标使用逗号或换行分隔。',
+          type: 'string_list', required: true, runtimeConfigKey: 'specified_ids',
+        },
+      ],
+      outputType: `${id}_resolved_media`, outputFields: [
+        { key: 'content_id', label: '作品 ID', type: 'string', required: true },
+        { key: 'platform', label: '所属平台', type: 'string' },
+        { key: 'title', label: '标题/文案', type: 'string' },
+        { key: 'creator_name', label: '作者名称', type: 'string' },
+        { key: 'cover_url', label: '封面地址', type: 'string' },
+        { key: 'video_url', label: '无水印视频地址', type: 'string' },
+        { key: 'images', label: '无水印原图列表', type: 'string_list' },
+        { key: 'audio_url', label: '音频/音乐地址', type: 'string' },
+      ], limitations: ['仅限有效公开作品或短链。'],
+    },
+  ],
+});
+
 export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('xhs', '小红书', 'book-open', { content: '作品', creator: '创作者', comment: '评论与子评论' }),
   social('dy', '抖音', 'music', { content: '作品', creator: '创作者', comment: '评论与回复' }),
@@ -173,4 +208,5 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('bing', '必应中国', 'globe'),
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
+  utilityParser('media_parser', '综合无水印解析', 'link'),
 ];

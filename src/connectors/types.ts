@@ -1,4 +1,4 @@
-export type ConnectorCategory = 'social_media' | 'ai_search' | 'web_search' | 'complaint' | 'recruitment';
+export type ConnectorCategory = 'social_media' | 'ai_search' | 'web_search' | 'complaint' | 'recruitment' | 'utility';
 
 export type ConnectorCapabilityId =
   | 'keyword_search'

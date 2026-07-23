@@ -58,8 +58,7 @@ function crawlerHubHtml(): string {
   const tabs = Array.from(crawlerTabStates.entries()).map(([platform, status]) => {
     const active = platform === activeCrawlerPlatform ? ' active' : '';
     const label = CRAWLER_PLATFORM_NAMES[platform] || platform.toUpperCase();
-    const statusLabel = status === 'running' ? '采集中' : status === 'completed' ? '已完成' : status === 'stopped' ? '已停止' : '失败';
-    const content = `<span class="dot ${status}"></span><span>${label}</span><small>${statusLabel}</small>`;
+    const content = `<span class="dot ${status}"></span><span>${label}</span>`;
     return status === 'running' && crawlerViews.has(platform)
       ? `<a class="tab${active}" href="unisearch-tab://${encodeURIComponent(platform)}">${content}</a>`
       : `<span class="tab readonly">${content}</span>`;
@@ -69,9 +68,9 @@ function crawlerHubHtml(): string {
     .bar{height:${CRAWLER_TAB_HEIGHT}px;display:flex;align-items:flex-end;gap:4px;padding:7px 10px 0;border-bottom:1px solid #cbd8e2;background:linear-gradient(#f8fbfd,#e8f0f5);-webkit-app-region:drag}
     .brand{align-self:center;padding:0 10px 4px 2px;font-size:12px;font-weight:650;color:#506273;white-space:nowrap}
     .tabs{display:flex;min-width:0;height:40px;gap:4px;overflow-x:auto;-webkit-app-region:no-drag}
-    .tab{display:flex;align-items:center;gap:7px;min-width:142px;height:36px;padding:0 14px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap}
+    .tab{display:flex;align-items:center;gap:7px;min-width:96px;height:36px;padding:0 14px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap}
     .tab:hover{background:#f7fbfd;color:#203246}.tab.active{border-color:#cbd8e2;border-bottom-color:#fff;background:#fff;color:#142033}
-    .tab.readonly{opacity:.72}.tab small{margin-left:auto;color:#8796a5;font-size:10px;font-weight:500}
+    .tab.readonly{opacity:.72}
     .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12)}
     .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
     .hint{margin-left:auto;align-self:center;padding:0 5px 4px 10px;color:#8393a3;font-size:11px;white-space:nowrap}
