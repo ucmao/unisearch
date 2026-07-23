@@ -12,7 +12,7 @@ export class WeiboCrawler extends AbstractCrawler {
     console.log('[WEIBO] Starting Weibo crawler (Electron CDP mode)...');
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
-    this.page = await getElectronCrawlerPage(this.browserContext, 'wb');
+    this.page = await getElectronCrawlerPage(this.browserContext, 'weibo');
 
     await this.page.goto('https://weibo.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
@@ -241,11 +241,11 @@ export class WeiboCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedNotes(): Promise<void> {
-    for (const target of configuredTargets('wb', 'detail')) await this.fetchNoteDetail(target, '指定微博');
+    for (const target of configuredTargets('weibo', 'detail')) await this.fetchNoteDetail(target, '指定微博');
   }
 
   public async getCreatorsAndNotes(): Promise<void> {
-    for (const target of configuredTargets('wb', 'creator')) {
+    for (const target of configuredTargets('weibo', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const uid = firstMatch(resolved, [/\/u\/(\d+)/i, /weibo\.com\/(\d+)/i, /[?&]uid=(\d+)/i, /^\s*(\d+)\s*$/]);
       const url = `https://weibo.com/ajax/statuses/mymblog?uid=${encodeURIComponent(uid)}&page=1&feature=0`;

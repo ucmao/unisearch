@@ -7,12 +7,13 @@ export interface ParsedId {
 
 const platformDomains: Record<string, string[]> = {
   xhs: ['xiaohongshu.com', 'xhslink.com'],
-  dy: ['douyin.com', 'iesdouyin.com'],
-  ks: ['kuaishou.com'],
+  douyin: ['douyin.com', 'iesdouyin.com'],
+  kuaishou: ['kuaishou.com'],
   bili: ['bilibili.com', 'b23.tv'],
-  wb: ['weibo.com', 'weibo.cn'],
+  weibo: ['weibo.com', 'weibo.cn'],
   tieba: ['tieba.baidu.com'],
   zhihu: ['zhihu.com'],
+  zhaopin: ['zhaopin.com'],
 }
 
 export function detectPlatform(input: string): string | null {
@@ -29,6 +30,14 @@ const platformPatterns: Record<string, {
   video: RegExp[]
   creator: RegExp[]
 }> = {
+  zhaopin: {
+    video: [
+      /zhaopin\.com\/jobdetail\/([a-zA-Z0-9]+)/,
+    ],
+    creator: [
+      /zhaopin\.com\/company\/([a-zA-Z0-9]+)/,
+    ],
+  },
   xhs: {
     video: [
       /xiaohongshu\.com\/explore\/([a-zA-Z0-9]+)/,
@@ -39,7 +48,7 @@ const platformPatterns: Record<string, {
       /xiaohongshu\.com\/user\/profile\/([a-zA-Z0-9]+)/,
     ],
   },
-  dy: {
+  douyin: {
     video: [
       /douyin\.com\/video\/(\d+)/,
       /v\.douyin\.com\/([a-zA-Z0-9]+)/,
@@ -59,7 +68,7 @@ const platformPatterns: Record<string, {
       /space\.bilibili\.com\/(\d+)/,
     ],
   },
-  wb: {
+  weibo: {
     video: [
       /weibo\.com\/\d+\/([a-zA-Z0-9]+)/,
       /m\.weibo\.cn\/status\/(\d+)/,
@@ -69,7 +78,7 @@ const platformPatterns: Record<string, {
       /weibo\.com\/([a-zA-Z0-9]+)$/,
     ],
   },
-  ks: {
+  kuaishou: {
     video: [
       /kuaishou\.com\/short-video\/([a-zA-Z0-9_-]+)/,
       /v\.kuaishou\.com\/([a-zA-Z0-9]+)/,

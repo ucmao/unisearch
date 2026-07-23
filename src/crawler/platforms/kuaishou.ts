@@ -18,7 +18,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     console.log('[KS] Starting Kuaishou crawler (Electron CDP mode)...');
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
-    this.page = await getElectronCrawlerPage(this.browserContext, 'ks');
+    this.page = await getElectronCrawlerPage(this.browserContext, 'kuaishou');
 
 
 
@@ -55,14 +55,14 @@ export class KuaishouCrawler extends AbstractCrawler {
         await this.page!.locator('xpath=//p[normalize-space(text())="登录"] | //button[normalize-space(.)="登录"] | //a[normalize-space(.)="登录"]').first().click({ timeout: 3000 });
       } catch {}
 
-      notifyLoginRequired('ks', '快手当前会话未登录，需要在采集浏览器中确认或完成登录');
+      notifyLoginRequired('kuaishou', '快手当前会话未登录，需要在采集浏览器中确认或完成登录');
 
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[KS] Login successful!');
-          notifyLoginSuccess('ks');
+          notifyLoginSuccess('kuaishou');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
@@ -290,11 +290,11 @@ export class KuaishouCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedVideos(): Promise<void> {
-    for (const target of configuredTargets('ks', 'detail')) await this.fetchVideoDetail(target, '指定作品');
+    for (const target of configuredTargets('kuaishou', 'detail')) await this.fetchVideoDetail(target, '指定作品');
   }
 
   public async getCreatorsAndVideos(): Promise<void> {
-    for (const target of configuredTargets('ks', 'creator')) {
+    for (const target of configuredTargets('kuaishou', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const creatorId = firstMatch(resolved, [/\/profile\/([^/?#]+)/i, /[?&]userId=([^&#]+)/i]);
       await this.page!.goto(`https://www.kuaishou.com/profile/${encodeURIComponent(creatorId)}`, { waitUntil: 'domcontentloaded' });

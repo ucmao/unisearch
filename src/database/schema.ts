@@ -556,4 +556,21 @@ export function initSchema(db: Database): void {
     db.exec('ALTER TABLE agent_threads ADD COLUMN pinned_at TEXT');
   }
 
+  // Migrate legacy platform shortcuts in existing database
+  db.exec("UPDATE crawl_runs SET platform = 'douyin' WHERE platform = 'dy'");
+  db.exec("UPDATE crawl_runs SET platform = 'kuaishou' WHERE platform = 'ks'");
+  db.exec("UPDATE crawl_runs SET platform = 'weibo' WHERE platform = 'wb'");
+
+  db.exec("UPDATE crawl_run_logs SET platform = 'douyin' WHERE platform = 'dy'");
+  db.exec("UPDATE crawl_run_logs SET platform = 'kuaishou' WHERE platform = 'ks'");
+  db.exec("UPDATE crawl_run_logs SET platform = 'weibo' WHERE platform = 'wb'");
+
+  db.exec("UPDATE content_records SET platform = 'douyin' WHERE platform = 'dy'");
+  db.exec("UPDATE content_records SET platform = 'kuaishou' WHERE platform = 'ks'");
+  db.exec("UPDATE content_records SET platform = 'weibo' WHERE platform = 'wb'");
+
+  db.exec("UPDATE agent_plan_steps SET platform = 'douyin' WHERE platform = 'dy'");
+  db.exec("UPDATE agent_plan_steps SET platform = 'kuaishou' WHERE platform = 'ks'");
+  db.exec("UPDATE agent_plan_steps SET platform = 'weibo' WHERE platform = 'wb'");
+
 }

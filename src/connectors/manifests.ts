@@ -18,12 +18,12 @@ const EXTRA_OUTPUTS: Record<string, ConnectorOutputField[]> = {
     { key: 'saves', label: '收藏数', type: 'number' }, { key: 'shares', label: '分享数', type: 'number' },
     { key: 'images', label: '图片列表', type: 'string_list' }, { key: 'video_url', label: '视频地址', type: 'string' },
   ],
-  dy: [
+  douyin: [
     { key: 'saves', label: '收藏数', type: 'number' }, { key: 'shares', label: '分享数', type: 'number' },
     { key: 'video_download_url', label: '视频地址', type: 'string' }, { key: 'music_download_url', label: '音乐地址', type: 'string' },
     { key: 'images', label: '图文图片', type: 'string_list' },
   ],
-  ks: [
+  kuaishou: [
     { key: 'views', label: '播放数', type: 'number' }, { key: 'cover_url', label: '封面地址', type: 'string' },
     { key: 'video_play_url', label: '视频地址', type: 'string' },
   ],
@@ -32,7 +32,7 @@ const EXTRA_OUTPUTS: Record<string, ConnectorOutputField[]> = {
     { key: 'shares', label: '分享数', type: 'number' }, { key: 'coins', label: '投币数', type: 'number' },
     { key: 'danmaku', label: '弹幕数', type: 'number' }, { key: 'cover_url', label: '封面地址', type: 'string' },
   ],
-  wb: [{ key: 'shares', label: '转发数', type: 'number' }],
+  weibo: [{ key: 'shares', label: '转发数', type: 'number' }],
   tieba: [
     { key: 'forum_name', label: '贴吧名称', type: 'string' }, { key: 'reply_count', label: '回复数', type: 'number' },
     { key: 'forum_url', label: '贴吧链接', type: 'string' },
@@ -231,12 +231,100 @@ const aiWebQA = (
   ],
 });
 
+const jobPlatform = (
+  id: string,
+  name: string,
+  icon: string,
+): ConnectorManifest => ({
+  id, version: '1.0.0', name, icon, category: 'job_platform',
+  description: `${name}招聘岗位列表搜索与职位详情解析连接器。`,
+  auth: {
+    required: false, methods: ['none', 'cookie'],
+    description: '支持公开职位搜索，遇风控滑块时自动接入人工验证/打码机制。',
+  },
+  runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '岗位关键词搜索', description: `在${name}按关键词搜索招聘岗位信息。`, runtimeMode: 'search',
+      inputFields: [
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的岗位数。',
+          type: 'number', default: 20, min: 1, max: 200, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: `${id}_job_list`, outputFields: [
+        { key: 'content_id', label: '职位 ID', type: 'string', required: true },
+        { key: 'title', label: '职位名称', type: 'string' },
+        { key: 'description', label: '薪资与职位概述', type: 'string' },
+        { key: 'creator_name', label: '招聘公司', type: 'string' },
+        { key: 'content_url', label: '职位详情链接', type: 'string' },
+        { key: 'published_at', label: '发布时间', type: 'number' },
+      ], limitations: ['依靠公开 SERP 与网页全量 HTML/JSON 全局变量。'],
+    },
+    {
+      id: 'content_detail', label: '职位详情解析', description: `根据 ID 或完整链接解析${name}职位详细 JD 描述及精准发布时间。`, runtimeMode: 'detail',
+      inputFields: [targetField('职位详情链接或 ID')], outputType: `${id}_job_detail`, outputFields: [
+        { key: 'content_id', label: '职位 ID', type: 'string', required: true },
+        { key: 'title', label: '职位名称', type: 'string' },
+        { key: 'description', label: '完整 JD 描述', type: 'string' },
+        { key: 'creator_name', label: '公司名称', type: 'string' },
+        { key: 'content_url', label: '职位链接', type: 'string' },
+        { key: 'published_at', label: '精确发布时间', type: 'number' },
+      ], limitations: ['解析 __INITIAL_STATE__ 里面的 JSON 元数据。'],
+    },
+  ],
+});
+
+const complaintPlatform = (
+  id: string,
+  name: string,
+  icon: string,
+): ConnectorManifest => ({
+  id, version: '1.0.0', name, icon, category: 'complaint_platform',
+  description: `${name}维权投诉单搜索与投诉详情自动化解析连接器。`,
+  auth: {
+    required: false, methods: ['none', 'cookie'],
+    description: '支持公开投诉搜寻，免登录抓取消费者投诉事件与涉诉商家。',
+  },
+  runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '投诉关键词搜索', description: `在${name}按关键词搜索消费投诉事件与问题列表。`, runtimeMode: 'search',
+      inputFields: [
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的投诉单数。',
+          type: 'number', default: 20, min: 1, max: 200, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: `${id}_complaint_list`, outputFields: [
+        { key: 'content_id', label: '投诉单 ID', type: 'string', required: true },
+        { key: 'title', label: '投诉标题', type: 'string' },
+        { key: 'description', label: '投诉问题与诉求', type: 'string' },
+        { key: 'creator_name', label: '投诉对象/商家', type: 'string' },
+        { key: 'content_url', label: '投诉单详情链接', type: 'string' },
+        { key: 'published_at', label: '投诉时间', type: 'number' },
+      ], limitations: ['依赖公开搜索页面与 DOM/JSON 数据解析。'],
+    },
+    {
+      id: 'content_detail', label: '投诉单详情解析', description: `根据 ID 或链接解析${name}完整投诉内容、涉诉金额与处理节点。`, runtimeMode: 'detail',
+      inputFields: [targetField('投诉详情链接或 ID')], outputType: `${id}_complaint_detail`, outputFields: [
+        { key: 'content_id', label: '投诉单 ID', type: 'string', required: true },
+        { key: 'title', label: '投诉标题', type: 'string' },
+        { key: 'description', label: '完整投诉问题与要求', type: 'string' },
+        { key: 'creator_name', label: '被投诉商家', type: 'string' },
+        { key: 'content_url', label: '投诉单链接', type: 'string' },
+        { key: 'published_at', label: '精确投诉时间', type: 'number' },
+      ], limitations: ['依赖单条投诉网页 DOM/JSON 元数据。'],
+    },
+  ],
+});
+
 export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('xhs', '小红书', 'book-open', { content: '作品', creator: '创作者', comment: '评论与子评论' }),
-  social('dy', '抖音', 'music', { content: '作品', creator: '创作者', comment: '评论与回复' }),
-  social('ks', '快手', 'video', { content: '作品', creator: '创作者', comment: '可见评论' }),
+  social('douyin', '抖音', 'music', { content: '作品', creator: '创作者', comment: '评论与回复' }),
+  social('kuaishou', '快手', 'video', { content: '作品', creator: '创作者', comment: '可见评论' }),
   social('bili', '哔哩哔哩', 'tv', { content: '视频', creator: 'UP主', comment: '视频评论' }),
-  social('wb', '微博', 'message-circle', { content: '博文', creator: '用户', comment: '评论与回复' }),
+  social('weibo', '微博', 'message-circle', { content: '博文', creator: '用户', comment: '评论与回复' }),
   social('tieba', '百度贴吧', 'messages-square', { content: '帖子', creator: '吧/用户主体', comment: '楼层回复' }),
   social('zhihu', '知乎', 'help-circle', { content: '问题/回答/文章', creator: '作者', comment: '评论与回复' }),
   searchEngine('baidu', '百度', 'search'),
@@ -244,11 +332,13 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
   utilityParser('media_parser', '综合无水印解析', 'link'),
+  jobPlatform('zhaopin', '智联招聘', 'briefcase'),
+  complaintPlatform('heimao', '黑猫投诉', 'shield-alert'),
   aiWebQA('deepseek', 'DeepSeek', 'brain'),
   aiWebQA('kimi', 'Kimi', 'sparkles'),
   aiWebQA('doubao', '豆包', 'bot'),
   aiWebQA('qwen', '通义千问', 'message-square-text'),
   aiWebQA('yuanbao', '腾讯元宝', 'gem'),
-  aiWebQA('nami', '纳米 AI', 'atom'),
+  aiWebQA('nami', '纳米AI', 'atom'),
   aiWebQA('wenxin', '文心一言', 'message-circle-heart'),
 ];

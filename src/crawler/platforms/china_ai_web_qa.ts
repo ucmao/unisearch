@@ -66,7 +66,7 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
   },
   nami: {
     id: 'nami',
-    name: '纳米 AI',
+    name: '纳米AI',
     url: 'https://www.n.cn/',
     cookieDomain: '.n.cn',
     ownDomains: ['n.cn'],

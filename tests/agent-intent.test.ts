@@ -62,7 +62,7 @@ test('fallback keywords contain the subject rather than the whole request', () =
   assert.deepEqual(inferResearchKeywords('采集关键词 MiniMax M3'), ['MiniMax M3']);
   assert.deepEqual(inferResearchPlatforms('采集小红书和知乎'), ['xhs', 'zhihu']);
   assert.deepEqual(inferResearchPlatforms('解析 https://www.bilibili.com/video/BV1xx411c7mD'), ['bili']);
-  assert.deepEqual(inferResearchPlatforms('抓取 https://v.douyin.com/example/ 的评论'), ['dy']);
+  assert.deepEqual(inferResearchPlatforms('抓取 https://v.douyin.com/example/ 的评论'), ['douyin']);
 });
 
 test('platform-only collection asks for a subject, then accepts a keyword', () => {
@@ -79,7 +79,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
     previousUserText: '帮我采集微秒数智相关内容',
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
-    'xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
+    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
     'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
   ]);
 });
@@ -149,7 +149,7 @@ test('search engine alias and page range expressions are parsed correctly', () =
   const { inferCollectionDepth } = require('../src/server/services/AgentIntent');
   assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou']);
   assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou']);
-  assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']);
+  assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu']);
   assert.deepEqual(inferResearchPlatforms('在腾讯元宝问一下'), ['yuanbao']);
   assert.deepEqual(inferResearchPlatforms('用纳米 AI 搜索'), ['nami']);
   assert.deepEqual(inferResearchPlatforms('在 https://www.qianwen.com/ 提问'), ['qwen']);

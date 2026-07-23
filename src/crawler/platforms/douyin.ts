@@ -28,7 +28,7 @@ export class DouyinCrawler extends AbstractCrawler {
     console.log('[DY] Starting Douyin crawler (Electron CDP mode)...');
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
-    this.page = await getElectronCrawlerPage(this.browserContext, 'dy');
+    this.page = await getElectronCrawlerPage(this.browserContext, 'douyin');
 
 
 
@@ -71,14 +71,14 @@ export class DouyinCrawler extends AbstractCrawler {
       try {
         await this.page!.click('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 3000 });
       } catch {}
-      notifyLoginRequired('dy', '抖音当前会话未登录，需要在采集浏览器中确认或完成登录');
+      notifyLoginRequired('douyin', '抖音当前会话未登录，需要在采集浏览器中确认或完成登录');
 
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[DY] Login successful!');
-          notifyLoginSuccess('dy');
+          notifyLoginSuccess('douyin');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
@@ -191,12 +191,12 @@ export class DouyinCrawler extends AbstractCrawler {
 
   private async waitForInteractiveLogin(reason: string): Promise<void> {
     console.warn(`[DY] Login is required: ${reason}`);
-    notifyLoginRequired('dy', reason);
+    notifyLoginRequired('douyin', reason);
     const startTime = Date.now();
     while (Date.now() - startTime < 120 * 1000) {
       if (await this.checkLoginState()) {
         console.log('[DY] Login successful. Resuming crawler...');
-        notifyLoginSuccess('dy');
+        notifyLoginSuccess('douyin');
         return;
       }
       await this.page!.waitForTimeout(1000);
@@ -227,7 +227,7 @@ export class DouyinCrawler extends AbstractCrawler {
 
   private async waitForManualVerification(keyword: string): Promise<DouyinSearchCapture | null> {
     console.warn('[DY] Graphical verification detected. Waiting up to 180 seconds for manual completion...');
-    notifyManualVerificationRequired('dy', `搜索“${keyword}”需要完成图形验证`);
+    notifyManualVerificationRequired('douyin', `搜索“${keyword}”需要完成图形验证`);
     const responseAfterVerification = this.captureSearchResponse();
     const startTime = Date.now();
     let stablePasses = 0;
@@ -238,7 +238,7 @@ export class DouyinCrawler extends AbstractCrawler {
         stablePasses++;
         if (stablePasses >= 2) {
           console.log('[DY] Manual verification completed. Resuming search...');
-          notifyManualVerificationSuccess('dy');
+          notifyManualVerificationSuccess('douyin');
           return await responseAfterVerification;
         }
       }
@@ -533,11 +533,11 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedAwemes(): Promise<void> {
-    for (const target of configuredTargets('dy', 'detail')) await this.fetchAwemeDetail(target, '指定作品');
+    for (const target of configuredTargets('douyin', 'detail')) await this.fetchAwemeDetail(target, '指定作品');
   }
 
   public async getCreatorsAndAwemes(): Promise<void> {
-    for (const target of configuredTargets('dy', 'creator')) {
+    for (const target of configuredTargets('douyin', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const secUid = firstMatch(resolved, [/\/user\/([^/?#]+)/i, /[?&]sec_uid=([^&#]+)/i]);
       await this.page!.goto(`https://www.douyin.com/user/${encodeURIComponent(secUid)}`, { waitUntil: 'domcontentloaded' });
