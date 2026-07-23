@@ -156,7 +156,6 @@ function crawlerHubHtml(): string {
     .close-btn:hover{color:#d66b7b;background:rgba(214,107,123,0.15);opacity:1}
     .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12);flex-shrink:0}
     .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
-    .hint{margin-left:auto;align-self:center;padding:0 5px 4px 10px;color:#8393a3;font-size:11px;white-space:nowrap}
     
     .summary-container{display:flex;align-items:center;justify-content:center;height:calc(100vh - ${CRAWLER_TAB_HEIGHT}px);padding:20px;background:linear-gradient(135deg, #eef4f8 0%, #e2ecf3 100%)}
     .summary-card{margin:auto;max-width:440px;width:100%;background:#ffffff;border:1px solid #d0dee8;border-radius:16px;padding:32px 28px;text-align:center;box-shadow:0 12px 32px rgba(20,32,51,0.08);animation:fadeIn 0.25s ease-out}
@@ -174,7 +173,7 @@ function crawlerHubHtml(): string {
     .btn.primary{background:#206bc4;color:#fff;box-shadow:0 2px 6px rgba(32,107,196,0.25)}.btn.primary:hover{background:#1a59a5}
     .btn.secondary{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}.btn.secondary:hover{background:#e2e8f0;color:#1e293b}
   </style></head><body>
-    <div class="bar"><div class="brand">UniSearch 采集浏览器</div><nav class="tabs">${tabs}</nav><div class="hint">各平台登录会话独立保存</div></div>
+    <div class="bar"><div class="brand">UniSearch采集浏览器</div><nav class="tabs">${tabs}</nav></div>
     ${bodyContent}
   </body></html>`;
 }
@@ -480,7 +479,7 @@ app.on('ready', async () => {
 
     apiPort = await getFreePort(8080);
     console.log(`[Electron] Starting Fastify API on free port: ${apiPort}`);
-    
+
     // Start local Fastify server
     await startServer(apiPort, {
       prepareCrawlerWindow,
