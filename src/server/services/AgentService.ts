@@ -674,13 +674,36 @@ export class AgentService {
     const targetDescription = plan.capability === 'keyword_search'
       ? plan.keywords.join('、')
       : (plan.targets || []).join('、') || '待识别目标';
-    const depth = plan.collectionDepth || (plan.collectSubComments ? 'deep' : plan.collectComments ? 'standard' : 'quick');
-    const depthSummary = depth === 'deep'
-      ? '每个关键词最多 100 条，并采集一级评论和回复评论'
-      : depth === 'standard'
-        ? '每个关键词最多 50 条，并采集一级评论'
-        : '每个关键词最多 30 条，不采集评论';
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}\n范围：${depthSummary}\n\n如果范围没问题，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
+
+    const isOnlyAiQA = plan.platforms.length > 0 && plan.platforms.every((p: string) => {
+      const manifest = getConnectorManifest(p);
+      return manifest?.category === 'ai_web_qa' || ['deepseek', 'kimi'].includes(p);
+    });
+
+    let scopeLine = '';
+    if (!isOnlyAiQA) {
+      const depth = plan.collectionDepth || (plan.collectSubComments ? 'deep' : plan.collectComments ? 'standard' : 'quick');
+      let depthSummary = '';
+
+      const isCustomParams = (plan.startPage && plan.startPage > 1) || (plan.maxItems && ![15, 30, 50, 100].includes(plan.maxItems));
+
+      if (plan.customScopeDescription) {
+        depthSummary = plan.customScopeDescription;
+      } else if (isCustomParams || depth === 'custom') {
+        const details: string[] = [];
+        if (plan.maxItems) details.push(`每个关键词最多 ${plan.maxItems} 条`);
+        if (plan.startPage && plan.startPage > 1) details.push(`从第 ${plan.startPage} 页开始`);
+        if (plan.collectSubComments) details.push('含二级评论');
+        else if (plan.collectComments) details.push('含一级评论');
+        else details.push('不采集评论');
+        depthSummary = details.length ? details.join('，') : '自定义';
+      } else {
+        depthSummary = depth === 'deep' ? '深度' : depth === 'standard' ? '标准' : '快速';
+      }
+      scopeLine = `\n范围：${depthSummary}`;
+    }
+
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
     if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
   }

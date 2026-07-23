@@ -65,7 +65,7 @@ export interface ConfigOption {
   label: string
 }
 
-export type ConnectorCategory = 'social_media' | 'ai_search' | 'web_search' | 'complaint' | 'recruitment' | 'utility'
+export type ConnectorCategory = 'social_media' | 'ai_web_qa' | 'web_search' | 'complaint' | 'recruitment' | 'utility'
 export type ConnectorCapabilityId = 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve'
 export type ConnectorFieldType = 'string' | 'number' | 'boolean' | 'select' | 'string_list' | 'secret'
 

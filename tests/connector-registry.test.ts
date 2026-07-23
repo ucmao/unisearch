@@ -22,7 +22,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 12);
+assert.equal(listConnectorManifests().length, 14);
 
 const normalized = normalizeConnectorRequest(baseRequest);
 assert.equal(normalized.platform, 'xhs');
@@ -31,7 +31,7 @@ assert.equal((normalized as any).crawler_max_notes_count, 42);
 assert.equal(normalized.enable_comments, true);
 
 for (const manifest of listConnectorManifests()) {
-  const expectedCapabilities = manifest.category === 'web_search'
+  const expectedCapabilities = (manifest.category === 'web_search' || manifest.category === 'ai_web_qa')
     ? ['keyword_search']
     : manifest.category === 'utility'
     ? ['url_resolve']
