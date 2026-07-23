@@ -240,6 +240,7 @@ export interface AgentAttachment {
   kind: 'image' | 'text' | 'spreadsheet'
   size_bytes: number
   created_at: string
+  preview_url?: string
 }
 
 export interface AgentTaskReference {
@@ -320,9 +321,15 @@ export interface ModelProfile {
   model: string
   temperature: number
   timeoutMs: number
+  apiKey?: string
   apiKeyConfigured: boolean
   connectionVerified: boolean
   lastError?: string
+}
+
+export interface ModelProfiles {
+  activeProvider: ModelProfile['provider']
+  profiles: ModelProfile[]
 }
 
 export interface MemorySettings {
@@ -485,6 +492,8 @@ export const agentApi = {
     api.post<AgentAttachment>(`/agent/threads/${encodeURIComponent(threadId)}/attachments`, file, { timeout: 120000 }),
   deleteAttachment: (threadId: string, attachmentId: string) =>
     api.delete(`/agent/threads/${encodeURIComponent(threadId)}/attachments/${encodeURIComponent(attachmentId)}`),
+  getAttachmentFileUrl: (threadId: string, attachmentId: string) =>
+    `/api/agent/threads/${encodeURIComponent(threadId)}/attachments/${encodeURIComponent(attachmentId)}/file`,
   sendMessage: (threadId: string, content: string, context: {
     attachment_ids?: string[]
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
@@ -499,7 +508,8 @@ export const agentApi = {
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/analysis`, { analysis }),
   getPlanExportUrl: (planId: string) => `/api/agent/plans/${encodeURIComponent(planId)}/export`,
   getModelProfile: () => api.get<ModelProfile>('/agent/model-profile'),
-  saveModelProfile: (profile: Partial<ModelProfile> & { apiKey?: string }) => api.put<ModelProfile>('/agent/model-profile', profile),
+  getModelProfiles: () => api.get<ModelProfiles>('/agent/model-profiles'),
+  saveModelProfile: (profile: Partial<ModelProfile> & { apiKey?: string; clearApiKey?: boolean }) => api.put<ModelProfile>('/agent/model-profile', profile),
   testModelProfile: () => api.post<{ success: boolean; message: string; latency_ms: number }>('/agent/model-profile/test', null, { timeout: 180000 }),
   getMemorySettings: () => api.get<MemorySettings>('/agent/memory-settings'),
   saveMemorySettings: (settings: Partial<MemorySettings>) => api.put<MemorySettings>('/agent/memory-settings', settings),

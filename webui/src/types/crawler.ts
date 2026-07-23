@@ -46,6 +46,10 @@ export interface LogEntry {
   platform?: string
   run_id?: string
   thread_id?: string
+  retry_count?: number
+  max_retries?: number
+  delay_sec?: number
+  retry_reason?: string
 }
 
 export interface Platform {

@@ -83,7 +83,10 @@ const initialRunningInfo = SUPPORTED_PLATFORMS.reduce(
   (acc, p) => ({ ...acc, [p]: { crawlerType: null, startedAt: null, runId: null } }),
   {}
 )
-const initialLogs = SUPPORTED_PLATFORMS.reduce((acc, p) => ({ ...acc, [p]: [] }), {})
+const initialLogs: Record<string, LogEntry[]> = {
+  ...SUPPORTED_PLATFORMS.reduce<Record<string, LogEntry[]>>((acc, p) => ({ ...acc, [p]: [] }), {}),
+  system: [],
+}
 const initialClearedLogIds = SUPPORTED_PLATFORMS.reduce(
   (acc, p) => ({ ...acc, [p]: getClearedLogIdFromStorage(p) }),
   {}

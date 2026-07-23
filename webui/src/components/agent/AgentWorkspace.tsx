@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, Eye, EyeOff, FileText, KeyRound,
-  Image, Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
+  AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, Eye, EyeOff, FileText,
+  Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
   Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
@@ -17,6 +17,7 @@ import { Terminal } from '@/components/console/Terminal'
 import { SettingsDialog, type SettingsSection } from '@/components/layout/SettingsDialog'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
+import { useCrawlerStore } from '@/store/crawlerStore'
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
@@ -185,7 +186,7 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   )
 }
 
-function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair }: {
+function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair, onPreviewImage }: {
   message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean
   showPlanCard: boolean
   onUpdateKeywords: (keywords: string[]) => void
@@ -193,6 +194,7 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
   updatingPlan: boolean
   onDeletePair: () => Promise<unknown>
   deletingPair: boolean
+  onPreviewImage?: (url: string) => void
 }) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
@@ -210,8 +212,30 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
       <div className={`max-w-[780px] ${isUser ? 'rounded-2xl rounded-tr-sm bg-cyber-neon-cyan/12 px-4 py-3' : 'min-w-0 flex-1'}`}>
-        {isUser && (message.metadata?.attachments?.length || message.metadata?.task_references?.length) ? <div className="mb-2 flex flex-wrap justify-end gap-1.5">
-          {(message.metadata.attachments || []).map((attachment: AgentAttachment) => <span key={attachment.attachment_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-border-default bg-cyber-bg-panel/60 px-2 py-1 text-[10px] text-cyber-text-secondary"><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{attachment.file_name}</span></span>)}
+        {isUser && (message.metadata?.attachments?.length || message.metadata?.task_references?.length) ? <div className="mb-2 flex flex-wrap justify-end gap-2">
+          {(message.metadata.attachments || []).map((attachment: AgentAttachment) => {
+            const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
+            const imgUrl = attachment.preview_url || agentApi.getAttachmentFileUrl(message.thread_id, attachment.attachment_id)
+            if (isImage) {
+              return (
+                <div key={attachment.attachment_id} className="overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel/80 p-1 group/img">
+                  <img
+                    src={imgUrl}
+                    alt={attachment.file_name}
+                    className="max-h-56 max-w-xs rounded-lg object-contain transition-transform hover:scale-[1.02] cursor-pointer"
+                    onClick={() => onPreviewImage?.(imgUrl)}
+                  />
+                  <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-cyber-text-muted">
+                    <span className="truncate max-w-[140px]">{attachment.file_name}</span>
+                    {attachment.size_bytes ? <span>{(attachment.size_bytes / 1024).toFixed(0)}KB</span> : null}
+                  </div>
+                </div>
+              )
+            }
+            return (
+              <span key={attachment.attachment_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-border-default bg-cyber-bg-panel/60 px-2 py-1 text-[10px] text-cyber-text-secondary"><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{attachment.file_name}</span></span>
+            )
+          })}
           {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => <span key={reference.plan_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2 py-1 text-[10px] text-cyber-text-secondary"><Database className="h-3 w-3 shrink-0" /><span className="truncate">{reference.goal}</span></span>)}
         </div> : null}
         {isUser
@@ -253,6 +277,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const client = useQueryClient()
   useLogWebSocket()
   const [input, setInput] = useState('')
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
+  const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
   const [addMenuOpen, setAddMenuOpen] = useState(false)
@@ -260,6 +286,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
   const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; platforms: string[] }>>([])
   const [threadsCollapsed, setThreadsCollapsed] = useState(() => localStorage.getItem('unisearch-threads-collapsed') === 'true')
+
+  const systemLogs = useCrawlerStore((state) => state.logs.system)
 
   const browserWindowQuery = useQuery({
     queryKey: ['browser-window-status'],
@@ -298,10 +326,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const petReactionTimerRef = useRef<number | null>(null)
   const petReactionFrameRef = useRef<number | null>(null)
-  const openModelSettings = () => {
-    setSettingsSection('models')
-    setSettingsOpen(true)
-  }
   const send = useMutation({
     mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => agentApi.sendMessage(id, content, { attachment_ids: attachmentIds, task_references: references }),
     onMutate: async ({ id, message }) => {
@@ -324,21 +348,144 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
   })
+
+  useEffect(() => {
+    if (!send.isPending) {
+      setAiRetryState(null)
+      return
+    }
+    const latest = systemLogs.at(-1)
+    if (latest && latest.thread_id === selectedId && latest.retry_count) {
+      setAiRetryState({
+        count: latest.retry_count,
+        max: latest.max_retries || 3,
+        delaySec: latest.delay_sec || 5,
+      })
+    }
+  }, [systemLogs, send.isPending, selectedId])
+
   const threadsQuery = useQuery({ queryKey: ['agent-threads'], queryFn: async () => (await agentApi.listThreads()).data.items, refetchInterval: 3000 })
   const threadQuery = useQuery({ queryKey: ['agent-thread', selectedId], queryFn: async () => (await agentApi.getThread(selectedId!)).data, enabled: Boolean(selectedId), refetchInterval: send.isPending ? false : 1500 })
-  const modelProfileQuery = useQuery({ queryKey: ['agent-model-profile'], queryFn: async () => (await agentApi.getModelProfile()).data })
   const referenceableTasksQuery = useQuery({ queryKey: ['agent-referenceable-tasks'], queryFn: async () => (await agentApi.listReferenceableTasks()).data.items, enabled: taskPickerOpen })
+
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dragCounterRef = useRef(0)
+
+  const ensureThread = async () => {
+    if (selectedId) return selectedId
+    const thread = (await agentApi.createThread(undefined, false)).data
+    client.setQueryData(['agent-thread', thread.thread_id], thread)
+    setSelectedId(thread.thread_id)
+    client.invalidateQueries({ queryKey: ['agent-threads'] })
+    return thread.thread_id
+  }
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
-      if (!selectedId) throw new Error('请先选择任务')
-      if (file.size > 8 * 1024 * 1024) throw new Error('单个文件不能超过 8MB')
+      const targetId = await ensureThread()
+      if (file.size > 8 * 1024 * 1024) throw new Error(`文件 ${file.name} 超过 8MB 限制`)
+      const localPreviewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
       const dataBase64 = await fileToBase64(file)
-      return (await agentApi.uploadAttachment(selectedId, { fileName: file.name, mimeType: file.type || 'application/octet-stream', dataBase64 })).data
+      const res = await agentApi.uploadAttachment(targetId, { fileName: file.name, mimeType: file.type || 'application/octet-stream', dataBase64 })
+      return { ...res.data, preview_url: localPreviewUrl }
     },
     onSuccess: (attachment) => setAttachments((current) => [...current, attachment].slice(0, 5)),
     onError: (error) => toast.error(getError(error)),
   })
+
+  const handleFilesToUpload = async (fileList: FileList | File[]) => {
+    const rawFiles = Array.from(fileList)
+    if (!rawFiles.length) return
+
+    const availableSlots = 5 - attachments.length
+    if (availableSlots <= 0) {
+      toast.warning('最多绑定 5 个附件')
+      return
+    }
+
+    const validFiles: File[] = []
+    const unsupportedFiles: string[] = []
+
+    for (const file of rawFiles) {
+      const name = file.name || 'unnamed'
+      const ext = name.includes('.') ? (name.split('.').pop() || '').toLowerCase() : ''
+      const mime = (file.type || '').toLowerCase()
+
+      if (mime.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'exe', 'dmg', 'sh', 'bat', 'zip', 'tar', 'gz'].includes(ext)) {
+        unsupportedFiles.push(name)
+      } else {
+        validFiles.push(file)
+      }
+    }
+
+    if (unsupportedFiles.length > 0) {
+      toast.error(`暂不支持视频/压缩包/可执行文件：${unsupportedFiles.slice(0, 2).join(', ')}${unsupportedFiles.length > 2 ? ' 等' : ''}`)
+    }
+
+    const filesToUpload = validFiles.slice(0, availableSlots)
+    if (filesToUpload.length > 0) {
+      try {
+        await filesToUpload.reduce((promise, file) =>
+          promise.then(() => upload.mutateAsync(file).then(() => undefined)), Promise.resolve()
+        )
+      } catch {
+        // Handled in mutation
+      }
+    }
+  }
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current += 1
+    if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes('Files')) {
+      setIsDragOver(true)
+    }
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current -= 1
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0
+      setIsDragOver(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    dragCounterRef.current = 0
+    setIsDragOver(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFilesToUpload(e.dataTransfer.files)
+    }
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    const files: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind === 'file') {
+        const file = item.getAsFile()
+        if (file) files.push(file)
+      }
+    }
+
+    if (files.length > 0) {
+      e.preventDefault()
+      handleFilesToUpload(files)
+    }
+  }
 
   const createNewTask = useMutation({
     mutationFn: async () => (await agentApi.createThread()).data,
@@ -491,15 +638,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const submit = () => {
     const content = input.trim()
     if (!content || send.isPending || create.isPending) return
-    if (!modelProfileQuery.data?.apiKeyConfigured || !modelProfileQuery.data.connectionVerified || modelProfileQuery.data.lastError) {
-      openModelSettings()
-      toast.error(modelProfileQuery.data?.lastError
-        ? 'AI 模型连接不可用，请先测试连接'
-        : modelProfileQuery.data?.apiKeyConfigured
-          ? 'AI 模型尚未验证，请先测试连接'
-          : '请先配置 AI 模型 API Key')
-      return
-    }
     const references = taskReferences.map(({ plan_id, platforms }) => ({ plan_id, platforms }))
     if (!selectedId) {
       const selectedTaskReferences = [...taskReferences]
@@ -553,12 +691,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   )
   const isCollecting = (threadsQuery.data || []).some((thread) => thread.plan_status === 'running')
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
-  const modelReady = Boolean(modelProfileQuery.data?.apiKeyConfigured && modelProfileQuery.data.connectionVerified && !modelProfileQuery.data.lastError)
-  const modelUnavailableText = modelProfileQuery.data?.lastError
-    ? `AI 模型连接不可用：${modelProfileQuery.data.lastError}`
-    : modelProfileQuery.data?.apiKeyConfigured
-      ? 'AI 模型尚未通过连接测试，无法进行思考和对话'
-      : '尚未配置 AI 模型 API，无法进行思考和对话'
   const isThinking = send.isPending && send.variables?.id === selectedId
   const toggleThreads = () => {
     setThreadsCollapsed((current) => {
@@ -813,8 +945,23 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} />)}
-                {isThinking && <div className="flex items-center gap-3 text-xs text-cyber-text-muted"><div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div><Loader2 className="h-4 w-4 animate-spin" />AI 正在思考…</div>}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} />)}
+                {isThinking && (
+                  <div className="flex items-center gap-3 text-xs text-cyber-text-muted">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
+                      <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+                    </div>
+                    <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" />
+                    <span className="flex items-center gap-2">
+                      AI 正在思考…
+                      {aiRetryState ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-cyber-neon-yellow/40 bg-cyber-neon-yellow/10 px-2.5 py-0.5 text-[11px] font-medium text-cyber-neon-yellow animate-pulse">
+                          重试计数 {aiRetryState.count} / {aiRetryState.max} (等待 {aiRetryState.delaySec}s)
+                        </span>
+                      ) : null}
+                    </span>
+                  </div>
+                )}
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
                 <div className="flex -translate-y-2 flex-col items-center text-center">
@@ -841,20 +988,59 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
             <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
           <div className="mx-auto max-w-4xl">
-            {modelProfileQuery.isLoading ? <div className="flex min-h-[88px] items-center justify-center rounded-xl border border-cyber-border-default bg-cyber-bg-panel text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在检查 AI 模型配置…</div> : modelReady ? <>
-              <div className="agent-composer relative rounded-2xl border border-cyber-border-default bg-cyber-bg-panel focus-within:border-cyber-neon-cyan/50">
+              <div
+                className="agent-composer relative rounded-2xl border border-cyber-border-default bg-cyber-bg-panel transition-colors focus-within:border-cyber-neon-cyan/50"
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                {isDragOver ? (
+                  <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-cyber-neon-cyan bg-cyber-bg-panel/95 backdrop-blur transition-all pointer-events-none">
+                    <Paperclip className="h-7 w-7 animate-bounce text-cyber-neon-cyan" />
+                    <p className="text-sm font-medium text-cyber-neon-cyan">松开鼠标即可上传文件 / 图片</p>
+                    <p className="text-[11px] text-cyber-text-muted">支持图片 (PNG/JPG/WebP/GIF) 与文本/表格 (TXT/MD/CSV/JSON/XLSX，≤ 8MB)</p>
+                  </div>
+                ) : null}
                 {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
-                  {attachments.map((attachment) => <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
-                    {attachment.kind === 'image' ? <Image className="h-3.5 w-3.5 shrink-0" /> : attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
-                    <span className="truncate">{attachment.file_name}</span>
-                    <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
-                  </span>)}
+                  {attachments.map((attachment) => {
+                    const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
+                    const imgUrl = attachment.preview_url || (selectedId ? agentApi.getAttachmentFileUrl(selectedId, attachment.attachment_id) : '')
+                    if (isImage && imgUrl) {
+                      return (
+                        <div key={attachment.attachment_id} className="relative flex max-w-64 items-center gap-2 rounded-xl border border-cyber-border-default bg-cyber-bg-secondary/80 p-1.5 transition-colors hover:border-cyber-neon-cyan/50">
+                          <img
+                            src={imgUrl}
+                            alt={attachment.file_name}
+                            className="h-10 w-10 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
+                            onClick={() => setPreviewImageUrl(imgUrl)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium text-cyber-text-primary">{attachment.file_name}</p>
+                            <p className="text-[9px] text-cyber-text-muted">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
+                          </div>
+                          <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-1 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                            <X className="h-3.5 w-3.5 text-cyber-text-muted" />
+                          </button>
+                        </div>
+                      )
+                    }
+                    return (
+                      <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
+                        {attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0 text-cyber-neon-green" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted" />}
+                        <span className="truncate">{attachment.file_name}</span>
+                        <span className="text-[9px] text-cyber-text-muted">({(attachment.size_bytes / 1024).toFixed(0)}KB)</span>
+                        <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
+                      </span>
+                    )
+                  })}
                   {taskReferences.map((reference) => <span key={reference.plan_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
                     <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => PLATFORM_LABELS[platform] || platform).join('/')}` : ''}</span>
                     <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
                   </span>)}
                 </div> : null}
                 <textarea ref={composerInputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() } }}
+                  onPaste={handlePaste}
                   placeholder={!selectedId ? '输入问题，或描述想调研的主题…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
                   className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
                 <div className="absolute bottom-3 left-3">
@@ -862,25 +1048,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
                   </Button>
                   {addMenuOpen ? <div className="absolute bottom-11 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
-                    <button type="button" disabled={!selectedId} onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent">
-                      <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">{selectedId ? '图片、文本、CSV、XLSX' : '进入任务后即可上传'}</span></span>
+                    <button type="button" onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                      <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">图片、文本、CSV、XLSX</span></span>
                     </button>
                     <button type="button" onClick={() => { setAddMenuOpen(false); setTaskPickerOpen(true) }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
                       <Database className="h-4 w-4" /><span><span className="block font-medium">引用采集结果</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">选择已有任务或平台</span></span>
                     </button>
                   </div> : null}
                   <input ref={fileInputRef} type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.tsv,.xlsx" onChange={(event) => {
-                    const files = Array.from(event.target.files || []).slice(0, Math.max(0, 5 - attachments.length))
-                    files.reduce((promise, file) => promise.then(() => upload.mutateAsync(file).then(() => undefined)), Promise.resolve()).catch(() => undefined)
+                    if (event.target.files && event.target.files.length > 0) {
+                      handleFilesToUpload(event.target.files)
+                    }
                     event.target.value = ''
                   }} />
                 </div>
                 <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending || create.isPending}>{create.isPending ? <Loader2 className="animate-spin" /> : <Send />}</Button>
               </div>
-            </> : <div className="flex min-h-[88px] items-center justify-between gap-4 rounded-xl border border-cyber-neon-pink/25 bg-cyber-neon-pink/5 px-4 py-3">
-              <div><p className="text-sm text-cyber-text-primary">{modelUnavailableText}</p><p className="mt-1 text-[10px] text-cyber-text-muted">配置并成功测试连接后，才能开始 AI 对话、生成计划和分析结果。</p></div>
-              <Button variant="outline" className="shrink-0" onClick={openModelSettings}><KeyRound />配置模型</Button>
-            </div>}
           </div>
             </div>
           </main>
@@ -1138,6 +1321,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             })}
           </div>
           <DialogFooter><Button onClick={() => setTaskPickerOpen(false)}>完成{taskReferences.length ? `（已选 ${taskReferences.length}）` : ''}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={Boolean(previewImageUrl)} onOpenChange={(open) => { if (!open) setPreviewImageUrl(null) }}>
+        <DialogContent className="max-w-4xl border-cyber-border-default bg-cyber-bg-panel p-2 sm:rounded-2xl">
+          <div className="relative flex items-center justify-center overflow-hidden rounded-xl bg-black/60 p-2">
+            <img src={previewImageUrl || ''} alt="图片预览" className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
+          </div>
         </DialogContent>
       </Dialog>
     </div>

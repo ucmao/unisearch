@@ -265,6 +265,14 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       : reply.status(404).send({ detail: 'Attachment not found' });
   });
 
+  fastify.get('/api/agent/threads/:thread_id/attachments/:attachment_id/file', async (request, reply) => {
+    const { thread_id, attachment_id } = request.params as { thread_id: string; attachment_id: string };
+    const record = agentAttachmentService.getAttachmentRecord(thread_id, attachment_id);
+    if (!record) return reply.status(404).send({ detail: 'Attachment file not found' });
+    const stream = fs.createReadStream(record.filePath);
+    return reply.type(record.mimeType).send(stream);
+  });
+
   fastify.post('/api/agent/threads/:thread_id/messages', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
     const { content, attachment_ids, task_references } = request.body as {
@@ -365,6 +373,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/agent/model-profile', async () => modelService.getProfile(false));
+
+  fastify.get('/api/agent/model-profiles', async () => modelService.getProfiles());
 
   fastify.put('/api/agent/model-profile', async (request, reply) => {
     try { return modelService.saveProfile(request.body as any); }
