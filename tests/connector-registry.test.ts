@@ -22,7 +22,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 19);
+assert.equal(listConnectorManifests().length, 21);
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -33,7 +33,7 @@ assert.deepEqual(
     ['doubao', '豆包'],
     ['qwen', '通义千问'],
     ['yuanbao', '腾讯元宝'],
-    ['nami', '纳米 AI'],
+    ['nami', '纳米AI'],
     ['wenxin', '文心一言'],
   ],
 );
@@ -49,6 +49,8 @@ for (const manifest of listConnectorManifests()) {
     ? ['keyword_search']
     : manifest.category === 'utility'
     ? ['url_resolve']
+    : (manifest.category === 'job_platform' || manifest.category === 'complaint_platform')
+    ? ['keyword_search', 'content_detail']
     : ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'];
   assert.deepEqual(
     manifest.capabilities.map((capability) => capability.id),
@@ -84,7 +86,8 @@ assert.match(catalog, /deepseek=DeepSeek/);
 assert.match(catalog, /kimi=Kimi/);
 assert.match(catalog, /qwen=通义千问/);
 assert.match(catalog, /yuanbao=腾讯元宝/);
-assert.match(catalog, /nami=纳米 AI/);
-assert.match(catalog, /wenxin=文心一言/);
+assert.match(catalog, /nami=纳米AI/);
+assert.match(catalog, /zhaopin=智联招聘/);
+assert.match(catalog, /heimao=黑猫投诉/);
 
 console.log('connector registry tests passed');

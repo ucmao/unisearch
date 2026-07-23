@@ -40,7 +40,7 @@ const REVISE_FIELD = '(?:小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧
 const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.*${REVISE_ACTION})`, 'i');
 const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:去|到|在)?(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看)/i;
 const ALL_PLATFORM_IDS = [
-  'xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
+  'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
   'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
 ];
 
@@ -109,13 +109,13 @@ export function inferResearchKeywords(text: string): string[] {
 export function inferResearchPlatforms(text: string): string[] {
   if (/(?:全部|所有|全)(?:支持的)?平台|全网|各平台/.test(text)) return [...ALL_PLATFORM_IDS];
   if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) return ['baidu', 'bing', 'so360', 'sogou'];
-  if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) return ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu'];
+  if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) return ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
   const aliases: Array<[RegExp, string]> = [
     [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
-    [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'dy'],
-    [/(?:快手|kuaishou\.com|v\.kuaishou\.com)/i, 'ks'],
+    [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'douyin'],
+    [/(?:快手|kuaishou\.com|v\.kuaishou\.com)/i, 'kuaishou'],
     [/(?:B站|哔哩哔哩|bilibili\.com|b23\.tv)/i, 'bili'],
-    [/(?:微博|weibo\.com|weibo\.cn)/i, 'wb'],
+    [/(?:微博|weibo\.com|weibo\.cn)/i, 'weibo'],
     [/(?:百度贴吧|贴吧|tieba\.baidu\.com)/i, 'tieba'],
     [/(?:知乎|zhihu\.com|zhuanlan\.zhihu\.com)/i, 'zhihu'],
     [/(?:百度网页|百度搜索|百度首页|www\.baidu\.com)/i, 'baidu'],

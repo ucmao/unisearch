@@ -4,10 +4,10 @@ import type { Database } from 'better-sqlite3';
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书',
-  dy: '抖音',
-  ks: '快手',
-  bili: 'Bilibili',
-  wb: '微博',
+  douyin: '抖音',
+  kuaishou: '快手',
+  bili: '哔哩哔哩',
+  weibo: '微博',
   tieba: '贴吧',
   zhihu: '知乎',
   baidu: '百度',
@@ -15,12 +15,14 @@ const PLATFORM_LABELS: Record<string, string> = {
   so360: '360搜索',
   sogou: '搜狗搜索',
   media_parser: '综合解析',
+  zhaopin: '智联招聘',
+  heimao: '黑猫投诉',
   deepseek: 'DeepSeek',
   kimi: 'Kimi',
   doubao: '豆包',
   qwen: '通义千问',
   yuanbao: '腾讯元宝',
-  nami: '纳米 AI',
+  nami: '纳米AI',
   wenxin: '文心一言',
 };
 
@@ -70,7 +72,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     saves = parseMetric(rawItem.collected_count);
     comments = parseMetric(rawItem.comment_count);
     shares = parseMetric(rawItem.share_count);
-  } else if (platform === 'dy') {
+  } else if (platform === 'douyin') {
     contentId = rawItem.aweme_id || '';
     title = rawItem.title || rawItem.desc?.slice(0, 255) || '';
     description = rawItem.desc || '';
@@ -99,7 +101,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     shares = parseMetric(rawItem.video_share_count);
     saves = parseMetric(rawItem.video_favorite_count);
     views = parseMetric(rawItem.video_play_count);
-  } else if (platform === 'ks') {
+  } else if (platform === 'kuaishou') {
     contentId = rawItem.video_id || '';
     title = rawItem.title || '';
     description = rawItem.desc || '';
@@ -112,7 +114,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     likes = parseMetric(rawItem.liked_count);
     views = parseMetric(rawItem.viewd_count);
     comments = parseMetric(rawItem.comment_count);
-  } else if (platform === 'wb') {
+  } else if (platform === 'weibo') {
     contentId = rawItem.note_id || '';
     title = rawItem.content?.slice(0, 100) || '';
     description = rawItem.content || '';
@@ -141,16 +143,16 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     contentType = rawItem.content_type || 'content';
     likes = parseMetric(rawItem.voteup_count);
     comments = parseMetric(rawItem.comment_count);
-  } else if (['baidu', 'bing', 'so360', 'sogou'].includes(platform)) {
-    contentId = rawItem.real_url || rawItem.url || '';
-    title = rawItem.title || '';
-    description = rawItem.snippet || '';
-    creatorName = rawItem.publisher || PLATFORM_LABELS[platform] || platform;
-    creatorId = rawItem.publisher || '';
-    contentUrl = rawItem.real_url || rawItem.url || '';
+  } else if (['baidu', 'bing', 'so360', 'sogou', 'zhaopin', 'heimao'].includes(platform)) {
+    contentId = rawItem.real_url || rawItem.url || rawItem.content_id || '';
+    title = rawItem.title || rawItem.job_name || '';
+    description = rawItem.snippet || rawItem.desc || '';
+    creatorName = rawItem.publisher || rawItem.company_name || PLATFORM_LABELS[platform] || platform;
+    creatorId = rawItem.publisher || rawItem.company_name || '';
+    contentUrl = rawItem.real_url || rawItem.url || rawItem.content_url || '';
     coverUrl = Array.isArray(rawItem.images) ? (rawItem.images[0] || '') : (rawItem.images?.split(',')[0] || '');
-    publishedAt = parseTimestamp(rawItem.publish_time);
-    contentType = 'web_page';
+    publishedAt = parseTimestamp(rawItem.publish_time || rawItem.published_at);
+    contentType = platform === 'zhaopin' ? 'job_post' : platform === 'heimao' ? 'complaint' : 'web_page';
   } else if (Object.hasOwn(AI_WEB_QA_URLS, platform)) {
     contentId = rawItem.id || rawItem.url || String(Date.now());
     title = rawItem.title || rawItem.question || '';
@@ -331,7 +333,7 @@ export class DatabaseStore {
       item.source_keyword || ''
     );
 
-    normalizeAndIngest('dy', item);
+    normalizeAndIngest('douyin', item);
   }
 
   public async storeDouyinComment(item: Record<string, any>): Promise<void> {
@@ -484,7 +486,7 @@ export class DatabaseStore {
       item.source_keyword || ''
     );
 
-    normalizeAndIngest('ks', item);
+    normalizeAndIngest('kuaishou', item);
   }
 
   public async storeKuaishouComment(item: Record<string, any>): Promise<void> {
@@ -550,7 +552,7 @@ export class DatabaseStore {
       item.source_keyword || ''
     );
 
-    normalizeAndIngest('wb', item);
+    normalizeAndIngest('weibo', item);
   }
 
   public async storeWeiboComment(item: Record<string, any>): Promise<void> {
@@ -907,6 +909,44 @@ export class DatabaseStore {
       source_keyword: item.source_keyword || item.question || '',
       search_rank: 1,
       publish_time: item.time || '',
+    });
+  }
+
+  public async storeZhaopinResult(item: Record<string, any>): Promise<void> {
+    const snippetText = [
+      item.salary ? `【薪资待遇】: ${item.salary}` : '',
+      item.work_city ? `【工作地点】: ${item.work_city}` : '',
+      item.job_experience ? `【工作经验】: ${item.job_experience}` : '',
+      item.education ? `【学历要求】: ${item.education}` : '',
+      item.desc ? `\n【职位描述】:\n${item.desc}` : '',
+    ].filter(Boolean).join('\n');
+
+    await this.storeSearchEngineResult({
+      engine: 'zhaopin',
+      title: item.title || item.job_name || '',
+      url: item.content_url || item.job_url || '',
+      real_url: item.content_url || item.job_url || '',
+      snippet: snippetText,
+      publisher: item.company_name || item.creator_name || '智联招聘',
+      images: '',
+      source_keyword: item.source_keyword || '',
+      search_rank: item.rank || 1,
+      publish_time: item.published_at || item.publish_time || '',
+    });
+  }
+
+  public async storeHeimaoResult(item: Record<string, any>): Promise<void> {
+    await this.storeSearchEngineResult({
+      engine: 'heimao',
+      title: item.title || '黑猫投诉事项',
+      url: item.content_url || item.note_url || item.url || '',
+      real_url: item.content_url || item.note_url || item.url || '',
+      snippet: item.desc || item.description || '',
+      publisher: item.creator_name || item.publisher || '黑猫涉诉商家',
+      images: item.cover_url || item.images || '',
+      source_keyword: item.source_keyword || '',
+      search_rank: item.rank || 1,
+      publish_time: item.published_at || item.publish_time || '',
     });
   }
 }

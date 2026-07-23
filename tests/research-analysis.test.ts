@@ -5,7 +5,7 @@ import { inferAnalysisGoals, inferAnalysisRevision, normalizeAnalysisGoals } fro
 
 function plan(analysis: string[]): ResearchPlan {
   return {
-    goal: '调研做 AIGC 培训的机构', platforms: ['dy'], keywords: ['AIGC培训'],
+    goal: '调研做 AIGC 培训的机构', platforms: ['douyin'], keywords: ['AIGC培训'],
     collectComments: true, collectSubComments: false, startPage: 1,
     loginType: 'qrcode', headless: false, analysis, outputs: ['csv'],
   };

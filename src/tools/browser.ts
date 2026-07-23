@@ -183,10 +183,10 @@ export class CDPBrowserManager {
 
   private static PLATFORM_PORT_OFFSETS: Record<string, number> = {
     xhs: 0,
-    dy: 1,
-    ks: 2,
+    douyin: 1,
+    kuaishou: 2,
     bili: 3,
-    wb: 4,
+    weibo: 4,
     tieba: 5,
     zhihu: 6,
   };
