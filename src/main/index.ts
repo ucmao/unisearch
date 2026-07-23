@@ -56,27 +56,126 @@ function focusMainWindow(): void {
   mainWindow.focus();
 }
 
+export interface CrawlerRunMetrics {
+  itemCount?: number;
+  durationSeconds?: number;
+  error?: string | null;
+}
+
+const crawlerTabMetrics = new Map<string, CrawlerRunMetrics>();
+
+function closeCrawlerTab(platform: string): void {
+  const view = crawlerViews.get(platform);
+  if (view) {
+    crawlerViews.delete(platform);
+    if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
+  }
+  crawlerTabStates.delete(platform);
+  crawlerTabMetrics.delete(platform);
+
+  if (activeCrawlerPlatform === platform) {
+    const remaining = Array.from(crawlerTabStates.keys());
+    const next = remaining.find((p) => crawlerViews.has(p)) || remaining[0];
+    if (next) {
+      activateCrawlerView(next);
+    } else {
+      activeCrawlerPlatform = null;
+      if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+        crawlerHubWindow.setBrowserView(null);
+        crawlerHubWindow.hide();
+        focusMainWindow();
+      }
+    }
+  } else {
+    refreshCrawlerHubTabs();
+  }
+}
+
 function crawlerHubHtml(): string {
+  const activeState = activeCrawlerPlatform ? crawlerTabStates.get(activeCrawlerPlatform) : null;
+  const isRunningActive = activeCrawlerPlatform ? crawlerViews.has(activeCrawlerPlatform) : false;
+
   const tabs = Array.from(crawlerTabStates.entries()).map(([platform, status]) => {
     const active = platform === activeCrawlerPlatform ? ' active' : '';
     const label = CRAWLER_PLATFORM_NAMES[platform] || platform.toUpperCase();
-    const content = `<span class="dot ${status}"></span><span>${label}</span>`;
-    return status === 'running' && crawlerViews.has(platform)
-      ? `<a class="tab${active}" href="unisearch-tab://${encodeURIComponent(platform)}">${content}</a>`
-      : `<span class="tab readonly">${content}</span>`;
+    const content = `<span class="dot ${status}"></span><span>${label}</span><span class="close-btn" onclick="event.preventDefault(); event.stopPropagation(); location.href='unisearch-action://close-tab/${encodeURIComponent(platform)}'">×</span>`;
+    return `<a class="tab${active}" href="unisearch-tab://${encodeURIComponent(platform)}">${content}</a>`;
   }).join('');
+
+  let bodyContent = '';
+  if (activeCrawlerPlatform && !isRunningActive && activeState) {
+    const label = CRAWLER_PLATFORM_NAMES[activeCrawlerPlatform] || activeCrawlerPlatform.toUpperCase();
+    const metrics = crawlerTabMetrics.get(activeCrawlerPlatform);
+    let statusTitle = '';
+    let statusDesc = '';
+    let iconSvg = '';
+    const badgeClass = activeState;
+
+    if (activeState === 'completed') {
+      const count = metrics?.itemCount ?? 0;
+      const duration = metrics?.durationSeconds !== undefined ? `，耗时 ${metrics.durationSeconds} 秒` : '';
+      statusTitle = `${label} 采集成功`;
+      statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong><br>底层网页与自动化进程已安全注销释放内存，你可在 UniSearch 主界面中随时查看看板或继续 AI 分析。`;
+      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4bb98a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+    } else if (activeState === 'failed') {
+      const errReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
+      statusTitle = `${label} 采集中断`;
+      statusDesc = `<strong class="highlight-error">${errReason}。</strong><br>关联网页与关联进程已自动关闭，你可以返回主界面日志中排查具体原因。`;
+      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d66b7b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+    } else {
+      statusTitle = `${label} 任务已停止`;
+      statusDesc = '收到用户中断指令，平台采集已被手动停止。<br>网页与关联进程资源已完整卸载归还系统。';
+      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#9aa7b4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>`;
+    }
+
+    bodyContent = `
+      <div class="summary-container">
+        <div class="summary-card">
+          <div class="icon-box ${badgeClass}">${iconSvg}</div>
+          <div class="status-badge ${badgeClass}">${activeState === 'completed' ? '采集完成' : activeState === 'failed' ? '采集失败' : '已停止'}</div>
+          <h2 class="title">${statusTitle}</h2>
+          <p class="description">${statusDesc}</p>
+          <div class="btn-group">
+            <a class="btn primary" href="unisearch-action://focus-main">返回主界面看板</a>
+            <a class="btn secondary" href="unisearch-action://close-tab/${encodeURIComponent(activeCrawlerPlatform)}">关闭此标签页</a>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-    *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#eef4f8;color:#142033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#f0f4f8;color:#142033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
     .bar{height:${CRAWLER_TAB_HEIGHT}px;display:flex;align-items:flex-end;gap:4px;padding:7px 10px 0;border-bottom:1px solid #cbd8e2;background:linear-gradient(#f8fbfd,#e8f0f5);-webkit-app-region:drag}
     .brand{align-self:center;padding:0 10px 4px 2px;font-size:12px;font-weight:650;color:#506273;white-space:nowrap}
     .tabs{display:flex;min-width:0;height:40px;gap:4px;overflow-x:auto;-webkit-app-region:no-drag}
-    .tab{display:flex;align-items:center;gap:7px;min-width:96px;height:36px;padding:0 14px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap}
+    .tab{display:flex;align-items:center;gap:7px;min-width:96px;height:36px;padding:0 8px 0 12px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap;transition:all 0.15s ease}
     .tab:hover{background:#f7fbfd;color:#203246}.tab.active{border-color:#cbd8e2;border-bottom-color:#fff;background:#fff;color:#142033}
-    .tab.readonly{opacity:.72}
-    .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12)}
+    .close-btn{margin-left:auto;padding:0 4px;font-size:13px;line-height:1;color:#9aa7b4;border-radius:4px;opacity:0.6;transition:all 0.15s ease}
+    .close-btn:hover{color:#d66b7b;background:rgba(214,107,123,0.15);opacity:1}
+    .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12);flex-shrink:0}
     .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
     .hint{margin-left:auto;align-self:center;padding:0 5px 4px 10px;color:#8393a3;font-size:11px;white-space:nowrap}
-  </style></head><body><div class="bar"><div class="brand">UniSearch 采集浏览器</div><nav class="tabs">${tabs}</nav><div class="hint">各平台登录会话独立保存</div></div></body></html>`;
+    
+    .summary-container{display:flex;align-items:center;justify-content:center;height:calc(100vh - ${CRAWLER_TAB_HEIGHT}px);padding:20px;background:linear-gradient(135deg, #eef4f8 0%, #e2ecf3 100%)}
+    .summary-card{margin:auto;max-width:440px;width:100%;background:#ffffff;border:1px solid #d0dee8;border-radius:16px;padding:32px 28px;text-align:center;box-shadow:0 12px 32px rgba(20,32,51,0.08);animation:fadeIn 0.25s ease-out}
+    @keyframes fadeIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
+    .icon-box{width:64px;height:64px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;border-radius:50%}
+    .icon-box.completed{background:#eaf8f2}.icon-box.failed{background:#fdf0f2}.icon-box.stopped{background:#f0f3f6}
+    .status-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;margin-bottom:12px}
+    .status-badge.completed{color:#2e8b60;background:#e2f4ec}.status-badge.failed{color:#c04455;background:#fce6e9}.status-badge.stopped{color:#647482;background:#e6ecf1}
+    .title{margin:0 0 10px;font-size:18px;font-weight:650;color:#142033}
+    .description{margin:0 0 24px;font-size:13px;line-height:1.6;color:#506273}
+    .highlight-text{color:#2e8b60;font-weight:600}
+    .highlight-error{color:#c04455;font-weight:600}
+    .btn-group{display:flex;gap:10px;justify-content:center}
+    .btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.15s ease}
+    .btn.primary{background:#206bc4;color:#fff;box-shadow:0 2px 6px rgba(32,107,196,0.25)}.btn.primary:hover{background:#1a59a5}
+    .btn.secondary{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}.btn.secondary:hover{background:#e2e8f0;color:#1e293b}
+  </style></head><body>
+    <div class="bar"><div class="brand">UniSearch 采集浏览器</div><nav class="tabs">${tabs}</nav><div class="hint">各平台登录会话独立保存</div></div>
+    ${bodyContent}
+  </body></html>`;
 }
 
 function refreshCrawlerHubTabs(): void {
@@ -96,12 +195,17 @@ function layoutActiveCrawlerView(): void {
 
 function activateCrawlerView(platform: string): boolean {
   if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return false;
-  const view = crawlerViews.get(platform);
-  if (!view || view.webContents.isDestroyed()) return false;
+  if (!crawlerTabStates.has(platform)) return false;
+
   activeCrawlerPlatform = platform;
-  crawlerHubWindow.setBrowserView(view);
+  const view = crawlerViews.get(platform);
+  if (view && !view.webContents.isDestroyed()) {
+    crawlerHubWindow.setBrowserView(view);
+    layoutActiveCrawlerView();
+  } else {
+    crawlerHubWindow.setBrowserView(null);
+  }
   crawlerHubWindow.setTitle(`UniSearch 内置采集浏览器 · ${CRAWLER_PLATFORM_NAMES[platform] || platform.toUpperCase()}`);
-  layoutActiveCrawlerView();
   refreshCrawlerHubTabs();
   return true;
 }
@@ -123,9 +227,21 @@ function createCrawlerHubWindow(): BrowserWindow {
     },
   });
   crawlerHubWindow.webContents.on('will-navigate', (event, url) => {
-    if (!url.startsWith('unisearch-tab://')) return;
-    event.preventDefault();
-    activateCrawlerView(decodeURIComponent(new URL(url).hostname));
+    if (url.startsWith('unisearch-tab://')) {
+      event.preventDefault();
+      const target = decodeURIComponent(new URL(url).hostname);
+      activateCrawlerView(target);
+    } else if (url.startsWith('unisearch-action://')) {
+      event.preventDefault();
+      const actionUrl = new URL(url);
+      const action = actionUrl.hostname;
+      if (action === 'focus-main') {
+        focusMainWindow();
+      } else if (action === 'close-tab') {
+        const targetPlatform = decodeURIComponent(actionUrl.pathname.replace(/^\//, ''));
+        closeCrawlerTab(targetPlatform);
+      }
+    }
   });
   crawlerHubWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   crawlerHubWindow.on('resize', layoutActiveCrawlerView);
@@ -179,10 +295,13 @@ export async function prepareCrawlerWindow(platform: string): Promise<boolean> {
   return true;
 }
 
-export function releaseCrawlerWindow(platform: string, status = 'completed'): boolean {
+export function releaseCrawlerWindow(platform: string, status = 'completed', metrics?: CrawlerRunMetrics): boolean {
   const view = crawlerViews.get(platform);
   const finalStatus: CrawlerTabStatus = status === 'failed' || status === 'stopped' ? status : 'completed';
   crawlerTabStates.set(platform, finalStatus);
+  if (metrics) {
+    crawlerTabMetrics.set(platform, metrics);
+  }
 
   if (!view) {
     refreshCrawlerHubTabs();
@@ -190,16 +309,17 @@ export function releaseCrawlerWindow(platform: string, status = 'completed'): bo
   }
 
   const wasActive = activeCrawlerPlatform === platform;
-  if (wasActive && crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
-    crawlerHubWindow.setBrowserView(null);
-    activeCrawlerPlatform = null;
-  }
   crawlerViews.delete(platform);
   if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
 
   if (wasActive) {
-    const nextPlatform = crawlerViews.keys().next().value as string | undefined;
-    if (nextPlatform) activateCrawlerView(nextPlatform);
+    if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+      crawlerHubWindow.setBrowserView(null);
+    }
+    const nextRunning = Array.from(crawlerViews.keys())[0];
+    if (nextRunning) {
+      activateCrawlerView(nextRunning);
+    }
   }
   refreshCrawlerHubTabs();
 
@@ -221,9 +341,9 @@ export function hasActiveCrawlerViews(): boolean {
 }
 
 function resolveCrawlerPlatform(platform?: string): string | null {
-  if (platform) return crawlerViews.has(platform) ? platform : null;
-  if (activeCrawlerPlatform && crawlerViews.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
-  return crawlerViews.keys().next().value ?? null;
+  if (platform && crawlerTabStates.has(platform)) return platform;
+  if (activeCrawlerPlatform && crawlerTabStates.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
+  return crawlerTabStates.keys().next().value ?? null;
 }
 
 export function showCrawlerWindow(platform?: string): boolean {

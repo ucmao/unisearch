@@ -111,12 +111,12 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
     <div className={`flex flex-col overflow-hidden bg-cyber-bg-panel transition-all duration-300 ${docked ? 'h-full' : `rounded-xl border border-cyber-border-subtle ${isCollapsed ? 'h-12' : 'h-full'}`}`}>
       
       {/* Tab bar header */}
-      <div className={`flex min-h-11 flex-shrink-0 flex-col justify-between gap-2 px-2 py-1 md:flex-row md:items-center ${docked ? 'bg-cyber-bg-panel' : 'border-b border-cyber-border-subtle bg-cyber-bg-secondary'}`}>
+      <div className={`flex h-11 shrink-0 items-center justify-between gap-2 px-2 py-1 ${docked ? 'bg-cyber-bg-panel' : 'border-b border-cyber-border-subtle bg-cyber-bg-secondary'}`}>
         {/* Left Side: Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto px-2 scrollbar-none">
-          <div className="mr-2 flex h-8 items-center gap-2 px-2.5 text-cyber-text-secondary">
-            <TerminalSquare className="h-4 w-4" />
-            <span className="text-[11px] font-medium">执行终端</span>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-2 scrollbar-none">
+          <div className="mr-1 flex h-8 shrink-0 items-center gap-1.5 px-2 text-cyber-text-secondary select-none">
+            <TerminalSquare className="h-4 w-4 shrink-0" />
+            <span className="text-[11px] font-medium whitespace-nowrap">执行终端</span>
           </div>
           
           {visiblePlatforms.map((p) => {
@@ -129,27 +129,27 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
               <div
                 key={p}
                 onClick={() => setActivePlatformTab(p)}
-                className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono font-medium cursor-pointer transition-all ${
+                className={`group flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-medium cursor-pointer transition-all whitespace-nowrap select-none ${
                   isActive
                     ? 'border border-cyber-border-default bg-cyber-bg-panel text-cyber-neon-cyan'
                     : 'border border-transparent text-cyber-text-muted hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
                 }`}
               >
                 {/* Status Dot */}
-                <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOTS[pStatus]}`} />
-                <span>{PLATFORM_LABELS[p] || p}</span>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOTS[pStatus]}`} />
+                <span className="whitespace-nowrap">{PLATFORM_LABELS[p] || p}</span>
 
                 {/* Micro Actions */}
                 {isRunning ? (
                   <button
                     onClick={(e) => handleStopSingle(e, p)}
-                    className="ml-1 rounded p-0.5 text-cyber-text-muted transition-colors hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink"
+                    className="ml-0.5 rounded p-0.5 text-cyber-text-muted transition-colors hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink"
                     title="停止爬虫"
                   >
                     <Square className="w-2.5 h-2.5 fill-current" />
                   </button>
                 ) : isStopping ? (
-                  <span className="w-2 h-2 border border-t-transparent border-cyber-neon-orange rounded-full animate-spin ml-1" />
+                  <span className="w-2 h-2 border border-t-transparent border-cyber-neon-orange rounded-full animate-spin ml-0.5 shrink-0" />
                 ) : null}
               </div>
             )
@@ -157,17 +157,17 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
         </div>
 
         {/* Right Side: Actions & Status */}
-        <div className="flex items-center justify-end gap-3 px-2">
+        <div className="flex shrink-0 items-center justify-end gap-2 px-2">
           {/* Active status */}
           {activeStatus === 'running' && (
-            <div className="flex items-center gap-1 text-[11px] font-mono">
-              <span className="w-1.5 h-1.5 bg-cyber-neon-green rounded-full shadow-glow-green-sm animate-pulse-fast" />
+            <div className="flex shrink-0 items-center gap-1 text-[11px] font-mono whitespace-nowrap">
+              <span className="w-1.5 h-1.5 bg-cyber-neon-green rounded-full shadow-glow-green-sm animate-pulse-fast shrink-0" />
               <span className="text-cyber-neon-green font-bold text-[10px] uppercase">运行中</span>
             </div>
           )}
 
           {onClose && (
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0 text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary" title="隐藏终端">
+            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0 shrink-0 text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary" title="隐藏终端">
               <X className="h-4 w-4" />
             </Button>
           )}
@@ -177,7 +177,7 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
             variant="ghost"
             size="sm"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="h-7 w-7 p-0 text-cyber-text-muted hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan"
+            className="h-7 w-7 p-0 shrink-0 text-cyber-text-muted hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan"
           >
             {isCollapsed ? (
               <ChevronDown className="w-4 h-4" />

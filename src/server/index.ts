@@ -18,7 +18,7 @@ const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
 export interface ServerWindowControls {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
-  releaseCrawlerWindow?: (platform: string, status?: string) => boolean;
+  releaseCrawlerWindow?: (platform: string, status?: string, metrics?: any) => boolean;
   isCrawlerWindowVisible?: (platform?: string) => boolean;
   hasActiveCrawlerViews?: () => boolean;
   showCrawlerWindow?: (platform?: string) => boolean;
@@ -29,7 +29,7 @@ export interface ServerWindowControls {
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
   crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
-  crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status));
+  crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
 
   // Error Handler
   fastify.setErrorHandler((error, request, reply) => {

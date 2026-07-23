@@ -85,15 +85,17 @@ export class CrawlerTask {
     exitCode: number | null,
     manager: CrawlerManager,
     errorMessage = ''
-  ): Promise<void> {
+  ): Promise<{ itemCount: number }> {
     if (!this.currentRunId) {
-      return;
+      return { itemCount: 0 };
     }
     const runId = this.currentRunId;
     this.lastRunId = runId;
+    let itemCount = 0;
 
     try {
       const contents = this.collectRunContents(runId);
+      itemCount = contents.length;
       analyticsRepository.finishRun(runId, status, exitCode, contents, errorMessage);
       this.addLog(
         `运行分析已保存: 任务 ${runId.slice(0, 8)}, 包含 ${contents.length} 条记录`,
@@ -106,6 +108,7 @@ export class CrawlerTask {
     } finally {
       this.currentRunId = null;
     }
+    return { itemCount };
   }
 
   public startProcess(manager: CrawlerManager): void {
@@ -223,7 +226,11 @@ export class CrawlerTask {
           runStatus = 'failed';
         }
 
-        await this.finalizeRun(runStatus, exitCode, manager);
+        const durationSeconds = this.startedAt
+          ? parseFloat(((Date.now() - new Date(this.startedAt).getTime()) / 1000).toFixed(1))
+          : 0;
+
+        const { itemCount } = await this.finalizeRun(runStatus, exitCode, manager);
 
         if (this.status !== 'stopping' && this.shouldLoop) {
           this.status = 'idle';
@@ -233,7 +240,13 @@ export class CrawlerTask {
           }, 5000);
         } else {
           this.status = 'idle';
-          manager.emit('crawler_finished', { platform: this.platform, status: runStatus });
+          manager.emit('crawler_finished', {
+            platform: this.platform,
+            status: runStatus,
+            itemCount,
+            durationSeconds,
+            error: runStatus === 'failed' ? (exitCode !== 0 ? `进程退出码: ${exitCode}` : '页面响应超时或触发验证') : null,
+          });
         }
       });
     } catch (err: any) {

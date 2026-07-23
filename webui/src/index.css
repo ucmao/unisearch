@@ -184,6 +184,15 @@
   background: rgb(var(--cyber-neon-cyan) / 0.55);
 }
 
+/* Hide scrollbar utility */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* ============================
    Cyberpunk Grid Background
    ============================ */
