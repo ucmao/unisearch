@@ -92,9 +92,9 @@ function CsvDownloadLink({ planId, compact = false }: { planId: string; compact?
 }
 
 const DEPTH_LABELS: Record<string, string> = {
-  quick: '⚡ 快速 (3页/无评论)',
-  standard: '⚖️ 标准 (5页/含一级评论)',
-  deep: '🔬 深度 (10页/含回复评论)',
+  quick: '⚡ 快速',
+  standard: '⚖️ 标准',
+  deep: '🔬 深度',
   custom: '⚙️ 自定义',
 }
 
@@ -119,6 +119,7 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
   const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
   const depth = plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')
+  const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi'].includes(p))
 
   useEffect(() => {
     if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
@@ -172,10 +173,12 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
             </div> : null}
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
-          <span className="text-cyber-text-muted">采集深度</span>
-          <div className="flex flex-wrap gap-1.5">{(['quick', 'standard', 'deep'] as const).map((item) => <button key={item} type="button" disabled={updatingPlan} onClick={() => onUpdateDepth(item)} className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${depth === item ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}>{DEPTH_LABELS[item]}</button>)}</div>
-        </div>
+        {!isOnlyAiQA ? (
+          <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
+            <span className="text-cyber-text-muted">采集深度</span>
+            <div className="flex flex-wrap gap-1.5">{(['quick', 'standard', 'deep'] as const).map((item) => <button key={item} type="button" disabled={updatingPlan} onClick={() => onUpdateDepth(item)} className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${depth === item ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}>{DEPTH_LABELS[item]}</button>)}</div>
+          </div>
+        ) : null}
         {plan.plan.analysisSource !== 'fallback' && plan.plan.analysis.length ? <div className="grid gap-2 sm:grid-cols-[72px_1fr]"><span className="text-cyber-text-muted">分析方向</span><p className="leading-5 text-cyber-text-secondary">{plan.plan.analysis.join('、')} <span className="text-[10px] text-cyber-text-muted">（根据对话提炼，不影响采集执行）</span></p></div> : null}
         <p className="border-t border-cyber-border-subtle pt-2 text-[10px] text-cyber-text-muted">需要更换平台或补充条件，可以直接在对话中告诉我。</p>
       </div>

@@ -15,6 +15,8 @@ const PLATFORM_LABELS: Record<string, string> = {
   so360: '360搜索',
   sogou: '搜狗搜索',
   media_parser: '综合解析',
+  deepseek: 'DeepSeek AI',
+  kimi: 'Kimi AI',
 };
 
 // Normalized content schema helper
@@ -134,6 +136,17 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     coverUrl = Array.isArray(rawItem.images) ? (rawItem.images[0] || '') : (rawItem.images?.split(',')[0] || '');
     publishedAt = parseTimestamp(rawItem.publish_time);
     contentType = 'web_page';
+  } else if (['deepseek', 'kimi'].includes(platform)) {
+    contentId = rawItem.id || rawItem.url || String(Date.now());
+    title = rawItem.title || rawItem.question || '';
+    description = rawItem.reasoning_content
+      ? `【思考过程】:\n${rawItem.reasoning_content}\n\n【回答正文】:\n${rawItem.answer || rawItem.snippet || ''}`
+      : (rawItem.answer || rawItem.snippet || '');
+    creatorName = PLATFORM_LABELS[platform] || platform;
+    creatorId = platform;
+    contentUrl = rawItem.url || (platform === 'kimi' ? 'https://kimi.moonshot.cn/' : 'https://chat.deepseek.com/');
+    publishedAt = parseTimestamp(rawItem.time || Date.now());
+    contentType = 'ai_qa';
   } else if (platform === 'media_parser') {
     contentId = rawItem.video_id || String(Date.now());
     title = rawItem.title || '';
@@ -786,6 +799,52 @@ export class DatabaseStore {
     normalizeAndIngest('media_parser', {
       ...item,
       video_url: finalVideoUrl,
+    });
+  }
+
+  public async storeDeepSeekResult(item: Record<string, any>): Promise<void> {
+    const citationsStr = Array.isArray(item.citations)
+      ? item.citations.map((c: any) => (typeof c === 'string' ? c : `${c.title || ''} (${c.url || ''})`)).join('\n')
+      : String(item.citations || '');
+
+    const snippetText = item.reasoning_content
+      ? `【思考过程】:\n${item.reasoning_content}\n\n【回答正文】:\n${item.answer || item.desc || ''}`
+      : (item.answer || item.desc || '');
+
+    await this.storeSearchEngineResult({
+      engine: 'deepseek',
+      title: item.question || item.title || '',
+      url: item.url || 'https://chat.deepseek.com/',
+      real_url: item.url || 'https://chat.deepseek.com/',
+      snippet: snippetText,
+      publisher: 'DeepSeek AI',
+      images: citationsStr,
+      source_keyword: item.source_keyword || item.question || '',
+      search_rank: 1,
+      publish_time: item.time || '',
+    });
+  }
+
+  public async storeKimiResult(item: Record<string, any>): Promise<void> {
+    const citationsStr = Array.isArray(item.citations)
+      ? item.citations.map((c: any) => (typeof c === 'string' ? c : `${c.title || ''} (${c.url || ''})`)).join('\n')
+      : String(item.citations || '');
+
+    const snippetText = item.reasoning_content
+      ? `【思考过程】:\n${item.reasoning_content}\n\n【回答正文】:\n${item.answer || item.desc || ''}`
+      : (item.answer || item.desc || '');
+
+    await this.storeSearchEngineResult({
+      engine: 'kimi',
+      title: item.question || item.title || '',
+      url: item.url || 'https://kimi.moonshot.cn/',
+      real_url: item.url || 'https://kimi.moonshot.cn/',
+      snippet: snippetText,
+      publisher: 'Kimi AI',
+      images: citationsStr,
+      source_keyword: item.source_keyword || item.question || '',
+      search_rank: 1,
+      publish_time: item.time || '',
     });
   }
 }

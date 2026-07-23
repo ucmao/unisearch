@@ -196,6 +196,41 @@ const utilityParser = (
   ],
 });
 
+const aiWebQA = (
+  id: string,
+  name: string,
+  icon: string,
+): ConnectorManifest => ({
+  id, version: '1.0.0', name, icon, category: 'ai_web_qa',
+  description: `${name} 网页端 AI 智能问答、深度思考与联网新闻/资料引用自动化采集连接器。`,
+  auth: {
+    required: false, methods: ['none', 'cookie'],
+    description: '支持加载平台 Cookie 或自动打开内置浏览器免登录/自动登录使用。',
+  },
+  runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: 'AI 搜索问答对比', description: `在 ${name} 网页端模拟提问并抓取思考过程、回答正文及新闻参考资料。`, runtimeMode: 'search',
+      inputFields: [
+        {
+          key: 'max_items', label: '最大采集数量', description: '向 AI 提交的问题词条数。',
+          type: 'number', default: 15, min: 1, max: 500, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: `${id}_qa_result`, outputFields: [
+        { key: 'content_id', label: '问答 ID', type: 'string', required: true },
+        { key: 'title', label: '提问词/关键词', type: 'string' },
+        { key: 'description', label: '回答正文', type: 'string' },
+        { key: 'reasoning_content', label: '深度思考过程', type: 'string' },
+        { key: 'citations', label: '参考新闻/资料列表', type: 'string_list' },
+        { key: 'content_url', label: '对话链接', type: 'string' },
+        { key: 'creator_name', label: 'AI 平台', type: 'string' },
+        { key: 'published_at', label: '响应时间', type: 'number' },
+      ], limitations: ['依赖 Playwright 模拟 DOM 打字机输出渲染。', '思考与参考新闻取决于 DeepSeek 网页端是否开启深度思考与联网模式。'],
+    },
+  ],
+});
+
 export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('xhs', '小红书', 'book-open', { content: '作品', creator: '创作者', comment: '评论与子评论' }),
   social('dy', '抖音', 'music', { content: '作品', creator: '创作者', comment: '评论与回复' }),
@@ -209,4 +244,6 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
   utilityParser('media_parser', '综合无水印解析', 'link'),
+  aiWebQA('deepseek', 'DeepSeek AI', 'brain'),
+  aiWebQA('kimi', 'Kimi AI', 'sparkles'),
 ];

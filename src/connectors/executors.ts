@@ -7,6 +7,8 @@ import { XiaoHongShuCrawler } from '../crawler/platforms/xhs';
 import { ZhihuCrawler } from '../crawler/platforms/zhihu';
 import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler } from '../crawler/platforms/search_engine';
 import { MediaParserCrawler } from '../crawler/platforms/media_parser';
+import { DeepSeekCrawler } from '../crawler/platforms/deepseek';
+import { KimiCrawler } from '../crawler/platforms/kimi';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -22,6 +24,8 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   so360: () => new So360Crawler(),
   sogou: () => new SogouCrawler(),
   media_parser: () => new MediaParserCrawler(),
+  deepseek: () => new DeepSeekCrawler(),
+  kimi: () => new KimiCrawler(),
 };
 
 export function createConnectorExecutor(id: string) {
