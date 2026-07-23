@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { hasResearchSubject, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision } from '../src/server/services/AgentIntent';
 
+test('direct link parsing requests route to direct_parse', () => {
+  for (const message of [
+    '4.17 02/11 LWM:/ z@G.vf :2pm 不要轻易学SAP了，除非你看完这个视频# 学sap https://v.douyin.com/_8PHI7a2c-E/ 复制此链接，打开Douyin搜索，直接观看视频！',
+    '帮我解析这个视频去水印 https://v.douyin.com/_8PHI7a2c-E/',
+    'https://xhslink.com/a/123456 去水印',
+  ]) {
+    assert.equal(localIntentDecision(message).action, 'direct_parse', message);
+  }
+});
+
 test('greetings stay conversational and never create a plan', () => {
   for (const message of ['你好', '你好啊', '您好！', 'hi', 'Hello!', 'ni hao']) {
     assert.equal(localIntentDecision(message).action, 'chat', message);
@@ -72,11 +82,12 @@ test('subject-only collection asks for platforms before creating a plan', () => 
 });
 
 test('confirmation only executes a pending plan', () => {
-  for (const message of ['开始吧', '就按这个执行吧', '按上面的计划来', '执行这个计划', '直接采集']) {
+  for (const message of ['开始吧', '就按这个执行吧', '按上面的计划来', '执行这个计划', '直接采集', '执行呀', '开始呀', '好的呀', '行呀', 'OK', 'okay']) {
     assert.equal(localIntentDecision(message, { planStatus: 'awaiting_confirmation' }).action, 'execute', message);
   }
   assert.equal(localIntentDecision('开始吧').action, 'chat');
   assert.equal(localIntentDecision('执行').action, 'execute');
+  assert.equal(localIntentDecision('执行呀').action, 'execute');
   assert.equal(localIntentDecision('开跑').action, 'execute');
 });
 
@@ -102,6 +113,12 @@ test('result count questions inspect the current task instead of creating a plan
 test('CSV requests use the real export action', () => {
   for (const message of ['导出本次数据为 CSV', '下载CSV', '把采集结果导出成表格']) {
     assert.equal(localIntentDecision(message, { planStatus: 'completed' }).action, 'export', message);
+  }
+});
+
+test('completed task analysis stays on the local analysis path', () => {
+  for (const message of ['分析结果呀，gpt 5.6模型有哪些？', '根据刚才结果总结一下', '分析这个 CSV 的结论']) {
+    assert.equal(localIntentDecision(message, { planStatus: 'completed' }).action, 'analyze', message);
   }
 });
 

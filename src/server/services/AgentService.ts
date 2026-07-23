@@ -6,6 +6,7 @@ import { modelService, type ConversationMaterials } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
 import { normalizeAnalysisGoals } from './ResearchAnalysis';
+import { directParserService } from './DirectParserService';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -309,13 +310,40 @@ export class AgentService {
       agentRepository.updateAutomaticTitle(threadId, fallbackTitleFromText(content), 'fallback');
     }
 
-    const profile = modelService.getProfile(false);
-    if (!profile.apiKeyConfigured) {
-      agentRepository.addMessage(threadId, 'assistant', 'text', '还没有配置 AI 模型 API Key。请打开“模型设置”完成配置，然后重新发送这条问题。', {
-        action: 'model_setup_required',
-        error: 'unconfigured',
-      });
-      return agentRepository.getThread(threadId);
+    const latest = agentRepository.getLatestPlan(threadId);
+    const previousMessage = thread.messages.at(-1);
+    const lastUserMessage = [...thread.messages].reverse().find((message: any) => message.role === 'user');
+    const lastAssistantMessage = [...thread.messages].reverse().find((message: any) => message.role === 'assistant');
+    const awaitingClarification = previousMessage?.role === 'assistant' && previousMessage?.kind === 'clarify';
+    const previousUserMessage = awaitingClarification
+      ? lastUserMessage
+      : null;
+    const planningText = previousUserMessage ? `${previousUserMessage.content}\n用户补充：${content}` : content;
+    const localDecision = localIntentDecision(content, {
+      planStatus: latest?.status,
+      awaitingClarification,
+      previousUserText: lastUserMessage?.content,
+      previousAssistantText: lastAssistantMessage?.content,
+      hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
+    });
+
+    if (localDecision.action === 'direct_parse') {
+      try {
+        const result = await directParserService.parseSingleText(content);
+        const reply = directParserService.formatMarkdownReply(content, result);
+        agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
+          action: 'direct_parse',
+          succ: result.succ,
+        });
+        this.scheduleThreadTitle(threadId);
+        this.scheduleMemoryCapture(threadId, content);
+        return agentRepository.getThread(threadId);
+      } catch (error: any) {
+        agentRepository.addMessage(threadId, 'assistant', 'status', `无水印解析请求发生异常：${error.message || '系统错误'}`, {
+          action: 'direct_parse_error',
+        });
+        return agentRepository.getThread(threadId);
+      }
     }
 
     const onRetry = (retryCount: number, maxRetries: number, delaySec: number, reason: string) => {
@@ -333,20 +361,15 @@ export class AgentService {
       });
     };
 
-    const latest = agentRepository.getLatestPlan(threadId);
-    const previousMessage = thread.messages.at(-1);
-    const lastUserMessage = [...thread.messages].reverse().find((message: any) => message.role === 'user');
-    const awaitingClarification = previousMessage?.role === 'assistant' && previousMessage?.kind === 'clarify';
-    const previousUserMessage = awaitingClarification
-      ? lastUserMessage
-      : null;
-    const planningText = previousUserMessage ? `${previousUserMessage.content}\n用户补充：${content}` : content;
-    const localDecision = localIntentDecision(content, {
-      planStatus: latest?.status,
-      awaitingClarification,
-      previousUserText: lastUserMessage?.content,
-      hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
-    });
+    const profile = modelService.getProfile(false);
+    if (!profile.apiKeyConfigured) {
+      agentRepository.addMessage(threadId, 'assistant', 'text', '还没有配置 AI 模型 API Key。请打开“模型设置”完成配置，然后重新发送这条问题。', {
+        action: 'model_setup_required',
+        error: 'unconfigured',
+      });
+      return agentRepository.getThread(threadId);
+    }
+
     let decision: AgentDecision;
     if (localDecision.action === 'model_info') {
       decision = localDecision;
@@ -388,6 +411,11 @@ export class AgentService {
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
           decision = { ...decision, action: 'create_plan' };
+        } else if (['status', 'analyze', 'export'].includes(localDecision.action)) {
+          // These intents are backed by local state.  Do not let a model turn a
+          // request to inspect real results into ordinary chat (and then claim it
+          // cannot see the very records the application has just loaded).
+          decision = localDecision;
         } else if (decision.action === 'create_plan' && localDecision.action !== 'create_plan') {
           // Creating a plan changes persistent state. The model may use the full
           // conversation for semantic routing, but it must not turn assistant
@@ -503,6 +531,21 @@ export class AgentService {
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有已完成的采集结果可以分析。', { action: 'chat' });
         return agentRepository.getThread(threadId);
       }
+      // Prefer the specialised analysis request whenever this plan has records.
+      // `collectMaterials` is also used for normal chat and includes the whole
+      // conversation, which makes some compatible models overlook the records
+      // and answer as if they had no access to the completed task.
+      const rows = agentRepository.getPlanContents(latest.plan_id, 100);
+      if (rows.length) {
+        try {
+          const answer = await modelService.analyze(latest.goal, latest.plan.analysis, content, rows, onRetry);
+          agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { sampled_records: rows.length });
+        } catch (error: any) {
+          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
+        }
+        return agentRepository.getThread(threadId);
+      }
+
       const updatedThread = agentRepository.getThread(threadId);
       const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
       if (referencedMaterials.texts.length || referencedMaterials.images.length) {
@@ -513,23 +556,13 @@ export class AgentService {
           const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry });
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
         } catch (error: any) {
-          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
-        }
-        return agentRepository.getThread(threadId);
-      }
-      const rows = agentRepository.getPlanContents(latest.plan_id, 100);
-      if (!rows.length) {
-        agentRepository.addMessage(threadId, 'assistant', 'analysis', '当前任务没有可分析的数据。可以先检查采集结果，或重试失败的平台。');
-      } else {
-        try {
-          const answer = await modelService.analyze(latest.goal, latest.plan.analysis, content, rows, onRetry);
-          agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { sampled_records: rows.length });
-        } catch (error: any) {
-          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}\n\n本次没有生成本地兜底分析，请检查模型配置并测试连接。`, {
+          agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, {
             action: 'model_error',
             error: error.message,
           });
         }
+      } else {
+        agentRepository.addMessage(threadId, 'assistant', 'analysis', '当前任务没有可分析的数据。可以先检查采集结果，或重试失败的平台。');
       }
       return agentRepository.getThread(threadId);
     }
@@ -808,9 +841,10 @@ export class AgentService {
     const status = completed === statuses.length ? 'completed' : completed ? 'partially_completed' : 'failed';
     if (final.status !== status) {
       agentRepository.updatePlanStatus(final.plan_id, status);
+      const totalItems = final.stats?.content_count ?? 0;
       const text = status === 'completed'
-        ? `采集完成，${completed} 个平台均已成功。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
-        : `采集已结束：${completed} 个平台成功，${statuses.length - completed} 个平台失败或停止。成功数据仍可分析，也可以重试失败步骤。`;
+        ? `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
+        : `采集已结束：${completed} 个平台成功，${statuses.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
       agentRepository.addMessage(final.thread_id, 'assistant', 'status', text, { plan_id: final.plan_id, status });
     }
   }

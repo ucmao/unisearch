@@ -1,7 +1,7 @@
 import type { ResearchPlan } from './AgentRepository';
 import { isAnalysisRevisionRequest } from './ResearchAnalysis';
 
-export type AgentAction = 'chat' | 'clarify' | 'model_info' | 'create_plan' | 'revise_plan' | 'execute' | 'stop' | 'status' | 'analyze' | 'export';
+export type AgentAction = 'chat' | 'clarify' | 'model_info' | 'create_plan' | 'revise_plan' | 'execute' | 'stop' | 'status' | 'analyze' | 'export' | 'direct_parse';
 
 export interface AgentDecision {
   action: AgentAction;
@@ -14,6 +14,7 @@ export interface IntentContext {
   planStatus?: string | null;
   awaitingClarification?: boolean;
   previousUserText?: string;
+  previousAssistantText?: string;
   hasPreviousPlanKeywords?: boolean;
 }
 
@@ -27,8 +28,9 @@ const MODEL_INFO = /(?:你|当前|现在)?(?:用的|使用的|配置的)?(?:是)
 const IDENTITY_CONVERSATION = /^(?:(?:你|我)是(?:谁|什么|啥)?|(?:你|我)叫(?:什么|啥)(?:名字)?|(?:你|我)叫什么(?:名字)?|(?:还)?记得(?:你|我)(?:叫|是)(?:谁|什么|啥)(?:名字)?吗?|(?:还)?记得(?:你|我)的名字吗)[!！,.，。?？\s]*$/i;
 const WEATHER = /天气|气温|下雨|降雨|温度|weather/i;
 const LOCATION = /^(?:我在|我住在|城市是|地点是)?\s*[\u4e00-\u9fa5]{2,12}(?:市)?[!！,.，。\s]*$/;
-const CONFIRM = /^(?:确认|确认并执行|开始|开始吧|开始采集|直接采集|立即采集|执行|执行吧|执行这个计划|开跑|跑起来|可以|可以的|好的?|没问题|就这样|就按(?:这个|该计划|上面的计划)(?:来|执行|开始)?吧?|按(?:这个|该计划|上面的计划)(?:来|执行|开始)?吧?)[!！,.，。\s]*$/i;
-const FORCE_EXECUTE = /^(?:执行|执行吧|开始采集|直接采集|立即采集|开跑|跑起来)[!！,.，。\s]*$/i;
+const CONFIRM_PARTICLE = '(?:呀|啊|吧|呗|哈|咯|呐|哦|捏)?';
+const CONFIRM = new RegExp(`^(?:确认|确认并执行|开始|开始采集|直接采集|立即采集|执行|执行这个计划|开跑|跑起来|可以|可以的|好的?|行|没问题|就这样|ok|okay|就按(?:这个|该计划|上面的计划)(?:来|执行|开始)?|按(?:这个|该计划|上面的计划)(?:来|执行|开始)?)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
+const FORCE_EXECUTE = new RegExp(`^(?:执行|开始采集|直接采集|立即采集|开跑|跑起来)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
 const STOP = /(?:停止|停下|停一下|暂停|取消)(?:采集|任务|执行)?|(?:stop|cancel)(?:\s+(?:task|run))?/i;
 const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|状态|进度|怎么样|完成)|(?:多少|几条).*(?:信息|内容|数据|结果)|采集到了吗|(?:执行|开始|开跑|跑起来)(?:了)?吗/i;
 const EXPORT = /(?:导出|下载).*(?:CSV|表格|数据|结果)|(?:CSV|表格).*(?:导出|下载)/i;
@@ -134,6 +136,34 @@ export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep
   return 'standard';
 }
 
+const DIRECT_PARSE_KEYWORDS = /(?:去水印|解析|提取视频|无水印|视频链接|解水印|直链)/i;
+const COMMON_SHARE_URLS = /(?:v\.douyin\.com|douyin\.com|xhslink\.com|xiaohongshu\.com|b23\.tv|bilibili\.com|kuaishou\.com|v\.kuaishou\.com|weibo\.cn|weibo\.com|zhihu\.com)/i;
+const BATCH_RESEARCH_KEYWORDS = /(?:采集|抓取|搜索|调研|研究|监测|批量|每关键词|条数|页数|评论数|分析|舆情|竞品)/i;
+
+export function isDirectParseRequest(text: string, previousAssistantText?: string): boolean {
+  const hasUrl = /https?:\/\/[^\s，。；;\n]+/i.test(text);
+  const matchesDirectKeyword = DIRECT_PARSE_KEYWORDS.test(text);
+  const matchesShareUrl = COMMON_SHARE_URLS.test(text);
+
+  // 净化分享口令模版词（如 "打开Douyin搜索"），防止干扰批量采集判定
+  const cleanedText = text.replace(/打开\s*(?:Douyin|抖音|快手|小红书|微信)?\s*搜索/gi, ' ');
+  const isBatchRequest = BATCH_RESEARCH_KEYWORDS.test(cleanedText);
+
+  if (isBatchRequest && !matchesDirectKeyword) {
+    return false;
+  }
+  if (matchesDirectKeyword && (hasUrl || matchesShareUrl || /解析/i.test(text))) {
+    return true;
+  }
+  if (hasUrl && matchesShareUrl && !isBatchRequest) {
+    return true;
+  }
+  if (previousAssistantText && /(?:解析|去水印|提供.*链接)/i.test(previousAssistantText) && (hasUrl || matchesShareUrl)) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Conservative local intent hints. AI remains the primary router; these rules
  * provide extraction support and safe fallbacks, but must not directly trigger
@@ -142,6 +172,10 @@ export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep
 export function localIntentDecision(text: string, context: IntentContext = {}): AgentDecision {
   const value = text.trim();
   const status = context.planStatus || null;
+
+  if (isDirectParseRequest(value, context.previousAssistantText)) {
+    return { action: 'direct_parse', reply: '' };
+  }
 
   if (GREETING.test(value)) {
     return { action: 'chat', reply: '你好！当然可以先聊聊。你可以问我能做什么，也可以慢慢告诉我想了解的主题；信息足够后，我再帮你整理采集计划。' };
