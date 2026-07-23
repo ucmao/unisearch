@@ -10,6 +10,8 @@ import { MediaParserCrawler } from '../crawler/platforms/media_parser';
 import { DeepSeekCrawler } from '../crawler/platforms/deepseek';
 import { KimiCrawler } from '../crawler/platforms/kimi';
 import { DoubaoCrawler } from '../crawler/platforms/doubao';
+import { QwenCrawler } from '../crawler/platforms/qwen';
+import { NamiCrawler, WenxinCrawler, YuanbaoCrawler } from '../crawler/platforms/china_ai_web_qa';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -28,6 +30,10 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   deepseek: () => new DeepSeekCrawler(),
   kimi: () => new KimiCrawler(),
   doubao: () => new DoubaoCrawler(),
+  qwen: () => new QwenCrawler(),
+  yuanbao: () => new YuanbaoCrawler(),
+  nami: () => new NamiCrawler(),
+  wenxin: () => new WenxinCrawler(),
 };
 
 export function createConnectorExecutor(id: string) {

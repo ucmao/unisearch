@@ -70,6 +70,13 @@ const PLATFORM_LABELS: Record<string, string> = {
   bing: '必应',
   so360: '360搜索',
   sogou: '搜狗',
+  deepseek: 'DeepSeek',
+  doubao: '豆包',
+  kimi: 'Kimi',
+  nami: '纳米 AI',
+  qwen: '通义千问',
+  wenxin: '文心一言',
+  yuanbao: '腾讯元宝',
 };
 
 const SQLITE_CONTENT_TABLES: Record<string, string> = {

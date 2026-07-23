@@ -15,9 +15,23 @@ const PLATFORM_LABELS: Record<string, string> = {
   so360: '360搜索',
   sogou: '搜狗搜索',
   media_parser: '综合解析',
-  deepseek: 'DeepSeek AI',
-  kimi: 'Kimi AI',
+  deepseek: 'DeepSeek',
+  kimi: 'Kimi',
   doubao: '豆包',
+  qwen: '通义千问',
+  yuanbao: '腾讯元宝',
+  nami: '纳米 AI',
+  wenxin: '文心一言',
+};
+
+const AI_WEB_QA_URLS: Record<string, string> = {
+  deepseek: 'https://chat.deepseek.com/',
+  kimi: 'https://kimi.moonshot.cn/',
+  doubao: 'https://www.doubao.com/chat/',
+  qwen: 'https://www.qianwen.com/',
+  yuanbao: 'https://yuanbao.tencent.com/',
+  nami: 'https://www.n.cn/',
+  wenxin: 'https://wenxin.baidu.com/',
 };
 
 // Normalized content schema helper
@@ -137,7 +151,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
     coverUrl = Array.isArray(rawItem.images) ? (rawItem.images[0] || '') : (rawItem.images?.split(',')[0] || '');
     publishedAt = parseTimestamp(rawItem.publish_time);
     contentType = 'web_page';
-  } else if (['deepseek', 'kimi', 'doubao'].includes(platform)) {
+  } else if (Object.hasOwn(AI_WEB_QA_URLS, platform)) {
     contentId = rawItem.id || rawItem.url || String(Date.now());
     title = rawItem.title || rawItem.question || '';
     description = rawItem.reasoning_content
@@ -145,7 +159,7 @@ function normalizeAndIngest(platform: string, rawItem: Record<string, any>): voi
       : (rawItem.answer || rawItem.snippet || '');
     creatorName = PLATFORM_LABELS[platform] || platform;
     creatorId = platform;
-    contentUrl = rawItem.url || (platform === 'kimi' ? 'https://kimi.moonshot.cn/' : platform === 'doubao' ? 'https://www.doubao.com/chat/' : 'https://chat.deepseek.com/');
+    contentUrl = rawItem.url || AI_WEB_QA_URLS[platform];
     publishedAt = parseTimestamp(rawItem.time || Date.now());
     contentType = 'ai_qa';
   } else if (platform === 'media_parser') {
@@ -818,7 +832,7 @@ export class DatabaseStore {
       url: item.url || 'https://chat.deepseek.com/',
       real_url: item.url || 'https://chat.deepseek.com/',
       snippet: snippetText,
-      publisher: 'DeepSeek AI',
+      publisher: 'DeepSeek',
       images: citationsStr,
       source_keyword: item.source_keyword || item.question || '',
       search_rank: 1,
@@ -841,7 +855,7 @@ export class DatabaseStore {
       url: item.url || 'https://kimi.moonshot.cn/',
       real_url: item.url || 'https://kimi.moonshot.cn/',
       snippet: snippetText,
-      publisher: 'Kimi AI',
+      publisher: 'Kimi',
       images: citationsStr,
       source_keyword: item.source_keyword || item.question || '',
       search_rank: 1,
@@ -860,6 +874,40 @@ export class DatabaseStore {
       url: item.url || 'https://www.doubao.com/chat/', real_url: item.url || 'https://www.doubao.com/chat/',
       snippet, publisher: '豆包', images: citations, source_keyword: item.source_keyword || item.question || '',
       search_rank: 1, publish_time: item.time || '' });
+  }
+
+  public async storeQwenResult(item: Record<string, any>): Promise<void> {
+    const citations = Array.isArray(item.citations)
+      ? item.citations.map((citation: any) => typeof citation === 'string' ? citation : `${citation.title || ''} (${citation.url || ''})`).join('\n')
+      : String(item.citations || '');
+    const snippet = item.reasoning_content
+      ? `【思考过程】：\n${item.reasoning_content}\n\n【回答正文】：\n${item.answer || item.desc || ''}`
+      : (item.answer || item.desc || '');
+    await this.storeSearchEngineResult({ engine: 'qwen', title: item.question || item.title || '',
+      url: item.url || 'https://www.qianwen.com/', real_url: item.url || 'https://www.qianwen.com/',
+      snippet, publisher: '通义千问', images: citations, source_keyword: item.source_keyword || item.question || '',
+      search_rank: 1, publish_time: item.time || '' });
+  }
+
+  public async storeAiWebQaResult(platform: 'yuanbao' | 'nami' | 'wenxin', item: Record<string, any>): Promise<void> {
+    const citations = Array.isArray(item.citations)
+      ? item.citations.map((citation: any) => typeof citation === 'string' ? citation : `${citation.title || ''} (${citation.url || ''})`).join('\n')
+      : String(item.citations || '');
+    const snippet = item.reasoning_content
+      ? `【思考过程】：\n${item.reasoning_content}\n\n【回答正文】：\n${item.answer || item.desc || ''}`
+      : (item.answer || item.desc || '');
+    await this.storeSearchEngineResult({
+      engine: platform,
+      title: item.question || item.title || '',
+      url: item.url || AI_WEB_QA_URLS[platform],
+      real_url: item.url || AI_WEB_QA_URLS[platform],
+      snippet,
+      publisher: PLATFORM_LABELS[platform],
+      images: citations,
+      source_keyword: item.source_keyword || item.question || '',
+      search_rank: 1,
+      publish_time: item.time || '',
+    });
   }
 }
 

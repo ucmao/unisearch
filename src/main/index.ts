@@ -45,6 +45,8 @@ const CRAWLER_PLATFORM_NAMES: Record<string, string> = {
   dy: '抖音', xhs: '小红书', ks: '快手', bili: '哔哩哔哩',
   wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
   baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗',
+  deepseek: 'DeepSeek', doubao: '豆包', kimi: 'Kimi', nami: '纳米 AI',
+  qwen: '通义千问', wenxin: '文心一言', yuanbao: '腾讯元宝',
 };
 
 function focusMainWindow(): void {

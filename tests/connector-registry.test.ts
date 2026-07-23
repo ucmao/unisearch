@@ -22,7 +22,21 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 15);
+assert.equal(listConnectorManifests().length, 19);
+assert.deepEqual(
+  listConnectorManifests()
+    .filter((manifest) => manifest.category === 'ai_web_qa')
+    .map(({ id, name }) => [id, name]),
+  [
+    ['deepseek', 'DeepSeek'],
+    ['kimi', 'Kimi'],
+    ['doubao', '豆包'],
+    ['qwen', '通义千问'],
+    ['yuanbao', '腾讯元宝'],
+    ['nami', '纳米 AI'],
+    ['wenxin', '文心一言'],
+  ],
+);
 
 const normalized = normalizeConnectorRequest(baseRequest);
 assert.equal(normalized.platform, 'xhs');
@@ -66,5 +80,11 @@ assert.match(catalog, /xhs=小红书/);
 assert.match(catalog, /keyword_search/);
 assert.match(catalog, /输出类型：xhs_content/);
 assert.match(catalog, /url_resolve/);
+assert.match(catalog, /deepseek=DeepSeek/);
+assert.match(catalog, /kimi=Kimi/);
+assert.match(catalog, /qwen=通义千问/);
+assert.match(catalog, /yuanbao=腾讯元宝/);
+assert.match(catalog, /nami=纳米 AI/);
+assert.match(catalog, /wenxin=文心一言/);
 
 console.log('connector registry tests passed');

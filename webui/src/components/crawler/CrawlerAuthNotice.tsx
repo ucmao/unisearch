@@ -20,7 +20,13 @@ const PLATFORM_NAMES: Record<string, string> = {
   bing: '必应',
   so360: '360搜索',
   sogou: '搜狗',
+  deepseek: 'DeepSeek',
   doubao: '豆包',
+  kimi: 'Kimi',
+  qwen: '通义千问',
+  yuanbao: '腾讯元宝',
+  nami: '纳米 AI',
+  wenxin: '文心一言',
 }
 
 export const CrawlerAuthNotice: React.FC = () => {

@@ -18,6 +18,13 @@ const PLATFORM_LABELS: { [key: string]: string } = {
   bing: '必应',
   so360: '360搜索',
   sogou: '搜狗',
+  deepseek: 'DeepSeek',
+  kimi: 'Kimi',
+  doubao: '豆包',
+  qwen: '通义千问',
+  yuanbao: '腾讯元宝',
+  nami: '纳米 AI',
+  wenxin: '文心一言',
 }
 
 const STATUS_DOTS: { [key: string]: string } = {

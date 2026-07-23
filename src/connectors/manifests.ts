@@ -226,7 +226,7 @@ const aiWebQA = (
         { key: 'content_url', label: '对话链接', type: 'string' },
         { key: 'creator_name', label: 'AI 平台', type: 'string' },
         { key: 'published_at', label: '响应时间', type: 'number' },
-      ], limitations: ['依赖 Playwright 模拟 DOM 打字机输出渲染。', '思考与参考新闻取决于 DeepSeek 网页端是否开启深度思考与联网模式。'],
+      ], limitations: ['依赖 Playwright 模拟 DOM 打字机输出渲染。', '思考过程与参考资料取决于平台当前是否提供相应模式。'],
     },
   ],
 });
@@ -244,7 +244,11 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
   utilityParser('media_parser', '综合无水印解析', 'link'),
-  aiWebQA('deepseek', 'DeepSeek AI', 'brain'),
-  aiWebQA('kimi', 'Kimi AI', 'sparkles'),
+  aiWebQA('deepseek', 'DeepSeek', 'brain'),
+  aiWebQA('kimi', 'Kimi', 'sparkles'),
   aiWebQA('doubao', '豆包', 'bot'),
+  aiWebQA('qwen', '通义千问', 'message-square-text'),
+  aiWebQA('yuanbao', '腾讯元宝', 'gem'),
+  aiWebQA('nami', '纳米 AI', 'atom'),
+  aiWebQA('wenxin', '文心一言', 'message-circle-heart'),
 ];

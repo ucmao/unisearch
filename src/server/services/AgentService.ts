@@ -15,6 +15,10 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'dy', 快手: 'ks', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'wb', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou',
+    DeepSeek: 'deepseek', Kimi: 'kimi', 'Kimi AI': 'kimi', 豆包: 'doubao', Doubao: 'doubao',
+    千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
+    纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',
+    文心: 'wenxin', 文心一言: 'wenxin', 文心言: 'wenxin', 文小言: 'wenxin',
   };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))
@@ -677,7 +681,8 @@ export class AgentService {
 
     const isOnlyAiQA = plan.platforms.length > 0 && plan.platforms.every((p: string) => {
       const manifest = getConnectorManifest(p);
-      return manifest?.category === 'ai_web_qa' || ['deepseek', 'kimi', 'doubao'].includes(p);
+      return manifest?.category === 'ai_web_qa'
+        || ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'].includes(p);
     });
 
     let scopeLine = '';

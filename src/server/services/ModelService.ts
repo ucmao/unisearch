@@ -361,6 +361,10 @@ export class ModelService {
     const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const content = await this.chat([
       { role: 'system', content: `你是UniSearch本地情报任务规划器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp} 根据完整对话和用户最新目标生成可执行计划。只输出JSON，不要Markdown。字段必须为 goal:string, platforms:string[], capability:"keyword_search"|"content_detail"|"creator_profile"|"comments"|"url_resolve", targets:string[], keywords:string[], connectorOptions:object, collectionDepth:"quick"|"standard"|"deep", collectComments:boolean, collectSubComments:boolean, startPage:number, loginType:"qrcode"|"cookie", headless:boolean, analysis:string[], outputs:string[]。platforms只能使用给定代码，至少一个；“搜索引擎”或“所有搜索引擎”对应 ["baidu", "bing", "so360", "sogou"]；“社交平台”对应 ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]；“DeepSeek”对应 ["deepseek"]；“Kimi”或“Kimi AI”对应 ["kimi"]；“豆包”或“Doubao”对应 ["doubao"]；“AI搜索”或“AI问答”对应 ["deepseek", "kimi", "doubao"]。关键词搜索时 keywords 至少一个。用户明确说“两个关键词”“3个关键词”等数量时，必须把随后列出的每个关键词拆成 keywords 数组中的独立元素，不得合并成一个字符串。采集深度与页数表达语义对应：用户提到“前三页”、“前 3 页”、“只抓前几页”、“不要评论”或未提评论时为 quick/false/false (startPage: 1)；“前5页”或只说“开启评论”为 standard/true/false；“前10页”或明确要求子评论、回复评论时为 deep/true/true，不得自行扩大范围。详情、主页、评论、URL解析时 targets 必须包含用户给出的 ID 或链接；connectorOptions 按平台代码保存平台专属参数。analysis 不是执行采集的必填项：只有完整对话中明确出现口碑、负面反馈、竞品对比、价格等分析目的时，才提炼为1到3个简要维度；用户只要求搜索或采集时输出空数组，不要自动套用通用分析模板。当前合并后的任务表达为：${JSON.stringify(userText)}` },
+      {
+        role: 'system',
+        content: '平台别名补充（若与前文旧枚举冲突，以本条为准）：腾讯元宝/元宝对应 ["yuanbao"]；纳米 AI/纳米AI搜索/纳米搜索对应 ["nami"]；文心/文心一言/文心言/文小言对应 ["wenxin"]；AI搜索/AI问答对应 ["deepseek","kimi","doubao","qwen","yuanbao","nami","wenxin"]。',
+      },
       ...messages,
     ], 3000, true, onRetry);
     try { return parseModelJson<ResearchPlan>(content); }
@@ -503,8 +507,8 @@ export class ModelService {
 重要规则：
 1. 寒暄、普通问答不得生成计划；“你好”永远是 chat。
 2. 不得把完整自然语言句子或寒暄当成关键词。
-3. create_plan/revise_plan 必须输出完整 plan JSON 对象；其他动作的 plan 为 null。当用户提到“搜索引擎”或“所有搜索引擎”时对应 ["baidu", "bing", "so360", "sogou"]；当用户提到“社交平台”时对应 ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]；当用户提到“DeepSeek”时对应 ["deepseek"]；当用户提到“Kimi”或“Kimi AI”时对应 ["kimi"]；当用户提到“豆包”或“Doubao”时对应 ["doubao"]；当用户提到“AI搜索”或“AI问答”时对应 ["deepseek", "kimi", "doubao"]。采集深度与页数表达语义对应：用户提到“前三页”、“前 3 页”、“只抓前几页”、“不要评论”或未提评论时，设为 quick/false/false (startPage: 1)；“前5页”或只说“开启评论”设为 standard/true/false；“前10页”或明确要求子评论、回复评论时设为 deep/true/true。修改计划 (revise_plan) 时必须基于 currentPlan 进行增量修改，不得将 plan 置为空或省略。
-4. 平台未指定时必须 clarify，不能直接生成计划。当用户已经指定 deepseek、kimi、doubao 或其他具体 Connector 时，平台已确定，不得再询问“小红书还是微博”。可以在问题中给出平台建议；不得静默假装用户指定过。
+3. create_plan/revise_plan 必须输出完整 plan JSON 对象；其他动作的 plan 为 null。当用户提到“搜索引擎”或“所有搜索引擎”时对应 ["baidu", "bing", "so360", "sogou"]；当用户提到“社交平台”时对应 ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]；当用户提到“DeepSeek”时对应 ["deepseek"]；当用户提到“Kimi”或“Kimi AI”时对应 ["kimi"]；当用户提到“豆包”或“Doubao”时对应 ["doubao"]；当用户提到“千问”、“通义千问”或“Qwen”时对应 ["qwen"]；当用户提到“元宝”或“腾讯元宝”时对应 ["yuanbao"]；当用户提到“纳米 AI”、“纳米AI搜索”或“纳米搜索”时对应 ["nami"]；当用户提到“文心”、“文心一言”或“文小言”时对应 ["wenxin"]；当用户提到“AI搜索”或“AI问答”时对应 ["deepseek", "kimi", "doubao", "qwen", "yuanbao", "nami", "wenxin"]。采集深度与页数表达语义对应：用户提到“前三页”、“前 3 页”、“只抓前几页”、“不要评论”或未提评论时，设为 quick/false/false (startPage: 1)；“前5页”或只说“开启评论”设为 standard/true/false；“前10页”或明确要求子评论、回复评论时设为 deep/true/true。修改计划 (revise_plan) 时必须基于 currentPlan 进行增量修改，不得将 plan 置为空或省略。
+4. 平台未指定时必须 clarify，不能直接生成计划。当用户已经指定 deepseek、kimi、doubao、qwen、yuanbao、nami、wenxin 或其他具体 Connector 时，平台已确定，不得再询问“小红书还是微博”。可以在问题中给出平台建议；不得静默假装用户指定过。
 5. 执行外部采集前必须确认。当前计划状态不匹配时不得 execute/stop/analyze。
 5.1 确认意图必须结合完整对话理解，而不是匹配固定词。像“好”“可以”可能表示同意，也可能只是承接对话；若同一句还包含修改、否定、犹豫或提问，应优先 revise_plan、clarify 或 chat，不能 execute。
 6. 回复自然、简短，像可以协作讨论的助手，而不是表单。

@@ -78,7 +78,10 @@ test('subject-only collection asks for platforms before creating a plan', () => 
     awaitingClarification: true,
     previousUserText: '帮我采集微秒数智相关内容',
   }).action, 'create_plan');
-  assert.deepEqual(inferResearchPlatforms('全部平台'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou']);
+  assert.deepEqual(inferResearchPlatforms('全部平台'), [
+    'xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
+    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
+  ]);
 });
 
 test('confirmation only executes a pending plan', () => {
@@ -147,6 +150,12 @@ test('search engine alias and page range expressions are parsed correctly', () =
   assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou']);
   assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou']);
   assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'dy', 'ks', 'bili', 'wb', 'tieba', 'zhihu']);
+  assert.deepEqual(inferResearchPlatforms('在腾讯元宝问一下'), ['yuanbao']);
+  assert.deepEqual(inferResearchPlatforms('用纳米 AI 搜索'), ['nami']);
+  assert.deepEqual(inferResearchPlatforms('在 https://www.qianwen.com/ 提问'), ['qwen']);
+  assert.deepEqual(inferResearchPlatforms('去文心问一下'), ['wenxin']);
+  assert.deepEqual(inferResearchPlatforms('去文心一言问'), ['wenxin']);
+  assert.deepEqual(inferResearchPlatforms('所有 AI 问答平台'), ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin']);
   assert.equal(inferCollectionDepth('范围改成 前三页'), 'quick');
   assert.equal(inferCollectionDepth('改为前3页'), 'quick');
   assert.equal(inferCollectionDepth('改成前5页'), 'standard');
