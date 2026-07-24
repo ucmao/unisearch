@@ -61,6 +61,7 @@ test('SQLite sink preserves the existing platform storage behavior', async () =>
     }));
     const stored = getDb().prepare('SELECT note_id, title FROM xhs_note WHERE note_id=?').get('sqlite-note-1') as any;
     assert.deepEqual(stored, { note_id: 'sqlite-note-1', title: '兼容写入' });
+    assert.equal((getDb().prepare('SELECT COUNT(*) AS count FROM documents').get() as any).count, 1);
   } finally {
     closeDb();
     if (previousUserDataDirectory === undefined) delete process.env.UNISEARCH_USER_DATA_DIR;

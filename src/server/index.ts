@@ -8,6 +8,9 @@ import { crawlerManager } from './services/CrawlerManager';
 import { analyticsRepository } from '../database/repository';
 import { agentRepository } from './services/AgentRepository';
 import { agentService } from './services/AgentService';
+import { workflowEngine } from '../workflow/workflow-engine';
+import { documentEngine } from '../document/document-engine';
+import { skillRegistry } from '../skills/registry';
 import { modelService } from './services/ModelService';
 import { agentAttachmentService } from './services/AgentAttachmentService';
 import type { AppConfig } from '../tools/config';
@@ -28,6 +31,7 @@ export interface ServerWindowControls {
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
   agentRepository.reconcileStuckTasks();
+  workflowEngine.reconcileInterrupted();
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
   crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
   crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
@@ -298,6 +302,29 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const { plan_id } = request.params as { plan_id: string };
     try { return agentService.executePlan(plan_id); }
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
+  fastify.get('/api/agent/plans/:plan_id/workflow', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    const workflow = workflowEngine.getByPlan(plan_id);
+    if (!workflow) return reply.status(404).send({ detail: 'Workflow not found' });
+    return workflow;
+  });
+
+  fastify.get('/api/skills', async () => ({ items: skillRegistry.list() }));
+
+  fastify.get('/api/documents', async (request) => {
+    const query = request.query as { run_id?: string; limit?: string };
+    const limit = Math.max(1, Math.min(Number(query.limit) || 100, 1000));
+    const items = query.run_id ? documentEngine.listByRun(query.run_id, limit) : documentEngine.list(limit);
+    return { items, total: items.length };
+  });
+
+  fastify.get('/api/documents/:document_id', async (request, reply) => {
+    const { document_id } = request.params as { document_id: string };
+    const document = documentEngine.get(document_id);
+    if (!document) return reply.status(404).send({ detail: 'Document not found' });
+    return document;
   });
 
   fastify.patch('/api/agent/plans/:plan_id', async (request, reply) => {

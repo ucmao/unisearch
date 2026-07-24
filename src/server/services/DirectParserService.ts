@@ -1,5 +1,6 @@
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
-import { dbStore } from '../../crawler/store';
+import { buildRawItem } from '../../connectors/output/connector-output';
+import { SqliteOutputSink } from '../../core/sinks/sqlite';
 
 export interface ParseResult {
   succ: boolean;
@@ -51,10 +52,14 @@ export class DirectParserService {
 
       const data = json.data;
       try {
-        await dbStore.storeMediaParsedResult({
+        const sink = new SqliteOutputSink();
+        const runId = `direct-parse-${Date.now()}`;
+        await sink.open({ runId, source: 'media_parser', startedAt: new Date().toISOString() });
+        await sink.write(buildRawItem('storeMediaParsedResult', {
           ...data,
           source_keyword: text,
-        });
+        }));
+        await sink.close({ status: 'completed', itemCount: 1 });
       } catch (err: any) {
         console.warn('[DirectParserService] Failed to persist media parsed result to DB:', err.message);
       }

@@ -414,6 +414,85 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_content_platform_keyword ON content_records(platform, keyword);
     CREATE INDEX IF NOT EXISTS idx_content_engagement ON content_records(engagement DESC);
 
+    -- Canonical document layer. Raw connector payloads remain in document_sources,
+    -- while analysis, processors and exporters consume documents and artifacts.
+    CREATE TABLE IF NOT EXISTS documents (
+      document_id TEXT PRIMARY KEY,
+      canonical_key TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      markdown TEXT NOT NULL DEFAULT '',
+      author TEXT NOT NULL DEFAULT '',
+      published_at TEXT,
+      source_url TEXT,
+      language TEXT NOT NULL DEFAULT 'und',
+      content_hash TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_documents_kind_updated ON documents(kind, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash);
+
+    CREATE TABLE IF NOT EXISTS document_sources (
+      source_record_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      run_id TEXT,
+      source TEXT NOT NULL,
+      source_item_id TEXT,
+      source_url TEXT,
+      raw_item_id TEXT NOT NULL,
+      raw_payload_json TEXT NOT NULL DEFAULT '{}',
+      fetched_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(run_id, raw_item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_sources_document ON document_sources(document_id);
+    CREATE INDEX IF NOT EXISTS idx_document_sources_run ON document_sources(run_id);
+
+    CREATE TABLE IF NOT EXISTS document_assets (
+      asset_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      url TEXT NOT NULL,
+      mime_type TEXT,
+      local_path TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(document_id, url)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_assets_document ON document_assets(document_id);
+
+    CREATE TABLE IF NOT EXISTS document_artifacts (
+      artifact_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      processor_id TEXT NOT NULL,
+      processor_version TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(document_id, type, processor_id, processor_version, input_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_artifacts_document ON document_artifacts(document_id);
+
+    CREATE TABLE IF NOT EXISTS document_relations (
+      relation_id TEXT PRIMARY KEY,
+      from_document_id TEXT NOT NULL,
+      to_document_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(from_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      FOREIGN KEY(to_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(from_document_id, to_document_id, relation_type)
+    );
+
     -- Local conversational agent workspace
     CREATE TABLE IF NOT EXISTS agent_threads (
       thread_id TEXT PRIMARY KEY,
@@ -516,6 +595,51 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
 
+    -- Generic workflow records coexist with the legacy Agent plan tables during
+    -- migration. plan_id links the compatibility layer to the new runtime.
+    CREATE TABLE IF NOT EXISTS workflow_runs (
+      workflow_id TEXT PRIMARY KEY,
+      plan_id TEXT UNIQUE,
+      thread_id TEXT,
+      skill_id TEXT NOT NULL,
+      skill_version TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'created',
+      input_json TEXT NOT NULL DEFAULT '{}',
+      output_json TEXT NOT NULL DEFAULT '{}',
+      error_message TEXT,
+      cancel_requested INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_thread ON workflow_runs(thread_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS workflow_steps (
+      step_id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      step_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      uses_id TEXT NOT NULL,
+      depends_on_json TEXT NOT NULL DEFAULT '[]',
+      input_json TEXT NOT NULL DEFAULT '{}',
+      output_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'queued',
+      attempt INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 1,
+      timeout_ms INTEGER NOT NULL DEFAULT 300000,
+      external_ref TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+      UNIQUE(workflow_id, step_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_steps_ready ON workflow_steps(workflow_id, status);
+
     -- Search Engine Result Table
     CREATE TABLE IF NOT EXISTS search_engine_result (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -554,6 +678,13 @@ export function initSchema(db: Database): void {
   }
   if (!threadColumns.has('pinned_at')) {
     db.exec('ALTER TABLE agent_threads ADD COLUMN pinned_at TEXT');
+  }
+
+  const workflowStepColumns = new Set(
+    (db.prepare('PRAGMA table_info(workflow_steps)').all() as Array<{ name: string }>).map((column) => column.name),
+  );
+  if (!workflowStepColumns.has('timeout_ms')) {
+    db.exec('ALTER TABLE workflow_steps ADD COLUMN timeout_ms INTEGER NOT NULL DEFAULT 300000');
   }
 
   // Migrate legacy platform shortcuts in existing database
