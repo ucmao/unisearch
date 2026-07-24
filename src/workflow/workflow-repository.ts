@@ -73,8 +73,9 @@ export class WorkflowRepository {
       const insert = this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
-          input_json, output_json, status, max_attempts, timeout_ms, external_ref, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, '{}', 'queued', ?, ?, ?, ?, ?)
+          dependency_policy, input_json, output_json, status, max_attempts,
+          timeout_ms, external_ref, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', 'queued', ?, ?, ?, ?, ?)
       `);
       for (const step of definition.steps) {
         insert.run(
@@ -84,6 +85,7 @@ export class WorkflowRepository {
           step.kind,
           step.uses,
           JSON.stringify(step.dependsOn),
+          step.dependencyPolicy,
           JSON.stringify(step.input),
           step.maxAttempts,
           step.timeoutMs,
@@ -189,7 +191,7 @@ export class WorkflowRepository {
       `).run(now, workflowId);
       this.db.prepare(`
         UPDATE workflow_steps SET status='queued', error_message=NULL, output_json='{}',
-          updated_at=?, started_at=NULL, finished_at=NULL
+          attempt=0, updated_at=?, started_at=NULL, finished_at=NULL
         WHERE workflow_id=? AND status!='completed'
       `).run(now, workflowId);
     })();
@@ -199,11 +201,14 @@ export class WorkflowRepository {
     const workflow = this.get(workflowId);
     if (!workflow || workflow.cancel_requested) return [];
     const statusByKey = new Map(workflow.steps.map((step: any) => [step.step_key, step.status]));
-    return workflow.steps.filter((step: any) =>
-      step.status === 'queued'
-      && step.attempt < step.max_attempts
-      && step.depends_on.every((dependency: string) => ['completed', 'skipped'].includes(String(statusByKey.get(dependency)))),
-    );
+    return workflow.steps.filter((step: any) => {
+      const accepted = step.dependency_policy === 'terminal'
+        ? ['completed', 'skipped', 'failed', 'cancelled']
+        : ['completed', 'skipped'];
+      return step.status === 'queued'
+        && step.attempt < step.max_attempts
+        && step.depends_on.every((dependency: string) => accepted.includes(String(statusByKey.get(dependency))));
+    });
   }
 
   claimStep(workflowId: string, stepKey: string): any | null {

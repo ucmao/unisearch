@@ -5,12 +5,21 @@ import { EventEmitter } from 'events';
 import { activeConfig, applyConfig } from '../../tools/config';
 import { analyticsRepository } from '../../database/repository';
 import { getDatabasePath } from '../../database/connection';
-import type { LogEntry } from '@/lib/api';
 import { getConnectorManifest, normalizeConnectorRequest } from '../../connectors/registry';
 import type { ConnectorStartRequest } from '../../connectors/types';
 import { parseConnectorEvent } from '../../core/contracts/connector-event';
 
 export type CrawlerStartRequest = ConnectorStartRequest;
+
+export interface LogEntry {
+  id: number;
+  timestamp: string;
+  level: 'info' | 'warning' | 'error' | 'success' | 'debug';
+  message: string;
+  platform?: string;
+  run_id?: string;
+  thread_id?: string;
+}
 
 export interface CrawlerWindowCoordinator {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
@@ -430,7 +439,15 @@ export class CrawlerManager extends EventEmitter {
   public async skip(platform: string): Promise<boolean> {
     const task = this.tasks.get(platform);
     if (!task || !task.process) return false;
-    this.addLog(`收到用户指令，跳过平台 ${platform} 的抓取任务`, 'warning', this);
+    this.addGlobalLog({
+      id: Date.now(),
+      timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+      level: 'warning',
+      message: `收到用户指令，跳过平台 ${platform} 的抓取任务`,
+      platform,
+      run_id: task.currentRunId || undefined,
+      thread_id: task.config.thread_id || undefined,
+    });
     if (task.process.send) {
       task.process.send({ type: 'SKIP_CONNECTOR' });
     } else {

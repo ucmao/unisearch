@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     'main/index': 'src/main/index.ts',
     'crawler/worker': 'src/crawler/worker.ts',
+    'processor/worker': 'src/processor/worker.ts',
   },
   format: ['cjs'],
   splitting: false,

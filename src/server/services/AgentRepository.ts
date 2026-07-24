@@ -456,6 +456,21 @@ export class AgentRepository {
         platform, now, now,
       );
     }
+    this.db.prepare(`
+      INSERT INTO workflow_steps (
+        step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+        dependency_policy, input_json, status, max_attempts, timeout_ms,
+        created_at, updated_at
+      ) VALUES (?, ?, 'finalize-documents', 'processor', 'processor.documents.finalize',
+        ?, 'terminal', ?, 'queued', 2, 300000, ?, ?)
+    `).run(
+      id(),
+      workflowId,
+      JSON.stringify(plan.platforms.map((platform) => `collect:${platform}`)),
+      JSON.stringify({ processorIds: ['metadata.normalize', 'document.clean_markdown'] }),
+      now,
+      now,
+    );
   }
 
   updatePendingPlan(workflowId: string, plan: ResearchPlan) {

@@ -14,6 +14,7 @@ export type WorkflowStepHandler = (
 
 export class WorkflowEngine {
   private readonly handlers = new Map<string, WorkflowStepHandler>();
+  private readonly activeControllers = new Map<string, AbortController>();
 
   constructor(private readonly repository = new WorkflowRepository()) {}
 
@@ -37,6 +38,8 @@ export class WorkflowEngine {
       const step = this.repository.claimStep(workflowId, candidate.step_key);
       if (!step) continue;
       const controller = new AbortController();
+      const controllerKey = `${workflowId}:${step.step_key}`;
+      this.activeControllers.set(controllerKey, controller);
       const timeout = setTimeout(() => controller.abort(), Number(step.timeout_ms) || 300_000);
       timeout.unref();
       try {
@@ -57,13 +60,22 @@ export class WorkflowEngine {
         );
       } finally {
         clearTimeout(timeout);
+        this.activeControllers.delete(controllerKey);
       }
     }
     return this.finalizeIfTerminal(workflowId);
   }
 
   cancel(workflowId: string): void {
+    for (const [key, controller] of this.activeControllers) {
+      if (key.startsWith(`${workflowId}:`)) controller.abort();
+    }
     this.repository.requestCancel(workflowId);
+  }
+
+  retry(workflowId: string): any {
+    this.repository.resetForRetry(workflowId);
+    return this.repository.get(workflowId);
   }
 
   reconcileInterrupted(): number {
