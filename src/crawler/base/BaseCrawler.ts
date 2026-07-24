@@ -5,6 +5,7 @@ import path from 'path';
 import { BrowserLauncher } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
 import { CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
+import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
 
 const configuredCrawlerContexts = new WeakSet<BrowserContext>();
 
@@ -200,6 +201,7 @@ export abstract class AbstractCrawler {
 
 export function notifyLoginQrCodeRequired(platform: string, qrCodeBase64: string): void {
   console.log(`[Crawler] Emitting login QR Code required event for ${platform}`);
+  connectorEventEmitter.send({ type: 'auth_required', reason: '需要扫描二维码登录' });
   if (process.send) {
     process.send({
       type: 'LOGIN_QRCODE_REQUIRED',
@@ -211,6 +213,7 @@ export function notifyLoginQrCodeRequired(platform: string, qrCodeBase64: string
 
 export function notifyLoginRequired(platform: string, reason: string): void {
   console.log(`[Crawler] Login may be required for ${platform}: ${reason}`);
+  connectorEventEmitter.send({ type: 'auth_required', reason });
   if (process.send) {
     process.send({
       type: 'LOGIN_REQUIRED',
@@ -232,6 +235,7 @@ export function notifyLoginSuccess(platform: string): void {
 
 export function notifyManualVerificationRequired(platform: string, reason: string): void {
   console.log(`[Crawler] Manual verification required for ${platform}: ${reason}`);
+  connectorEventEmitter.send({ type: 'verification_required', reason });
   if (process.send) {
     process.send({
       type: 'MANUAL_VERIFICATION_REQUIRED',

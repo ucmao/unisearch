@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { AbstractCrawler } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 
 function cleanText(str: string): string {
@@ -98,7 +98,7 @@ export class BaiduCrawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await dbStore.storeSearchEngineResult({
+            await connectorOutput.storeSearchEngineResult({
               search_engine: 'baidu',
               title,
               url: encryptedUrl,
@@ -190,7 +190,7 @@ export class BingCrawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await dbStore.storeSearchEngineResult({
+            await connectorOutput.storeSearchEngineResult({
               search_engine: 'bing',
               title,
               url: pageUrl,
@@ -282,7 +282,7 @@ export class So360Crawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await dbStore.storeSearchEngineResult({
+            await connectorOutput.storeSearchEngineResult({
               search_engine: 'so360',
               title,
               url: encryptedUrl,
@@ -439,7 +439,7 @@ export class SogouCrawler extends AbstractCrawler {
           totalRank++;
 
           const realUrl = await resolveRealUrl(item.url);
-          await dbStore.storeSearchEngineResult({
+          await connectorOutput.storeSearchEngineResult({
             search_engine: 'sogou',
             title: item.title,
             url: item.url,

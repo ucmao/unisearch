@@ -1,7 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class ZhihuCrawler extends AbstractCrawler {
@@ -153,7 +153,7 @@ export class ZhihuCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await dbStore.storeZhihuContent(contentDetail);
+          await connectorOutput.storeZhihuContent(contentDetail);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(it.content_id, it.content_type);
           count++;
           
@@ -199,7 +199,7 @@ export class ZhihuCrawler extends AbstractCrawler {
         comment_count: result.comment_count || 0, source_keyword: sourceKeyword,
         creator_hash: author.url_token || String(author.id || ''), user_nickname: author.name || '',
       };
-      await dbStore.storeZhihuContent(record);
+      await connectorOutput.storeZhihuContent(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(record.content_id, type);
       return record;
     } catch (error: any) {
@@ -214,7 +214,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     try {
       const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
       const comments = result?.data || [];
-      const store = async (comment: any, parent = '') => dbStore.storeZhihuComment({
+      const store = async (comment: any, parent = '') => connectorOutput.storeZhihuComment({
         comment_id: String(comment.id || ''), parent_comment_id: parent,
         content: stripHtml(comment.content || ''), publish_time: comment.created_time || 0,
         sub_comment_count: comment.child_comment_count || 0, like_count: comment.vote_count || 0,

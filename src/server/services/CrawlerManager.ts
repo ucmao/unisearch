@@ -8,6 +8,7 @@ import { getDatabasePath } from '../../database/connection';
 import type { LogEntry } from '@/lib/api';
 import { getConnectorManifest, normalizeConnectorRequest } from '../../connectors/registry';
 import type { ConnectorStartRequest } from '../../connectors/types';
+import { parseConnectorEvent } from '../../core/contracts/connector-event';
 
 export type CrawlerStartRequest = ConnectorStartRequest;
 
@@ -25,6 +26,7 @@ export class CrawlerTask {
   public lastRunId: string | null = null;
   public logs: LogEntry[] = [];
   private logId = 0;
+  private lastEventSequence = -1;
   public shouldLoop: boolean;
   private loopTimeout: NodeJS.Timeout | null = null;
 
@@ -119,6 +121,7 @@ export class CrawlerTask {
     const runId = analyticsRepository.createRun(configData);
     this.currentRunId = runId;
     this.startedAt = new Date().toISOString();
+    this.lastEventSequence = -1;
 
     const isPackaged = process.env.NODE_ENV === 'production' || require('electron').app?.isPackaged;
     let workerPath = '';
@@ -184,7 +187,23 @@ export class CrawlerTask {
       });
 
       this.process.on('message', (msg: any) => {
-        if (msg && msg.type === 'LOGIN_REQUIRED') {
+        if (msg && msg.type === 'CONNECTOR_EVENT') {
+          try {
+            const event = parseConnectorEvent(msg.event);
+            if (event.runId !== this.currentRunId || event.sequence <= this.lastEventSequence) return;
+            this.lastEventSequence = event.sequence;
+            manager.emit('connector_event', event);
+            if (event.type === 'progress' && event.message) {
+              this.addLog(event.message, 'info', manager);
+            } else if (event.type === 'warning') {
+              this.addLog(`[${event.code}] ${event.message}`, 'warning', manager);
+            } else if (event.type === 'failed') {
+              this.addLog(`[${event.code}] ${event.message}`, 'error', manager);
+            }
+          } catch (error: any) {
+            this.addLog(`忽略无效的 Connector IPC 消息: ${error.message}`, 'warning', manager);
+          }
+        } else if (msg && msg.type === 'LOGIN_REQUIRED') {
           this.addLog(`${this.platform} 可能需要登录，请在提示中选择是否打开采集浏览器`, 'warning', manager);
           manager.emit('login_required', msg);
         } else if (msg && msg.type === 'LOGIN_QRCODE_REQUIRED') {
@@ -194,9 +213,8 @@ export class CrawlerTask {
           this.addLog(`${this.platform} 登录成功！`, 'success', manager);
           manager.emit('login_success', msg);
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_REQUIRED') {
-          if (manager.getWindowCoordinator().prepareCrawlerWindow) {
-            void manager.getWindowCoordinator().prepareCrawlerWindow(this.platform);
-          }
+          const prepareCrawlerWindow = manager.getWindowCoordinator().prepareCrawlerWindow;
+          if (prepareCrawlerWindow) void prepareCrawlerWindow(this.platform);
           this.addLog(`检测到 ${this.platform} 图形验证，请在内置浏览器中手动完成`, 'warning', manager);
           manager.emit('manual_verification_required', msg);
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_SUCCESS') {

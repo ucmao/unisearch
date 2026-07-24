@@ -6,7 +6,7 @@ import {
   notifyManualVerificationRequired,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 
 function extractUrlsOrIds(input: string): string[] {
@@ -165,7 +165,7 @@ export class ZhaopinCrawler extends AbstractCrawler {
             const jobUrl = rawUrl ? rawUrl.split('?')[0] : '';
             const jobId = item.number || item.jobId || jobUrl;
 
-            await dbStore.storeZhaopinResult({
+            await connectorOutput.storeZhaopinResult({
               title: jobName,
               company_name: companyName,
               salary,
@@ -260,7 +260,7 @@ export class ZhaopinCrawler extends AbstractCrawler {
         const desc = pos.description || pos.jobDesc || jobDetail.jobSummary || jobDetail.jobDuty || jobDetail.description || '';
         const publishTime = pos.positionPublishTime || pos.publishTime || jobDetail.publishTimeFormat || jobDetail.publishTime || '';
 
-        await dbStore.storeZhaopinResult({
+        await connectorOutput.storeZhaopinResult({
           title: jobName,
           company_name: companyName,
           salary,

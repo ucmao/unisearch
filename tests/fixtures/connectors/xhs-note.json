@@ -1,0 +1,10 @@
+{
+  "note_id": "fixture-note-1",
+  "title": "契约测试样本",
+  "desc": "脱敏后的小红书内容样本",
+  "nickname": "示例作者",
+  "note_url": "https://example.com/fixture-note-1",
+  "image_list": "https://example.com/fixture-1.jpg",
+  "liked_count": "12",
+  "comment_count": "3"
+}

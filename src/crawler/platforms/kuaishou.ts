@@ -7,7 +7,7 @@ import {
   notifyLoginSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class KuaishouCrawler extends AbstractCrawler {
@@ -186,7 +186,7 @@ export class KuaishouCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await dbStore.storeKuaishouVideo(videoDetail);
+          await connectorOutput.storeKuaishouVideo(videoDetail);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(v.video_id);
           count++;
           
@@ -250,7 +250,7 @@ export class KuaishouCrawler extends AbstractCrawler {
         create_time: detail.timestamp ? Math.floor(Number(detail.timestamp) / (Number(detail.timestamp) > 1e12 ? 1000 : 1)) : 0,
         source_keyword: sourceKeyword,
       };
-      await dbStore.storeKuaishouVideo(record);
+      await connectorOutput.storeKuaishouVideo(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(record.video_id);
       return record;
     } catch (error: any) {
@@ -277,7 +277,7 @@ export class KuaishouCrawler extends AbstractCrawler {
         };
       }).filter((comment) => comment.content));
       for (const comment of comments.slice(0, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES)) {
-        await dbStore.storeKuaishouComment({
+        await connectorOutput.storeKuaishouComment({
           comment_id: comment.id, video_id: videoId, content: comment.content,
           create_time: Math.floor(Date.now() / 1000), creator_hash: comment.creatorId,
           nickname: comment.nickname, sub_comment_count: comment.subCount,

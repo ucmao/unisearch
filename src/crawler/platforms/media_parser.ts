@@ -1,6 +1,6 @@
 import { AbstractCrawler } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 
 function extractUrls(input: string): string[] {
@@ -55,7 +55,7 @@ export class MediaParserCrawler extends AbstractCrawler {
         const videoUrl = data.video_url || '';
         const imagesCount = Array.isArray(data.images) ? data.images.length : 0;
 
-        await dbStore.storeMediaParsedResult({
+        await connectorOutput.storeMediaParsedResult({
           ...data,
           source_keyword: text,
         });

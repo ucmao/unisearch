@@ -3,8 +3,14 @@ import { applyConfig, activeConfig } from '../tools/config';
 import { getDb, closeDb } from '../database/connection';
 import { createConnectorExecutor } from '../connectors/executors';
 import { normalizeConnectorRequest } from '../connectors/registry';
+import { connectorOutput } from '../connectors/output/connector-output';
+import { CompositeOutputSink } from '../core/sinks/composite';
+import { IpcOutputSink } from '../core/sinks/ipc';
+import { SqliteOutputSink } from '../core/sinks/sqlite';
+import { classifyConnectorError } from '../core/contracts/errors';
 
 let activeCrawler: any = null;
+let outputOpen = false;
 
 async function cleanup(): Promise<void> {
   console.log('[Worker] Cleaning up crawler page...');
@@ -41,11 +47,28 @@ async function run(): Promise<void> {
   console.log(`[Worker] Running crawler for platform: ${activeConfig.PLATFORM}`);
   
   activeCrawler = createConnectorExecutor(activeConfig.PLATFORM);
+  const runId = process.env.UNISEARCH_RUN_ID || `standalone-${Date.now()}`;
+  await connectorOutput.open(
+    new CompositeOutputSink([
+      new SqliteOutputSink(),
+      new IpcOutputSink(),
+    ]),
+    {
+      runId,
+      source: activeConfig.PLATFORM,
+      startedAt: new Date().toISOString(),
+    },
+  );
+  outputOpen = true;
   
   // Register IPC control listeners
   process.on('message', async (msg: any) => {
     if (msg && msg.type === 'SKIP_CONNECTOR') {
       console.log(`[Worker] Received SKIP_CONNECTOR request for platform ${activeConfig.PLATFORM}. Terminating task gracefully.`);
+      if (outputOpen) {
+        outputOpen = false;
+        await connectorOutput.close({ status: 'cancelled' });
+      }
       await cleanup();
       process.exit(0);
     }
@@ -55,22 +78,38 @@ async function run(): Promise<void> {
 
   process.on('SIGTERM', async () => {
     console.log('[Worker] Received SIGTERM signal');
+    if (outputOpen) {
+      outputOpen = false;
+      await connectorOutput.close({ status: 'cancelled' });
+    }
     await cleanup();
     process.exit(143);
   });
 
   process.on('SIGINT', async () => {
     console.log('[Worker] Received SIGINT signal');
+    if (outputOpen) {
+      outputOpen = false;
+      await connectorOutput.close({ status: 'cancelled' });
+    }
     await cleanup();
     process.exit(130);
   });
 
   try {
     await activeCrawler.start();
+    outputOpen = false;
+    const itemCount = await connectorOutput.close({ status: 'completed' });
+    console.log(`[Worker] Connector emitted ${itemCount} normalized raw items.`);
     await cleanup();
     process.exit(0);
   } catch (err: any) {
-    console.error(`[Worker] Crawler execution failed: ${err.message}`, err.stack);
+    const classified = classifyConnectorError(err);
+    if (outputOpen) {
+      outputOpen = false;
+      await connectorOutput.abort(classified);
+    }
+    console.error(`[Worker] Crawler execution failed [${classified.code}]: ${classified.message}`, err.stack);
     await cleanup();
     process.exit(1);
   }
