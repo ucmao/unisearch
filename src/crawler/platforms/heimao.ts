@@ -197,7 +197,7 @@ export class HeimaoCrawler extends AbstractCrawler {
 
         // Emit items through the connector output boundary.
         for (const item of collectedItems) {
-          await connectorOutput.storeHeimaoResult({
+          await connectorOutput.emitHeimaoResult({
             content_id: item.content_id,
             title: item.title,
             desc: `${item.creator_name ? `[投诉商家: ${item.creator_name}] ` : ''}${item.status ? `[状态: ${item.status}] ` : ''}${item.description}`,
@@ -259,7 +259,7 @@ export class HeimaoCrawler extends AbstractCrawler {
         const idMatch = url.match(/\/complaint\/view\/(\d+)/);
         const complaintId = idMatch ? idMatch[1] : target;
 
-        await connectorOutput.storeHeimaoResult({
+        await connectorOutput.emitHeimaoResult({
           content_id: complaintId,
           title: detail.title,
           desc: `[被投诉方: ${detail.merchant}] ${detail.status ? `[状态: ${detail.status}] ` : ''}${detail.desc}`,

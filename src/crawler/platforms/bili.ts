@@ -189,7 +189,7 @@ export class BilibiliCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await connectorOutput.storeBilibiliVideo(videoDetail);
+          await connectorOutput.emitBilibiliVideo(videoDetail);
           if (activeConfig.ENABLE_GET_COMMENTS && detail.aid) {
             await this.getVideoComments(String(detail.aid), v.video_id);
           }
@@ -237,7 +237,7 @@ export class BilibiliCrawler extends AbstractCrawler {
       video_cover_url: detail.pic || '',
       source_keyword: sourceKeyword,
     };
-    await connectorOutput.storeBilibiliVideo(video);
+    await connectorOutput.emitBilibiliVideo(video);
     if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(String(detail.aid), video.video_id);
     return video;
   }
@@ -252,14 +252,14 @@ export class BilibiliCrawler extends AbstractCrawler {
       }
       const replies = result?.data?.replies || [];
       for (const reply of replies.slice(0, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES)) {
-        await connectorOutput.storeBilibiliComment({
+        await connectorOutput.emitBilibiliComment({
           comment_id: String(reply.rpid || ''), video_id: videoId, content: reply.content?.message || '',
           create_time: reply.ctime || 0, creator_hash: String(reply.mid || ''), nickname: reply.member?.uname || '',
           sub_comment_count: reply.rcount || 0, parent_comment_id: '', like_count: reply.like || 0,
         });
         if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
           for (const child of (reply.replies || [])) {
-            await connectorOutput.storeBilibiliComment({
+            await connectorOutput.emitBilibiliComment({
               comment_id: String(child.rpid || ''), video_id: videoId, content: child.content?.message || '',
               create_time: child.ctime || 0, creator_hash: String(child.mid || ''), nickname: child.member?.uname || '',
               sub_comment_count: 0, parent_comment_id: String(reply.rpid || ''), like_count: child.like || 0,

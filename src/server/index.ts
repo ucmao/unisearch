@@ -31,7 +31,6 @@ export interface ServerWindowControls {
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
   agentRepository.reconcileStuckTasks();
-  workflowEngine.reconcileInterrupted();
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
   crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
   crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
@@ -306,7 +305,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.get('/api/agent/plans/:plan_id/workflow', async (request, reply) => {
     const { plan_id } = request.params as { plan_id: string };
-    const workflow = workflowEngine.getByPlan(plan_id);
+    const workflow = workflowEngine.get(plan_id);
     if (!workflow) return reply.status(404).send({ detail: 'Workflow not found' });
     return workflow;
   });

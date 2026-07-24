@@ -1,20 +1,14 @@
+import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from './connection';
-import crypto from 'crypto';
 
 export interface RunConfig {
   platform: string;
   keywords: string;
   crawler_type: string;
-  login_type: string;
-  start_page?: number;
-  enable_comments?: boolean;
-  enable_sub_comments?: boolean;
-  cookies?: string;
-  headless?: boolean;
-  loop_execution?: boolean;
   thread_id?: string;
-  plan_id?: string;
+  workflow_id?: string;
+  task_title?: string;
   [key: string]: any;
 }
 
@@ -39,8 +33,7 @@ export interface ContentRecord {
   views: number;
   engagement: number;
   source_file: string;
-  source_metadata?: string;
-  ingested_at?: string;
+  source_metadata: string;
 }
 
 export interface CommentRecord {
@@ -59,782 +52,363 @@ export interface CommentRecord {
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
-  xhs: '小红书',
-  douyin: '抖音',
-  dy: '抖音',
-  kuaishou: '快手',
-  ks: '快手',
-  bili: '哔哩哔哩',
-  weibo: '微博',
-  wb: '微博',
-  tieba: '贴吧',
-  zhihu: '知乎',
-  baidu: '百度',
-  bing: '必应',
-  so360: '360搜索',
-  sogou: '搜狗',
-  media_parser: '综合解析',
-  zhaopin: '智联招聘',
-  heimao: '黑猫投诉',
-  deepseek: 'DeepSeek',
-  doubao: '豆包',
-  kimi: 'Kimi',
-  nami: '纳米AI',
-  qwen: '通义千问',
-  wenxin: '文心一言',
-  yuanbao: '腾讯元宝',
+  xhs: '小红书', douyin: '抖音', kuaishou: '快手', bili: '哔哩哔哩',
+  weibo: '微博', tieba: '贴吧', zhihu: '知乎', baidu: '百度',
+  bing: '必应', so360: '360搜索', sogou: '搜狗', media_parser: '综合解析',
+  zhaopin: '智联招聘', heimao: '黑猫投诉', deepseek: 'DeepSeek',
+  doubao: '豆包', kimi: 'Kimi', nami: '纳米AI', qwen: '通义千问',
+  wenxin: '文心一言', yuanbao: '腾讯元宝',
 };
 
-const SQLITE_CONTENT_TABLES: Record<string, string> = {
-  xhs: 'xhs_note',
-  douyin: 'douyin_aweme',
-  kuaishou: 'kuaishou_video',
-  bili: 'bilibili_video',
-  weibo: 'weibo_note',
-  tieba: 'tieba_note',
-  zhihu: 'zhihu_content',
-};
-
-const SQLITE_COMMENT_TABLES: Record<string, [string, string]> = {
-  xhs: ['xhs_note_comment', 'note_id'],
-  douyin: ['douyin_aweme_comment', 'aweme_id'],
-  kuaishou: ['kuaishou_video_comment', 'video_id'],
-  bili: ['bilibili_video_comment', 'video_id'],
-  weibo: ['weibo_note_comment', 'note_id'],
-  tieba: ['tieba_comment', 'note_id'],
-  zhihu: ['zhihu_comment', 'content_id'],
-};
-
-// Convert metrics (e.g., "2.4万", "1,200") to integer
-export function parseMetric(value: any): number {
-  if (value === null || value === undefined || value === '') {
-    return 0;
-  }
-  if (typeof value === 'number') {
-    return Math.max(0, Math.floor(value));
-  }
-
-  const text = String(value).trim().toLowerCase().replace(/,/g, '').replace(/\+/g, '');
-  const multipliers: Record<string, number> = {
-    '万': 10000,
-    'w': 10000,
-    '千': 1000,
-    'k': 1000,
-  };
-
-  const lastChar = text.charAt(text.length - 1);
-  let multiplier = 1;
-  let numericText = text;
-
-  if (lastChar in multipliers) {
-    multiplier = multipliers[lastChar];
-    numericText = text.slice(0, -1);
-  }
-
-  try {
-    const val = parseFloat(numericText);
-    return isNaN(val) ? 0 : Math.max(0, Math.floor(val * multiplier));
-  } catch {
-    return 0;
-  }
+function parseJson(value: unknown): Record<string, any> {
+  if (typeof value !== 'string') return {};
+  try { return JSON.parse(value); } catch { return {}; }
 }
 
-// Convert mixed timestamps to seconds
+export function parseMetric(value: any): number {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Math.max(0, Math.floor(value));
+  const text = String(value).trim().toLowerCase().replace(/,/g, '').replace(/\+/g, '');
+  const suffix = text.at(-1) || '';
+  const multiplier = suffix === '万' || suffix === 'w' ? 10000 : suffix === '千' || suffix === 'k' ? 1000 : 1;
+  const parsed = Number.parseFloat(multiplier === 1 ? text : text.slice(0, -1));
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed * multiplier)) : 0;
+}
+
 export function parseTimestamp(value: any): number {
-  if (value === null || value === undefined || value === '') {
-    return 0;
-  }
-  let ts = 0;
-  if (typeof value === 'number') {
-    ts = Math.floor(value);
-  } else {
-    const text = String(value).trim();
-    const parsed = parseFloat(text);
-    if (!isNaN(parsed)) {
-      ts = Math.floor(parsed);
-    } else {
-      try {
-        ts = Math.floor(Date.parse(text) / 1000);
-      } catch {
-        return 0;
-      }
-    }
-  }
-  
-  // Convert milliseconds to seconds if needed
-  if (ts > 10000000000) {
-    ts = Math.floor(ts / 1000);
-  }
-  return ts;
+  if (value === null || value === undefined || value === '') return 0;
+  let timestamp = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(timestamp)) timestamp = Date.parse(String(value)) / 1000;
+  if (!Number.isFinite(timestamp)) return 0;
+  if (timestamp > 10000000000) timestamp /= 1000;
+  return Math.max(0, Math.floor(timestamp));
+}
+
+function metric(payload: Record<string, any>, keys: string[]): number {
+  for (const key of keys) if (payload[key] !== undefined) return parseMetric(payload[key]);
+  return 0;
+}
+
+function rowToContent(row: any): ContentRecord {
+  const payload = parseJson(row.raw_payload_json);
+  const likes = metric(payload, ['likes', 'liked_count', 'voteup_count', 'total_liked']);
+  const saves = metric(payload, ['saves', 'collected_count', 'video_favorite_count']);
+  const comments = metric(payload, ['comments', 'comment_count', 'comments_count', 'video_comment', 'total_replay_num']);
+  const shares = metric(payload, ['shares', 'share_count', 'shared_count', 'video_share_count']);
+  const views = metric(payload, ['views', 'viewd_count', 'video_play_count']);
+  const metadata = parseJson(row.metadata_json);
+  return {
+    run_id: row.run_id || '',
+    platform: row.source,
+    platform_label: PLATFORM_LABELS[row.source] || row.source,
+    content_id: row.source_item_id || row.document_id,
+    content_type: row.kind,
+    keyword: row.keywords || '未标记关键词',
+    title: row.title || '',
+    description: row.markdown || '',
+    creator_id: String(payload.creator_id || payload.creator_hash || ''),
+    creator_name: row.author || '',
+    cover_url: String(payload.cover_url || payload.video_cover_url || ''),
+    content_url: row.source_url || '',
+    published_at: parseTimestamp(row.published_at),
+    likes,
+    saves,
+    comments,
+    shares,
+    views,
+    engagement: likes + saves + comments + shares,
+    source_file: `document:${row.document_id}`,
+    source_metadata: JSON.stringify({ ...metadata, raw: payload }),
+  };
 }
 
 export class AnalyticsRepository {
   constructor(private readonly databaseProvider: () => Database = getDb) {}
+  private get db(): Database { return this.databaseProvider(); }
 
-  private get db(): Database {
-    return this.databaseProvider();
-  }
-
-  public createRun(config: RunConfig, taskName = ''): string {
+  createRun(config: RunConfig, taskName = ''): string {
     const runId = crypto.randomUUID().replace(/-/g, '');
-    const platform = config.platform || '';
-    const keywords = config.keywords || '';
-    const platformLabel = PLATFORM_LABELS[platform] || platform;
-    const displayName = taskName.trim() || `${platformLabel} · ${keywords || config.crawler_type || '任务'}`;
-    const threadId = String(config.thread_id || runId);
-    const planId = String(config.plan_id || runId);
-    const taskTitle = String(config.task_title || keywords || displayName).trim() || displayName;
-
-    const configJson = JSON.stringify(config);
-    const startedAt = new Date().toISOString();
-
-    const stmt = this.db.prepare(`
-      INSERT INTO crawl_runs 
-      (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, keywords, save_option, status, started_at, config_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sqlite', 'running', ?, ?)
-    `);
-    
-    stmt.run(runId, threadId, planId, taskTitle, displayName, platform, config.crawler_type || '', keywords, startedAt, configJson);
+    const title = String(config.task_title || taskName || config.keywords || config.platform);
+    this.db.prepare(`
+      INSERT INTO crawl_runs (
+        run_id, thread_id, workflow_id, task_title, task_name, platform,
+        crawler_type, keywords, status, started_at, config_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?)
+    `).run(
+      runId,
+      config.thread_id || null,
+      config.workflow_id || null,
+      title,
+      taskName || title,
+      config.platform,
+      config.crawler_type || '',
+      config.keywords || '',
+      new Date().toISOString(),
+      JSON.stringify(config),
+    );
     return runId;
   }
 
-  public finishRun(
-    runId: string,
-    status: string,
-    exitCode: number | null,
-    contents: any[],
-    errorMessage = ''
-  ): void {
-    // Ingest the crawled content records first
-    this.ingestContents(runId, contents);
-
-    const finishedAt = new Date().toISOString();
-    const stmt = this.db.prepare(`
-      UPDATE crawl_runs
-      SET status = ?, finished_at = ?, exit_code = ?, item_count = ?, error_message = ?
-      WHERE run_id = ?
-    `);
-
-    stmt.run(status, finishedAt, exitCode, contents.length, errorMessage || null, runId);
+  finishRun(runId: string, status: string, exitCode: number | null, _contents: any[], errorMessage = ''): void {
+    const count = Number((this.db.prepare(
+      'SELECT COUNT(*) AS count FROM document_sources WHERE run_id=?',
+    ).get(runId) as any)?.count || 0);
+    this.db.prepare(`
+      UPDATE crawl_runs SET status=?, finished_at=?, exit_code=?, item_count=?, error_message=?
+      WHERE run_id=?
+    `).run(status, new Date().toISOString(), exitCode, count, errorMessage || null, runId);
   }
 
-  public appendRunLog(runId: string, log: { platform: string; timestamp: string; level: string; message: string }): number {
-    const result = this.db.prepare(`
+  appendRunLog(runId: string, log: { platform: string; timestamp: string; level: string; message: string }): number {
+    return Number(this.db.prepare(`
       INSERT INTO crawl_run_logs (run_id, platform, timestamp, level, message, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(runId, log.platform, log.timestamp, log.level, log.message, new Date().toISOString());
-    return Number(result.lastInsertRowid);
+    `).run(runId, log.platform, log.timestamp, log.level, log.message, new Date().toISOString()).lastInsertRowid);
   }
 
-  public listRunLogs(platform?: string, limit = 500, threadId?: string): Array<{
-    id: number; timestamp: string; level: string; message: string; platform: string; run_id?: string; thread_id?: string;
-  }> {
-    const boundedLimit = Math.max(1, Math.min(Number(limit) || 500, 2000));
-    let sql = `
-      SELECT l.id, l.timestamp, l.level, l.message, l.platform, l.run_id, r.thread_id
-      FROM crawl_run_logs l
-      LEFT JOIN crawl_runs r ON l.run_id = r.run_id
-    `;
+  listRunLogs(platform?: string, limit = 500, threadId?: string): any[] {
     const where: string[] = [];
     const params: any[] = [];
-    if (threadId) {
-      where.push('r.thread_id = ?');
-      params.push(threadId);
-    }
-    if (platform) {
-      where.push('l.platform = ?');
-      params.push(platform);
-    }
-    if (where.length > 0) {
-      sql += ' WHERE ' + where.join(' AND ');
-    }
-    sql += ' ORDER BY l.id DESC LIMIT ?';
-    params.push(boundedLimit);
-
-    const rows = this.db.prepare(sql).all(...params);
-    return (rows as any[]).reverse();
-  }
-
-  public ingestContents(runId: string, contents: any[]): number {
-    if (!contents || contents.length === 0) {
-      return 0;
-    }
-
-    const ingestedAt = new Date().toISOString();
-    const insertStmt = this.db.prepare(`
-      INSERT INTO content_records (
-        run_id, platform, platform_label, content_id, content_type, keyword, title, description,
-        creator_id, creator_name, cover_url, content_url, published_at, likes, saves,
-        comments, shares, views, engagement, source_file, source_metadata, ingested_at
-      ) VALUES (
-        ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?,
-        ?, ?, ?, ?, ?, ?, ?
-      )
-      ON CONFLICT(run_id, platform, content_id, keyword) DO UPDATE SET
-        platform_label = excluded.platform_label,
-        content_type = excluded.content_type,
-        title = excluded.title,
-        description = excluded.description,
-        creator_id = excluded.creator_id,
-        creator_name = excluded.creator_name,
-        cover_url = excluded.cover_url,
-        content_url = excluded.content_url,
-        published_at = excluded.published_at,
-        likes = excluded.likes,
-        saves = excluded.saves,
-        comments = excluded.comments,
-        shares = excluded.shares,
-        views = excluded.views,
-        engagement = excluded.engagement,
-        source_file = excluded.source_file,
-        source_metadata = excluded.source_metadata,
-        ingested_at = excluded.ingested_at
-    `);
-
-    const transaction = this.db.transaction((items: any[]) => {
-      for (const item of items) {
-        insertStmt.run(
-          runId,
-          item.platform || '',
-          item.platform_label || PLATFORM_LABELS[item.platform] || item.platform || '',
-          item.content_id || '',
-          item.content_type || 'content',
-          item.keyword || '未标记关键词',
-          item.title || '',
-          item.description || '',
-          item.creator_id || '',
-          item.creator_name || '',
-          item.cover_url || '',
-          item.content_url || '',
-          item.published_at || 0,
-          item.likes || 0,
-          item.saves || 0,
-          item.comments || 0,
-          item.shares || 0,
-          item.views || 0,
-          item.engagement || 0,
-          item.source_file || '',
-          typeof item.source_metadata === 'string' ? item.source_metadata : JSON.stringify(item.source_metadata || {}),
-          ingestedAt
-        );
-      }
-    });
-
-    transaction(contents);
-    return contents.length;
-  }
-
-  private getScopeSql(runId?: string | null, planId?: string | null, threadId?: string | null): { sql: string; params: any[] } {
-    if (runId && runId !== 'all') {
-      return {
-        sql: 'SELECT * FROM content_records WHERE run_id = ?',
-        params: [runId],
-      };
-    }
-    if (planId && planId !== 'all') {
-      return {
-        sql: 'SELECT c.* FROM content_records c JOIN crawl_runs r ON r.run_id = c.run_id WHERE r.plan_id = ?',
-        params: [planId],
-      };
-    }
-    if (threadId && threadId !== 'all') {
-      return {
-        sql: 'SELECT c.* FROM content_records c JOIN crawl_runs r ON r.run_id = c.run_id WHERE r.thread_id = ?',
-        params: [threadId],
-      };
-    }
-    return {
-      sql: `
-        SELECT c.* FROM content_records c
-        INNER JOIN (
-          SELECT MAX(id) AS id FROM content_records GROUP BY platform, content_id, keyword
-        ) latest ON latest.id = c.id
-      `,
-      params: [],
-    };
-  }
-
-  private getFiltersSql(
-    platform?: string | null,
-    keyword?: string | null,
-    query?: string | null
-  ): { sql: string; params: any[] } {
-    const clauses: string[] = [];
-    const params: any[] = [];
-
-    if (platform && platform !== 'all') {
-      clauses.push('platform = ?');
-      params.push(platform);
-    }
-    if (keyword && keyword !== 'all') {
-      clauses.push('keyword = ?');
-      params.push(keyword);
-    }
-    if (query && query.trim() !== '') {
-      clauses.push(
-        '(title LIKE ? OR description LIKE ? OR creator_name LIKE ? OR creator_id LIKE ? OR content_id LIKE ?)'
-      );
-      const pattern = `%${query.trim()}%`;
-      params.push(pattern, pattern, pattern, pattern, pattern);
-    }
-
-    return {
-      sql: clauses.length > 0 ? ' WHERE ' + clauses.join(' AND ') : '',
-      params,
-    };
-  }
-
-  public queryContents(params: {
-    run_id?: string | null;
-    plan_id?: string | null;
-    thread_id?: string | null;
-    platform?: string | null;
-    keyword?: string | null;
-    query?: string | null;
-    sort_by?: string;
-    sort_order?: 'asc' | 'desc';
-    page?: number;
-    page_size?: number;
-  }): { items: any[]; total: number; page: number; page_size: number; pages: number } {
-    const runId = params.run_id || null;
-    const platform = params.platform || null;
-    const keyword = params.keyword || null;
-    const query = params.query || null;
-    const sortBy = params.sort_by || 'engagement';
-    const sortOrder = params.sort_order || 'desc';
-    const page = params.page || 1;
-    const pageSize = params.page_size || 20;
-
-    const SORTABLE_FIELDS = new Set([
-      'engagement',
-      'likes',
-      'saves',
-      'comments',
-      'shares',
-      'views',
-      'published_at',
-      'title',
-    ]);
-    if (!SORTABLE_FIELDS.has(sortBy)) {
-      throw new Error(`Unsupported sort field: ${sortBy}`);
-    }
-
-    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, params.plan_id, params.thread_id);
-    const { sql: filterSql, params: filterParams } = this.getFiltersSql(platform, keyword, query);
-
-    const countSql = `SELECT COUNT(*) AS total FROM (${scopeSql}) scoped${filterSql}`;
-    const totalRow = this.db.prepare(countSql).get(...scopeParams, ...filterParams) as { total: number };
-    const total = totalRow ? totalRow.total : 0;
-
-    const direction = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    const collation = sortBy === 'title' ? ' COLLATE NOCASE' : '';
-    const offset = (page - 1) * pageSize;
-
-    const querySql = `
-      SELECT * FROM (${scopeSql}) scoped${filterSql}
-      ORDER BY ${sortBy}${collation} ${direction}, id DESC
-      LIMIT ? OFFSET ?
+    if (platform) { where.push('l.platform=?'); params.push(platform); }
+    if (threadId) { where.push('r.thread_id=?'); params.push(threadId); }
+    const sql = `
+      SELECT l.*, r.thread_id FROM crawl_run_logs l
+      JOIN crawl_runs r ON r.run_id=l.run_id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY l.id DESC LIMIT ?
     `;
+    return (this.db.prepare(sql).all(...params, Math.max(1, Math.min(limit, 2000))) as any[]).reverse();
+  }
 
-    const rows = this.db
-      .prepare(querySql)
-      .all(...scopeParams, ...filterParams, pageSize, offset);
+  private loadContentRows(params: {
+    run_id?: string | null; plan_id?: string | null; thread_id?: string | null;
+    platform?: string | null; keyword?: string | null; query?: string | null;
+  }): ContentRecord[] {
+    const where: string[] = ["d.kind != 'comment'"];
+    const values: any[] = [];
+    if (params.run_id && params.run_id !== 'all') { where.push('s.run_id=?'); values.push(params.run_id); }
+    if (params.plan_id && params.plan_id !== 'all') { where.push('r.workflow_id=?'); values.push(params.plan_id); }
+    if (params.thread_id && params.thread_id !== 'all') { where.push('r.thread_id=?'); values.push(params.thread_id); }
+    if (params.platform && params.platform !== 'all') { where.push('s.source=?'); values.push(params.platform); }
+    const rows = this.db.prepare(`
+      SELECT d.*, s.run_id, s.source, s.source_item_id, s.raw_payload_json,
+             r.keywords, r.workflow_id, r.thread_id
+      FROM document_sources s
+      JOIN documents d ON d.document_id=s.document_id
+      LEFT JOIN crawl_runs r ON r.run_id=s.run_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY d.updated_at DESC
+    `).all(...values) as any[];
+    let contents = rows.map(rowToContent);
+    if (!params.run_id && !params.plan_id && !params.thread_id) {
+      const seen = new Set<string>();
+      contents = contents.filter((item) => {
+        const key = `${item.platform}:${item.content_id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    if (params.keyword && params.keyword !== 'all') contents = contents.filter((item) => item.keyword.includes(params.keyword!));
+    if (params.query) {
+      const query = params.query.toLowerCase();
+      contents = contents.filter((item) =>
+        `${item.title} ${item.description} ${item.creator_name} ${item.content_id}`.toLowerCase().includes(query),
+      );
+    }
+    return contents;
+  }
 
+  queryContents(params: {
+    run_id?: string | null; plan_id?: string | null; thread_id?: string | null;
+    platform?: string | null; keyword?: string | null; query?: string | null;
+    sort_by?: string; sort_order?: 'asc' | 'desc'; page?: number; page_size?: number;
+  }): { items: ContentRecord[]; total: number; page: number; page_size: number; pages: number } {
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, Math.min(params.page_size || 20, 1000000));
+    const sortBy = ['engagement', 'published_at', 'likes', 'comments', 'views'].includes(params.sort_by || '')
+      ? params.sort_by as keyof ContentRecord : 'engagement';
+    const direction = params.sort_order === 'asc' ? 1 : -1;
+    const rows = this.loadContentRows(params).sort((a, b) => (Number(a[sortBy]) - Number(b[sortBy])) * direction);
+    const total = rows.length;
     return {
-      items: rows,
-      total,
-      page,
-      page_size: pageSize,
-      pages: Math.ceil(total / pageSize),
+      items: rows.slice((page - 1) * pageSize, page * pageSize),
+      total, page, page_size: pageSize, pages: Math.ceil(total / pageSize),
     };
   }
 
-  public summary(
-    runId?: string | null,
-    platform?: string | null,
-    keyword?: string | null,
-    planId?: string | null,
-    threadId?: string | null,
-  ): any {
-    const { sql: scopeSql, params: scopeParams } = this.getScopeSql(runId, planId, threadId);
-    const { sql: platformFilterSql, params: platformParams } = this.getFiltersSql(platform, null, null);
-    const { sql: selectedFilterSql, params: selectedParams } = this.getFiltersSql(platform, keyword, null);
-
-    const selectedRows = this.db.prepare(`SELECT * FROM (${scopeSql}) scoped${selectedFilterSql}`).all(...scopeParams, ...selectedParams);
-    const comparisonRows = this.db.prepare(`SELECT * FROM (${scopeSql}) scoped${platformFilterSql}`).all(...scopeParams, ...platformParams);
-    const allRows = this.db.prepare(`SELECT * FROM (${scopeSql}) scoped`).all(...scopeParams);
-
-    const aggregateGroup = (items: any[]) => {
-      const creatorSet = new Set(items.map((i) => i.creator_id).filter(Boolean));
-      return {
-        content_count: items.length,
-        creator_count: creatorSet.size,
-        likes: items.reduce((sum, i) => sum + (i.likes || 0), 0),
-        saves: items.reduce((sum, i) => sum + (i.saves || 0), 0),
-        comments: items.reduce((sum, i) => sum + (i.comments || 0), 0),
-        shares: items.reduce((sum, i) => sum + (i.shares || 0), 0),
-        views: items.reduce((sum, i) => sum + (i.views || 0), 0),
-        engagement: items.reduce((sum, i) => sum + (i.engagement || 0), 0),
-      };
-    };
-
-    const keywordGroups: Record<string, any[]> = {};
-    const platformGroups: Record<string, any[]> = {};
-
-    for (const item of comparisonRows) {
-      if (!keywordGroups[item.keyword]) keywordGroups[item.keyword] = [];
-      keywordGroups[item.keyword].push(item);
-    }
-
-    for (const item of selectedRows) {
-      if (!platformGroups[item.platform]) platformGroups[item.platform] = [];
-      platformGroups[item.platform].push(item);
-    }
-
-    const byKeyword = Object.entries(keywordGroups).map(([name, items]) => ({
-      keyword: name,
-      ...aggregateGroup(items),
-    }));
-    byKeyword.sort((a, b) => b.engagement - a.engagement || b.content_count - a.content_count);
-
-    const byPlatform = Object.entries(platformGroups).map(([name, items]) => ({
-      platform: name,
-      platform_label: PLATFORM_LABELS[name] || name,
-      ...aggregateGroup(items),
-    }));
-    byPlatform.sort((a, b) => b.content_count - a.content_count);
-
-    const allPlatforms = Array.from(new Set(allRows.map((i) => JSON.stringify([i.platform, i.platform_label]))))
-      .map((str) => JSON.parse(str))
-      .sort((a, b) => a[0].localeCompare(b[0]));
-
-    const allKeywords = Array.from(new Set(comparisonRows.map((i) => i.keyword))).sort();
-
+  summary(runId?: string | null, platform?: string | null, keyword?: string | null, planId?: string | null, threadId?: string | null): any {
+    const selected = this.loadContentRows({
+      run_id: runId, plan_id: planId, thread_id: threadId, platform, keyword,
+    });
+    const all = this.loadContentRows({ run_id: runId, plan_id: planId, thread_id: threadId });
+    const aggregate = (items: ContentRecord[]) => ({
+      contents: items.length,
+      likes: items.reduce((sum, item) => sum + item.likes, 0),
+      saves: items.reduce((sum, item) => sum + item.saves, 0),
+      comments: items.reduce((sum, item) => sum + item.comments, 0),
+      shares: items.reduce((sum, item) => sum + item.shares, 0),
+      views: items.reduce((sum, item) => sum + item.views, 0),
+      engagement: items.reduce((sum, item) => sum + item.engagement, 0),
+    });
+    const group = (key: 'keyword' | 'platform') => [...new Set(selected.map((item) => item[key]))]
+      .map((value) => ({ [key]: value, ...(key === 'platform' ? { platform_label: PLATFORM_LABELS[value] || value } : {}), ...aggregate(selected.filter((item) => item[key] === value)) }));
     return {
-      totals: aggregateGroup(selectedRows),
-      by_keyword: byKeyword,
-      by_platform: byPlatform,
+      totals: aggregate(selected),
+      by_keyword: group('keyword'),
+      by_platform: group('platform'),
       filters: {
-        platforms: allPlatforms,
-        keywords: allKeywords,
+        platforms: [...new Set(all.map((item) => item.platform))].map((value) => [value, PLATFORM_LABELS[value] || value]),
+        keywords: [...new Set(all.map((item) => item.keyword))],
       },
     };
   }
 
-  public queryComments(params: {
-    run_id?: string | null;
-    plan_id?: string | null;
-    thread_id?: string | null;
-    platform?: string | null;
-    content_id?: string | null;
-    level?: number | null;
-    query?: string | null;
-    page?: number;
-    page_size?: number;
+  queryComments(params: {
+    run_id?: string | null; plan_id?: string | null; thread_id?: string | null;
+    platform?: string | null; content_id?: string | null; level?: number | null;
+    query?: string | null; page?: number; page_size?: number;
   }): { items: CommentRecord[]; total: number; page: number; page_size: number; pages: number } {
-    const runId = params.run_id || null;
-    const platform = params.platform || null;
-    const contentId = params.content_id || null;
-    const level = params.level || null;
-    const query = params.query || null;
-    const page = params.page || 1;
-    const pageSize = params.page_size || 20;
-
-    let allowedContentIds: Set<string> | null = null;
-    if ((runId && runId !== 'all') || (params.plan_id && params.plan_id !== 'all') || (params.thread_id && params.thread_id !== 'all')) {
-      const scopedColumn = runId ? 'c.run_id' : params.plan_id ? 'r.plan_id' : 'r.thread_id';
-      const scopedValue = runId || params.plan_id || params.thread_id;
-      const allowed = this.db
-        .prepare(`SELECT DISTINCT c.platform, c.content_id FROM content_records c JOIN crawl_runs r ON r.run_id=c.run_id WHERE ${scopedColumn} = ?`)
-        .all(scopedValue) as { platform: string; content_id: string }[];
-      allowedContentIds = new Set(allowed.map((r) => `${r.platform}:${r.content_id}`));
-    }
-
-    const queryText = query ? query.trim().toLowerCase() : '';
-    const comments: CommentRecord[] = [];
-
-    const platforms = platform && platform in SQLITE_COMMENT_TABLES ? [platform] : Object.keys(SQLITE_COMMENT_TABLES);
-    
-    // Check if table exists before querying
-    const tablesInDb = new Set(
-      this.db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all()
-        .map((r: any) => r.name)
-    );
-
-    for (const p of platforms) {
-      const [table, contentKey] = SQLITE_COMMENT_TABLES[p];
-      if (!tablesInDb.has(table)) {
-        continue;
-      }
-
-      const rows = this.db.prepare(`SELECT * FROM ${table}`).all();
-      for (const row of rows as any[]) {
-        const rowContentId = String(row[contentKey] || '');
-        if (allowedContentIds && !allowedContentIds.has(`${p}:${rowContentId}`)) {
-          continue;
-        }
-        if (contentId && rowContentId !== contentId) {
-          continue;
-        }
-
-        const parentId = String(row.parent_comment_id || '');
-        const commentLevel = parentId && parentId !== '0' && parentId !== 'None' && parentId !== '' ? 2 : 1;
-        if (level && commentLevel !== level) {
-          continue;
-        }
-
-        const content = String(row.content || '');
-        const creatorName = String(row.nickname || row.user_nickname || '');
-        const creatorId = String(row.creator_hash || '');
-        const commentId = String(row.comment_id || '');
-
-        if (queryText) {
-          const haystack = `${content} ${creatorName} ${creatorId} ${commentId} ${rowContentId}`.toLowerCase();
-          if (!haystack.includes(queryText)) {
-            continue;
-          }
-        }
-
-        comments.push({
-          platform: p,
-          platform_label: PLATFORM_LABELS[p] || p,
-          content_id: rowContentId,
-          comment_id: commentId,
-          parent_comment_id: parentId,
-          level: commentLevel as 1 | 2,
-          content,
-          creator_id: creatorId,
-          creator_name: creatorName,
-          published_at: parseTimestamp(row.create_time || row.publish_time),
-          likes: parseMetric(row.like_count || row.comment_like_count),
-          sub_comment_count: parseMetric(row.sub_comment_count),
-        });
-      }
-    }
-
-    comments.sort((a, b) => b.published_at - a.published_at || b.comment_id.localeCompare(a.comment_id));
-    
-    const total = comments.length;
-    const offset = (page - 1) * pageSize;
-    const items = comments.slice(offset, offset + pageSize);
-
-    return {
-      items,
-      total,
-      page,
-      page_size: pageSize,
-      pages: Math.ceil(total / pageSize),
-    };
-  }
-
-  public queryCommentThreads(params: {
-    platform: string;
-    content_id: string;
-    run_id?: string | null;
-    plan_id?: string | null;
-    thread_id?: string | null;
-    page?: number;
-    page_size?: number;
-  }): {
-    items: any[];
-    total: number;
-    root_total: number;
-    orphan_reply_count: number;
-    orphan_replies: any[];
-    page: number;
-    page_size: number;
-    pages: number;
-  } {
-    const page = params.page || 1;
-    const pageSize = params.page_size || 20;
-
-    const result = this.queryComments({
-      run_id: params.run_id,
-      plan_id: params.plan_id,
-      thread_id: params.thread_id,
-      platform: params.platform,
-      content_id: params.content_id,
-      page: 1,
-      page_size: 1000000,
-    });
-
-    const comments = result.items;
-    const roots = comments.filter((c) => c.level === 1);
-    roots.sort((a, b) => b.published_at - a.published_at || b.comment_id.localeCompare(a.comment_id));
-
-    const repliesByParent: Record<string, any[]> = {};
-    for (const c of comments) {
-      if (c.level === 2) {
-        if (!repliesByParent[c.parent_comment_id]) {
-          repliesByParent[c.parent_comment_id] = [];
-        }
-        repliesByParent[c.parent_comment_id].push(c);
-      }
-    }
-
-    for (const parentId in repliesByParent) {
-      repliesByParent[parentId].sort((a, b) => a.published_at - b.published_at || a.comment_id.localeCompare(b.comment_id));
-    }
-
-    const rootTotal = roots.length;
-    const offset = (page - 1) * pageSize;
-    const paginatedRoots = roots.slice(offset, offset + pageSize);
-
-    const threads = paginatedRoots.map((root) => ({
-      ...root,
-      replies: repliesByParent[root.comment_id] || [],
-    }));
-
-    const knownRootIds = new Set(roots.map((r) => r.comment_id));
-    const orphanReplies = comments.filter((c) => c.level === 2 && !knownRootIds.has(c.parent_comment_id));
-
-    return {
-      items: threads,
-      total: comments.length,
-      root_total: rootTotal,
-      orphan_reply_count: orphanReplies.length,
-      orphan_replies: page === 1 ? orphanReplies : [],
-      page,
-      page_size: pageSize,
-      pages: Math.ceil(rootTotal / pageSize),
-    };
-  }
-
-  public listRuns(page = 1, pageSize = 20): { items: any[]; total: number; page: number; page_size: number; pages: number } {
-    const totalRow = this.db.prepare('SELECT COUNT(*) AS total FROM crawl_runs').get() as { total: number };
-    const total = totalRow ? totalRow.total : 0;
-    
-    const offset = (page - 1) * pageSize;
-    const rows = this.db
-      .prepare(`
-        SELECT
-          r.run_id, r.thread_id, r.plan_id,
-          COALESCE(thread.title, plan.goal, r.task_title, r.task_name) AS task_title,
-          r.task_name, r.platform, r.crawler_type, r.keywords, r.save_option,
-          r.status, r.started_at, r.finished_at, r.exit_code, r.item_count,
-          r.error_message, r.config_json
-        FROM crawl_runs r
-        LEFT JOIN agent_plans plan ON plan.plan_id = r.plan_id
-        LEFT JOIN agent_threads thread ON thread.thread_id = r.thread_id
-        ORDER BY r.started_at DESC
-        LIMIT ? OFFSET ?
-      `)
-      .all(pageSize, offset);
-
-    return {
-      items: rows,
-      total,
-      page,
-      page_size: pageSize,
-      pages: Math.ceil(total / pageSize),
-    };
-  }
-
-  public listTaskHierarchy(): { items: Array<{ thread_id: string; task_title: string; rounds: Array<{ plan_id: string; round_title: string; runs: any[] }> }>; total: number; round_total: number; run_total: number } {
+    const where = ["d.kind='comment'"];
+    const values: any[] = [];
+    if (params.run_id && params.run_id !== 'all') { where.push('s.run_id=?'); values.push(params.run_id); }
+    if (params.plan_id && params.plan_id !== 'all') { where.push('r.workflow_id=?'); values.push(params.plan_id); }
+    if (params.thread_id && params.thread_id !== 'all') { where.push('r.thread_id=?'); values.push(params.thread_id); }
+    if (params.platform && params.platform !== 'all') { where.push('s.source=?'); values.push(params.platform); }
     const rows = this.db.prepare(`
-      SELECT
-        r.run_id, r.thread_id, r.plan_id,
-        COALESCE(thread.title, r.task_title, r.task_name) AS task_title,
-        COALESCE(plan.goal, r.task_title, r.task_name) AS round_title,
-        r.task_name, r.platform, r.crawler_type, r.keywords, r.save_option,
-        r.status, r.started_at, r.finished_at, r.exit_code, r.item_count,
-        r.error_message, r.config_json
-      FROM crawl_runs r
-      LEFT JOIN agent_plans plan ON plan.plan_id = r.plan_id
-      LEFT JOIN agent_threads thread ON thread.thread_id = r.thread_id
-      ORDER BY r.started_at DESC
+      SELECT d.*, s.source, s.source_item_id, s.raw_payload_json
+      FROM document_sources s JOIN documents d ON d.document_id=s.document_id
+      LEFT JOIN crawl_runs r ON r.run_id=s.run_id WHERE ${where.join(' AND ')}
+    `).all(...values) as any[];
+    let items = rows.map((row): CommentRecord => {
+      const raw = parseJson(row.raw_payload_json);
+      const parentCommentId = String(raw.parent_comment_id || '');
+      const contentId = String(raw.note_id || raw.aweme_id || raw.video_id || raw.content_id || '');
+      return {
+        platform: row.source, platform_label: PLATFORM_LABELS[row.source] || row.source,
+        content_id: contentId, comment_id: row.source_item_id || row.document_id,
+        parent_comment_id: parentCommentId,
+        level: parentCommentId && parentCommentId !== '0' ? 2 : 1,
+        content: row.markdown || '', creator_id: String(raw.creator_hash || raw.creator_id || ''),
+        creator_name: row.author || '', published_at: parseTimestamp(row.published_at),
+        likes: metric(raw, ['like_count', 'comment_like_count']),
+        sub_comment_count: metric(raw, ['sub_comment_count']),
+      };
+    });
+    if (params.content_id) items = items.filter((item) => item.content_id === params.content_id);
+    if (params.level) items = items.filter((item) => item.level === params.level);
+    if (params.query) {
+      const query = params.query.toLowerCase();
+      items = items.filter((item) => `${item.content} ${item.creator_name}`.toLowerCase().includes(query));
+    }
+    items.sort((a, b) => b.published_at - a.published_at);
+    const page = Math.max(1, params.page || 1);
+    const pageSize = Math.max(1, Math.min(params.page_size || 20, 1000000));
+    const total = items.length;
+    return { items: items.slice((page - 1) * pageSize, page * pageSize), total, page, page_size: pageSize, pages: Math.ceil(total / pageSize) };
+  }
+
+  queryCommentThreads(params: {
+    platform: string; content_id: string; run_id?: string | null; plan_id?: string | null;
+    thread_id?: string | null; page?: number; page_size?: number;
+  }): any {
+    const page = params.page || 1;
+    const pageSize = params.page_size || 20;
+    const comments = this.queryComments({ ...params, page: 1, page_size: 1000000 }).items;
+    const roots = comments.filter((item) => item.level === 1);
+    const rootIds = new Set(roots.map((item) => item.comment_id));
+    const replies = comments.filter((item) => item.level === 2);
+    const pageRoots = roots.slice((page - 1) * pageSize, page * pageSize);
+    return {
+      items: pageRoots.map((root) => ({ ...root, replies: replies.filter((reply) => reply.parent_comment_id === root.comment_id) })),
+      total: comments.length, root_total: roots.length,
+      orphan_reply_count: replies.filter((reply) => !rootIds.has(reply.parent_comment_id)).length,
+      orphan_replies: page === 1 ? replies.filter((reply) => !rootIds.has(reply.parent_comment_id)) : [],
+      page, page_size: pageSize, pages: Math.ceil(roots.length / pageSize),
+    };
+  }
+
+  listRuns(page = 1, pageSize = 20): any {
+    const total = Number((this.db.prepare('SELECT COUNT(*) AS count FROM crawl_runs').get() as any).count);
+    const items = this.db.prepare(`
+      SELECT r.*, r.workflow_id AS plan_id, COALESCE(t.title, w.goal, r.task_title) AS task_title
+      FROM crawl_runs r LEFT JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+      LEFT JOIN agent_threads t ON t.thread_id=r.thread_id
+      ORDER BY r.started_at DESC LIMIT ? OFFSET ?
+    `).all(pageSize, (page - 1) * pageSize);
+    return { items, total, page, page_size: pageSize, pages: Math.ceil(total / pageSize) };
+  }
+
+  listTaskHierarchy(): any {
+    const rows = this.db.prepare(`
+      SELECT r.*, r.workflow_id AS plan_id, COALESCE(t.title, r.task_title) AS task_title,
+             COALESCE(w.goal, r.task_title) AS round_title
+      FROM crawl_runs r LEFT JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+      LEFT JOIN agent_threads t ON t.thread_id=r.thread_id ORDER BY r.started_at DESC
     `).all() as any[];
-    const tasks = new Map<string, { thread_id: string; task_title: string; rounds: Map<string, { plan_id: string; round_title: string; runs: any[] }> }>();
+    const tasks = new Map<string, any>();
     for (const run of rows) {
-      const threadId = String(run.thread_id || run.run_id);
-      const planId = String(run.plan_id || run.run_id);
-      let task = tasks.get(threadId);
-      if (!task) {
-        task = { thread_id: threadId, task_title: run.task_title || run.task_name, rounds: new Map() };
-        tasks.set(threadId, task);
-      }
-      const round = task.rounds.get(planId);
-      if (round) round.runs.push(run);
-      else task.rounds.set(planId, { plan_id: planId, round_title: run.round_title || run.task_title || run.task_name, runs: [run] });
+      const threadId = run.thread_id || run.run_id;
+      const workflowId = run.workflow_id || run.run_id;
+      if (!tasks.has(threadId)) tasks.set(threadId, { thread_id: threadId, task_title: run.task_title, rounds: new Map() });
+      const task = tasks.get(threadId);
+      if (!task.rounds.has(workflowId)) task.rounds.set(workflowId, { plan_id: workflowId, round_title: run.round_title, runs: [] });
+      task.rounds.get(workflowId).runs.push(run);
     }
     const items = [...tasks.values()].map((task) => ({ ...task, rounds: [...task.rounds.values()] }));
-    return { items, total: items.length, round_total: items.reduce((sum, task) => sum + task.rounds.length, 0), run_total: rows.length };
+    return { items, total: items.length, round_total: items.reduce((sum, item) => sum + item.rounds.length, 0), run_total: rows.length };
   }
 
-  public storageSummary(): { analytics_runs: number; analytics_records: number; log_records: number; raw_records: number } {
-    const count = (table: string) => Number((this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number })?.count || 0);
-    const tables = new Set((this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
-    const rawTables = [...Object.values(SQLITE_CONTENT_TABLES), ...Object.values(SQLITE_COMMENT_TABLES).map(([table]) => table)];
+  storageSummary(): any {
+    const count = (table: string) => Number((this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count);
     return {
       analytics_runs: count('crawl_runs'),
-      analytics_records: count('content_records'),
+      analytics_records: count('documents'),
       log_records: count('crawl_run_logs'),
-      raw_records: rawTables.filter((table) => tables.has(table)).reduce((total, table) => total + count(table), 0),
+      raw_records: count('document_sources'),
     };
   }
 
-  public cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all'): number {
+  cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all'): number {
     const predicate = mode === 'failed_empty'
-      ? "status != 'running' AND (status = 'failed' OR item_count = 0)"
+      ? "status!='running' AND (status='failed' OR item_count=0)"
       : mode === 'older_than_30_days'
-        ? "status != 'running' AND started_at < datetime('now', '-30 days')"
-        : "status != 'running'";
-    const rows = this.db.prepare(`SELECT run_id FROM crawl_runs WHERE ${predicate}`).all() as Array<{ run_id: string }>;
-    return rows.length ? this.deleteRuns(rows.map((row) => row.run_id)) : 0;
+        ? "status!='running' AND started_at < datetime('now','-30 days')"
+        : "status!='running'";
+    const ids = this.db.prepare(`SELECT run_id FROM crawl_runs WHERE ${predicate}`).all() as Array<{ run_id: string }>;
+    return this.deleteRuns(ids.map((item) => item.run_id));
   }
 
-  private deleteRunScope(column: 'thread_id' | 'plan_id', values: string[]): number {
-    const ids = [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+  private deleteScope(column: 'thread_id' | 'workflow_id', values: string[]): number {
+    const ids = [...new Set(values.filter(Boolean))];
     if (!ids.length) return 0;
     const placeholders = ids.map(() => '?').join(',');
-    const running = this.db.prepare(`SELECT COUNT(*) AS count FROM crawl_runs WHERE ${column} IN (${placeholders}) AND status = 'running'`).get(...ids) as { count: number };
-    if (Number(running?.count || 0) > 0) throw new Error('请先停止所选任务中正在采集的执行');
-    return this.db.transaction(() => {
-      this.db.prepare(`
-        UPDATE agent_plan_steps SET run_id = NULL, error_message = '看板数据已清理', updated_at = ?
-        WHERE run_id IN (SELECT run_id FROM crawl_runs WHERE ${column} IN (${placeholders}))
-      `).run(new Date().toISOString(), ...ids);
-      return this.db.prepare(`DELETE FROM crawl_runs WHERE ${column} IN (${placeholders})`).run(...ids).changes;
-    })();
+    const running = Number((this.db.prepare(
+      `SELECT COUNT(*) AS count FROM crawl_runs WHERE ${column} IN (${placeholders}) AND status='running'`,
+    ).get(...ids) as any).count);
+    if (running) throw new Error('请先停止所选任务中正在采集的执行');
+    return this.db.prepare(`DELETE FROM crawl_runs WHERE ${column} IN (${placeholders})`).run(...ids).changes;
   }
 
-  public deleteThreads(threadIds: string[]): number {
-    return this.deleteRunScope('thread_id', threadIds);
-  }
+  deleteThreads(ids: string[]): number { return this.deleteScope('thread_id', ids); }
+  deletePlans(ids: string[]): number { return this.deleteScope('workflow_id', ids); }
 
-  public deletePlans(planIds: string[]): number {
-    return this.deleteRunScope('plan_id', planIds);
-  }
-
-  public deleteRuns(runIds: string[]): number {
-    const ids = [...new Set(runIds.map((value) => String(value || '').trim()).filter(Boolean))];
+  deleteRuns(runIds: string[]): number {
+    const ids = [...new Set(runIds.filter(Boolean))];
     if (!ids.length) return 0;
-    const deleteAll = ids.includes('all');
-    const where = deleteAll ? "status != 'running'" : `run_id IN (${ids.map(() => '?').join(',')})`;
-    const params = deleteAll ? [] : ids;
-    if (!deleteAll) {
-      const running = this.db.prepare(`SELECT COUNT(*) AS count FROM crawl_runs WHERE ${where} AND status = 'running'`).get(...params) as { count: number };
-      if (Number(running?.count || 0) > 0) throw new Error('请先停止所选执行中的采集任务');
+    const all = ids.includes('all');
+    const where = all ? "status!='running'" : `run_id IN (${ids.map(() => '?').join(',')})`;
+    const params = all ? [] : ids;
+    if (!all) {
+      const running = Number((this.db.prepare(
+        `SELECT COUNT(*) AS count FROM crawl_runs WHERE ${where} AND status='running'`,
+      ).get(...params) as any).count);
+      if (running) throw new Error('请先停止所选执行中的采集任务');
     }
-    return this.db.transaction(() => {
-      this.db.prepare(`
-        UPDATE agent_plan_steps SET run_id = NULL, error_message = '看板数据已清理', updated_at = ?
-        WHERE run_id IN (SELECT run_id FROM crawl_runs WHERE ${where})
-      `).run(new Date().toISOString(), ...params);
-      return this.db.prepare(`DELETE FROM crawl_runs WHERE ${where}`).run(...params).changes;
-    })();
+    return this.db.prepare(`DELETE FROM crawl_runs WHERE ${where}`).run(...params).changes;
   }
 
-  public deleteRun(runId: string): boolean {
-    if (runId === 'all') {
-      this.deleteRuns(['all']);
-      return true;
-    }
-    return this.deleteRuns([runId]) > 0;
-  }
+  deleteRun(runId: string): boolean { return this.deleteRuns([runId]) > 0; }
 }
 
 export const analyticsRepository = new AnalyticsRepository();

@@ -1,499 +1,25 @@
 import type { Database } from 'better-sqlite3';
 
-export function initSchema(db: Database): void {
-  // Rebuild databases that predate the explicit task hierarchy. Historical
-  // crawler data is intentionally discarded instead of being ambiguously mapped.
-  const crawlRunsExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='crawl_runs'").get();
-  if (crawlRunsExists) {
-    const runColumns = new Set((db.prepare('PRAGMA table_info(crawl_runs)').all() as Array<{ name: string }>).map((column) => column.name));
-    if (!runColumns.has('thread_id') || !runColumns.has('plan_id')) {
-      db.pragma('foreign_keys = OFF');
-      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>;
-      for (const { name } of tables) db.exec(`DROP TABLE IF EXISTS "${name.replace(/"/g, '""')}"`);
-      db.pragma('foreign_keys = ON');
-    }
+export const DATABASE_SCHEMA_VERSION = 3;
+
+function dropExistingSchema(db: Database): void {
+  db.pragma('foreign_keys = OFF');
+  const objects = db.prepare(`
+    SELECT type, name FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%' AND type IN ('table', 'view', 'trigger')
+  `).all() as Array<{ type: string; name: string }>;
+  for (const object of objects) {
+    const type = object.type === 'view' ? 'VIEW' : object.type === 'trigger' ? 'TRIGGER' : 'TABLE';
+    db.exec(`DROP ${type} IF EXISTS "${object.name.replace(/"/g, '""')}"`);
   }
+  db.pragma('foreign_keys = ON');
+}
+
+export function initSchema(db: Database): void {
+  const version = Number(db.pragma('user_version', { simple: true }) || 0);
+  if (version !== DATABASE_SCHEMA_VERSION) dropExistingSchema(db);
 
   db.exec(`
-    -- Bilibili Video Table
-    CREATE TABLE IF NOT EXISTS bilibili_video (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      video_id TEXT NOT NULL UNIQUE,
-      video_url TEXT NOT NULL,
-      creator_hash TEXT,
-      nickname TEXT,
-      liked_count INTEGER,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      video_type TEXT,
-      title TEXT,
-      desc TEXT,
-      create_time INTEGER,
-      disliked_count TEXT,
-      video_play_count TEXT,
-      video_favorite_count TEXT,
-      video_share_count TEXT,
-      video_coin_count TEXT,
-      video_danmaku TEXT,
-      video_comment TEXT,
-      video_cover_url TEXT,
-      source_keyword TEXT DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS idx_bili_vid ON bilibili_video(video_id);
-    CREATE INDEX IF NOT EXISTS idx_bili_v_creator ON bilibili_video(creator_hash);
-    CREATE INDEX IF NOT EXISTS idx_bili_v_ctime ON bilibili_video(create_time);
-
-    -- Bilibili Comment Table
-    CREATE TABLE IF NOT EXISTS bilibili_video_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      comment_id TEXT NOT NULL UNIQUE,
-      video_id TEXT,
-      content TEXT,
-      create_time INTEGER,
-      sub_comment_count TEXT,
-      parent_comment_id TEXT,
-      like_count TEXT DEFAULT '0'
-    );
-    CREATE INDEX IF NOT EXISTS idx_bili_c_cid ON bilibili_video_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_bili_c_vid ON bilibili_video_comment(video_id);
-    CREATE INDEX IF NOT EXISTS idx_bili_c_creator ON bilibili_video_comment(creator_hash);
-
-    -- Bilibili Up Dynamic Table
-    CREATE TABLE IF NOT EXISTS bilibili_up_dynamic (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      dynamic_id TEXT NOT NULL UNIQUE,
-      creator_hash TEXT,
-      user_name TEXT,
-      text TEXT,
-      type TEXT,
-      pub_ts INTEGER,
-      total_comments INTEGER,
-      total_forwards INTEGER,
-      total_liked INTEGER,
-      add_ts INTEGER,
-      last_modify_ts INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_bili_d_did ON bilibili_up_dynamic(dynamic_id);
-    CREATE INDEX IF NOT EXISTS idx_bili_d_creator ON bilibili_up_dynamic(creator_hash);
-
-    -- Douyin Aweme Table
-    CREATE TABLE IF NOT EXISTS douyin_aweme (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      aweme_id TEXT NOT NULL UNIQUE,
-      aweme_type TEXT,
-      title TEXT,
-      desc TEXT,
-      create_time INTEGER,
-      liked_count TEXT,
-      comment_count TEXT,
-      share_count TEXT,
-      collected_count TEXT,
-      aweme_url TEXT,
-      cover_url TEXT,
-      video_download_url TEXT,
-      music_download_url TEXT,
-      note_download_url TEXT,
-      source_keyword TEXT DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS idx_dy_a_aid ON douyin_aweme(aweme_id);
-    CREATE INDEX IF NOT EXISTS idx_dy_a_creator ON douyin_aweme(creator_hash);
-    CREATE INDEX IF NOT EXISTS idx_dy_a_ctime ON douyin_aweme(create_time);
-
-    -- Douyin Comment Table
-    CREATE TABLE IF NOT EXISTS douyin_aweme_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      comment_id TEXT NOT NULL UNIQUE,
-      aweme_id TEXT,
-      content TEXT,
-      create_time INTEGER,
-      sub_comment_count TEXT,
-      parent_comment_id TEXT,
-      like_count TEXT DEFAULT '0',
-      pictures TEXT DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS idx_dy_c_cid ON douyin_aweme_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_dy_c_aid ON douyin_aweme_comment(aweme_id);
-    CREATE INDEX IF NOT EXISTS idx_dy_c_creator ON douyin_aweme_comment(creator_hash);
-
-    -- Kuaishou Video Table
-    CREATE TABLE IF NOT EXISTS kuaishou_video (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      video_id TEXT NOT NULL UNIQUE,
-      video_type TEXT,
-      title TEXT,
-      desc TEXT,
-      create_time INTEGER,
-      liked_count TEXT,
-      viewd_count TEXT,
-      video_url TEXT,
-      video_cover_url TEXT,
-      video_play_url TEXT,
-      source_keyword TEXT DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS idx_ks_v_vid ON kuaishou_video(video_id);
-    CREATE INDEX IF NOT EXISTS idx_ks_v_creator ON kuaishou_video(creator_hash);
-    CREATE INDEX IF NOT EXISTS idx_ks_v_ctime ON kuaishou_video(create_time);
-
-    -- Kuaishou Comment Table
-    CREATE TABLE IF NOT EXISTS kuaishou_video_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      comment_id TEXT NOT NULL UNIQUE,
-      video_id TEXT,
-      content TEXT,
-      create_time INTEGER,
-      sub_comment_count TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_ks_c_cid ON kuaishou_video_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_ks_c_vid ON kuaishou_video_comment(video_id);
-    CREATE INDEX IF NOT EXISTS idx_ks_c_creator ON kuaishou_video_comment(creator_hash);
-
-    -- Weibo Note Table
-    CREATE TABLE IF NOT EXISTS weibo_note (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      note_id TEXT NOT NULL UNIQUE,
-      content TEXT,
-      create_time INTEGER,
-      create_date_time TEXT,
-      liked_count TEXT,
-      comments_count TEXT,
-      shared_count TEXT,
-      note_url TEXT,
-      source_keyword TEXT DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS idx_wb_n_nid ON weibo_note(note_id);
-    CREATE INDEX IF NOT EXISTS idx_wb_n_creator ON weibo_note(creator_hash);
-    CREATE INDEX IF NOT EXISTS idx_wb_n_ctime ON weibo_note(create_time);
-
-    -- Weibo Comment Table
-    CREATE TABLE IF NOT EXISTS weibo_note_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      comment_id TEXT NOT NULL UNIQUE,
-      note_id TEXT,
-      content TEXT,
-      create_time INTEGER,
-      create_date_time TEXT,
-      comment_like_count TEXT,
-      sub_comment_count TEXT,
-      parent_comment_id TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_wb_c_cid ON weibo_note_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_wb_c_nid ON weibo_note_comment(note_id);
-    CREATE INDEX IF NOT EXISTS idx_wb_c_creator ON weibo_note_comment(creator_hash);
-
-    -- Xiaohongshu Note Table
-    CREATE TABLE IF NOT EXISTS xhs_note (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      note_id TEXT NOT NULL UNIQUE,
-      type TEXT,
-      title TEXT,
-      desc TEXT,
-      video_url TEXT,
-      time INTEGER,
-      last_update_time INTEGER,
-      liked_count TEXT,
-      collected_count TEXT,
-      comment_count TEXT,
-      share_count TEXT,
-      image_list TEXT,
-      tag_list TEXT,
-      note_url TEXT,
-      source_keyword TEXT DEFAULT '',
-      xsec_token TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_xhs_n_nid ON xhs_note(note_id);
-    CREATE INDEX IF NOT EXISTS idx_xhs_n_creator ON xhs_note(creator_hash);
-    CREATE INDEX IF NOT EXISTS idx_xhs_n_time ON xhs_note(time);
-
-    -- Xiaohongshu Comment Table
-    CREATE TABLE IF NOT EXISTS xhs_note_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      creator_hash TEXT,
-      nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      comment_id TEXT NOT NULL UNIQUE,
-      create_time INTEGER,
-      note_id TEXT,
-      content TEXT,
-      sub_comment_count INTEGER,
-      pictures TEXT,
-      parent_comment_id TEXT,
-      like_count TEXT
-    );
-    CREATE INDEX IF NOT EXISTS idx_xhs_c_cid ON xhs_note_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_xhs_c_nid ON xhs_note_comment(note_id);
-    CREATE INDEX IF NOT EXISTS idx_xhs_c_ctime ON xhs_note_comment(create_time);
-
-    -- Tieba Note Table
-    CREATE TABLE IF NOT EXISTS tieba_note (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      note_id TEXT NOT NULL UNIQUE,
-      title TEXT,
-      desc TEXT,
-      note_url TEXT,
-      publish_time TEXT,
-      creator_hash TEXT,
-      user_nickname TEXT DEFAULT '',
-      tieba_id TEXT DEFAULT '',
-      tieba_name TEXT,
-      tieba_link TEXT,
-      total_replay_num INTEGER DEFAULT 0,
-      total_replay_page INTEGER DEFAULT 0,
-      add_ts INTEGER,
-      last_modify_ts INTEGER,
-      source_keyword TEXT DEFAULT ''
-    );
-    CREATE INDEX IF NOT EXISTS idx_tb_n_nid ON tieba_note(note_id);
-    CREATE INDEX IF NOT EXISTS idx_tb_n_creator ON tieba_note(creator_hash);
-
-    -- Tieba Comment Table
-    CREATE TABLE IF NOT EXISTS tieba_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      comment_id TEXT NOT NULL UNIQUE,
-      parent_comment_id TEXT DEFAULT '',
-      content TEXT,
-      creator_hash TEXT,
-      user_nickname TEXT DEFAULT '',
-      tieba_id TEXT DEFAULT '',
-      tieba_name TEXT,
-      tieba_link TEXT,
-      publish_time TEXT,
-      sub_comment_count INTEGER DEFAULT 0,
-      note_id TEXT,
-      note_url TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_tb_c_cid ON tieba_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_tb_c_nid ON tieba_comment(note_id);
-    CREATE INDEX IF NOT EXISTS idx_tb_c_creator ON tieba_comment(creator_hash);
-
-    -- Zhihu Content Table
-    CREATE TABLE IF NOT EXISTS zhihu_content (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      content_id TEXT NOT NULL UNIQUE,
-      content_type TEXT,
-      content_text TEXT,
-      content_url TEXT,
-      question_id TEXT,
-      title TEXT,
-      desc TEXT,
-      created_time TEXT,
-      updated_time TEXT,
-      voteup_count INTEGER DEFAULT 0,
-      comment_count INTEGER DEFAULT 0,
-      source_keyword TEXT,
-      creator_hash TEXT,
-      user_nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_zh_con_cid ON zhihu_content(content_id);
-    CREATE INDEX IF NOT EXISTS idx_zh_con_creator ON zhihu_content(creator_hash);
-
-    -- Zhihu Comment Table
-    CREATE TABLE IF NOT EXISTS zhihu_comment (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      comment_id TEXT NOT NULL UNIQUE,
-      parent_comment_id TEXT,
-      content TEXT,
-      publish_time TEXT,
-      sub_comment_count INTEGER DEFAULT 0,
-      like_count INTEGER DEFAULT 0,
-      dislike_count INTEGER DEFAULT 0,
-      content_id TEXT,
-      content_type TEXT,
-      creator_hash TEXT,
-      user_nickname TEXT,
-      add_ts INTEGER,
-      last_modify_ts INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_zh_c_cid ON zhihu_comment(comment_id);
-    CREATE INDEX IF NOT EXISTS idx_zh_c_conid ON zhihu_comment(content_id);
-    CREATE INDEX IF NOT EXISTS idx_zh_c_creator ON zhihu_comment(creator_hash);
-
-    -- Crawl Runs Table (Analytics tracking)
-    CREATE TABLE IF NOT EXISTS crawl_runs (
-      run_id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL DEFAULT '',
-      plan_id TEXT NOT NULL DEFAULT '',
-      task_title TEXT NOT NULL DEFAULT '',
-      task_name TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      crawler_type TEXT NOT NULL,
-      keywords TEXT NOT NULL DEFAULT '',
-      save_option TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL,
-      started_at TEXT NOT NULL,
-      finished_at TEXT,
-      exit_code INTEGER,
-      item_count INTEGER NOT NULL DEFAULT 0,
-      error_message TEXT,
-      config_json TEXT NOT NULL DEFAULT '{}'
-    );
-    CREATE INDEX IF NOT EXISTS idx_runs_started_at ON crawl_runs(started_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_runs_thread_id ON crawl_runs(thread_id);
-    CREATE INDEX IF NOT EXISTS idx_runs_plan_id ON crawl_runs(plan_id);
-
-    -- Persistent crawler execution logs. These survive an application restart and
-    -- remain associated with the run that produced them.
-    CREATE TABLE IF NOT EXISTS crawl_run_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      timestamp TEXT NOT NULL,
-      level TEXT NOT NULL,
-      message TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON crawl_run_logs(run_id, id);
-    CREATE INDEX IF NOT EXISTS idx_run_logs_platform ON crawl_run_logs(platform, id DESC);
-
-    -- Content Records Table (Normalized analytical contents)
-    CREATE TABLE IF NOT EXISTS content_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      run_id TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      platform_label TEXT NOT NULL,
-      content_id TEXT NOT NULL,
-      content_type TEXT NOT NULL DEFAULT 'content',
-      keyword TEXT NOT NULL DEFAULT '未标记关键词',
-      title TEXT NOT NULL DEFAULT '',
-      description TEXT NOT NULL DEFAULT '',
-      creator_id TEXT NOT NULL DEFAULT '',
-      creator_name TEXT NOT NULL DEFAULT '',
-      cover_url TEXT NOT NULL DEFAULT '',
-      content_url TEXT NOT NULL DEFAULT '',
-      published_at INTEGER NOT NULL DEFAULT 0,
-      likes INTEGER NOT NULL DEFAULT 0,
-      saves INTEGER NOT NULL DEFAULT 0,
-      comments INTEGER NOT NULL DEFAULT 0,
-      shares INTEGER NOT NULL DEFAULT 0,
-      views INTEGER NOT NULL DEFAULT 0,
-      engagement INTEGER NOT NULL DEFAULT 0,
-      source_file TEXT NOT NULL DEFAULT '',
-      source_metadata TEXT NOT NULL DEFAULT '{}',
-      ingested_at TEXT NOT NULL,
-      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE,
-      UNIQUE(run_id, platform, content_id, keyword)
-    );
-    CREATE INDEX IF NOT EXISTS idx_content_run_id ON content_records(run_id);
-    CREATE INDEX IF NOT EXISTS idx_content_platform_keyword ON content_records(platform, keyword);
-    CREATE INDEX IF NOT EXISTS idx_content_engagement ON content_records(engagement DESC);
-
-    -- Canonical document layer. Raw connector payloads remain in document_sources,
-    -- while analysis, processors and exporters consume documents and artifacts.
-    CREATE TABLE IF NOT EXISTS documents (
-      document_id TEXT PRIMARY KEY,
-      canonical_key TEXT NOT NULL UNIQUE,
-      kind TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      markdown TEXT NOT NULL DEFAULT '',
-      author TEXT NOT NULL DEFAULT '',
-      published_at TEXT,
-      source_url TEXT,
-      language TEXT NOT NULL DEFAULT 'und',
-      content_hash TEXT NOT NULL,
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_documents_kind_updated ON documents(kind, updated_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash);
-
-    CREATE TABLE IF NOT EXISTS document_sources (
-      source_record_id TEXT PRIMARY KEY,
-      document_id TEXT NOT NULL,
-      run_id TEXT,
-      source TEXT NOT NULL,
-      source_item_id TEXT,
-      source_url TEXT,
-      raw_item_id TEXT NOT NULL,
-      raw_payload_json TEXT NOT NULL DEFAULT '{}',
-      fetched_at TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-      UNIQUE(run_id, raw_item_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_document_sources_document ON document_sources(document_id);
-    CREATE INDEX IF NOT EXISTS idx_document_sources_run ON document_sources(run_id);
-
-    CREATE TABLE IF NOT EXISTS document_assets (
-      asset_id TEXT PRIMARY KEY,
-      document_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      url TEXT NOT NULL,
-      mime_type TEXT,
-      local_path TEXT,
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-      UNIQUE(document_id, url)
-    );
-    CREATE INDEX IF NOT EXISTS idx_document_assets_document ON document_assets(document_id);
-
-    CREATE TABLE IF NOT EXISTS document_artifacts (
-      artifact_id TEXT PRIMARY KEY,
-      document_id TEXT NOT NULL,
-      type TEXT NOT NULL,
-      processor_id TEXT NOT NULL,
-      processor_version TEXT NOT NULL,
-      input_hash TEXT NOT NULL,
-      content TEXT NOT NULL DEFAULT '',
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-      UNIQUE(document_id, type, processor_id, processor_version, input_hash)
-    );
-    CREATE INDEX IF NOT EXISTS idx_document_artifacts_document ON document_artifacts(document_id);
-
-    CREATE TABLE IF NOT EXISTS document_relations (
-      relation_id TEXT PRIMARY KEY,
-      from_document_id TEXT NOT NULL,
-      to_document_id TEXT NOT NULL,
-      relation_type TEXT NOT NULL,
-      metadata_json TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY(from_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-      FOREIGN KEY(to_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-      UNIQUE(from_document_id, to_document_id, relation_type)
-    );
-
-    -- Local conversational agent workspace
     CREATE TABLE IF NOT EXISTS agent_threads (
       thread_id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -556,7 +82,8 @@ export function initSchema(db: Database): void {
       FOREIGN KEY(source_thread_id) REFERENCES agent_threads(thread_id) ON DELETE SET NULL,
       FOREIGN KEY(source_message_id) REFERENCES agent_messages(message_id) ON DELETE SET NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_status ON agent_memories(status, importance DESC, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_status
+      ON agent_memories(status, importance DESC, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS agent_attachments (
       attachment_id TEXT PRIMARY KEY,
@@ -570,39 +97,15 @@ export function initSchema(db: Database): void {
       created_at TEXT NOT NULL,
       FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS idx_agent_attachments_thread ON agent_attachments(thread_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_attachments_thread
+      ON agent_attachments(thread_id, created_at);
 
-    CREATE TABLE IF NOT EXISTS agent_plans (
-      plan_id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      goal TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft',
-      plan_json TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS agent_plan_steps (
-      step_id TEXT PRIMARY KEY,
-      plan_id TEXT NOT NULL,
-      platform TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'queued',
-      run_id TEXT,
-      error_message TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY(plan_id) REFERENCES agent_plans(plan_id) ON DELETE CASCADE
-    );
-    CREATE INDEX IF NOT EXISTS idx_agent_plan_steps_plan ON agent_plan_steps(plan_id);
-
-    -- Generic workflow records coexist with the legacy Agent plan tables during
-    -- migration. plan_id links the compatibility layer to the new runtime.
     CREATE TABLE IF NOT EXISTS workflow_runs (
       workflow_id TEXT PRIMARY KEY,
-      plan_id TEXT UNIQUE,
       thread_id TEXT,
       skill_id TEXT NOT NULL,
       skill_version TEXT NOT NULL,
+      goal TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'created',
       input_json TEXT NOT NULL DEFAULT '{}',
       output_json TEXT NOT NULL DEFAULT '{}',
@@ -611,7 +114,8 @@ export function initSchema(db: Database): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       started_at TEXT,
-      finished_at TEXT
+      finished_at TEXT,
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_thread ON workflow_runs(thread_id, created_at);
@@ -638,70 +142,131 @@ export function initSchema(db: Database): void {
       FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
       UNIQUE(workflow_id, step_key)
     );
-    CREATE INDEX IF NOT EXISTS idx_workflow_steps_ready ON workflow_steps(workflow_id, status);
+    CREATE INDEX IF NOT EXISTS idx_workflow_steps_ready
+      ON workflow_steps(workflow_id, status);
 
-    -- Search Engine Result Table
-    CREATE TABLE IF NOT EXISTS search_engine_result (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      search_engine TEXT NOT NULL,
-      title TEXT NOT NULL,
-      url TEXT NOT NULL,
-      real_url TEXT NOT NULL,
-      snippet TEXT,
-      publisher TEXT,
-      publish_time TEXT,
-      images TEXT,
-      search_rank INTEGER DEFAULT 0,
-      source_keyword TEXT DEFAULT '',
-      add_ts INTEGER,
-      last_modify_ts INTEGER
+    CREATE TABLE IF NOT EXISTS crawl_runs (
+      run_id TEXT PRIMARY KEY,
+      thread_id TEXT,
+      workflow_id TEXT,
+      task_title TEXT NOT NULL DEFAULT '',
+      task_name TEXT NOT NULL DEFAULT '',
+      platform TEXT NOT NULL,
+      crawler_type TEXT NOT NULL DEFAULT '',
+      keywords TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'running',
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      exit_code INTEGER,
+      item_count INTEGER NOT NULL DEFAULT 0,
+      error_message TEXT,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS idx_se_res_engine ON search_engine_result(search_engine);
-    CREATE INDEX IF NOT EXISTS idx_se_res_kw ON search_engine_result(source_keyword);
+    CREATE INDEX IF NOT EXISTS idx_runs_started_at ON crawl_runs(started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_runs_thread_id ON crawl_runs(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_runs_workflow_id ON crawl_runs(workflow_id);
+
+    CREATE TABLE IF NOT EXISTS crawl_run_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      level TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON crawl_run_logs(run_id, id);
+
+    CREATE TABLE IF NOT EXISTS documents (
+      document_id TEXT PRIMARY KEY,
+      canonical_key TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      markdown TEXT NOT NULL DEFAULT '',
+      author TEXT NOT NULL DEFAULT '',
+      published_at TEXT,
+      source_url TEXT,
+      language TEXT NOT NULL DEFAULT 'und',
+      content_hash TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_documents_kind_updated ON documents(kind, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash);
+
+    CREATE TABLE IF NOT EXISTS document_sources (
+      source_record_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      run_id TEXT,
+      source TEXT NOT NULL,
+      source_item_id TEXT,
+      source_url TEXT,
+      raw_item_id TEXT NOT NULL,
+      raw_payload_json TEXT NOT NULL DEFAULT '{}',
+      fetched_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE,
+      UNIQUE(run_id, raw_item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_sources_document ON document_sources(document_id);
+    CREATE INDEX IF NOT EXISTS idx_document_sources_run ON document_sources(run_id);
+    CREATE INDEX IF NOT EXISTS idx_document_sources_source_item
+      ON document_sources(source, source_item_id);
+    CREATE TRIGGER IF NOT EXISTS delete_orphan_document
+    AFTER DELETE ON document_sources
+    BEGIN
+      DELETE FROM documents
+      WHERE document_id=OLD.document_id
+        AND NOT EXISTS (SELECT 1 FROM document_sources WHERE document_id=OLD.document_id);
+    END;
+
+    CREATE TABLE IF NOT EXISTS document_assets (
+      asset_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      url TEXT NOT NULL,
+      mime_type TEXT,
+      local_path TEXT,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(document_id, url)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_assets_document ON document_assets(document_id);
+
+    CREATE TABLE IF NOT EXISTS document_artifacts (
+      artifact_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      processor_id TEXT NOT NULL,
+      processor_version TEXT NOT NULL,
+      input_hash TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(document_id, type, processor_id, processor_version, input_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_artifacts_document
+      ON document_artifacts(document_id);
+
+    CREATE TABLE IF NOT EXISTS document_relations (
+      relation_id TEXT PRIMARY KEY,
+      from_document_id TEXT NOT NULL,
+      to_document_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(from_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      FOREIGN KEY(to_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(from_document_id, to_document_id, relation_type)
+    );
   `);
 
-  // Older versions allowed only one collection plan per conversation. A
-  // conversation is now a research task containing multiple immutable rounds.
-  db.exec('DROP INDEX IF EXISTS idx_agent_plans_one_per_thread');
-  db.exec('CREATE INDEX IF NOT EXISTS idx_agent_plans_thread_created ON agent_plans(thread_id, created_at)');
-
-  // CREATE TABLE IF NOT EXISTS does not add newly introduced columns to an
-  // existing local database, so keep these lightweight migrations idempotent.
-  const threadColumns = new Set(
-    (db.prepare('PRAGMA table_info(agent_threads)').all() as Array<{ name: string }>).map((column) => column.name),
-  );
-  if (!threadColumns.has('title_source')) {
-    db.exec("ALTER TABLE agent_threads ADD COLUMN title_source TEXT NOT NULL DEFAULT 'legacy'");
-  }
-  if (!threadColumns.has('title_locked')) {
-    db.exec('ALTER TABLE agent_threads ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!threadColumns.has('pinned_at')) {
-    db.exec('ALTER TABLE agent_threads ADD COLUMN pinned_at TEXT');
-  }
-
-  const workflowStepColumns = new Set(
-    (db.prepare('PRAGMA table_info(workflow_steps)').all() as Array<{ name: string }>).map((column) => column.name),
-  );
-  if (!workflowStepColumns.has('timeout_ms')) {
-    db.exec('ALTER TABLE workflow_steps ADD COLUMN timeout_ms INTEGER NOT NULL DEFAULT 300000');
-  }
-
-  // Migrate legacy platform shortcuts in existing database
-  db.exec("UPDATE crawl_runs SET platform = 'douyin' WHERE platform = 'dy'");
-  db.exec("UPDATE crawl_runs SET platform = 'kuaishou' WHERE platform = 'ks'");
-  db.exec("UPDATE crawl_runs SET platform = 'weibo' WHERE platform = 'wb'");
-
-  db.exec("UPDATE crawl_run_logs SET platform = 'douyin' WHERE platform = 'dy'");
-  db.exec("UPDATE crawl_run_logs SET platform = 'kuaishou' WHERE platform = 'ks'");
-  db.exec("UPDATE crawl_run_logs SET platform = 'weibo' WHERE platform = 'wb'");
-
-  db.exec("UPDATE content_records SET platform = 'douyin' WHERE platform = 'dy'");
-  db.exec("UPDATE content_records SET platform = 'kuaishou' WHERE platform = 'ks'");
-  db.exec("UPDATE content_records SET platform = 'weibo' WHERE platform = 'wb'");
-
-  db.exec("UPDATE agent_plan_steps SET platform = 'douyin' WHERE platform = 'dy'");
-  db.exec("UPDATE agent_plan_steps SET platform = 'kuaishou' WHERE platform = 'ks'");
-  db.exec("UPDATE agent_plan_steps SET platform = 'weibo' WHERE platform = 'wb'");
-
+  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
 }

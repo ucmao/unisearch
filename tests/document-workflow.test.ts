@@ -19,8 +19,18 @@ function database() {
 test('Document Engine normalizes, cleans and deduplicates RawItems with provenance', async () => {
   const db = database();
   try {
+    db.prepare(`
+      INSERT INTO crawl_runs
+        (run_id, task_title, task_name, platform, crawler_type, status, started_at)
+      VALUES (?, '', '', 'bing', 'search', 'completed', datetime('now'))
+    `).run('run-1');
+    db.prepare(`
+      INSERT INTO crawl_runs
+        (run_id, task_title, task_name, platform, crawler_type, status, started_at)
+      VALUES (?, '', '', 'bing', 'search', 'completed', datetime('now'))
+    `).run('run-2');
     const engine = new DocumentEngine(() => db);
-    const raw = buildRawItem('storeSearchEngineResult', {
+    const raw = buildRawItem('emitSearchEngineResult', {
       engine: 'bing',
       title: '  UniSearch   架构  ',
       snippet: '第一段  \r\n\r\n\r\n第二段\u0000',
@@ -56,11 +66,33 @@ test('multi-source Skill compiles into persistent Connector and Processor workfl
   try {
     const repository = new WorkflowRepository(() => db);
     const engine = new WorkflowEngine(repository);
-    const workflow = engine.ensureResearchWorkflow('plan-1', 'thread-1', {
-      goal: '调研 UniSearch',
-      platforms: ['xhs', 'bing'],
-      keywords: ['UniSearch'],
-      capability: 'keyword_search',
+    const skill = skillRegistry.get('multi-source-research');
+    const connectors = ['xhs', 'bing'].map((platform) => ({
+      key: `collect:${platform}`,
+      kind: 'connector' as const,
+      uses: platform,
+      dependsOn: [],
+      input: { keywords: ['UniSearch'], capability: 'keyword_search' },
+      maxAttempts: 2,
+      timeoutMs: 300_000,
+      externalRef: platform,
+    }));
+    const workflow = engine.create(null, {
+      skillId: skill.id,
+      skillVersion: skill.version,
+      input: { goal: '调研 UniSearch', platforms: ['xhs', 'bing'], keywords: ['UniSearch'] },
+      steps: [
+        ...connectors,
+        {
+          key: 'normalize-documents',
+          kind: 'processor',
+          uses: 'document.clean_markdown',
+          dependsOn: connectors.map((step) => step.key),
+          input: {},
+          maxAttempts: 1,
+          timeoutMs: 300_000,
+        },
+      ],
     });
 
     assert.equal(workflow.skill_id, 'multi-source-research');
@@ -71,26 +103,8 @@ test('multi-source Skill compiles into persistent Connector and Processor workfl
     ]);
     assert.deepEqual(workflow.steps[2].depends_on, ['collect:xhs', 'collect:bing']);
 
-    engine.syncResearchPlan({
-      plan_id: 'plan-1',
-      status: 'running',
-      steps: [
-        { platform: 'xhs', status: 'completed', run_id: 'run-xhs' },
-        { platform: 'bing', status: 'running', run_id: 'run-bing' },
-      ],
-    });
-    assert.equal(engine.getByPlan('plan-1').status, 'running');
-
-    const completed = engine.syncResearchPlan({
-      plan_id: 'plan-1',
-      status: 'completed',
-      steps: [
-        { platform: 'xhs', status: 'completed', run_id: 'run-xhs' },
-        { platform: 'bing', status: 'completed', run_id: 'run-bing' },
-      ],
-    });
-    assert.equal(completed.status, 'completed');
-    assert.equal(completed.steps.find((step: any) => step.step_key === 'normalize-documents').status, 'completed');
+    assert.equal(workflow.status, 'queued');
+    assert.equal(engine.get(workflow.workflow_id).workflow_id, workflow.workflow_id);
   } finally {
     db.close();
   }
@@ -100,7 +114,7 @@ test('Workflow repository rejects invalid dependency graphs and persists cancell
   const db = database();
   try {
     const repository = new WorkflowRepository(() => db);
-    assert.throws(() => repository.create(null, null, {
+    assert.throws(() => repository.create(null, {
       skillId: 'invalid',
       skillVersion: '1',
       input: {},
@@ -111,25 +125,33 @@ test('Workflow repository rejects invalid dependency graphs and persists cancell
     }), /dependency cycle/);
 
     const engine = new WorkflowEngine(repository);
-    engine.ensureResearchWorkflow('plan-cancel', 'thread-cancel', {
-      goal: '取消测试',
-      platforms: ['bing'],
-      keywords: ['测试'],
+    const cancelledWorkflow = engine.create(null, {
+      skillId: 'cancel-test',
+      skillVersion: '1',
+      input: { goal: '取消测试' },
+      steps: [{
+        key: 'collect:bing', kind: 'connector', uses: 'bing', dependsOn: [],
+        input: {}, maxAttempts: 1, timeoutMs: 1000,
+      }],
     });
-    engine.cancelByPlan('plan-cancel');
-    const cancelled = engine.getByPlan('plan-cancel');
+    engine.cancel(cancelledWorkflow.workflow_id);
+    const cancelled = engine.get(cancelledWorkflow.workflow_id);
     assert.equal(cancelled.status, 'cancelled');
     assert.ok(cancelled.steps.every((step: any) => step.status === 'cancelled'));
 
-    const interrupted = engine.ensureResearchWorkflow('plan-interrupted', 'thread-interrupted', {
-      goal: '恢复测试',
-      platforms: ['bing'],
-      keywords: ['测试'],
+    const interrupted = engine.create(null, {
+      skillId: 'interrupt-test',
+      skillVersion: '1',
+      input: { goal: '恢复测试' },
+      steps: [{
+        key: 'collect:bing', kind: 'connector', uses: 'bing', dependsOn: [],
+        input: {}, maxAttempts: 1, timeoutMs: 1000,
+      }],
     });
     repository.setStatus(interrupted.workflow_id, 'running');
     repository.setStepStatus(interrupted.workflow_id, 'collect:bing', 'running');
     assert.equal(repository.reconcileInterrupted(), 1);
-    const recovered = engine.getByPlan('plan-interrupted');
+    const recovered = engine.get(interrupted.workflow_id);
     assert.equal(recovered.status, 'interrupted');
     assert.equal(recovered.steps.find((step: any) => step.step_key === 'collect:bing').status, 'failed');
   } finally {
@@ -148,7 +170,7 @@ test('Workflow Engine executes registered local handlers and persists retry atte
   try {
     const repository = new WorkflowRepository(() => db);
     const engine = new WorkflowEngine(repository);
-    const workflow = repository.create(null, null, {
+    const workflow = repository.create(null, {
       skillId: 'processor-test',
       skillVersion: '1',
       input: {},

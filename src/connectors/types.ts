@@ -83,6 +83,6 @@ export interface ConnectorStartRequest {
   headless: boolean;
   loop_execution: boolean;
   thread_id?: string;
-  plan_id?: string;
+  workflow_id?: string;
   task_title?: string;
 }

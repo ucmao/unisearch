@@ -49,27 +49,23 @@ export class WorkflowRepository {
     return this.databaseProvider();
   }
 
-  create(planId: string | null, threadId: string | null, definitionInput: WorkflowDefinition): any {
+  create(threadId: string | null, definitionInput: WorkflowDefinition): any {
     const definition = workflowDefinitionSchema.parse(definitionInput);
     validateDependencies(definition);
-    if (planId) {
-      const existing = this.getByPlan(planId);
-      if (existing) return existing;
-    }
     const workflowId = id();
     const now = new Date().toISOString();
     this.db.transaction(() => {
       this.db.prepare(`
         INSERT INTO workflow_runs (
-          workflow_id, plan_id, thread_id, skill_id, skill_version, status,
+          workflow_id, thread_id, skill_id, skill_version, goal, status,
           input_json, output_json, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, 'queued', ?, '{}', ?, ?)
       `).run(
         workflowId,
-        planId,
         threadId,
         definition.skillId,
         definition.skillVersion,
+        String(definition.input.goal || ''),
         JSON.stringify(definition.input),
         now,
         now,
@@ -118,11 +114,6 @@ export class WorkflowRepository {
       cancel_requested: Boolean(run.cancel_requested),
       steps,
     };
-  }
-
-  getByPlan(planId: string): any {
-    const row = this.db.prepare('SELECT workflow_id FROM workflow_runs WHERE plan_id=?').get(planId) as any;
-    return row ? this.get(row.workflow_id) : null;
   }
 
   setStatus(workflowId: string, statusInput: WorkflowStatus, errorMessage?: string): void {

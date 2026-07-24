@@ -165,7 +165,7 @@ export class ZhaopinCrawler extends AbstractCrawler {
             const jobUrl = rawUrl ? rawUrl.split('?')[0] : '';
             const jobId = item.number || item.jobId || jobUrl;
 
-            await connectorOutput.storeZhaopinResult({
+            await connectorOutput.emitZhaopinResult({
               title: jobName,
               company_name: companyName,
               salary,
@@ -260,7 +260,7 @@ export class ZhaopinCrawler extends AbstractCrawler {
         const desc = pos.description || pos.jobDesc || jobDetail.jobSummary || jobDetail.jobDuty || jobDetail.description || '';
         const publishTime = pos.positionPublishTime || pos.publishTime || jobDetail.publishTimeFormat || jobDetail.publishTime || '';
 
-        await connectorOutput.storeZhaopinResult({
+        await connectorOutput.emitZhaopinResult({
           title: jobName,
           company_name: companyName,
           salary,

@@ -409,7 +409,7 @@ export class DouyinCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await connectorOutput.storeDouyinAweme(awemeDetail);
+          await connectorOutput.emitDouyinAweme(awemeDetail);
           count++;
         }
         console.log(`[DY] Persisted ${count} video records before comment enrichment.`);
@@ -465,7 +465,7 @@ export class DouyinCrawler extends AbstractCrawler {
         note_download_url: images.map((image: any) => image.url_list?.at(-1) || '').filter(Boolean).join(','),
         source_keyword: sourceKeyword,
       };
-      await connectorOutput.storeDouyinAweme(record);
+      await connectorOutput.emitDouyinAweme(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.getAwemeComments(record.aweme_id);
       return record;
     } catch (error: any) {
@@ -508,7 +508,7 @@ export class DouyinCrawler extends AbstractCrawler {
         throw new Error(`status_code=${result?.status_code ?? 'unknown'}${result?.status_msg ? `, ${result.status_msg}` : ''}`);
       }
       const comments = result?.comments || [];
-      const store = async (comment: any, parent = '') => connectorOutput.storeDouyinComment({
+      const store = async (comment: any, parent = '') => connectorOutput.emitDouyinComment({
         comment_id: String(comment.cid || ''), aweme_id: awemeId, content: comment.text || '',
         create_time: comment.create_time || 0, creator_hash: String(comment.user?.uid || comment.user?.sec_uid || ''),
         nickname: comment.user?.nickname || '', sub_comment_count: comment.reply_comment_total || 0,
