@@ -26,7 +26,6 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import {
@@ -285,8 +284,6 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   const [taskQuery, setTaskQuery] = useState('')
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
   const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set())
-  const [taskSelectionMode, setTaskSelectionMode] = useState(false)
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [selectedCommentContent, setSelectedCommentContent] = useState<NormalizedContent | null>(null)
 
   const tasksQuery = useQuery({
@@ -391,7 +388,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
         queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
       ])
-      toast.success('任务记录已删除，原始数据文件仍然保留')
+      toast.success('执行记录及对应的平台采集数据已彻底物理删除')
     } catch (error) {
       const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
       toast.error(detail || '任务记录删除失败')
@@ -399,26 +396,23 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
     }
   }
 
-  const deleteTasks = async (threadIds: string[]) => {
+  const deleteTask = async (threadId: string) => {
     try {
-      await dataApi.deleteAnalyticsTasks(threadIds)
-      if (threadIds.some((threadId) => scope === `thread:${threadId}` || tasks.find((task) => task.thread_id === threadId)?.rounds.some((round) => scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`)))) setScope('all')
+      await dataApi.deleteAnalyticsTask(threadId)
+      if (scope === `thread:${threadId}` || tasks.find((task) => task.thread_id === threadId)?.rounds.some((round) => scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`))) setScope('all')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
       ])
-      setSelectedTaskIds(new Set())
-      toast.success(`${threadIds.length} 个 AI 任务已从看板移除，平台原始数据仍然保留`)
+      toast.success('AI 任务及对应的平台采集数据已彻底物理删除')
     } catch (error) {
       const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
       toast.error(detail || '任务删除失败')
       throw error
     }
   }
-
-  const deleteTask = (threadId: string) => deleteTasks([threadId])
 
   const deleteRound = async (planId: string) => {
     try {
@@ -430,43 +424,12 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
         queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
         queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
       ])
-      toast.success('采集轮次已从看板移除，平台原始数据仍然保留')
+      toast.success('采集轮次及对应的平台采集数据已彻底物理删除')
     } catch (error) {
       const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
       toast.error(detail || '采集轮次移除失败')
       throw error
     }
-  }
-
-  const toggleSelectedTask = (taskId: string) => setSelectedTaskIds((current) => {
-    const next = new Set(current)
-    if (next.has(taskId)) next.delete(taskId)
-    else next.add(taskId)
-    return next
-  })
-
-  const renderBatchToolbar = () => {
-    const selectableIds = filteredTasks.filter((task) => !task.rounds.some((round) => round.runs.some((run) => run.status === 'running'))).map((task) => task.thread_id)
-    return (
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" className="h-8 flex-1 text-xs" onClick={() => {
-          setTaskSelectionMode((current) => !current)
-          setSelectedTaskIds(new Set())
-        }}>{taskSelectionMode ? '退出批量管理' : '批量管理'}</Button>
-        {taskSelectionMode ? <>
-          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedTaskIds((current) => current.size === selectableIds.length ? new Set() : new Set(selectableIds))}>
-            {selectedTaskIds.size === selectableIds.length && selectableIds.length ? '取消全选' : '全选'}
-          </Button>
-          <DeleteConfirmDialog
-            title={`移除 ${selectedTaskIds.size} 个 AI 任务？`}
-            description="将删除所选 AI 任务下全部采集轮次的执行记录、看板分析数据和日志；工作区对话及平台原始采集数据会保留。"
-            confirmLabel="从看板移除"
-            onConfirm={() => deleteTasks([...selectedTaskIds])}
-            trigger={<Button variant="destructive" size="sm" className="h-8 text-xs" disabled={!selectedTaskIds.size}>移除</Button>}
-          />
-        </> : null}
-      </div>
-    )
   }
 
   const exportUrl = dataApi.getAnalyticsExportUrl({
@@ -485,8 +448,8 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
         <div className={`group relative transition-colors ${isSelected ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'}`}>
           <button
             type="button"
-            onClick={() => { if (taskSelectionMode) { if (!isRunning) toggleSelectedTask(task.thread_id) } else { setScope(`thread:${task.thread_id}`); if (mobile) setIsRunHistoryOpen(false) } }}
-            className={`w-full text-left ${mobile ? `p-3 ${taskSelectionMode ? 'pl-16' : 'pl-9'} pr-12` : `p-2.5 ${taskSelectionMode ? 'pl-14' : 'pl-8'} pr-9`}`}
+            onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setIsRunHistoryOpen(false) }}
+            className={`w-full text-left ${mobile ? 'p-3 pl-9 pr-12' : 'p-2.5 pl-8 pr-9'}`}
           >
             <span className="block truncate text-xs font-semibold text-cyber-text-primary" title={task.task_title}>{task.task_title}</span>
             <span className={`mt-1 flex items-center justify-between gap-2 text-cyber-text-muted ${mobile ? 'text-[11px]' : 'text-[10px]'}`}>
@@ -494,9 +457,6 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
               <span>{itemCount} 条</span>
             </span>
           </button>
-          {taskSelectionMode ? <span className="absolute left-2 top-3 z-10" onClick={(event) => event.stopPropagation()}>
-            <Checkbox checked={selectedTaskIds.has(task.thread_id)} disabled={isRunning} onCheckedChange={() => toggleSelectedTask(task.thread_id)} aria-label={`选择 AI 任务 ${task.task_title}`} />
-          </span> : null}
           <button
             type="button"
             onClick={() => setExpandedTasks((current) => {
@@ -505,15 +465,15 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
               else next.add(task.thread_id)
               return next
             })}
-            className={`absolute ${taskSelectionMode ? 'left-8' : 'left-1.5'} top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary`}
+            className="absolute left-1.5 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
             aria-label={isExpanded ? `收起任务 ${task.task_title}` : `展开任务 ${task.task_title}`}
           >
             {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
           </button>
-          {!isRunning && !taskSelectionMode ? (
+          {!isRunning ? (
             <DeleteConfirmDialog
-              title="从看板移除整个 AI 任务？"
-              description={`将删除“${task.task_title}”下 ${task.rounds.length} 轮采集、${taskRuns.length} 个执行的看板数据，但不会删除工作区对话和平台原始采集数据。`}
+              title="确定彻底物理删除该 AI 任务及采集数据？"
+              description={`将彻底物理删除“${task.task_title}”下 ${task.rounds.length} 轮采集、${taskRuns.length} 个执行的所有平台原始数据及文档记录。`}
               onConfirm={() => deleteTask(task.thread_id)}
               trigger={<Button variant="ghost" size="icon" aria-label={`删除任务 ${task.task_title}`} className={`absolute right-1 top-1 h-7 w-7 text-cyber-text-muted hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink ${mobile ? '' : 'opacity-0 focus:opacity-100 group-hover:opacity-100'}`}><Trash2 /></Button>}
             />
@@ -534,7 +494,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                   <button type="button" onClick={() => setExpandedRounds((current) => { const next = new Set(current); if (next.has(round.plan_id)) next.delete(round.plan_id); else next.add(round.plan_id); return next })} className="absolute left-1 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted" aria-label={roundExpanded ? `收起采集轮次 ${round.round_title}` : `展开采集轮次 ${round.round_title}`}>
                     {roundExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                   </button>
-                  {!roundRunning ? <DeleteConfirmDialog title="移除这个采集轮次？" description={`将删除本轮 ${round.runs.length} 个平台执行的看板数据和日志。`} onConfirm={() => deleteRound(round.plan_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除采集轮次 ${round.round_title}`} className="absolute right-0.5 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/round:opacity-100"><Trash2 /></Button>} /> : null}
+                  {!roundRunning ? <DeleteConfirmDialog title="彻底删除该采集轮次及所有数据？" description={`将彻底物理删除本轮 ${round.runs.length} 个平台执行的所有原始数据、日志与关联记录。`} onConfirm={() => deleteRound(round.plan_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除采集轮次 ${round.round_title}`} className="absolute right-0.5 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/round:opacity-100"><Trash2 /></Button>} /> : null}
                 </div>
                 {roundExpanded ? <div className="border-t border-cyber-border-subtle/70 px-1 py-1">
                   {round.runs.map((run) => <div key={run.run_id} className={`group/run relative rounded ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/60'}`}>
@@ -543,7 +503,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                       <span className="mt-0.5 flex justify-between text-[9px] text-cyber-text-muted"><span>{formatRunTime(run.started_at)}</span><span>{run.item_count} 条</span></span>
                     </button>
                     <span className="absolute left-2 top-2.5 h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan/50" />
-                    {run.status !== 'running' ? <DeleteConfirmDialog title="删除执行记录？" description={`仅删除“${run.task_name}”这一次执行的看板记录。`} onConfirm={() => deleteRun(run.run_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-0.5 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>} /> : null}
+                    {run.status !== 'running' ? <DeleteConfirmDialog title="彻底删除该平台执行记录及采集数据？" description={`将彻底物理删除“${run.task_name}”在 ${run.platform} 平台本次执行采集的所有数据与记录。`} onConfirm={() => deleteRun(run.run_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-0.5 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>} /> : null}
                   </div>)}
                 </div> : null}
               </div>
@@ -608,7 +568,6 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                   className="h-8 pl-8 text-xs"
                 />
               </div>
-              {renderBatchToolbar()}
             <div
               className={`group relative rounded-md border transition-colors ${
                 scope === 'all'
@@ -619,29 +578,11 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
               <button
                 type="button"
                 onClick={() => setScope('all')}
-                className="w-full p-2.5 pr-9 text-left"
+                className="w-full p-2.5 text-left"
               >
                 <span className="block text-xs font-medium text-cyber-text-primary">全部任务</span>
                 <span className="mt-0.5 block text-[10px] text-cyber-text-muted">展示各任务中的最新数据</span>
               </button>
-              {runs.some((run) => run.status !== 'running') ? (
-                <DeleteConfirmDialog
-                  title="清空全部任务历史记录？"
-                  description="将清空所有已完成任务及其看板历史记录，但不会删除 SQLite 中的平台原始采集表数据。"
-                  onConfirm={() => deleteRun('all')}
-                  trigger={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="清空全部任务历史记录"
-                      title="清空全部任务历史记录"
-                      className="absolute right-1 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink focus:opacity-100 group-hover:opacity-100"
-                    >
-                      <Trash2 />
-                    </Button>
-                  }
-                />
-              ) : null}
             </div>
             </div>
 
@@ -937,7 +878,6 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                 className="h-9 pl-8 text-xs"
               />
             </div>
-            {renderBatchToolbar()}
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
               <div
@@ -950,29 +890,11 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                 <button
                   type="button"
                   onClick={() => { setScope('all'); setIsRunHistoryOpen(false) }}
-                  className="w-full p-3 pr-12 text-left"
+                  className="w-full p-3 text-left"
                 >
                   <span className="block text-xs font-medium text-cyber-text-primary">全部任务</span>
                   <span className="mt-1 block text-[11px] text-cyber-text-muted">每条内容展示所有任务中的最新数据</span>
                 </button>
-                {runs.some((run) => run.status !== 'running') ? (
-                  <DeleteConfirmDialog
-                    title="清空全部任务历史记录？"
-                    description="将清空所有已完成任务及其看板历史记录，但不会删除 SQLite 中的平台原始采集表数据。"
-                    onConfirm={() => deleteRun('all')}
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="清空全部任务历史记录"
-                        title="清空全部任务历史记录"
-                        className="absolute right-1.5 top-1.5 h-8 w-8 text-cyber-text-muted hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink"
-                      >
-                        <Trash2 />
-                      </Button>
-                    }
-                  />
-                ) : null}
               </div>
 
               {renderTaskGroups(true)}
