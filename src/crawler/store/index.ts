@@ -5,9 +5,12 @@ import type { Database } from 'better-sqlite3';
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书',
   douyin: '抖音',
+  dy: '抖音',
   kuaishou: '快手',
+  ks: '快手',
   bili: '哔哩哔哩',
   weibo: '微博',
+  wb: '微博',
   tieba: '贴吧',
   zhihu: '知乎',
   baidu: '百度',

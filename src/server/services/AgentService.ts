@@ -411,7 +411,7 @@ export class AgentService {
         .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
       try {
         decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry);
-        if (localDecision.action === 'create_plan' && decision.action === 'chat') {
+        if (localDecision.action === 'create_plan' && ['chat', 'clarify'].includes(decision.action)) {
           const generated = await modelService.createPlan(messages, planningText, onRetry);
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
@@ -488,6 +488,24 @@ export class AgentService {
 
     if (decision.action === 'execute') {
       if (!latest || latest.status !== 'awaiting_confirmation') {
+        const inferredPlatforms = inferResearchPlatforms(planningText);
+        const inferredKeywords = inferResearchKeywords(planningText);
+        if (inferredPlatforms.length > 0 && inferredKeywords.length > 0) {
+          try {
+            const updatedThread = agentRepository.getThread(threadId);
+            const messages = updatedThread.messages
+              .filter((message: any) => ['user', 'assistant'].includes(message.role))
+              .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+            const generated = await modelService.createPlan(messages, planningText, onRetry);
+            const plan = normalizePlan(generated, planningText, latest?.plan);
+            if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0))) {
+              const created = agentRepository.createPlan(threadId, plan);
+              this.executePlan(created.plan_id);
+              agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，已生成采集计划并自动进入本地执行队列。', { plan_id: created.plan_id, action: 'execute' });
+              return agentRepository.getThread(threadId);
+            }
+          } catch (err: any) {}
+        }
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有等待确认的计划。你可以先告诉我想采集的具体主题。', { action: 'chat' });
       } else {
         this.executePlan(latest.plan_id);

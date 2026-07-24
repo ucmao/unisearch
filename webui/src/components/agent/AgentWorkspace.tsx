@@ -22,8 +22,8 @@ import { CommandPopover } from './CommandPopover'
 import { useMentionCommands } from '@/hooks/useMentionCommands'
 
 const PLATFORM_LABELS: Record<string, string> = {
-  xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
-  baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗', zhaopin: '智联招聘', heimao: '黑猫投诉',
+  xhs: '小红书', dy: '抖音', douyin: '抖音', ks: '快手', kuaishou: '快手', bili: '哔哩哔哩', wb: '微博', weibo: '微博', tieba: '百度贴吧', zhihu: '知乎',
+  baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗', media_parser: '综合解析', zhaopin: '智联招聘', heimao: '黑猫投诉',
   deepseek: 'DeepSeek', doubao: '豆包', kimi: 'Kimi', nami: '纳米AI',
   qwen: '通义千问', wenxin: '文心一言', yuanbao: '腾讯元宝',
 }
@@ -1197,168 +1197,209 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           aria-label="调整右侧边栏宽度"
         />
         <div className="flex items-center justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">当前任务大盘</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
           {activePlan ? <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[activePlan.status] || activePlan.status}</Badge> : null}
         </div>
 
-        {activePlan ? (() => {
-          const allPlans = threadQuery.data?.plans || [activePlan]
-          const currentRound = allPlans.find((plan) => plan.plan_id === activePlan.plan_id)?.round_number || allPlans.length
-          const previousPlans = allPlans.filter((plan) => plan.plan_id !== activePlan.plan_id).slice().reverse()
-          const totalItems = activePlan.stats?.content_count ?? activePlan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
-          const isPending = activePlan.status === 'awaiting_confirmation'
-          const isRunning = ['queued', 'running'].includes(activePlan.status)
-          const isFinished = ['completed', 'partially_completed'].includes(activePlan.status)
-          const canRetry = ['failed', 'partially_completed'].includes(activePlan.status)
-          const keywordsStr = activePlan.plan.keywords.join(' / ')
-          const depth = activePlan.plan.collectionDepth || (activePlan.plan.collectSubComments ? 'deep' : activePlan.plan.collectComments ? 'standard' : 'quick')
-          const rangeText = depth === 'deep' ? '深度 · 100 条/词 · 含回复评论' : depth === 'standard' ? '标准 · 50 条/词 · 含一级评论' : '快速 · 30 条/词 · 不含评论'
+        {(() => {
+          const allPlans = threadQuery.data?.plans || (activePlan ? [activePlan] : [])
+
+          // 计算全会话累计抓取总量
+          const sessionTotalItems = allPlans.reduce((sum, plan) => {
+            const count = plan.stats?.content_count ?? plan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
+            return sum + count
+          }, 0)
+
+          const isPending = activePlan?.status === 'awaiting_confirmation'
+          const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
+          const canRetry = activePlan ? ['failed', 'partially_completed'].includes(activePlan.status) : false
+
+          // 汇总各平台累计抓取数据分布
+          const platformSummaryMap = new Map<string, {
+            platform: string
+            count: number
+            status: string
+            isAI: boolean
+            error_message?: string
+          }>()
+
+          allPlans.forEach((plan) => {
+            plan.steps.forEach((step) => {
+              const existing = platformSummaryMap.get(step.platform)
+              const isAI = AI_PLATFORMS.has(step.platform)
+              const count = step.item_count || 0
+              if (!existing) {
+                platformSummaryMap.set(step.platform, {
+                  platform: step.platform,
+                  count,
+                  status: step.status,
+                  isAI,
+                  error_message: step.error_message || undefined,
+                })
+              } else {
+                existing.count += count
+                if (step.status === 'running' || existing.status === 'running') {
+                  existing.status = 'running'
+                } else if (step.status === 'completed') {
+                  existing.status = 'completed'
+                }
+                if (step.error_message) {
+                  existing.error_message = step.error_message
+                }
+              }
+            })
+          })
+
+          const platformSummaryList = Array.from(platformSummaryMap.values())
 
           const handleApplyPrompt = (promptText: string) => {
             setInput(promptText)
             setTimeout(() => composerInputRef.current?.focus(), 50)
           }
 
+          const latestFinishedPlanId = [...allPlans].reverse().find((p) => ['completed', 'partially_completed'].includes(p.status))?.plan_id || activePlan?.plan_id
+
           const handleOpenResults = () => {
-            if (selectedId && totalItems > 0) onOpenResults({ threadId: selectedId, planId: activePlan.plan_id })
+            if (selectedId && (sessionTotalItems > 0 || latestFinishedPlanId)) {
+              onOpenResults({ threadId: selectedId, planId: latestFinishedPlanId || activePlan?.plan_id || '' })
+            }
           }
 
           return (
             <div className="mt-4 space-y-5 text-xs">
-              {/* 总数据汇总卡片 */}
+              {/* 区域 A：当前任务状态 / 控制卡片 */}
+              {activePlan && isPending ? (
+                <div className="rounded-xl border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-3.5 shadow-sm ring-1 ring-cyber-neon-cyan/30">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
+                      <Sparkles className="h-3.5 w-3.5" /> 待确认采集任务
+                    </span>
+                    <Badge variant="outline" className="border-cyber-neon-cyan/50 text-[10px] text-cyber-neon-cyan">等待确认</Badge>
+                  </div>
+                  <div className="mt-2.5 space-y-1.5 text-xs">
+                    {activePlan.plan.keywords.length > 0 ? (
+                      <p className="truncate font-medium text-cyber-text-primary" title={activePlan.plan.keywords.join(' / ')}>
+                        关键词：<span className="text-cyber-neon-cyan">{activePlan.plan.keywords.join(' / ')}</span>
+                      </p>
+                    ) : null}
+                    <div className="flex flex-wrap items-center gap-1 text-[10px] text-cyber-text-muted">
+                      <span>平台：{activePlan.plan.platforms.map((p) => PLATFORM_LABELS[p] || p).join('、')}</span>
+                    </div>
+                  </div>
+                  <Button
+                    className="mt-3 w-full h-8.5 text-xs gap-1.5 bg-cyber-neon-cyan text-black hover:bg-cyber-neon-cyan/90 font-medium"
+                    onClick={() => execute.mutate(activePlan.plan_id)}
+                    disabled={execute.isPending}
+                  >
+                    {execute.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-black" />}
+                    确认并开始采集
+                  </Button>
+                </div>
+              ) : activePlan && isRunning ? (
+                <div className="rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/80 p-3.5 shadow-sm">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在执行采集任务...
+                    </span>
+                    <Badge variant="outline" className="animate-pulse text-[10px]">进行中</Badge>
+                  </div>
+                  {activePlan.plan.keywords.length ? (
+                    <p className="mt-2 truncate text-[10px] text-cyber-text-muted">
+                      关键词：{activePlan.plan.keywords.join(' / ')}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* 区域 B：全会话已采集数据总量 */}
               <button
                 type="button"
                 onClick={handleOpenResults}
-                disabled={totalItems <= 0}
-                aria-label={totalItems > 0 ? `查看第 ${currentRound} 轮的 ${totalItems} 条采集结果` : undefined}
-                className={`w-full rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 text-left shadow-sm transition-colors ${totalItems > 0 ? 'cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70' : 'cursor-default'}`}
+                disabled={sessionTotalItems <= 0}
+                aria-label={sessionTotalItems > 0 ? `查看已采集的 ${sessionTotalItems} 条数据` : undefined}
+                className={`w-full rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 text-left shadow-sm transition-colors ${sessionTotalItems > 0 ? 'cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70' : 'cursor-default'}`}
               >
                 <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                  <span>第 {currentRound} 轮 · {isPending ? '待确认采集范围' : isRunning ? '当前已采集' : '已采集数据总量'}</span>
+                  <span>全会话已采集总量</span>
                   <span className="flex items-center gap-0.5 font-mono">
-                    {activePlan.steps.length} 平台 · {activePlan.plan.keywords.length} 词
-                    {totalItems > 0 ? <ChevronRight className="h-3 w-3" /> : null}
+                    {sessionTotalItems > 0 ? <ChevronRight className="h-3 w-3" /> : null}
                   </span>
                 </div>
                 <div className="mt-2 flex items-baseline gap-2">
-                  <span className={`text-2xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
-                    {totalItems.toLocaleString()}
+                  <span className={`text-3xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
+                    {sessionTotalItems.toLocaleString()}
                   </span>
-                  <span className="text-xs text-cyber-text-secondary">{isPending ? '条（尚未开始）' : '条内容'}</span>
+                  <span className="text-xs text-cyber-text-secondary">条内容</span>
                 </div>
-                {keywordsStr ? (
-                  <p className="mt-2 truncate text-[10px] text-cyber-text-muted" title={keywordsStr}>
-                    关键词：{keywordsStr}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-[10px] text-cyber-text-muted">范围：{rangeText}</p>
               </button>
 
-              {/* 分平台采集明细与目标完成度 */}
+              {/* 全会话分平台采集分布 */}
               <div>
-                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted mb-1.5">
                   <span>数据分布与状态</span>
-                  {totalItems > 0 ? <span>目标完成度</span> : null}
+                  {sessionTotalItems > 0 ? <span>已接入平台</span> : null}
                 </div>
-                <div className="mt-1 divide-y divide-cyber-border-subtle/60">
-                  {activePlan.steps.map((step) => {
-                    const isAI = AI_PLATFORMS.has(step.platform)
-                    const keywordCount = activePlan.plan.keywords.length || 1
-                    const depthTarget = depth === 'deep' ? 100 : depth === 'standard' ? 50 : 30
-                    const stepTarget = isAI ? (1 * keywordCount) : (depthTarget * keywordCount)
-                    const count = step.item_count || 0
-                    const unit = isAI ? '份' : '条'
-                    
-                    const rawPercent = stepTarget > 0 ? Math.round((count / stepTarget) * 100) : 0
-                    const percent = Math.min(100, rawPercent)
-                    const isOverflow = count > stepTarget
-                    const isZeroSuccess = step.status === 'completed' && count === 0
+                <div className="divide-y divide-cyber-border-subtle/60">
+                  {platformSummaryList.length > 0 ? (
+                    platformSummaryList.map((item) => {
+                      const count = item.count
+                      const unit = item.isAI ? '份' : '条'
+                      const isZeroSuccess = item.status === 'completed' && count === 0
 
-                    return (
-                      <div key={step.step_id} className="py-2.5 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="truncate font-medium text-cyber-text-primary">
-                              {PLATFORM_LABELS[step.platform] || step.platform}
-                            </span>
-                            {isAI ? (
-                              <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
-                                AI
+                      return (
+                        <div key={item.platform} className="py-2.5 text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="truncate font-medium text-cyber-text-primary">
+                                {PLATFORM_LABELS[item.platform] || item.platform}
                               </span>
-                            ) : null}
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
-                              {count > 0 ? `${count} ${unit}` : step.status === 'completed' ? `0 ${unit}` : ''}
-                            </span>
-                            {isZeroSuccess ? (
-                              <span title="该平台未采集到数据或可能被风控受限">
-                                <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                              </span>
-                            ) : (
-                              <StepIcon status={step.status} />
-                            )}
-                          </div>
-                        </div>
-                        {(step.status === 'completed' || step.status === 'running') && count > 0 ? (
-                          <div className="mt-2 flex items-center gap-2">
-                            <div className="h-1 flex-1 overflow-hidden rounded-full bg-cyber-bg-tertiary">
-                              <div
-                                className={`h-full rounded-full transition-all duration-300 ${
-                                  isOverflow
-                                    ? 'bg-gradient-to-r from-cyber-neon-cyan to-emerald-400'
-                                    : percent >= 100
-                                    ? 'bg-emerald-400'
-                                    : 'bg-cyber-neon-cyan/70'
-                                }`}
-                                style={{ width: `${percent}%` }}
-                              />
+                              {item.isAI ? (
+                                <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
+                                  AI
+                                </span>
+                              ) : null}
                             </div>
-                            <span className="w-9 text-right font-mono text-[9px] text-cyber-text-muted">
-                              {isOverflow ? '100%+' : `${percent}%`}
-                            </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
+                                {count > 0 ? `${count} ${unit}` : item.status === 'completed' ? `0 ${unit}` : ''}
+                              </span>
+                              {isZeroSuccess ? (
+                                <span title="该平台未采集到数据或可能被风控受限">
+                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                </span>
+                              ) : (
+                                <StepIcon status={item.status} />
+                              )}
+                            </div>
                           </div>
-                        ) : null}
-                        {step.error_message ? <p className="mt-2 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={step.error_message}>{step.error_message}</p> : null}
-                      </div>
-                    )
-                  })}
+                          {item.error_message ? <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={item.error_message}>{item.error_message}</p> : null}
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <div className="py-3 text-center text-[11px] text-cyber-text-muted">
+                      尚未发起采集任务
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* 动作区 */}
               <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
-                {isPending ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />确认并开始</Button> : null}
-                {totalItems > 0 ? (
+                {sessionTotalItems > 0 ? (
                   <div className="grid grid-cols-2 gap-2">
                     <Button variant="outline" className="h-9 min-w-0 gap-1.5 px-2 text-xs" onClick={handleOpenResults}>
                       <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
                       <span className="truncate">结果看板</span>
                     </Button>
-                    <CsvDownloadLink planId={activePlan.plan_id} compact />
+                    {latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
                   </div>
                 ) : null}
-                {canRetry ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />重试失败平台</Button> : null}
+                {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />重试失败平台</Button> : null}
               </div>
 
-              {previousPlans.length ? <div className="border-t border-cyber-border-subtle pt-3">
-                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted"><span>历史采集轮次</span><span>{previousPlans.length} 轮</span></div>
-                <div className="mt-2 space-y-1.5">
-                  {previousPlans.map((plan) => {
-                    const count = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
-                    return <div key={plan.plan_id} className="rounded-lg border border-cyber-border-subtle/60 bg-cyber-bg-panel/30 px-2.5 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] font-medium text-cyber-text-primary">第 {plan.round_number || 1} 轮</span>
-                        <span className="text-[9px] text-cyber-text-muted">{STATUS_LABELS[plan.status] || plan.status} · {count} 条</span>
-                      </div>
-                      <p className="mt-1 truncate text-[10px] text-cyber-text-muted" title={plan.plan.keywords.join(' / ')}>{plan.plan.keywords.join(' / ')}</p>
-                    </div>
-                  })}
-                </div>
-              </div> : null}
-
-              {/* AI 快捷提问建议：保持提示词能力，但避免重复的长文案卡片割裂侧栏。 */}
-              {isFinished ? (
+              {/* AI 快捷提问建议 */}
+              {sessionTotalItems > 0 && !isRunning ? (
                 <div className="pt-2 border-t border-cyber-border-subtle">
                   <div className="flex items-center gap-1.5 text-[10px] font-medium text-cyber-text-muted mb-2">
                     <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
@@ -1366,9 +1407,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1.5">
                     {[
-                      { label: '跨平台对比', prompt: `分析 ${activePlan.plan.keywords[0] || '关键词'} 各平台的热度与讨论差异` },
-                      { label: '用户诉求', prompt: '总结抓取数据中用户的主要诉求和评价' },
-                      { label: '热点话题', prompt: '提取数据中频繁出现的高频词与热门话题' },
+                      { label: '跨平台对比', prompt: '分析各平台采集到的数据热度与讨论差异' },
+                      { label: '用户评价总结', prompt: '总结抓取数据中用户的主要诉求和评论观点' },
+                      { label: '高频热词提取', prompt: '提取已采集数据中频繁出现的高频词与热门话题' },
                     ].map(({ label, prompt }) => (
                       <button
                         key={label}
@@ -1384,7 +1425,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               ) : null}
             </div>
           )
-        })() : <div className="mt-8 text-center"><FileText className="mx-auto h-8 w-8 text-cyber-text-muted" /><p className="mt-3 text-xs text-cyber-text-muted">发送需求后，这里会显示任务范围和执行状态。</p></div>}
+        })()}
           </aside>}
         </div>
         {terminalOpen && selectedId && (
