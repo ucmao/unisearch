@@ -36,6 +36,25 @@ skillRegistry.register({
   workflow: {
     connectorCapabilities: ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
     itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'extractive.summary'],
+    exporters: ['markdown', 'json', 'obsidian', 'ima'],
     outputs: ['documents'],
+  },
+});
+
+skillRegistry.register({
+  id: 'media-to-knowledge',
+  version: '1.0.0',
+  name: '媒体转知识文档',
+  description: '下载媒体、提取音轨、语音转写并建立知识索引。',
+  inputs: [
+    { key: 'documentIds', required: true, description: '待处理 Document ID 列表' },
+  ],
+  workflow: {
+    connectorCapabilities: [],
+    itemProcessors: ['asset.download', 'ffmpeg.extract_audio', 'whisper.transcribe'],
+    analyzers: ['knowledge.index'],
+    exporters: ['markdown', 'obsidian', 'ima'],
+    outputs: ['documents', 'transcripts', 'knowledge_chunks'],
   },
 });

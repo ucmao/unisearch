@@ -31,6 +31,11 @@ test('Document Engine normalizes, cleans and deduplicates RawItems with provenan
         (run_id, task_title, task_name, platform, crawler_type, status, started_at)
       VALUES (?, '', '', 'bing', 'search', 'completed', datetime('now'))
     `).run('run-2');
+    db.prepare(`
+      INSERT INTO crawl_runs
+        (run_id, task_title, task_name, platform, crawler_type, status, started_at)
+      VALUES (?, '', '', 'bing', 'search', 'completed', datetime('now'))
+    `).run('run-3');
     const engine = new DocumentEngine(() => db);
     const raw = buildRawItem('emitSearchEngineResult', {
       engine: 'bing',
@@ -41,6 +46,12 @@ test('Document Engine normalizes, cleans and deduplicates RawItems with provenan
     });
     const first = await engine.ingest(raw, 'run-1');
     const second = await engine.ingest(raw, 'run-2');
+    await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      engine: 'bing',
+      title: 'UniSearch 架构',
+      snippet: '更新后的第三段',
+      real_url: 'https://example.com/research',
+    }), 'run-3');
 
     assert.equal(first.documentId, second.documentId);
     assert.equal(first.title, 'UniSearch 架构');
@@ -48,7 +59,8 @@ test('Document Engine normalizes, cleans and deduplicates RawItems with provenan
     assert.equal(first.sourceUrl, 'https://example.com/research');
     assert.equal(first.assets[0].kind, 'image');
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM documents').get() as any).count, 1);
-    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM document_sources').get() as any).count, 2);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM document_sources').get() as any).count, 3);
+    assert.equal(engine.listVersions(first.documentId).length, 2);
     assert.equal(engine.listByRun('run-1').length, 1);
   } finally {
     db.close();
@@ -58,9 +70,16 @@ test('Document Engine normalizes, cleans and deduplicates RawItems with provenan
 test('default Processor registry exposes deterministic ingestion processors', () => {
   assert.deepEqual(
     documentProcessorRegistry.list().map((processor) => processor.id),
-    ['metadata.normalize', 'document.clean_markdown'],
+    [
+      'metadata.normalize',
+      'document.clean_markdown',
+      'asset.download',
+      'pandoc.convert',
+      'ffmpeg.extract_audio',
+      'whisper.transcribe',
+    ],
   );
-  assert.throws(() => documentProcessorRegistry.get('whisper.transcribe'), /Unknown processor/);
+  assert.equal(documentProcessorRegistry.get('whisper.transcribe').resourceClass, 'cpu');
 });
 
 test('multi-source Skill compiles into persistent Connector and Processor workflow steps', () => {

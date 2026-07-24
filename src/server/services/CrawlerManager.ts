@@ -59,7 +59,12 @@ export class CrawlerTask {
 
     if (this.currentRunId) {
       try {
-        entry.id = analyticsRepository.appendRunLog(this.currentRunId, entry);
+        entry.id = analyticsRepository.appendRunLog(this.currentRunId, {
+          platform: this.platform,
+          timestamp: entry.timestamp,
+          level: entry.level,
+          message: entry.message,
+        });
       } catch (error: any) {
         console.error(`[CrawlerTask] Failed to persist execution log: ${error.message}`);
       }

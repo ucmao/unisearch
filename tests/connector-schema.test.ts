@@ -11,7 +11,9 @@ test('new database contains only Document and Workflow architecture tables', () 
       "SELECT name FROM sqlite_master WHERE type='table'",
     ).all() as Array<{ name: string }>).map((row) => row.name));
     for (const table of [
-      'documents', 'document_sources', 'document_assets', 'document_artifacts',
+      'documents', 'document_versions', 'document_sources', 'document_assets', 'document_artifacts',
+      'document_chunks', 'document_chunk_embeddings', 'document_chunks_fts',
+      'analysis_reports', 'export_runs',
       'workflow_runs', 'workflow_steps', 'crawl_runs', 'crawl_run_logs',
     ]) assert.ok(tables.has(table), `${table} should exist`);
     for (const removed of ['content_records', 'agent_plans', 'agent_plan_steps', 'xhs_note', 'douyin_aweme']) {

@@ -13,6 +13,7 @@ export interface RunConfig {
 }
 
 export interface ContentRecord {
+  [key: string]: string | number;
   run_id: string;
   platform: string;
   platform_label: string;

@@ -152,6 +152,16 @@ export class DocumentEngine {
     });
   }
 
+  listVersions(documentId: string): any[] {
+    return (this.db.prepare(`
+      SELECT version_id, document_id, content_hash, title, markdown, metadata_json, created_at
+      FROM document_versions WHERE document_id=? ORDER BY created_at DESC
+    `).all(documentId) as any[]).map((row) => ({
+      ...row,
+      metadata: JSON.parse(row.metadata_json || '{}'),
+    }));
+  }
+
   addArtifact(input: Artifact): Artifact {
     const artifact = artifactSchema.parse(input);
     this.db.prepare(`
@@ -196,19 +206,30 @@ export class DocumentEngine {
         document.updatedAt,
         document.documentId,
       );
+      this.insertVersion(document);
       const updateAsset = this.db.prepare(`
-        UPDATE document_assets SET kind=?, mime_type=?, local_path=?, metadata_json=?, updated_at=?
-        WHERE asset_id=? AND document_id=?
+        INSERT INTO document_assets (
+          asset_id, document_id, kind, url, mime_type, local_path,
+          metadata_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(document_id, url) DO UPDATE SET
+          kind=excluded.kind,
+          mime_type=excluded.mime_type,
+          local_path=excluded.local_path,
+          metadata_json=excluded.metadata_json,
+          updated_at=excluded.updated_at
       `);
       for (const asset of document.assets) {
         updateAsset.run(
+          asset.assetId,
+          document.documentId,
           asset.kind,
+          asset.url,
           asset.mimeType || null,
           asset.localPath || null,
           JSON.stringify(asset.metadata),
+          document.createdAt,
           document.updatedAt,
-          asset.assetId,
-          document.documentId,
         );
       }
       for (const artifact of artifacts) this.addArtifact(artifact);
@@ -250,6 +271,7 @@ export class DocumentEngine {
         document.createdAt,
         document.updatedAt,
       );
+      this.insertVersion(document);
 
       const sourceRecordId = hash(`${document.provenance.runId || 'none'}:${rawItem.id}`);
       this.db.prepare(`
@@ -316,6 +338,22 @@ export class DocumentEngine {
       }
     });
     transaction();
+  }
+
+  private insertVersion(document: Document): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO document_versions
+        (version_id, document_id, content_hash, title, markdown, metadata_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      hash(`${document.documentId}:${document.contentHash}`),
+      document.documentId,
+      document.contentHash,
+      document.title,
+      document.markdown,
+      JSON.stringify(document.metadata),
+      document.updatedAt,
+    );
   }
 }
 

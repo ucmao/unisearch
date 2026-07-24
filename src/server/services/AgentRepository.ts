@@ -471,6 +471,44 @@ export class AgentRepository {
       now,
       now,
     );
+    this.db.prepare(`
+      INSERT INTO workflow_steps (
+        step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+        dependency_policy, input_json, status, max_attempts, timeout_ms,
+        created_at, updated_at
+      ) VALUES (?, ?, 'index-documents', 'analyzer', 'analyzer.knowledge.index',
+        '["finalize-documents"]', 'success', '{}', 'queued', 2, 300000, ?, ?)
+    `).run(id(), workflowId, now, now);
+    let previousStep = 'index-documents';
+    if (plan.analysis?.length) {
+      this.db.prepare(`
+        INSERT INTO workflow_steps (
+          step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+          dependency_policy, input_json, status, max_attempts, timeout_ms,
+          created_at, updated_at
+        ) VALUES (?, ?, 'analyze-results', 'analyzer', 'analyzer.extractive.summary',
+          '["index-documents"]', 'success', ?, 'queued', 2, 300000, ?, ?)
+      `).run(id(), workflowId, JSON.stringify({ goals: plan.analysis }), now, now);
+      previousStep = 'analyze-results';
+    }
+    const supportedExporters = new Set(['markdown', 'json', 'obsidian', 'ima']);
+    for (const exporter of (plan.outputs || []).filter((output) => supportedExporters.has(output))) {
+      this.db.prepare(`
+        INSERT INTO workflow_steps (
+          step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+          dependency_policy, input_json, status, max_attempts, timeout_ms,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, 'exporter', ?, ?, 'success', '{}', 'queued', 2, 300000, ?, ?)
+      `).run(
+        id(),
+        workflowId,
+        `export:${exporter}`,
+        `exporter.${exporter}`,
+        JSON.stringify([previousStep]),
+        now,
+        now,
+      );
+    }
   }
 
   updatePendingPlan(workflowId: string, plan: ResearchPlan) {
