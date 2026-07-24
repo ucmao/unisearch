@@ -15,8 +15,10 @@ export interface ResearchPlan {
   collectComments: boolean;
   collectSubComments: boolean;
   startPage: number;
-  loginType: 'qrcode' | 'cookie';
+  loginType: 'qrcode' | 'cookie' | 'none';
   headless: boolean;
+  maxItems?: number;
+  customScopeDescription?: string;
   analysis: string[];
   analysisSource?: 'ai' | 'fallback' | 'user';
   outputs: string[];

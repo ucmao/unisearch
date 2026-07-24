@@ -9,6 +9,9 @@ test('content records preserve connector-specific source metadata', () => {
     initSchema(db);
     const columns = db.prepare('PRAGMA table_info(content_records)').all() as Array<{ name: string }>;
     assert.ok(columns.some((column) => column.name === 'source_metadata'));
+    for (const table of ['documents', 'document_sources', 'document_assets', 'document_artifacts', 'workflow_runs', 'workflow_steps']) {
+      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), `${table} should exist`);
+    }
   } finally {
     db.close();
   }

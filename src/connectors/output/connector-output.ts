@@ -77,6 +77,8 @@ function mediaUrls(payload: Payload): string[] {
     payload.video_url,
     payload.audio_url,
     payload.music_download_url,
+    payload.cover_url,
+    payload.video_cover_url,
   ];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {

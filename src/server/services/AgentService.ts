@@ -7,6 +7,7 @@ import { connectorLabels, getConnectorManifest, listConnectorManifests } from '.
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
 import { normalizeAnalysisGoals } from './ResearchAnalysis';
 import { directParserService } from './DirectParserService';
+import { workflowEngine } from '../../workflow/workflow-engine';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -738,6 +739,7 @@ export class AgentService {
       if (['queued', 'running'].includes(step.status)) agentRepository.updateStep(step.step_id, 'stopped', step.run_id, null);
     }
     agentRepository.updatePlanStatus(plan.plan_id, 'stopped');
+    workflowEngine.cancelByPlan(plan.plan_id);
   }
 
   private describePlanStatus(plan: any): string {
@@ -764,10 +766,12 @@ export class AgentService {
     const plan = agentRepository.getPlan(planId);
     if (!plan) throw new Error('计划不存在');
     if (!['awaiting_confirmation', 'failed', 'partially_completed'].includes(plan.status)) throw new Error('当前计划不能执行');
+    workflowEngine.ensureResearchWorkflow(plan.plan_id, plan.thread_id, plan.plan);
     for (const step of plan.steps) {
       if (['failed', 'stopped'].includes(step.status)) agentRepository.updateStep(step.step_id, 'queued', null, null);
     }
     agentRepository.updatePlanStatus(planId, 'queued');
+    workflowEngine.syncResearchPlan(agentRepository.getPlan(planId));
     void this.tick();
     return agentRepository.getPlan(planId);
   }
@@ -835,6 +839,7 @@ export class AgentService {
       const platformState = crawlerManager.getStatus(step.platform);
       if (platformState.status === 'running' || platformState.status === 'stopping') continue;
       const p = refreshed.plan as ResearchPlan;
+      const targets = p.targets || [];
       const capabilityId = p.capability || 'keyword_search';
       const manifest = getConnectorManifest(step.platform);
       const capability = manifest?.capabilities.find((item) => item.id === capabilityId);
@@ -882,6 +887,7 @@ export class AgentService {
     const statuses = final.steps.map((s: any) => s.status);
     if (statuses.some((s: string) => ['running', 'queued'].includes(s))) {
       if (final.status !== 'running') agentRepository.updatePlanStatus(final.plan_id, 'running');
+      workflowEngine.syncResearchPlan(agentRepository.getPlan(final.plan_id));
       return;
     }
     const completed = statuses.filter((s: string) => s === 'completed').length;
@@ -894,6 +900,7 @@ export class AgentService {
         : `采集已结束：${completed} 个平台成功，${statuses.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
       agentRepository.addMessage(final.thread_id, 'assistant', 'status', text, { plan_id: final.plan_id, status });
     }
+    workflowEngine.syncResearchPlan(agentRepository.getPlan(final.plan_id));
   }
 }
 
