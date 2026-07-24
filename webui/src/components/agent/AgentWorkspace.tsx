@@ -18,6 +18,8 @@ import { SettingsDialog, type SettingsSection } from '@/components/layout/Settin
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
+import { CommandPopover } from './CommandPopover'
+import { useMentionCommands } from '@/hooks/useMentionCommands'
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', ks: '快手', bili: '哔哩哔哩', wb: '微博', tieba: '百度贴吧', zhihu: '知乎',
@@ -335,6 +337,23 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const client = useQueryClient()
   useLogWebSocket()
   const [input, setInput] = useState('')
+
+  const handleExecuteCommand = (cmd: string) => {
+    if (cmd === 'clear') {
+      setInput('')
+      toast.info('已清空输入框')
+    } else if (cmd === 'export') {
+      toast.info('可以通过结果看板或任务大盘导出数据')
+    } else if (cmd === 'crawl') {
+      toast.info('请输入目标关键词并发送消息')
+    }
+  }
+
+  const mentionCommands = useMentionCommands({
+    value: input,
+    onChange: setInput,
+    onExecuteCommand: handleExecuteCommand,
+  })
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -1112,10 +1131,37 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
                   </span>)}
                 </div> : null}
-                <textarea ref={composerInputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit() } }}
+                <CommandPopover
+                  isOpen={mentionCommands.isOpen}
+                  triggerType={mentionCommands.triggerType}
+                  items={mentionCommands.items}
+                  selectedIndex={mentionCommands.selectedIndex}
+                  onSelect={(item) => {
+                    if (composerInputRef.current) {
+                      mentionCommands.selectItem(item, composerInputRef.current.selectionStart)
+                      composerInputRef.current.focus()
+                    }
+                  }}
+                  onMouseEnterItem={(index) => mentionCommands.setSelectedIndex(index)}
+                />
+                <textarea
+                  ref={composerInputRef}
+                  value={input}
+                  onChange={(e) => {
+                    mentionCommands.handleInputChange(e.target.value, e.target.selectionStart)
+                  }}
+                  onKeyDown={(e) => {
+                    const isHandled = mentionCommands.handleKeyDown(e, e.currentTarget.selectionStart)
+                    if (isHandled) return
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      submit()
+                    }
+                  }}
                   onPaste={handlePaste}
-                  placeholder={!selectedId ? '输入问题，或描述想调研的主题…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '可以先聊聊，也可以描述想调研的主题…'}
-                  className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted" />
+                  placeholder={!selectedId ? '输入问题，或使用 @ 呼出 Connector、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Connector 平台，或使用 / 呼出快捷指令…'}
+                  className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted"
+                />
                 <div className="absolute bottom-3 left-3">
                   <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
                     {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
