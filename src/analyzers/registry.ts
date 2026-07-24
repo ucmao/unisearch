@@ -73,13 +73,21 @@ export class AnalysisService {
   constructor(private readonly databaseProvider: () => Database = getDb) {}
   private get db(): Database { return this.databaseProvider(); }
 
-  documents(workflowId?: string): any[] {
-    const ids = workflowId
-      ? (this.db.prepare(`
-          SELECT DISTINCT ds.document_id FROM document_sources ds
-          JOIN crawl_runs r ON r.run_id=ds.run_id WHERE r.workflow_id=?
-        `).all(workflowId) as Array<{ document_id: string }>)
-      : (this.db.prepare('SELECT document_id FROM documents ORDER BY updated_at DESC').all() as Array<{ document_id: string }>);
+  documents(workflowId?: string, threadId?: string): any[] {
+    let ids: Array<{ document_id: string }> = [];
+    if (workflowId) {
+      ids = this.db.prepare(`
+        SELECT DISTINCT ds.document_id FROM document_sources ds
+        JOIN crawl_runs r ON r.run_id=ds.run_id WHERE r.workflow_id=?
+      `).all(workflowId) as Array<{ document_id: string }>;
+    } else if (threadId) {
+      ids = this.db.prepare(`
+        SELECT DISTINCT ds.document_id FROM document_sources ds
+        JOIN crawl_runs r ON r.run_id=ds.run_id WHERE r.thread_id=?
+      `).all(threadId) as Array<{ document_id: string }>;
+    } else {
+      ids = this.db.prepare('SELECT document_id FROM documents ORDER BY updated_at DESC').all() as Array<{ document_id: string }>;
+    }
     const engine = new DocumentEngine(this.databaseProvider);
     return ids.flatMap(({ document_id }) => {
       const document = engine.get(document_id);

@@ -33,6 +33,7 @@ async function insertRun(db: Database.Database, runId: string, threadId: string,
     title: `内容 ${runId}`,
     desc: `正文 ${runId}`,
     note_url: `https://example.com/${runId}`,
+    nickname: '测试用户',
   }), runId);
   db.prepare(`INSERT INTO crawl_run_logs
     (run_id, platform, timestamp, level, message, created_at)
@@ -82,6 +83,10 @@ test('task hierarchy merges multiple workflows under one AI thread', async () =>
     assert.equal(repo.queryContents({ thread_id: 'thread-1' }).total, 3);
     assert.equal(repo.queryContents({ plan_id: 'workflow-1' }).total, 1);
     assert.equal(repo.queryContents({ plan_id: 'workflow-2' }).total, 2);
+
+    const summary = repo.summary(null, null, null, null, 'thread-1');
+    assert.equal(summary.totals.content_count, 3);
+    assert.equal(summary.totals.creator_count, 1);
   } finally {
     db.close();
   }

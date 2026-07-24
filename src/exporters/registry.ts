@@ -62,7 +62,7 @@ exporterRegistry.register({
   version: '1.0.0',
   name: 'Markdown 合集',
   async export(documents, context): Promise<ExportResult> {
-    const outputPath = path.join(context.outputDirectory, 'UniSearch资料.md');
+    const outputPath = path.join(context.outputDirectory, 'UniSearch_Markdown_Collection.md');
     fs.writeFileSync(outputPath, documents.map(markdown).join('\n\n---\n\n'), 'utf8');
     return { outputPath, itemCount: documents.length, metadata: { format: 'markdown' } };
   },
@@ -73,7 +73,7 @@ exporterRegistry.register({
   version: '1.0.0',
   name: 'Obsidian Vault',
   async export(documents, context): Promise<ExportResult> {
-    const vault = path.join(context.outputDirectory, 'UniSearch Vault');
+    const vault = path.join(context.outputDirectory, 'Obsidian_Vault');
     fs.mkdirSync(vault, { recursive: true });
     const links: string[] = [];
     documents.forEach((document, index) => {
@@ -101,6 +101,107 @@ exporterRegistry.register({
     });
     fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ schemaVersion: 1, createdAt: context.now().toISOString(), sources: manifest }, null, 2), 'utf8');
     return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'ima-markdown-bundle' } };
+  },
+});
+
+exporterRegistry.register({
+  id: 'notion',
+  version: '1.0.0',
+  name: 'Notion 导入包',
+  async export(documents, context): Promise<ExportResult> {
+    const bundle = path.join(context.outputDirectory, 'Notion');
+    fs.mkdirSync(bundle, { recursive: true });
+    const csvRows = ['"Title","Source","URL","Author","DocumentID"'];
+    documents.forEach((document, index) => {
+      const fileName = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
+      fs.writeFileSync(path.join(bundle, fileName), markdown(document), 'utf8');
+      const safeStr = (v: string) => `"${(v || '').replace(/"/g, '""')}"`;
+      csvRows.push([safeStr(document.title), safeStr(document.provenance.source), safeStr(document.sourceUrl || ''), safeStr(document.author), safeStr(document.documentId)].join(','));
+    });
+    fs.writeFileSync(path.join(bundle, 'database.csv'), csvRows.join('\n'), 'utf8');
+    return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'notion-bundle' } };
+  },
+});
+
+exporterRegistry.register({
+  id: 'logseq',
+  version: '1.0.0',
+  name: 'Logseq 大纲包',
+  async export(documents, context): Promise<ExportResult> {
+    const bundle = path.join(context.outputDirectory, 'Logseq');
+    const pages = path.join(bundle, 'pages');
+    fs.mkdirSync(pages, { recursive: true });
+    documents.forEach((document, index) => {
+      const fileName = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
+      const content = [
+        `- title:: ${document.title}`,
+        `- source:: ${document.provenance.source}`,
+        `- url:: ${document.sourceUrl || ''}`,
+        `- author:: ${document.author}`,
+        '',
+        document.markdown,
+      ].join('\n');
+      fs.writeFileSync(path.join(pages, fileName), content, 'utf8');
+    });
+    return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'logseq-pages' } };
+  },
+});
+
+exporterRegistry.register({
+  id: 'dify',
+  version: '1.0.0',
+  name: 'Dify / RAG 知识库',
+  async export(documents, context): Promise<ExportResult> {
+    const bundle = path.join(context.outputDirectory, 'Dify');
+    fs.mkdirSync(bundle, { recursive: true });
+    const lines = documents.map((document) => JSON.stringify({
+      content: document.markdown,
+      metadata: {
+        title: document.title,
+        source: document.provenance.source,
+        url: document.sourceUrl || '',
+        author: document.author,
+        document_id: document.documentId,
+      },
+    }));
+    fs.writeFileSync(path.join(bundle, 'chunks.jsonl'), lines.join('\n'), 'utf8');
+    return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'dify-jsonl' } };
+  },
+});
+
+exporterRegistry.register({
+  id: 'yuque',
+  version: '1.0.0',
+  name: '语雀 知识库',
+  async export(documents, context): Promise<ExportResult> {
+    const bundle = path.join(context.outputDirectory, 'Yuque');
+    const docs = path.join(bundle, 'docs');
+    fs.mkdirSync(docs, { recursive: true });
+    const toc = documents.map((document, index) => {
+      const fileName = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
+      fs.writeFileSync(path.join(docs, fileName), markdown(document), 'utf8');
+      return { title: document.title, slug: fileName, url: document.sourceUrl || '' };
+    });
+    fs.writeFileSync(path.join(bundle, 'toc.json'), JSON.stringify({ name: 'UniSearch 知识库', toc }, null, 2), 'utf8');
+    return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'yuque-bundle' } };
+  },
+});
+
+exporterRegistry.register({
+  id: 'feishu',
+  version: '1.0.0',
+  name: '飞书 文档包',
+  async export(documents, context): Promise<ExportResult> {
+    const bundle = path.join(context.outputDirectory, 'Feishu');
+    const docs = path.join(bundle, 'docs');
+    fs.mkdirSync(docs, { recursive: true });
+    const indexList = documents.map((document, index) => {
+      const fileName = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
+      fs.writeFileSync(path.join(docs, fileName), markdown(document), 'utf8');
+      return { doc_id: document.documentId, title: document.title, path: `docs/${fileName}` };
+    });
+    fs.writeFileSync(path.join(bundle, 'index.json'), JSON.stringify({ title: 'UniSearch 知识空间', items: indexList }, null, 2), 'utf8');
+    return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'feishu-docs' } };
   },
 });
 

@@ -78,12 +78,14 @@ test('RAG returns ranked citations and an honest fallback without a model key', 
   }
 });
 
-test('Markdown, JSON, Obsidian and IMA exporters create portable artifacts', async () => {
+test('All registered knowledge exporters create portable artifacts', async () => {
   const db = database();
   const directory = mkdtempSync(path.join(os.tmpdir(), 'unisearch-exporters-'));
   try {
     const document = await seed(db);
-    for (const id of ['markdown', 'json', 'obsidian', 'ima']) {
+    const exporters = exporterRegistry.list().map((e) => e.id);
+    assert.equal(exporters.length >= 8, true);
+    for (const id of exporters) {
       const target = path.join(directory, id);
       const fs = await import('node:fs');
       fs.mkdirSync(target, { recursive: true });
@@ -95,6 +97,8 @@ test('Markdown, JSON, Obsidian and IMA exporters create portable artifacts', asy
     }
     assert.match(readFileSync(path.join(directory, 'markdown', 'UniSearch资料.md'), 'utf8'), /document_id:/);
     assert.match(readFileSync(path.join(directory, 'ima', 'IMA', 'manifest.json'), 'utf8'), /sources/);
+    assert.match(readFileSync(path.join(directory, 'notion', 'Notion', 'database.csv'), 'utf8'), /DocumentID/);
+    assert.match(readFileSync(path.join(directory, 'dify', 'Dify', 'chunks.jsonl'), 'utf8'), /metadata/);
   } finally {
     db.close();
     rmSync(directory, { recursive: true, force: true });
