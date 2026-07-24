@@ -114,7 +114,7 @@ test('result count questions inspect the current task instead of creating a plan
 });
 
 test('CSV requests use the real export action', () => {
-  for (const message of ['导出本次数据为 CSV', '下载CSV', '把采集结果导出成表格']) {
+  for (const message of ['导出本次数据为 CSV', '下载CSV', '把采集结果导出成表格', '导出到 Obsidian', '生成 IMA 数据包']) {
     assert.equal(localIntentDecision(message, { planStatus: 'completed' }).action, 'export', message);
   }
 });

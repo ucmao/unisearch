@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 4;
+export const DATABASE_SCHEMA_VERSION = 5;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -198,6 +198,20 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_documents_kind_updated ON documents(kind, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash);
 
+    CREATE TABLE IF NOT EXISTS document_versions (
+      version_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      markdown TEXT NOT NULL DEFAULT '',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(document_id, content_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_versions_document
+      ON document_versions(document_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS document_sources (
       source_record_id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
@@ -266,6 +280,69 @@ export function initSchema(db: Database): void {
       FOREIGN KEY(from_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
       FOREIGN KEY(to_document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
       UNIQUE(from_document_id, to_document_id, relation_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      chunk_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      ordinal INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      content TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      token_count INTEGER NOT NULL DEFAULT 0,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      UNIQUE(document_id, ordinal)
+    );
+    CREATE INDEX IF NOT EXISTS idx_document_chunks_document
+      ON document_chunks(document_id, ordinal);
+
+    CREATE TABLE IF NOT EXISTS document_chunk_embeddings (
+      chunk_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      vector_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(chunk_id, model),
+      FOREIGN KEY(chunk_id) REFERENCES document_chunks(chunk_id) ON DELETE CASCADE
+    );
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
+      chunk_id UNINDEXED,
+      document_id UNINDEXED,
+      title,
+      content,
+      tokenize='unicode61'
+    );
+    CREATE TRIGGER IF NOT EXISTS delete_chunk_fts
+    AFTER DELETE ON document_chunks
+    BEGIN
+      DELETE FROM document_chunks_fts WHERE chunk_id=OLD.chunk_id;
+    END;
+
+    CREATE TABLE IF NOT EXISTS analysis_reports (
+      report_id TEXT PRIMARY KEY,
+      analyzer_id TEXT NOT NULL,
+      analyzer_version TEXT NOT NULL,
+      workflow_id TEXT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS export_runs (
+      export_id TEXT PRIMARY KEY,
+      exporter_id TEXT NOT NULL,
+      workflow_id TEXT,
+      output_path TEXT NOT NULL,
+      item_count INTEGER NOT NULL DEFAULT 0,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
     );
   `);
 

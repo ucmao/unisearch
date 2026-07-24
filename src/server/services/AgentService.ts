@@ -8,6 +8,9 @@ import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, tit
 import { normalizeAnalysisGoals } from './ResearchAnalysis';
 import { directParserService } from './DirectParserService';
 import { workflowRuntime } from '../../workflow/workflow-runtime';
+import { ragService } from '../../knowledge/rag-service';
+import { knowledgeIndex } from '../../knowledge/knowledge-index';
+import { exportService } from '../../exporters/registry';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -540,6 +543,30 @@ export class AgentService {
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有可以导出的采集数据。请先完成一次采集任务。', { action: 'export' });
       } else {
         const stats = agentRepository.getPlanStats(latest.plan_id);
+        const requestedExporter = /obsidian/i.test(content)
+          ? 'obsidian'
+          : /\bima\b/i.test(content)
+            ? 'ima'
+            : /json/i.test(content)
+              ? 'json'
+              : /markdown|md\b/i.test(content)
+                ? 'markdown'
+                : null;
+        if (requestedExporter) {
+          try {
+            const result = await exportService.run(requestedExporter, latest.plan_id);
+            agentRepository.addMessage(
+              threadId,
+              'assistant',
+              'export',
+              `${requestedExporter.toUpperCase()} 导出完成，共 ${result.item_count} 篇资料。\n保存位置：${result.output_path}`,
+              { action: 'export', exporter_id: requestedExporter, plan_id: latest.plan_id, ...result },
+            );
+          } catch (error: any) {
+            agentRepository.addMessage(threadId, 'assistant', 'status', `导出失败：${error.message}`, { action: 'export_error' });
+          }
+          return agentRepository.getThread(threadId);
+        }
         agentRepository.addMessage(
           threadId,
           'assistant',
@@ -563,8 +590,18 @@ export class AgentService {
       const rows = agentRepository.getPlanContents(latest.plan_id, 100);
       if (rows.length) {
         try {
-          const answer = await modelService.analyze(latest.goal, latest.plan.analysis, content, rows, onRetry);
-          agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { sampled_records: rows.length });
+          let rag = await ragService.answer(
+            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}`,
+            { workflowId: latest.plan_id, limit: 10 },
+          );
+          if (!rag.sources.length) {
+            knowledgeIndex.rebuild(latest.plan_id);
+            rag = await ragService.answer(content, { workflowId: latest.plan_id, limit: 10 });
+          }
+          agentRepository.addMessage(threadId, 'assistant', 'analysis', rag.answer, {
+            retrieval: 'hybrid_rag',
+            sources: rag.sources,
+          });
         } catch (error: any) {
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
         }

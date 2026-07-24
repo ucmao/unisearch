@@ -11,6 +11,7 @@ import {
 } from '../core/processors/worker-contract';
 import { ProcessorResourceScheduler } from '../core/processors/resource-scheduler';
 import { documentProcessorRegistry } from '../document/processor-registry';
+import { getDatabasePath } from '../database/connection';
 
 function workerPath(): string {
   const packaged = process.env.NODE_ENV === 'production' || require('electron').app?.isPackaged;
@@ -53,7 +54,11 @@ export class ProcessorWorkerExecutor {
       return await new Promise((resolve, reject) => {
         const child = fork(workerPath(), [], {
           stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-          env: { ...process.env, NODE_ENV: process.env.NODE_ENV },
+          env: {
+            ...process.env,
+            NODE_ENV: process.env.NODE_ENV,
+            UNISEARCH_PROCESSOR_STORAGE_DIR: path.join(path.dirname(getDatabasePath()), 'processor-assets'),
+          },
         });
         this.children.set(jobId, child);
         let settled = false;

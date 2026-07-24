@@ -11,8 +11,10 @@ export const skillDefinitionSchema = z.object({
     description: z.string().default(''),
   }).strict()),
   workflow: z.object({
-    connectorCapabilities: z.array(z.string()).min(1),
+    connectorCapabilities: z.array(z.string()).default([]),
     itemProcessors: z.array(z.string()).default([]),
+    analyzers: z.array(z.string()).default([]),
+    exporters: z.array(z.string()).default([]),
     outputs: z.array(z.string()).default([]),
   }).strict(),
 }).strict();

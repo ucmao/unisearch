@@ -32,36 +32,44 @@ export class WorkflowEngine {
   }
 
   async tick(workflowId: string): Promise<any> {
-    for (const candidate of this.repository.listReadySteps(workflowId)) {
-      const handler = this.handlers.get(candidate.uses_id);
-      if (!handler) continue;
-      const step = this.repository.claimStep(workflowId, candidate.step_key);
-      if (!step) continue;
-      const controller = new AbortController();
-      const controllerKey = `${workflowId}:${step.step_key}`;
-      this.activeControllers.set(controllerKey, controller);
-      const timeout = setTimeout(() => controller.abort(), Number(step.timeout_ms) || 300_000);
-      timeout.unref();
-      try {
-        const output = await handler(step.input, {
-          workflowId,
-          stepKey: step.step_key,
-          signal: controller.signal,
-        });
-        this.repository.finishStep(workflowId, step.step_key, output);
-      } catch (error: any) {
-        this.repository.failStep(
-          workflowId,
-          step.step_key,
-          controller.signal.aborted
-            ? `步骤执行超时（${step.timeout_ms}ms）`
-            : error.message || 'Workflow step failed',
-          !controller.signal.aborted,
-        );
-      } finally {
-        clearTimeout(timeout);
-        this.activeControllers.delete(controllerKey);
+    const attempted = new Set<string>();
+    while (true) {
+      let progressed = false;
+      for (const candidate of this.repository.listReadySteps(workflowId)) {
+        if (attempted.has(candidate.step_key)) continue;
+        const handler = this.handlers.get(candidate.uses_id);
+        if (!handler) continue;
+        const step = this.repository.claimStep(workflowId, candidate.step_key);
+        if (!step) continue;
+        attempted.add(step.step_key);
+        progressed = true;
+        const controller = new AbortController();
+        const controllerKey = `${workflowId}:${step.step_key}`;
+        this.activeControllers.set(controllerKey, controller);
+        const timeout = setTimeout(() => controller.abort(), Number(step.timeout_ms) || 300_000);
+        timeout.unref();
+        try {
+          const output = await handler(step.input, {
+            workflowId,
+            stepKey: step.step_key,
+            signal: controller.signal,
+          });
+          this.repository.finishStep(workflowId, step.step_key, output);
+        } catch (error: any) {
+          this.repository.failStep(
+            workflowId,
+            step.step_key,
+            controller.signal.aborted
+              ? `步骤执行超时（${step.timeout_ms}ms）`
+              : error.message || 'Workflow step failed',
+            !controller.signal.aborted,
+          );
+        } finally {
+          clearTimeout(timeout);
+          this.activeControllers.delete(controllerKey);
+        }
       }
+      if (!progressed) break;
     }
     return this.finalizeIfTerminal(workflowId);
   }

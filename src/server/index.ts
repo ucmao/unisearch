@@ -17,6 +17,12 @@ import type { AppConfig } from '../tools/config';
 import { listConnectorManifests } from '../connectors/registry';
 import type { ConnectorStartRequest } from '../connectors/types';
 import { processorWorkerExecutor } from '../processor/processor-worker-executor';
+import { listProcessorCapabilities } from '../processor/capabilities';
+import { documentProcessorRegistry } from '../document/processor-registry';
+import { knowledgeIndex } from '../knowledge/knowledge-index';
+import { ragService } from '../knowledge/rag-service';
+import { analyzerRegistry, analysisService } from '../analyzers/registry';
+import { exporterRegistry, exportService } from '../exporters/registry';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
@@ -86,7 +92,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       };
       crawlerManager.on('log', logListener);
 
-      socket.on('message', (message) => {
+      socket.on('message', (message: any) => {
         if (message.toString() === 'ping') {
           try {
             socket.send('pong');
@@ -313,6 +319,9 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/skills', async () => ({ items: skillRegistry.list() }));
+  fastify.get('/api/processors', async () => ({ items: listProcessorCapabilities() }));
+  fastify.get('/api/analyzers', async () => ({ items: analyzerRegistry.list() }));
+  fastify.get('/api/exporters', async () => ({ items: exporterRegistry.list() }));
 
   fastify.get('/api/documents', async (request) => {
     const query = request.query as { run_id?: string; limit?: string };
@@ -326,6 +335,72 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const document = documentEngine.get(document_id);
     if (!document) return reply.status(404).send({ detail: 'Document not found' });
     return document;
+  });
+
+  fastify.get('/api/documents/:document_id/versions', async (request, reply) => {
+    const { document_id } = request.params as { document_id: string };
+    if (!documentEngine.get(document_id)) return reply.status(404).send({ detail: 'Document not found' });
+    return { items: documentEngine.listVersions(document_id) };
+  });
+
+  fastify.post('/api/documents/:document_id/process', async (request, reply) => {
+    const { document_id } = request.params as { document_id: string };
+    const body = (request.body || {}) as { processor_ids?: string[] };
+    const document = documentEngine.get(document_id);
+    if (!document) return reply.status(404).send({ detail: 'Document not found' });
+    const processorIds = Array.isArray(body.processor_ids) ? body.processor_ids.map(String) : [];
+    if (!processorIds.length) return reply.status(400).send({ detail: 'processor_ids is required' });
+    try {
+      for (const processorId of processorIds) documentProcessorRegistry.get(processorId);
+      const result = await processorWorkerExecutor.run(processorIds, [document]);
+      const processed = documentEngine.saveProcessed(result.documents[0], result.artifacts);
+      knowledgeIndex.indexDocument(document_id);
+      return { document: processed, artifacts: result.artifacts };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/knowledge/index/rebuild', async (request) => {
+    const body = (request.body || {}) as { workflow_id?: string };
+    return knowledgeIndex.rebuild(body.workflow_id);
+  });
+
+  fastify.get('/api/knowledge/search', async (request) => {
+    const query = request.query as { q?: string; workflow_id?: string; limit?: string };
+    return {
+      items: knowledgeIndex.search(String(query.q || ''), Number(query.limit) || 8, query.workflow_id),
+    };
+  });
+
+  fastify.post('/api/knowledge/rag', async (request, reply) => {
+    const body = (request.body || {}) as { question?: string; workflow_id?: string; limit?: number };
+    if (!body.question?.trim()) return reply.status(400).send({ detail: 'question is required' });
+    try {
+      return await ragService.answer(body.question.trim(), { workflowId: body.workflow_id, limit: body.limit });
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/analyze', async (request, reply) => {
+    const body = (request.body || {}) as { analyzer_id?: string; workflow_id?: string; options?: Record<string, unknown> };
+    if (!body.analyzer_id) return reply.status(400).send({ detail: 'analyzer_id is required' });
+    try {
+      return await analysisService.run(body.analyzer_id, body.workflow_id, body.options);
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/export', async (request, reply) => {
+    const body = (request.body || {}) as { exporter_id?: string; workflow_id?: string };
+    if (!body.exporter_id) return reply.status(400).send({ detail: 'exporter_id is required' });
+    try {
+      return await exportService.run(body.exporter_id, body.workflow_id);
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
   });
 
   fastify.patch('/api/agent/plans/:plan_id', async (request, reply) => {
@@ -748,7 +823,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         let val = item[col.key];
         if (col.key === 'published_at' && val) {
           try {
-            val = new Date(val * 1000).toLocaleString('zh-CN');
+            val = new Date(Number(val) * 1000).toLocaleString('zh-CN');
           } catch {
             val = String(val);
           }

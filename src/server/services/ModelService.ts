@@ -502,7 +502,7 @@ export class ModelService {
 - stop：只有用户明确要求停止 queued/running 计划时使用。
 - status：用户询问采集数量、任务进度、是否完成或采集情况。只要是在问已有任务本身，就不能创建新计划。
 - analyze：只有已有 completed/partially_completed 计划且用户要分析其结果时使用。
-- export：用户要求导出或下载当前任务的 CSV 数据。
+- export：用户要求导出或下载当前任务的 CSV、Markdown、JSON、Obsidian 或 IMA 数据包。
 
 重要规则：
 1. 寒暄、普通问答不得生成计划；“你好”永远是 chat。

@@ -4,6 +4,9 @@ import { processorWorkerExecutor } from '../processor/processor-worker-executor'
 import { agentRepository, type ResearchPlan } from '../server/services/AgentRepository';
 import { crawlerManager } from '../server/services/CrawlerManager';
 import { workflowEngine, type WorkflowStepHandlerContext } from './workflow-engine';
+import { knowledgeIndex } from '../knowledge/knowledge-index';
+import { analysisService } from '../analyzers/registry';
+import { exportService } from '../exporters/registry';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -18,6 +21,14 @@ export class WorkflowRuntime {
   constructor() {
     workflowEngine.registerHandler('processor.documents.finalize', (input, context) =>
       this.finalizeDocuments(input, context));
+    workflowEngine.registerHandler('analyzer.knowledge.index', (_input, context) =>
+      Promise.resolve(knowledgeIndex.rebuild(context.workflowId)));
+    workflowEngine.registerHandler('analyzer.extractive.summary', (input, context) =>
+      analysisService.run('extractive.summary', context.workflowId, input));
+    for (const exporterId of ['markdown', 'json', 'obsidian', 'ima']) {
+      workflowEngine.registerHandler(`exporter.${exporterId}`, (_input, context) =>
+        exportService.run(exporterId, context.workflowId));
+    }
   }
 
   queue(workflowId: string): any {
