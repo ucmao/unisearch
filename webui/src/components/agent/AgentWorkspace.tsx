@@ -398,7 +398,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [threadMenuId, setThreadMenuId] = useState<string | null>(null)
   const [renamingThread, setRenamingThread] = useState<AgentThreadSummary | null>(null)
   const [renameTitle, setRenameTitle] = useState('')
-  const [deleteAnalyticsData, setDeleteAnalyticsData] = useState(false)
+  const [deleteAnalyticsData, setDeleteAnalyticsData] = useState(true)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(() => localStorage.getItem('unisearch-right-sidebar-open') !== 'false')
   const [rightSidebarPulsing, setRightSidebarPulsing] = useState(false)
@@ -1014,13 +1014,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   <DeleteConfirmDialog
                     trigger={<button type="button" role="menuitem" disabled={remove.isPending} onClick={() => setThreadMenuId(null)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />删除</button>}
                     title="删除这个任务？"
-                    description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
+                    description="将彻底删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
                     confirmLabel="删除任务"
                     onConfirm={() => remove.mutateAsync({ id: thread.thread_id, withData: deleteAnalyticsData })}
                   >
                     <label className="flex items-center gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
                       <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                      <span className="font-medium text-cyber-text-primary">同时清理对应看板数据</span>
+                      <span className="font-medium text-cyber-text-primary">同时彻底物理清理该任务所采集的全部平台数据与看板记录</span>
                     </label>
                   </DeleteConfirmDialog>
                 </div>

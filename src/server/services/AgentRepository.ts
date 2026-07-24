@@ -137,7 +137,7 @@ export class AgentRepository {
     }
   }
 
-  deleteThread(threadId: string, _deleteAnalyticsData = true): { deleted: number; analytics_runs_deleted: number } {
+  deleteThread(threadId: string, deleteAnalyticsData = true): { deleted: number; analytics_runs_deleted: number } {
     const id = String(threadId || '').trim();
     if (!id) return { deleted: 0, analytics_runs_deleted: 0 };
 
@@ -148,9 +148,21 @@ export class AgentRepository {
         LIMIT 1
       `).get(id);
       if (active) throw new Error('任务仍在运行，请先停止后再删除');
-      const analyticsRunsDeleted = Number((this.db.prepare(
-        'SELECT COUNT(*) AS count FROM crawl_runs WHERE thread_id=?',
+
+      const runningCrawl = Number((this.db.prepare(
+        "SELECT COUNT(*) AS count FROM crawl_runs WHERE thread_id=? AND status='running'",
       ).get(id) as any)?.count || 0);
+      if (runningCrawl) throw new Error('任务仍在运行，请先停止后再删除');
+
+      let analyticsRunsDeleted = 0;
+      if (deleteAnalyticsData) {
+        analyticsRunsDeleted = this.db.prepare('DELETE FROM crawl_runs WHERE thread_id=?').run(id).changes;
+      } else {
+        analyticsRunsDeleted = Number((this.db.prepare(
+          'SELECT COUNT(*) AS count FROM crawl_runs WHERE thread_id=?',
+        ).get(id) as any)?.count || 0);
+      }
+
       const deleted = this.db.prepare('DELETE FROM agent_threads WHERE thread_id=?').run(id).changes;
       return { deleted, analytics_runs_deleted: analyticsRunsDeleted };
     })();

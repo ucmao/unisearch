@@ -399,7 +399,7 @@ export function SettingsDialog({
               <div className="mx-auto max-w-2xl">
                 <DialogHeader>
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">存储管理</DialogTitle>
-                  <DialogDescription>清理执行历史和看板分析数据。平台原始采集数据不会在这里删除。</DialogDescription>
+                  <DialogDescription>管理和清理本地采集的执行履历、日志与平台原始文档。物理删除后不可恢复。</DialogDescription>
                 </DialogHeader>
                 {storageQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在统计本地数据…</div>
@@ -415,18 +415,18 @@ export function SettingsDialog({
                     </div>
                     <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
                       {[
-                        { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '移除失败以及没有采集到内容的看板记录。', confirm: '清理失败或空结果执行？' },
-                        { mode: 'older_than_30_days' as const, title: '清理30天前执行历史', detail: '移除30天前的执行记录、看板内容和日志。', confirm: '清理30天前的执行历史？' },
-                        { mode: 'all' as const, title: '清空看板历史', detail: '清空全部非运行中的看板执行历史。', confirm: '清空全部看板历史？' },
+                        { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理所有状态为失败或未采集到任何有效内容的孤立执行与日志。', confirm: '清理失败或空结果执行？' },
+                        { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的所有历史执行履历、采集文档与相关日志。', confirm: '清理 30 天前的执行历史？' },
+                        { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底物理清空所有已结束任务的执行履历与底座所有采集数据。', confirm: '彻底清空全部历史数据？' },
                       ].map((item) => <div key={item.mode} className="flex items-center justify-between gap-5 py-4"><div><p className="text-sm font-medium text-cyber-text-primary">{item.title}</p><p className="mt-1 text-xs text-cyber-text-muted">{item.detail}</p></div><DeleteConfirmDialog
                         trigger={<Button size="sm" variant={item.mode === 'all' ? 'destructive' : 'outline'} disabled={cleanupStorage.isPending}>清理</Button>}
                         title={item.confirm}
-                        description="对应看板分析数据和执行日志会一并删除，工作区任务与平台原始数据保持不变。"
+                        description="所选范围内的看板执行履历、日志以及底层关联的所有物理文档数据将一并彻底物理清除。"
                         confirmLabel="确认清理"
                         onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
                       /></div>)}
                     </div>
-                    <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">平台原始数据可能被多个任务共同引用。在建立完整的数据来源关系前，不提供按任务物理删除，避免误删其他任务仍需的数据。</p>
+                    <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">提示：删除或清理执行历史时，系统会依托外键级联同步物理清除不再被引用的底层文档数据，有效释放本地 SQLite 空间。</p>
                   </div>
                 ) : null}
               </div>

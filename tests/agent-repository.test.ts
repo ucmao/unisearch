@@ -243,6 +243,7 @@ test('deleting a task always cascades workflows and Documents, and rejects activ
       (run_id, thread_id, workflow_id, task_title, task_name, platform, crawler_type, status, started_at)
       VALUES ('run-cascaded', ?, ?, '同步清理', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(cascaded.thread_id, cascadedPlan.plan_id);
     assert.deepEqual(repo.deleteThread(cascaded.thread_id, true), { deleted: 1, analytics_runs_deleted: 1 });
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE run_id='run-cascaded'").get() as any).count, 0);
 
     const active = repo.createThread('运行中');
     const activePlan = repo.createPlan(active.thread_id, plan());
