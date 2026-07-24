@@ -29,8 +29,8 @@ const IDENTITY_CONVERSATION = /^(?:(?:你|我)是(?:谁|什么|啥)?|(?:你|我)
 const WEATHER = /天气|气温|下雨|降雨|温度|weather/i;
 const LOCATION = /^(?:我在|我住在|城市是|地点是)?\s*[\u4e00-\u9fa5]{2,12}(?:市)?[!！,.，。\s]*$/;
 const CONFIRM_PARTICLE = '(?:呀|啊|吧|呗|哈|咯|呐|哦|捏)?';
-const CONFIRM = new RegExp(`^(?:确认|确认并执行|开始|开始采集|直接采集|立即采集|执行|执行这个计划|开跑|跑起来|可以|可以的|好的?|行|没问题|就这样|ok|okay|就按(?:这个|该计划|上面的计划)(?:来|执行|开始)?|按(?:这个|该计划|上面的计划)(?:来|执行|开始)?)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
-const FORCE_EXECUTE = new RegExp(`^(?:执行|开始采集|直接采集|立即采集|开跑|跑起来)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
+const CONFIRM = new RegExp(`^(?:确认|确认并执行|开始|开始吧|开始采集|直接采集|直接开始|按默认|按默认直接开始|按默认 直接开始|按照默认|按照默认直接开始|按照默认 直接开始|立即采集|执行|执行这个计划|开跑|跑起来|可以|可以的|好的?|行|没问题|就这样|ok|okay|就按(?:这个|该计划|上面的计划)(?:来|执行|开始)?|按(?:这个|该计划|上面的计划)(?:来|执行|开始)?)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
+const FORCE_EXECUTE = new RegExp(`^(?:执行|开始|开始吧|开始采集|直接采集|直接开始|按默认|按默认直接开始|按默认 直接开始|按照默认|按照默认直接开始|按照默认 直接开始|立即采集|开跑|跑起来)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
 const STOP = /(?:停止|停下|停一下|暂停|取消)(?:采集|任务|执行)?|(?:stop|cancel)(?:\s+(?:task|run))?/i;
 const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|状态|进度|怎么样|完成)|(?:多少|几条).*(?:信息|内容|数据|结果)|采集到了吗|(?:执行|开始|开跑|跑起来)(?:了)?吗/i;
 const EXPORT = /(?:导出|下载).*(?:CSV|表格|数据|结果)|(?:CSV|表格).*(?:导出|下载)/i;
@@ -107,9 +107,12 @@ export function inferResearchKeywords(text: string): string[] {
 }
 
 export function inferResearchPlatforms(text: string): string[] {
-  if (/(?:全部|所有|全)(?:支持的)?平台|全网|各平台/.test(text)) return [...ALL_PLATFORM_IDS];
+  if (/(?:全部|所有|全)(?:支持的)?(?:\s*\d+\s*个)?(?:平台)?|全网|各平台/i.test(text)) return [...ALL_PLATFORM_IDS];
   if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) return ['baidu', 'bing', 'so360', 'sogou'];
   if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) return ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
+  if (/(?:所有|全部|全|主流)?\s*AI\s*(?:搜索|问答|类|Web\s*QA)/i.test(text)) {
+    return ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
+  }
   const aliases: Array<[RegExp, string]> = [
     [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
     [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'douyin'],
