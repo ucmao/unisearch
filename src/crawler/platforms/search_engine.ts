@@ -98,7 +98,7 @@ export class BaiduCrawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await connectorOutput.storeSearchEngineResult({
+            await connectorOutput.emitSearchEngineResult({
               search_engine: 'baidu',
               title,
               url: encryptedUrl,
@@ -190,7 +190,7 @@ export class BingCrawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await connectorOutput.storeSearchEngineResult({
+            await connectorOutput.emitSearchEngineResult({
               search_engine: 'bing',
               title,
               url: pageUrl,
@@ -282,7 +282,7 @@ export class So360Crawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await connectorOutput.storeSearchEngineResult({
+            await connectorOutput.emitSearchEngineResult({
               search_engine: 'so360',
               title,
               url: encryptedUrl,
@@ -439,7 +439,7 @@ export class SogouCrawler extends AbstractCrawler {
           totalRank++;
 
           const realUrl = await resolveRealUrl(item.url);
-          await connectorOutput.storeSearchEngineResult({
+          await connectorOutput.emitSearchEngineResult({
             search_engine: 'sogou',
             title: item.title,
             url: item.url,

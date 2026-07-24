@@ -248,21 +248,3 @@ export function notifyManualVerificationRequired(platform: string, reason: strin
 export function notifyManualVerificationSuccess(platform: string): void {
   if (process.send) process.send({ type: 'MANUAL_VERIFICATION_SUCCESS', platform });
 }
-
-export abstract class AbstractLogin {
-  public abstract begin(): Promise<void>;
-  public abstract loginByQrcode(): Promise<void>;
-  public abstract loginByMobile(): Promise<void>;
-  public abstract loginByCookies(): Promise<void>;
-}
-
-export abstract class AbstractStore {
-  public abstract storeContent(contentItem: Record<string, any>): Promise<void>;
-  public abstract storeComment(commentItem: Record<string, any>): Promise<void>;
-  public abstract storeCreator(creatorItem: Record<string, any>): Promise<void>;
-}
-
-export abstract class AbstractApiClient {
-  public abstract request(method: string, url: string, options?: any): Promise<any>;
-  public abstract updateCookies(browserContext: BrowserContext): Promise<void>;
-}

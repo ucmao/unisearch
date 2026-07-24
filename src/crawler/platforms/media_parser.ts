@@ -55,7 +55,7 @@ export class MediaParserCrawler extends AbstractCrawler {
         const videoUrl = data.video_url || '';
         const imagesCount = Array.isArray(data.images) ? data.images.length : 0;
 
-        await connectorOutput.storeMediaParsedResult({
+        await connectorOutput.emitMediaParsedResult({
           ...data,
           source_keyword: text,
         });

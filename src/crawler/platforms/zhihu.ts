@@ -153,7 +153,7 @@ export class ZhihuCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await connectorOutput.storeZhihuContent(contentDetail);
+          await connectorOutput.emitZhihuContent(contentDetail);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(it.content_id, it.content_type);
           count++;
           
@@ -199,7 +199,7 @@ export class ZhihuCrawler extends AbstractCrawler {
         comment_count: result.comment_count || 0, source_keyword: sourceKeyword,
         creator_hash: author.url_token || String(author.id || ''), user_nickname: author.name || '',
       };
-      await connectorOutput.storeZhihuContent(record);
+      await connectorOutput.emitZhihuContent(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(record.content_id, type);
       return record;
     } catch (error: any) {
@@ -214,7 +214,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     try {
       const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
       const comments = result?.data || [];
-      const store = async (comment: any, parent = '') => connectorOutput.storeZhihuComment({
+      const store = async (comment: any, parent = '') => connectorOutput.emitZhihuComment({
         comment_id: String(comment.id || ''), parent_comment_id: parent,
         content: stripHtml(comment.content || ''), publish_time: comment.created_time || 0,
         sub_comment_count: comment.child_comment_count || 0, like_count: comment.vote_count || 0,

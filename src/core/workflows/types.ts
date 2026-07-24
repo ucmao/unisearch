@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const workflowStepKindSchema = z.enum(['connector', 'processor', 'analyzer', 'exporter']);
 export const workflowStatusSchema = z.enum([
   'created',
+  'awaiting_confirmation',
   'queued',
   'running',
   'waiting_for_user',
@@ -10,6 +11,7 @@ export const workflowStatusSchema = z.enum([
   'partially_completed',
   'failed',
   'cancelled',
+  'stopped',
   'interrupted',
 ]);
 export const workflowStepStatusSchema = z.enum([

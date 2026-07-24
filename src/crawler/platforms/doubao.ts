@@ -133,7 +133,7 @@ export class DoubaoCrawler extends AbstractCrawler {
     await this.waitForResponse();
     const result = await this.collectResult();
     if (!result.answer) throw new Error('豆包已结束生成，但页面中未找到可导出的回答正文。');
-    await connectorOutput.storeDoubaoResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
+    await connectorOutput.emitDoubaoResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
       citations: result.citations, url: result.url, source_keyword: question, time: Date.now() });
   }
 

@@ -109,7 +109,7 @@ export class QwenCrawler extends AbstractCrawler {
     await this.waitForResponse();
     const result = await this.collectResult();
     if (!result.answer) throw new Error('通义千问已结束生成，但页面中未找到回答正文。');
-    await connectorOutput.storeQwenResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
+    await connectorOutput.emitQwenResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
       citations: result.citations, url: result.url, source_keyword: question, time: Date.now() });
   }
 

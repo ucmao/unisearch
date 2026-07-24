@@ -161,7 +161,7 @@ export class WeiboCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await connectorOutput.storeWeiboNote(noteDetail);
+          await connectorOutput.emitWeiboNote(noteDetail);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(c.note_id);
           count++;
           
@@ -187,7 +187,7 @@ export class WeiboCrawler extends AbstractCrawler {
       create_time: status.created_at ? Math.floor(new Date(status.created_at).getTime() / 1000) : 0,
       create_date_time: status.created_at || '', source_keyword: sourceKeyword,
     };
-    await connectorOutput.storeWeiboNote(record);
+    await connectorOutput.emitWeiboNote(record);
     if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(noteId);
     return record;
   }
@@ -220,7 +220,7 @@ export class WeiboCrawler extends AbstractCrawler {
     try {
       const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
       const comments = result?.data || [];
-      const store = async (comment: any, parent = '') => connectorOutput.storeWeiboComment({
+      const store = async (comment: any, parent = '') => connectorOutput.emitWeiboComment({
         comment_id: String(comment.idstr || comment.id || ''), note_id: noteId,
         content: stripHtml(comment.text_raw || comment.text || ''),
         create_time: comment.created_at ? Math.floor(new Date(comment.created_at).getTime() / 1000) : 0,

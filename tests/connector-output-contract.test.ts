@@ -11,9 +11,9 @@ import { MemoryOutputSink } from '../src/core/sinks/memory';
 import { SqliteOutputSink } from '../src/core/sinks/sqlite';
 import { closeDb, getDb } from '../src/database/connection';
 
-test('legacy connector payloads are wrapped in a versioned RawItem contract', () => {
+test('connector payloads are emitted as a versioned RawItem contract', () => {
   const fixturePath = path.resolve(import.meta.dirname, 'fixtures/connectors/xhs-note.json');
-  const item = buildRawItem('storeXhsNote', JSON.parse(readFileSync(fixturePath, 'utf8')));
+  const item = buildRawItem('emitXhsNote', JSON.parse(readFileSync(fixturePath, 'utf8')));
 
   assert.equal(item.schemaVersion, 1);
   assert.equal(item.id, 'xhs:post:fixture-note-1');
@@ -22,7 +22,7 @@ test('legacy connector payloads are wrapped in a versioned RawItem contract', ()
   assert.equal(item.sourceItemId, 'fixture-note-1');
   assert.equal(item.parentId, undefined);
   assert.deepEqual(item.hints.mediaUrls, ['https://example.com/fixture-1.jpg']);
-  assert.equal(item.metadata.operation, 'storeXhsNote');
+  assert.deepEqual(item.metadata, {});
 });
 
 test('connector output can be tested without a database through OutputSink', async () => {
@@ -33,7 +33,7 @@ test('connector output can be tested without a database through OutputSink', asy
     { runId: 'run-contract', source: 'bing', startedAt: new Date().toISOString() },
   );
 
-  await connectorOutput.storeSearchEngineResult({
+  await connectorOutput.emitSearchEngineResult({
     engine: 'bing',
     title: '结果',
     real_url: 'https://example.com/result',
@@ -48,20 +48,19 @@ test('connector output can be tested without a database through OutputSink', asy
   assert.equal(first.items[0].kind, 'search_result');
 });
 
-test('SQLite sink preserves the existing platform storage behavior', async () => {
+test('SQLite sink writes only the canonical Document model', async () => {
   const temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), 'unisearch-output-sink-'));
   const previousUserDataDirectory = process.env.UNISEARCH_USER_DATA_DIR;
   process.env.UNISEARCH_USER_DATA_DIR = temporaryDirectory;
   try {
     const sink = new SqliteOutputSink();
-    await sink.write(buildRawItem('storeXhsNote', {
+    await sink.write(buildRawItem('emitXhsNote', {
       note_id: 'sqlite-note-1',
-      title: '兼容写入',
-      desc: '通过 Sink 写入原有平台表',
+      title: '统一写入',
+      desc: '通过 Sink 写入 Document Engine',
     }));
-    const stored = getDb().prepare('SELECT note_id, title FROM xhs_note WHERE note_id=?').get('sqlite-note-1') as any;
-    assert.deepEqual(stored, { note_id: 'sqlite-note-1', title: '兼容写入' });
     assert.equal((getDb().prepare('SELECT COUNT(*) AS count FROM documents').get() as any).count, 1);
+    assert.equal(getDb().prepare("SELECT 1 FROM sqlite_master WHERE name='xhs_note'").get(), undefined);
   } finally {
     closeDb();
     if (previousUserDataDirectory === undefined) delete process.env.UNISEARCH_USER_DATA_DIR;

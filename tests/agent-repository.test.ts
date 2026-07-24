@@ -36,7 +36,7 @@ test('creating a plan twice reuses the current active round', () => {
 
     assert.equal(second.plan_id, first.plan_id);
     assert.equal(second.plan.goal, first.plan.goal);
-    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_plans WHERE thread_id=?').get(thread.thread_id) as any).count, 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM workflow_runs WHERE thread_id=?').get(thread.thread_id) as any).count, 1);
   } finally {
     db.close();
   }
@@ -56,7 +56,7 @@ test('a completed round allows a new collection round in the same task', () => {
     assert.equal(updated.plan.plan_id, second.plan_id);
     assert.deepEqual(updated.plans.map((item: any) => item.round_number), [1, 2]);
     assert.deepEqual(updated.plans.map((item: any) => item.plan.keywords), [['第一轮'], ['第二轮']]);
-    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_plans WHERE thread_id=?').get(thread.thread_id) as any).count, 2);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM workflow_runs WHERE thread_id=?').get(thread.thread_id) as any).count, 2);
   } finally {
     db.close();
   }
@@ -146,7 +146,7 @@ test('deleting a standalone assistant message does not consume the following use
   }
 });
 
-test('schema migration adds title controls to an existing conversation table', () => {
+test('schema version reset drops legacy data instead of migrating it', () => {
   const db = new Database(':memory:');
   try {
     db.exec(`
@@ -154,13 +154,16 @@ test('schema migration adds title controls to an existing conversation table', (
         thread_id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       );
+      INSERT INTO agent_threads VALUES ('legacy', '旧任务', 'active', 'now', 'now');
+      PRAGMA user_version = 1;
     `);
     initSchema(db);
     const columns = db.prepare('PRAGMA table_info(agent_threads)').all() as Array<{ name: string }>;
     assert.equal(columns.some((column) => column.name === 'title_source'), true);
-    const planIndexes = db.prepare('PRAGMA index_list(agent_plans)').all() as Array<{ name: string; unique: number }>;
-    assert.equal(planIndexes.some((index) => index.name === 'idx_agent_plans_one_per_thread'), false);
-    assert.equal(planIndexes.some((index) => index.name === 'idx_agent_plans_thread_created' && index.unique === 0), true);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_threads').get() as any).count, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE name='agent_plans'").get() as any).count, 0);
+    const workflowIndexes = db.prepare('PRAGMA index_list(workflow_runs)').all() as Array<{ name: string }>;
+    assert.equal(workflowIndexes.some((index) => index.name === 'idx_workflow_runs_thread'), true);
     assert.equal(columns.some((column) => column.name === 'title_locked'), true);
     assert.equal(columns.some((column) => column.name === 'pinned_at'), true);
   } finally {
@@ -178,7 +181,7 @@ test('revising a pending plan updates the same plan and rebuilds its steps', () 
     assert.equal(revised.plan_id, first.plan_id);
     assert.deepEqual(revised.plan.keywords, ['新品']);
     assert.deepEqual(revised.steps.map((step: any) => step.platform).sort(), ['xhs', 'zhihu']);
-    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_plans WHERE thread_id=?').get(thread.thread_id) as any).count, 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM workflow_runs WHERE thread_id=?').get(thread.thread_id) as any).count, 1);
   } finally {
     db.close();
   }
@@ -221,23 +224,23 @@ test('attachments are scoped to their conversation and removed with it', () => {
   }
 });
 
-test('deleting a task can retain or cascade analytics data and rejects active tasks', () => {
+test('deleting a task always cascades workflows and Documents, and rejects active tasks', () => {
   const { db, repository: repo } = repository();
   try {
     const retained = repo.createThread('保留数据');
     const retainedPlan = repo.createPlan(retained.thread_id, plan());
     repo.updatePlanStatus(retainedPlan.plan_id, 'completed');
     db.prepare(`INSERT INTO crawl_runs
-      (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, status, started_at)
+      (run_id, thread_id, workflow_id, task_title, task_name, platform, crawler_type, status, started_at)
       VALUES ('run-retained', ?, ?, '保留数据', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(retained.thread_id, retainedPlan.plan_id);
-    assert.deepEqual(repo.deleteThread(retained.thread_id, false), { deleted: 1, analytics_runs_deleted: 0 });
-    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE run_id='run-retained'").get() as any).count, 1);
+    assert.deepEqual(repo.deleteThread(retained.thread_id, false), { deleted: 1, analytics_runs_deleted: 1 });
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE run_id='run-retained'").get() as any).count, 0);
 
     const cascaded = repo.createThread('同步清理');
     const cascadedPlan = repo.createPlan(cascaded.thread_id, plan());
     repo.updatePlanStatus(cascadedPlan.plan_id, 'completed');
     db.prepare(`INSERT INTO crawl_runs
-      (run_id, thread_id, plan_id, task_title, task_name, platform, crawler_type, status, started_at)
+      (run_id, thread_id, workflow_id, task_title, task_name, platform, crawler_type, status, started_at)
       VALUES ('run-cascaded', ?, ?, '同步清理', '执行', 'xhs', 'search', 'completed', datetime('now'))`).run(cascaded.thread_id, cascadedPlan.plan_id);
     assert.deepEqual(repo.deleteThread(cascaded.thread_id, true), { deleted: 1, analytics_runs_deleted: 1 });
 

@@ -185,7 +185,6 @@ export function CrawlerSearchHeader() {
           keywords: finalKeywords,
           cookies: config.login_type === 'cookie' ? platformCookies[p] || '' : '',
           thread_id: taskId,
-          plan_id: taskId,
           task_title: taskTitle,
         })
       }

@@ -5,37 +5,37 @@ import type { OutputSink, OutputSinkContext, OutputSinkResult } from '../../core
 type Payload = Record<string, any>;
 type AiWebQaPlatform = 'yuanbao' | 'nami' | 'wenxin';
 
-interface OperationDefinition {
+interface OutputDefinition {
   source: string | ((payload: Payload) => string);
   kind: RawItemKind;
 }
 
-const OPERATIONS: Record<string, OperationDefinition> = {
-  storeXhsNote: { source: 'xhs', kind: 'post' },
-  storeXhsComment: { source: 'xhs', kind: 'comment' },
-  storeDouyinAweme: { source: 'douyin', kind: 'video' },
-  storeDouyinComment: { source: 'douyin', kind: 'comment' },
-  storeBilibiliVideo: { source: 'bili', kind: 'video' },
-  storeBilibiliComment: { source: 'bili', kind: 'comment' },
-  storeKuaishouVideo: { source: 'kuaishou', kind: 'video' },
-  storeKuaishouComment: { source: 'kuaishou', kind: 'comment' },
-  storeWeiboNote: { source: 'weibo', kind: 'post' },
-  storeWeiboComment: { source: 'weibo', kind: 'comment' },
-  storeTiebaNote: { source: 'tieba', kind: 'post' },
-  storeTiebaComment: { source: 'tieba', kind: 'comment' },
-  storeZhihuContent: { source: 'zhihu', kind: 'article' },
-  storeZhihuComment: { source: 'zhihu', kind: 'comment' },
-  storeSearchEngineResult: {
+const OUTPUTS: Record<string, OutputDefinition> = {
+  emitXhsNote: { source: 'xhs', kind: 'post' },
+  emitXhsComment: { source: 'xhs', kind: 'comment' },
+  emitDouyinAweme: { source: 'douyin', kind: 'video' },
+  emitDouyinComment: { source: 'douyin', kind: 'comment' },
+  emitBilibiliVideo: { source: 'bili', kind: 'video' },
+  emitBilibiliComment: { source: 'bili', kind: 'comment' },
+  emitKuaishouVideo: { source: 'kuaishou', kind: 'video' },
+  emitKuaishouComment: { source: 'kuaishou', kind: 'comment' },
+  emitWeiboNote: { source: 'weibo', kind: 'post' },
+  emitWeiboComment: { source: 'weibo', kind: 'comment' },
+  emitTiebaNote: { source: 'tieba', kind: 'post' },
+  emitTiebaComment: { source: 'tieba', kind: 'comment' },
+  emitZhihuContent: { source: 'zhihu', kind: 'article' },
+  emitZhihuComment: { source: 'zhihu', kind: 'comment' },
+  emitSearchEngineResult: {
     source: (payload) => payload.search_engine || payload.engine || 'web_search',
     kind: 'search_result',
   },
-  storeMediaParsedResult: { source: 'media_parser', kind: 'video' },
-  storeDeepSeekResult: { source: 'deepseek', kind: 'ai_answer' },
-  storeKimiResult: { source: 'kimi', kind: 'ai_answer' },
-  storeDoubaoResult: { source: 'doubao', kind: 'ai_answer' },
-  storeQwenResult: { source: 'qwen', kind: 'ai_answer' },
-  storeZhaopinResult: { source: 'zhaopin', kind: 'job' },
-  storeHeimaoResult: { source: 'heimao', kind: 'complaint' },
+  emitMediaParsedResult: { source: 'media_parser', kind: 'video' },
+  emitDeepSeekResult: { source: 'deepseek', kind: 'ai_answer' },
+  emitKimiResult: { source: 'kimi', kind: 'ai_answer' },
+  emitDoubaoResult: { source: 'doubao', kind: 'ai_answer' },
+  emitQwenResult: { source: 'qwen', kind: 'ai_answer' },
+  emitZhaopinResult: { source: 'zhaopin', kind: 'job' },
+  emitHeimaoResult: { source: 'heimao', kind: 'complaint' },
 };
 
 const SOURCE_ID_KEYS = [
@@ -95,14 +95,14 @@ function timestampHint(payload: Payload): string | number | undefined {
   return typeof value === 'string' || typeof value === 'number' ? value : undefined;
 }
 
-function buildRawItem(operation: string, payload: Payload, sourceOverride?: string): RawItem {
-  const definition = OPERATIONS[operation];
-  if (!definition) throw new Error(`Unsupported connector output operation: ${operation}`);
+function buildRawItem(outputType: string, payload: Payload, sourceOverride?: string): RawItem {
+  const definition = OUTPUTS[outputType];
+  if (!definition) throw new Error(`Unsupported connector output type: ${outputType}`);
   const source = sourceOverride || (typeof definition.source === 'function' ? definition.source(payload) : definition.source);
   const sourceItemId = firstString(payload, SOURCE_ID_KEYS);
   const sourceUrl = firstString(payload, SOURCE_URL_KEYS);
   const media = mediaUrls(payload);
-  const kind = operation === 'storeMediaParsedResult' && Array.isArray(payload.images) && payload.images.length && !payload.video_url
+  const kind = outputType === 'emitMediaParsedResult' && Array.isArray(payload.images) && payload.images.length && !payload.video_url
     ? 'image'
     : definition.kind;
 
@@ -126,7 +126,7 @@ function buildRawItem(operation: string, payload: Payload, sourceOverride?: stri
       coverUrl: firstString(payload, ['cover_url', 'video_cover_url']),
     },
     payload,
-    metadata: { operation },
+    metadata: {},
   });
 }
 
@@ -161,38 +161,37 @@ class ConnectorOutput {
     return this.sink;
   }
 
-  private async emit(operation: string, payload: Payload, sourceOverride?: string): Promise<void> {
-    const item = buildRawItem(operation, payload, sourceOverride);
+  private async emit(outputType: string, payload: Payload, sourceOverride?: string): Promise<void> {
+    const item = buildRawItem(outputType, payload, sourceOverride);
     await this.requireSink().write(item);
     this.itemCount++;
   }
 
-  storeXhsNote = (item: Payload) => this.emit('storeXhsNote', item);
-  storeXhsComment = (item: Payload) => this.emit('storeXhsComment', item);
-  storeDouyinAweme = (item: Payload) => this.emit('storeDouyinAweme', item);
-  storeDouyinComment = (item: Payload) => this.emit('storeDouyinComment', item);
-  storeBilibiliVideo = (item: Payload) => this.emit('storeBilibiliVideo', item);
-  storeBilibiliComment = (item: Payload) => this.emit('storeBilibiliComment', item);
-  storeKuaishouVideo = (item: Payload) => this.emit('storeKuaishouVideo', item);
-  storeKuaishouComment = (item: Payload) => this.emit('storeKuaishouComment', item);
-  storeWeiboNote = (item: Payload) => this.emit('storeWeiboNote', item);
-  storeWeiboComment = (item: Payload) => this.emit('storeWeiboComment', item);
-  storeTiebaNote = (item: Payload) => this.emit('storeTiebaNote', item);
-  storeTiebaComment = (item: Payload) => this.emit('storeTiebaComment', item);
-  storeZhihuContent = (item: Payload) => this.emit('storeZhihuContent', item);
-  storeZhihuComment = (item: Payload) => this.emit('storeZhihuComment', item);
-  storeSearchEngineResult = (item: Payload) => this.emit('storeSearchEngineResult', item);
-  storeMediaParsedResult = (item: Payload) => this.emit('storeMediaParsedResult', item);
-  storeDeepSeekResult = (item: Payload) => this.emit('storeDeepSeekResult', item);
-  storeKimiResult = (item: Payload) => this.emit('storeKimiResult', item);
-  storeDoubaoResult = (item: Payload) => this.emit('storeDoubaoResult', item);
-  storeQwenResult = (item: Payload) => this.emit('storeQwenResult', item);
-  storeAiWebQaResult = (platform: AiWebQaPlatform, item: Payload) => {
-    const operation = 'storeSearchEngineResult';
-    return this.emit(operation, item, platform);
+  emitXhsNote = (item: Payload) => this.emit('emitXhsNote', item);
+  emitXhsComment = (item: Payload) => this.emit('emitXhsComment', item);
+  emitDouyinAweme = (item: Payload) => this.emit('emitDouyinAweme', item);
+  emitDouyinComment = (item: Payload) => this.emit('emitDouyinComment', item);
+  emitBilibiliVideo = (item: Payload) => this.emit('emitBilibiliVideo', item);
+  emitBilibiliComment = (item: Payload) => this.emit('emitBilibiliComment', item);
+  emitKuaishouVideo = (item: Payload) => this.emit('emitKuaishouVideo', item);
+  emitKuaishouComment = (item: Payload) => this.emit('emitKuaishouComment', item);
+  emitWeiboNote = (item: Payload) => this.emit('emitWeiboNote', item);
+  emitWeiboComment = (item: Payload) => this.emit('emitWeiboComment', item);
+  emitTiebaNote = (item: Payload) => this.emit('emitTiebaNote', item);
+  emitTiebaComment = (item: Payload) => this.emit('emitTiebaComment', item);
+  emitZhihuContent = (item: Payload) => this.emit('emitZhihuContent', item);
+  emitZhihuComment = (item: Payload) => this.emit('emitZhihuComment', item);
+  emitSearchEngineResult = (item: Payload) => this.emit('emitSearchEngineResult', item);
+  emitMediaParsedResult = (item: Payload) => this.emit('emitMediaParsedResult', item);
+  emitDeepSeekResult = (item: Payload) => this.emit('emitDeepSeekResult', item);
+  emitKimiResult = (item: Payload) => this.emit('emitKimiResult', item);
+  emitDoubaoResult = (item: Payload) => this.emit('emitDoubaoResult', item);
+  emitQwenResult = (item: Payload) => this.emit('emitQwenResult', item);
+  emitAiWebQaResult = (platform: AiWebQaPlatform, item: Payload) => {
+    return this.emit('emitSearchEngineResult', item, platform);
   };
-  storeZhaopinResult = (item: Payload) => this.emit('storeZhaopinResult', item);
-  storeHeimaoResult = (item: Payload) => this.emit('storeHeimaoResult', item);
+  emitZhaopinResult = (item: Payload) => this.emit('emitZhaopinResult', item);
+  emitHeimaoResult = (item: Payload) => this.emit('emitHeimaoResult', item);
 }
 
 export const connectorOutput = new ConnectorOutput();

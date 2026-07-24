@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../../database/connection';
+import { AnalyticsRepository } from '../../database/repository';
 
 export type AgentRole = 'user' | 'assistant' | 'system';
 
@@ -91,7 +92,7 @@ export class AgentRepository {
     return this.db.prepare(`
       SELECT t.*,
         (SELECT content FROM agent_messages m WHERE m.thread_id=t.thread_id ORDER BY m.created_at DESC LIMIT 1) AS last_message,
-        (SELECT status FROM agent_plans p WHERE p.thread_id=t.thread_id ORDER BY p.created_at DESC LIMIT 1) AS plan_status,
+        (SELECT status FROM workflow_runs w WHERE w.thread_id=t.thread_id ORDER BY w.created_at DESC LIMIT 1) AS plan_status,
         (SELECT COALESCE(SUM(item_count), 0) FROM crawl_runs r WHERE r.thread_id=t.thread_id) AS total_items
       FROM agent_threads t
       ORDER BY (t.pinned_at IS NOT NULL) DESC, t.pinned_at DESC, t.updated_at DESC
@@ -113,20 +114,20 @@ export class AgentRepository {
       this.db.transaction(() => {
         const now = new Date().toISOString();
         this.db.prepare(`
-          UPDATE agent_plans
-          SET status = 'failed', updated_at = ?
+          UPDATE workflow_runs
+          SET status = 'interrupted', updated_at = ?, finished_at = COALESCE(finished_at, ?)
           WHERE status IN ('queued', 'running')
-        `).run(now);
+        `).run(now, now);
 
         this.db.prepare(`
-          UPDATE agent_plan_steps
+          UPDATE workflow_steps
           SET status = 'failed', error_message = COALESCE(error_message, '服务重启或采集中断')
-          WHERE status IN ('queued', 'running')
+          WHERE status = 'running'
         `).run();
 
         this.db.prepare(`
           UPDATE crawl_runs
-          SET status = 'failed', error_message = COALESCE(error_message, '服务重启或采集中断'), end_time = COALESCE(end_time, ?)
+          SET status = 'failed', error_message = COALESCE(error_message, '服务重启或采集中断'), finished_at = COALESCE(finished_at, ?)
           WHERE status IN ('queued', 'running')
         `).run(now);
       })();
@@ -135,21 +136,20 @@ export class AgentRepository {
     }
   }
 
-  deleteThread(threadId: string, deleteAnalyticsData = false): { deleted: number; analytics_runs_deleted: number } {
+  deleteThread(threadId: string, _deleteAnalyticsData = true): { deleted: number; analytics_runs_deleted: number } {
     const id = String(threadId || '').trim();
     if (!id) return { deleted: 0, analytics_runs_deleted: 0 };
 
     return this.db.transaction(() => {
-      let analyticsRunsDeleted = 0;
-      if (deleteAnalyticsData) {
-        const result = this.db.prepare('DELETE FROM crawl_runs WHERE thread_id=?').run(id);
-        analyticsRunsDeleted = result.changes;
-      }
-      this.db.prepare('DELETE FROM agent_plan_steps WHERE plan_id IN (SELECT plan_id FROM agent_plans WHERE thread_id=?)').run(id);
-      this.db.prepare('DELETE FROM agent_plans WHERE thread_id=?').run(id);
-      this.db.prepare('DELETE FROM agent_messages WHERE thread_id=?').run(id);
-      this.db.prepare('DELETE FROM agent_attachments WHERE thread_id=?').run(id);
-
+      const active = this.db.prepare(`
+        SELECT 1 FROM workflow_runs
+        WHERE thread_id=? AND status IN ('queued','running','waiting_for_user')
+        LIMIT 1
+      `).get(id);
+      if (active) throw new Error('任务仍在运行，请先停止后再删除');
+      const analyticsRunsDeleted = Number((this.db.prepare(
+        'SELECT COUNT(*) AS count FROM crawl_runs WHERE thread_id=?',
+      ).get(id) as any)?.count || 0);
       const deleted = this.db.prepare('DELETE FROM agent_threads WHERE thread_id=?').run(id).changes;
       return { deleted, analytics_runs_deleted: analyticsRunsDeleted };
     })();
@@ -190,15 +190,16 @@ export class AgentRepository {
 
   listReferenceableTasks() {
     return (this.db.prepare(`
-      SELECT p.plan_id, p.goal, p.status, p.updated_at,
-             GROUP_CONCAT(DISTINCT s.platform) AS platforms,
-             COUNT(DISTINCT c.id) AS content_count
-      FROM agent_plans p
-      LEFT JOIN agent_plan_steps s ON s.plan_id=p.plan_id
-      LEFT JOIN content_records c ON c.run_id=s.run_id
-      WHERE p.status IN ('completed', 'partially_completed')
-      GROUP BY p.plan_id
-      ORDER BY p.updated_at DESC
+      SELECT w.workflow_id AS plan_id, w.goal, w.status, w.updated_at,
+             GROUP_CONCAT(DISTINCT s.external_ref) AS platforms,
+             COUNT(DISTINCT ds.document_id) AS content_count
+      FROM workflow_runs w
+      LEFT JOIN workflow_steps s ON s.workflow_id=w.workflow_id AND s.kind='connector'
+      LEFT JOIN crawl_runs r ON r.workflow_id=w.workflow_id
+      LEFT JOIN document_sources ds ON ds.run_id=r.run_id
+      WHERE w.status IN ('completed', 'partially_completed')
+      GROUP BY w.workflow_id
+      ORDER BY w.updated_at DESC
     `).all() as any[]).map((row) => ({
       ...row,
       platforms: String(row.platforms || '').split(',').filter(Boolean),
@@ -414,121 +415,160 @@ export class AgentRepository {
   }
 
   createPlan(threadId: string, plan: ResearchPlan) {
-    const planId = id();
+    const workflowId = id();
     const now = new Date().toISOString();
     const tx = this.db.transaction(() => {
-      const existing = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status IN ('awaiting_confirmation','queued','running') ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(threadId) as any;
+      const existing = this.db.prepare(`
+        SELECT * FROM workflow_runs
+        WHERE thread_id=? AND status IN ('awaiting_confirmation','queued','running')
+        ORDER BY created_at DESC, rowid DESC LIMIT 1
+      `).get(threadId) as any;
       if (existing) return this.hydratePlan(existing);
 
-      this.db.prepare(`INSERT INTO agent_plans (plan_id, thread_id, goal, status, plan_json, created_at, updated_at) VALUES (?, ?, ?, 'awaiting_confirmation', ?, ?, ?)`)
-        .run(planId, threadId, plan.goal, JSON.stringify(plan), now, now);
-      const insert = this.db.prepare(`INSERT INTO agent_plan_steps (step_id, plan_id, platform, status, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?)`);
-      for (const platform of plan.platforms) insert.run(id(), planId, platform, now, now);
-      return this.getPlan(planId);
+      this.db.prepare(`
+        INSERT INTO workflow_runs (
+          workflow_id, thread_id, skill_id, skill_version, goal, status,
+          input_json, output_json, created_at, updated_at
+        ) VALUES (?, ?, 'multi-source-research', '1.0.0', ?, 'awaiting_confirmation', ?, '{}', ?, ?)
+      `).run(workflowId, threadId, plan.goal, JSON.stringify(plan), now, now);
+      this.insertConnectorSteps(workflowId, plan, now);
+      return this.getPlan(workflowId);
     });
     return tx();
   }
 
-  updatePendingPlan(planId: string, plan: ResearchPlan) {
+  private insertConnectorSteps(workflowId: string, plan: ResearchPlan, now: string): void {
+    const insert = this.db.prepare(`
+      INSERT INTO workflow_steps (
+        step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+        input_json, status, max_attempts, timeout_ms, external_ref, created_at, updated_at
+      ) VALUES (?, ?, ?, 'connector', ?, '[]', ?, 'queued', 2, 300000, ?, ?, ?)
+    `);
+    const capability = plan.capability || 'keyword_search';
+    for (const platform of plan.platforms) {
+      insert.run(
+        id(), workflowId, `collect:${platform}`, `connector.${platform}.${capability}`,
+        JSON.stringify({
+          keywords: plan.keywords,
+          targets: plan.targets || [],
+          options: plan.connectorOptions?.[platform] || {},
+        }),
+        platform, now, now,
+      );
+    }
+  }
+
+  updatePendingPlan(workflowId: string, plan: ResearchPlan) {
     const now = new Date().toISOString();
     const tx = this.db.transaction(() => {
-      const result = this.db.prepare(`UPDATE agent_plans SET goal=?, plan_json=?, updated_at=? WHERE plan_id=? AND status='awaiting_confirmation'`)
-        .run(plan.goal, JSON.stringify(plan), now, planId);
+      const result = this.db.prepare(`
+        UPDATE workflow_runs SET goal=?, input_json=?, updated_at=?
+        WHERE workflow_id=? AND status='awaiting_confirmation'
+      `).run(plan.goal, JSON.stringify(plan), now, workflowId);
       if (result.changes === 0) throw new Error('只有等待确认的计划可以修改');
 
-      this.db.prepare('DELETE FROM agent_plan_steps WHERE plan_id=?').run(planId);
-      const insert = this.db.prepare(`INSERT INTO agent_plan_steps (step_id, plan_id, platform, status, created_at, updated_at) VALUES (?, ?, ?, 'queued', ?, ?)`);
-      for (const platform of plan.platforms) insert.run(id(), planId, platform, now, now);
-      return this.getPlan(planId);
+      this.db.prepare('DELETE FROM workflow_steps WHERE workflow_id=?').run(workflowId);
+      this.insertConnectorSteps(workflowId, plan, now);
+      return this.getPlan(workflowId);
     });
     return tx();
   }
 
   getLatestPlan(threadId: string) {
-    const row = this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(threadId) as any;
+    const row = this.db.prepare(`
+      SELECT * FROM workflow_runs WHERE thread_id=?
+      ORDER BY created_at DESC, rowid DESC LIMIT 1
+    `).get(threadId) as any;
     return row ? this.hydratePlan(row) : null;
   }
 
   listPlans(threadId: string) {
-    return (this.db.prepare(`SELECT * FROM agent_plans WHERE thread_id=? AND status!='superseded' ORDER BY created_at ASC, rowid ASC`).all(threadId) as any[])
+    return (this.db.prepare(`
+      SELECT * FROM workflow_runs WHERE thread_id=? ORDER BY created_at ASC, rowid ASC
+    `).all(threadId) as any[])
       .map((row, index) => ({ ...this.hydratePlan(row), round_number: index + 1 }));
   }
 
-  getPlan(planId: string) {
-    const row = this.db.prepare('SELECT * FROM agent_plans WHERE plan_id=?').get(planId) as any;
+  getPlan(workflowId: string) {
+    const row = this.db.prepare('SELECT * FROM workflow_runs WHERE workflow_id=?').get(workflowId) as any;
     return row ? this.hydratePlan(row) : null;
   }
 
   private hydratePlan(row: any) {
-    const steps = this.db.prepare(`
+    const steps = (this.db.prepare(`
       SELECT s.*, COALESCE(r.item_count, 0) AS item_count
-      FROM agent_plan_steps s
-      LEFT JOIN crawl_runs r ON s.run_id = r.run_id
-      WHERE s.plan_id=?
+      FROM workflow_steps s
+      LEFT JOIN crawl_runs r
+        ON r.run_id=json_extract(s.output_json, '$.runId')
+      WHERE s.workflow_id=? AND s.kind='connector'
       ORDER BY s.created_at
-    `).all(row.plan_id);
-    const stats = this.getPlanStats(row.plan_id);
-    return { ...row, plan: parseJson<ResearchPlan>(row.plan_json, {} as ResearchPlan), steps, stats };
+    `).all(row.workflow_id) as any[]).map((step) => ({
+      ...step,
+      platform: step.external_ref,
+      run_id: parseJson<any>(step.output_json, {}).runId || null,
+    }));
+    const stats = this.getPlanStats(row.workflow_id);
+    return {
+      ...row,
+      plan_id: row.workflow_id,
+      plan: parseJson<ResearchPlan>(row.input_json, {} as ResearchPlan),
+      steps,
+      stats,
+    };
   }
 
   listActivePlans(): any[] {
-    return (this.db.prepare(`SELECT * FROM agent_plans WHERE status IN ('queued','running') ORDER BY created_at`).all() as any[])
+    return (this.db.prepare(`
+      SELECT * FROM workflow_runs WHERE status IN ('queued','running') ORDER BY created_at
+    `).all() as any[])
       .map((row) => this.hydratePlan(row));
   }
 
-  updatePlanStatus(planId: string, status: string) {
-    this.db.prepare('UPDATE agent_plans SET status=?, updated_at=? WHERE plan_id=?').run(status, new Date().toISOString(), planId);
+  updatePlanStatus(workflowId: string, status: string) {
+    const now = new Date().toISOString();
+    const terminal = ['completed', 'partially_completed', 'failed', 'stopped', 'cancelled'].includes(status);
+    this.db.prepare(`
+      UPDATE workflow_runs SET status=?, updated_at=?,
+        started_at=CASE WHEN ?='running' THEN COALESCE(started_at, ?) ELSE started_at END,
+        finished_at=CASE WHEN ? THEN COALESCE(finished_at, ?) ELSE finished_at END
+      WHERE workflow_id=?
+    `).run(status, now, status, now, terminal ? 1 : 0, now, workflowId);
   }
 
   updateStep(stepId: string, status: string, runId?: string | null, errorMessage?: string | null) {
-    this.db.prepare(`UPDATE agent_plan_steps SET status=?, run_id=COALESCE(?, run_id), error_message=?, updated_at=? WHERE step_id=?`)
-      .run(status, runId || null, errorMessage || null, new Date().toISOString(), stepId);
+    const current = this.db.prepare('SELECT output_json FROM workflow_steps WHERE step_id=?').get(stepId) as any;
+    const output = parseJson<Record<string, unknown>>(current?.output_json || '{}', {});
+    if (runId) output.runId = runId;
+    this.db.prepare(`
+      UPDATE workflow_steps SET status=?, output_json=?, error_message=?, updated_at=? WHERE step_id=?
+    `).run(status === 'stopped' ? 'cancelled' : status, JSON.stringify(output), errorMessage || null, new Date().toISOString(), stepId);
   }
 
   getCrawlRun(runId: string): any {
     return this.db.prepare('SELECT * FROM crawl_runs WHERE run_id=?').get(runId);
   }
 
-  getPlanContents(planId: string, limit = 100, platforms: string[] = []): any[] {
-    const selectedPlatforms = platforms.filter(Boolean);
-    const platformClause = selectedPlatforms.length
-      ? ` AND c.platform IN (${selectedPlatforms.map(() => '?').join(',')})`
-      : '';
-    return this.db.prepare(`
-      SELECT c.platform_label, c.keyword, substr(c.title, 1, 240) AS title,
-             substr(c.description, 1, 800) AS description, c.creator_name,
-             c.likes, c.saves, c.comments, c.shares, c.views, c.content_url,
-             substr(c.source_metadata, 1, 2000) AS source_metadata
-      FROM content_records c
-      JOIN agent_plan_steps s ON s.run_id=c.run_id
-      WHERE s.plan_id=?${platformClause} ORDER BY c.engagement DESC LIMIT ?
-    `).all(planId, ...selectedPlatforms, limit) as any[];
+  getPlanContents(workflowId: string, limit = 100, platforms: string[] = []): any[] {
+    const analytics = new AnalyticsRepository(this.databaseProvider);
+    const result = analytics.queryContents({ plan_id: workflowId, page: 1, page_size: limit });
+    return platforms.length ? result.items.filter((item) => platforms.includes(item.platform)) : result.items;
   }
 
-  getPlanStats(planId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {
-    const total = this.db.prepare(`
-      SELECT COUNT(*) AS content_count
-      FROM content_records c
-      JOIN agent_plan_steps s ON s.run_id=c.run_id
-      WHERE s.plan_id=?
-    `).get(planId) as { content_count: number } | undefined;
-    const byPlatform = this.db.prepare(`
-      SELECT c.platform, c.platform_label, COUNT(*) AS count
-      FROM content_records c
-      JOIN agent_plan_steps s ON s.run_id=c.run_id
-      WHERE s.plan_id=?
-      GROUP BY c.platform, c.platform_label
-      ORDER BY count DESC
-    `).all(planId) as Array<{ platform: string; platform_label: string; count: number }>;
-    return { content_count: Number(total?.content_count || 0), by_platform: byPlatform };
+  getPlanStats(workflowId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {
+    const rows = new AnalyticsRepository(this.databaseProvider)
+      .queryContents({ plan_id: workflowId, page: 1, page_size: 1000000 }).items;
+    const counts = new Map<string, { platform: string; platform_label: string; count: number }>();
+    for (const row of rows) {
+      const current = counts.get(row.platform) || { platform: row.platform, platform_label: row.platform_label, count: 0 };
+      current.count++;
+      counts.set(row.platform, current);
+    }
+    return { content_count: rows.length, by_platform: [...counts.values()].sort((a, b) => b.count - a.count) };
   }
 
-  getPlanExportContents(planId: string): any[] {
-    return this.db.prepare(`
-      SELECT c.* FROM content_records c
-      JOIN agent_plan_steps s ON s.run_id=c.run_id
-      WHERE s.plan_id=? ORDER BY c.platform, c.keyword, c.engagement DESC
-    `).all(planId) as any[];
+  getPlanExportContents(workflowId: string): any[] {
+    return new AnalyticsRepository(this.databaseProvider)
+      .queryContents({ plan_id: workflowId, page: 1, page_size: 1000000 }).items;
   }
 }
 

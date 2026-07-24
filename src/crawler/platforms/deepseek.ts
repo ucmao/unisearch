@@ -286,7 +286,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
     console.log(`  - Reasoning Length: ${resultData.reasoning.length} chars`);
     console.log(`  - Citations Count: ${resultData.citations.length} links`);
 
-    await connectorOutput.storeDeepSeekResult({
+    await connectorOutput.emitDeepSeekResult({
       question,
       title: question,
       reasoning_content: resultData.reasoning,

@@ -341,7 +341,7 @@ export class KimiCrawler extends AbstractCrawler {
     console.log(`  - Reasoning Length: ${resultData.reasoning.length} chars`);
     console.log(`  - Citations Count: ${resultData.citations.length} links`);
 
-    await connectorOutput.storeKimiResult({
+    await connectorOutput.emitKimiResult({
       question,
       title: question,
       reasoning_content: resultData.reasoning,
