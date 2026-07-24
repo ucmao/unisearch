@@ -44,7 +44,8 @@
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
-      "dist/crawler/worker.js"
+      "dist/crawler/worker.js",
+      "dist/processor/worker.js"
     ],
     "mac": {
       "icon": "build/icon.icns",

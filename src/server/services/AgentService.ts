@@ -7,6 +7,7 @@ import { connectorLabels, getConnectorManifest, listConnectorManifests } from '.
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
 import { normalizeAnalysisGoals } from './ResearchAnalysis';
 import { directParserService } from './DirectParserService';
+import { workflowRuntime } from '../../workflow/workflow-runtime';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -148,6 +149,7 @@ function conversationalTurnsSinceReminder(messages: any[]): number {
 }
 
 export class AgentService {
+  private workflowTick: Promise<void> | null = null;
   private timer: NodeJS.Timeout;
   constructor() {
     this.timer = setInterval(() => this.tick().catch((error) => console.error('[AgentService]', error)), 1500);
@@ -733,11 +735,7 @@ export class AgentService {
   }
 
   private async stopPlan(plan: any) {
-    for (const step of plan.steps) {
-      if (step.status === 'running') await crawlerManager.stop(step.platform);
-      if (['queued', 'running'].includes(step.status)) agentRepository.updateStep(step.step_id, 'stopped', step.run_id, null);
-    }
-    agentRepository.updatePlanStatus(plan.plan_id, 'stopped');
+    await workflowRuntime.cancel(plan.plan_id);
   }
 
   private describePlanStatus(plan: any): string {
@@ -761,15 +759,9 @@ export class AgentService {
   }
 
   executePlan(planId: string) {
-    const plan = agentRepository.getPlan(planId);
-    if (!plan) throw new Error('计划不存在');
-    if (!['awaiting_confirmation', 'failed', 'partially_completed'].includes(plan.status)) throw new Error('当前计划不能执行');
-    for (const step of plan.steps) {
-      if (['failed', 'stopped', 'cancelled'].includes(step.status)) agentRepository.updateStep(step.step_id, 'queued', null, null);
-    }
-    agentRepository.updatePlanStatus(planId, 'queued');
+    const plan = workflowRuntime.queue(planId);
     void this.tick();
-    return agentRepository.getPlan(planId);
+    return plan;
   }
 
   updatePlan(planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) {
@@ -815,85 +807,32 @@ export class AgentService {
   }
 
   async tick() {
-    crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
-    for (const plan of agentRepository.listActivePlans()) await this.tickPlan(plan);
+    if (this.workflowTick) return;
+    this.workflowTick = this.runWorkflowTick()
+      .catch((error) => console.error('[WorkflowRuntime] Tick failed:', error))
+      .finally(() => { this.workflowTick = null; });
   }
 
-  private async tickPlan(plan: any) {
-    for (const step of plan.steps) {
-      if (step.status !== 'running') continue;
-      const state = crawlerManager.getStatus(step.platform);
-      if (state.status === 'running' || state.status === 'stopping') continue;
-      const run = step.run_id ? agentRepository.getCrawlRun(step.run_id) : null;
-      if (run?.status === 'completed') agentRepository.updateStep(step.step_id, 'completed', step.run_id, null);
-      else agentRepository.updateStep(step.step_id, run?.status === 'stopped' ? 'stopped' : 'failed', step.run_id, run?.error_message || '采集进程未正常完成');
-    }
-
-    const refreshed = agentRepository.getPlan(plan.plan_id);
-    for (const step of refreshed.steps.filter((s: any) => s.status === 'queued')) {
-      if (!crawlerManager.hasCapacity()) break;
-      const platformState = crawlerManager.getStatus(step.platform);
-      if (platformState.status === 'running' || platformState.status === 'stopping') continue;
-      const p = refreshed.plan as ResearchPlan;
-      const targets = p.targets || [];
-      const capabilityId = p.capability || 'keyword_search';
-      const manifest = getConnectorManifest(step.platform);
-      const capability = manifest?.capabilities.find((item) => item.id === capabilityId);
-      if (!capability) {
-        agentRepository.updateStep(step.step_id, 'failed', null, `${manifest?.name || step.platform} 不支持能力 ${capabilityId}`);
-        continue;
-      }
-      const depth = p.collectionDepth || 'standard';
-      const maxCount = depth === 'quick' ? 30 : depth === 'deep' ? 100 : 50;
-      const maxPages = depth === 'quick' ? 3 : depth === 'deep' ? 10 : 5;
-      const connectorOptions = {
-        collection_depth: depth,
-        crawler_max_notes_count: maxCount,
-        max_items: maxCount,
-        max_pages: maxPages,
-        ...(p.connectorOptions?.[step.platform] || {}),
-        ...(capabilityId === 'creator_profile' ? { creator_ids: targets } : {}),
-        ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
-        enable_comments: capabilityId === 'comments' ? true : p.collectComments,
-        enable_sub_comments: capabilityId === 'comments' ? true : p.collectSubComments,
-      };
-      let ok = false;
-      try {
-        ok = await crawlerManager.start({
-          platform: step.platform, connector_id: step.platform, capability: capabilityId,
-          login_type: p.loginType, crawler_type: capability.runtimeMode, keywords: p.keywords.join(','),
-          specified_ids: ['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? targets.join(',') : '',
-          creator_ids: capabilityId === 'creator_profile' ? targets.join(',') : '',
-          connector_options: connectorOptions,
-          start_page: p.startPage, collection_depth: depth, enable_comments: p.collectComments, enable_sub_comments: p.collectSubComments,
-          cookies: '', headless: p.headless, loop_execution: false,
-          thread_id: refreshed.thread_id, workflow_id: refreshed.plan_id, task_title: refreshed.goal,
-        });
-      } catch (error: any) {
-        agentRepository.updateStep(step.step_id, 'failed', null, error.message || 'Connector 参数校验失败');
-        continue;
-      }
-      if (ok) {
-        const state = crawlerManager.getStatus(step.platform);
-        agentRepository.updateStep(step.step_id, 'running', state.run_id, null);
-      }
-    }
-
-    const final = agentRepository.getPlan(plan.plan_id);
-    const statuses = final.steps.map((s: any) => s.status);
-    if (statuses.some((s: string) => ['running', 'queued'].includes(s))) {
-      if (final.status !== 'running') agentRepository.updatePlanStatus(final.plan_id, 'running');
-      return;
-    }
-    const completed = statuses.filter((s: string) => s === 'completed').length;
-    const status = completed === statuses.length ? 'completed' : completed ? 'partially_completed' : 'failed';
-    if (final.status !== status) {
-      agentRepository.updatePlanStatus(final.plan_id, status);
+  private async runWorkflowTick(): Promise<void> {
+    let needsProcessorRetry = false;
+    for (const result of await workflowRuntime.tickAll()) {
+      needsProcessorRetry ||= result.workflow.steps.some((step: any) =>
+        step.kind === 'processor' && step.status === 'queued' && Number(step.attempt) > 0,
+      );
+      if (!result.becameTerminal) continue;
+      const final = agentRepository.getPlan(result.workflow.workflow_id);
+      if (!final) continue;
+      const completed = final.steps.filter((step: any) => step.status === 'completed').length;
+      const status = final.status;
       const totalItems = final.stats?.content_count ?? 0;
       const text = status === 'completed'
         ? `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
-        : `采集已结束：${completed} 个平台成功，${statuses.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
+        : `采集已结束：${completed} 个平台成功，${final.steps.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
       agentRepository.addMessage(final.thread_id, 'assistant', 'status', text, { plan_id: final.plan_id, status });
+    }
+    if (needsProcessorRetry) {
+      const retryTimer = setTimeout(() => { void this.tick(); }, 1000);
+      retryTimer.unref();
     }
   }
 }

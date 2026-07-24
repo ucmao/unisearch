@@ -16,6 +16,7 @@ import { agentAttachmentService } from './services/AgentAttachmentService';
 import type { AppConfig } from '../tools/config';
 import { listConnectorManifests } from '../connectors/registry';
 import type { ConnectorStartRequest } from '../connectors/types';
+import { processorWorkerExecutor } from '../processor/processor-worker-executor';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
@@ -34,6 +35,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
   crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
   crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
+  crawlerManager.on('crawler_finished', () => { void agentService.tick(); });
 
   // Error Handler
   fastify.setErrorHandler((error, request, reply) => {
@@ -806,6 +808,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 }
 
 export async function stopServer(): Promise<void> {
+  await crawlerManager.stop();
+  processorWorkerExecutor.cancelAll();
   await fastify.close();
   console.log('[Fastify] Server stopped');
 }

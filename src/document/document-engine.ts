@@ -175,6 +175,48 @@ export class DocumentEngine {
     return artifact;
   }
 
+  saveProcessed(documentInput: Document, artifacts: Artifact[] = []): Document {
+    const document = documentSchema.parse(documentInput);
+    const transaction = this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE documents SET
+          kind=?, title=?, markdown=?, author=?, published_at=?, source_url=?,
+          language=?, content_hash=?, metadata_json=?, updated_at=?
+        WHERE document_id=?
+      `).run(
+        document.kind,
+        document.title,
+        document.markdown,
+        document.author,
+        document.publishedAt === undefined ? null : String(document.publishedAt),
+        document.sourceUrl || null,
+        document.language,
+        document.contentHash,
+        JSON.stringify(document.metadata),
+        document.updatedAt,
+        document.documentId,
+      );
+      const updateAsset = this.db.prepare(`
+        UPDATE document_assets SET kind=?, mime_type=?, local_path=?, metadata_json=?, updated_at=?
+        WHERE asset_id=? AND document_id=?
+      `);
+      for (const asset of document.assets) {
+        updateAsset.run(
+          asset.kind,
+          asset.mimeType || null,
+          asset.localPath || null,
+          JSON.stringify(asset.metadata),
+          document.updatedAt,
+          asset.assetId,
+          document.documentId,
+        );
+      }
+      for (const artifact of artifacts) this.addArtifact(artifact);
+    });
+    transaction();
+    return document;
+  }
+
   private persist(document: Document, rawItem: RawItem, artifacts: Artifact[]): void {
     const transaction = this.db.transaction(() => {
       this.db.prepare(`

@@ -29,6 +29,7 @@ export const workflowStepDefinitionSchema = z.object({
   kind: workflowStepKindSchema,
   uses: z.string().min(1),
   dependsOn: z.array(z.string()).default([]),
+  dependencyPolicy: z.enum(['success', 'terminal']).default('success'),
   input: z.record(z.unknown()).default({}),
   maxAttempts: z.number().int().min(1).max(10).default(1),
   timeoutMs: z.number().int().min(100).max(86_400_000).default(300_000),

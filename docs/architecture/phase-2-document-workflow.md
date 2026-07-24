@@ -64,7 +64,7 @@ Workflow 持久化在 `workflow_runs` 和 `workflow_steps`：
 
 ## 数据库断代策略
 
-数据库 schema version 为 3。检测到旧版本时，应用直接删除旧 schema 并创建新表，
+数据库 schema version 由后续阶段统一维护。检测到旧版本时，应用直接删除旧 schema 并创建新表，
 不迁移旧平台表、`content_records`、`agent_plans` 或 `agent_plan_steps`。
 
 ## 暂未包含

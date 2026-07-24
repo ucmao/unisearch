@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 3;
+export const DATABASE_SCHEMA_VERSION = 4;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -127,6 +127,7 @@ export function initSchema(db: Database): void {
       kind TEXT NOT NULL,
       uses_id TEXT NOT NULL,
       depends_on_json TEXT NOT NULL DEFAULT '[]',
+      dependency_policy TEXT NOT NULL DEFAULT 'success',
       input_json TEXT NOT NULL DEFAULT '{}',
       output_json TEXT NOT NULL DEFAULT '{}',
       status TEXT NOT NULL DEFAULT 'queued',

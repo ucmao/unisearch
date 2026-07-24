@@ -8,6 +8,8 @@ import { documentProcessorRegistry } from '../src/document/processor-registry';
 import { skillRegistry } from '../src/skills/registry';
 import { WorkflowRepository } from '../src/workflow/workflow-repository';
 import { WorkflowEngine } from '../src/workflow/workflow-engine';
+import { ProcessorResourceScheduler } from '../src/core/processors/resource-scheduler';
+import { processorWorkerRequestSchema } from '../src/core/processors/worker-contract';
 
 function database() {
   const db = new Database(':memory:');
@@ -202,4 +204,82 @@ test('Workflow Engine executes registered local handlers and persists retry atte
   } finally {
     db.close();
   }
+});
+
+test('terminal dependency policy lets finalization run after a Connector failure', async () => {
+  const db = database();
+  try {
+    const repository = new WorkflowRepository(() => db);
+    const engine = new WorkflowEngine(repository);
+    const workflow = repository.create(null, {
+      skillId: 'partial-test',
+      skillVersion: '1',
+      input: {},
+      steps: [
+        {
+          key: 'collect',
+          kind: 'connector',
+          uses: 'connector.test',
+          dependsOn: [],
+          input: {},
+          maxAttempts: 1,
+          timeoutMs: 1000,
+        },
+        {
+          key: 'finalize',
+          kind: 'processor',
+          uses: 'processor.finalize',
+          dependsOn: ['collect'],
+          dependencyPolicy: 'terminal',
+          input: {},
+          maxAttempts: 1,
+          timeoutMs: 1000,
+        },
+      ],
+    });
+    repository.setStepStatus(workflow.workflow_id, 'collect', 'failed', {}, 'source failed');
+    engine.registerHandler('processor.finalize', async () => ({ finalized: true }));
+    const result = await engine.tick(workflow.workflow_id);
+    assert.equal(result.status, 'partially_completed');
+    assert.equal(result.steps.find((step: any) => step.step_key === 'finalize').status, 'completed');
+  } finally {
+    db.close();
+  }
+});
+
+test('Processor resource scheduler bounds each resource class and supports queued cancellation', async () => {
+  const scheduler = new ProcessorResourceScheduler({ io: 1, cpu: 1, gpu: 1 });
+  const release = await scheduler.acquire('cpu');
+  const controller = new AbortController();
+  const queued = scheduler.acquire('cpu', controller.signal);
+  assert.deepEqual(scheduler.snapshot().cpu, { active: 1, queued: 1, limit: 1 });
+  controller.abort();
+  await assert.rejects(queued, /cancelled/);
+  release();
+  assert.deepEqual(scheduler.snapshot().cpu, { active: 0, queued: 0, limit: 1 });
+});
+
+test('Processor Worker contract rejects oversized batches', () => {
+  const document = {
+    schemaVersion: 1,
+    documentId: 'd',
+    canonicalKey: 'd',
+    kind: 'article',
+    title: '',
+    markdown: '',
+    author: '',
+    language: 'und',
+    contentHash: 'h',
+    metadata: {},
+    provenance: { source: 'test', rawItemId: 'r', fetchedAt: new Date().toISOString() },
+    assets: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  assert.throws(() => processorWorkerRequestSchema.parse({
+    schemaVersion: 1,
+    jobId: 'job',
+    processorIds: ['document.clean_markdown'],
+    documents: Array.from({ length: 26 }, () => document),
+  }));
 });
