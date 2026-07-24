@@ -105,30 +105,49 @@ export class KnowledgeIndex {
     return parts.length;
   }
 
-  rebuild(workflowId?: string): { documents: number; chunks: number } {
-    const documentIds = workflowId
-      ? (this.db.prepare(`
-          SELECT DISTINCT ds.document_id
-          FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
-          WHERE r.workflow_id=?
-        `).all(workflowId) as Array<{ document_id: string }>).map((row) => row.document_id)
-      : (this.db.prepare('SELECT document_id FROM documents').all() as Array<{ document_id: string }>).map((row) => row.document_id);
+  rebuild(options?: { workflowId?: string; threadId?: string } | string): { documents: number; chunks: number } {
+    const workflowId = typeof options === 'string' ? options : options?.workflowId;
+    const threadId = typeof options === 'object' ? options?.threadId : undefined;
+    let documentIds: string[] = [];
+    if (workflowId) {
+      documentIds = (this.db.prepare(`
+        SELECT DISTINCT ds.document_id
+        FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+        WHERE r.workflow_id=?
+      `).all(workflowId) as Array<{ document_id: string }>).map((row) => row.document_id);
+    } else if (threadId) {
+      documentIds = (this.db.prepare(`
+        SELECT DISTINCT ds.document_id
+        FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+        WHERE r.thread_id=?
+      `).all(threadId) as Array<{ document_id: string }>).map((row) => row.document_id);
+    } else {
+      documentIds = (this.db.prepare('SELECT document_id FROM documents').all() as Array<{ document_id: string }>).map((row) => row.document_id);
+    }
     let chunkCount = 0;
     for (const documentId of documentIds) chunkCount += this.indexDocument(documentId);
     return { documents: documentIds.length, chunks: chunkCount };
   }
 
-  search(query: string, limit = 8, workflowId?: string): KnowledgeSearchResult[] {
+  search(query: string, limit = 8, workflowId?: string, threadId?: string): KnowledgeSearchResult[] {
     const value = query.trim();
     if (!value) return [];
     const boundedLimit = Math.max(1, Math.min(50, limit));
-    const scopeSql = workflowId
-      ? `AND EXISTS (
-          SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
-          WHERE ds.document_id=c.document_id AND r.workflow_id=?
-        )`
-      : '';
-    const scopeParams = workflowId ? [workflowId] : [];
+    let scopeSql = '';
+    const scopeParams: any[] = [];
+    if (workflowId) {
+      scopeSql = `AND EXISTS (
+        SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+        WHERE ds.document_id=c.document_id AND r.workflow_id=?
+      )`;
+      scopeParams.push(workflowId);
+    } else if (threadId) {
+      scopeSql = `AND EXISTS (
+        SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+        WHERE ds.document_id=c.document_id AND r.thread_id=?
+      )`;
+      scopeParams.push(threadId);
+    }
     let lexical: any[] = [];
     try {
       lexical = this.db.prepare(`

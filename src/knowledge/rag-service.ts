@@ -20,8 +20,8 @@ export class RagService {
     private readonly model = modelService,
   ) {}
 
-  async answer(question: string, options: { workflowId?: string; limit?: number } = {}): Promise<RagAnswer> {
-    const results = this.index.search(question, options.limit || 8, options.workflowId);
+  async answer(question: string, options: { workflowId?: string; threadId?: string; limit?: number } = {}): Promise<RagAnswer> {
+    const results = this.index.search(question, options.limit || 8, options.workflowId, options.threadId);
     const sources = results.map((result, index) => ({
       id: `S${index + 1}`,
       documentId: result.documentId,

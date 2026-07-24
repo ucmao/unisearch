@@ -6,7 +6,7 @@ import { crawlerManager } from '../server/services/CrawlerManager';
 import { workflowEngine, type WorkflowStepHandlerContext } from './workflow-engine';
 import { knowledgeIndex } from '../knowledge/knowledge-index';
 import { analysisService } from '../analyzers/registry';
-import { exportService } from '../exporters/registry';
+import { exportService, exporterRegistry } from '../exporters/registry';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -25,9 +25,9 @@ export class WorkflowRuntime {
       Promise.resolve(knowledgeIndex.rebuild(context.workflowId)));
     workflowEngine.registerHandler('analyzer.extractive.summary', (input, context) =>
       analysisService.run('extractive.summary', context.workflowId, input));
-    for (const exporterId of ['markdown', 'json', 'obsidian', 'ima']) {
-      workflowEngine.registerHandler(`exporter.${exporterId}`, (_input, context) =>
-        exportService.run(exporterId, context.workflowId));
+    for (const exporter of exporterRegistry.list()) {
+      workflowEngine.registerHandler(`exporter.${exporter.id}`, (_input, context) =>
+        exportService.run(exporter.id, context.workflowId));
     }
   }
 

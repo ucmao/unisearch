@@ -4,15 +4,28 @@ function safeHref(value: string) {
   return /^(?:https?:\/\/|mailto:)/i.test(value) ? value : undefined
 }
 
-function inlineMarkdown(text: string): ReactNode[] {
-  const pattern = /(\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/g
+function inlineMarkdown(text: string, onCitationClick?: (sourceId: string) => void): ReactNode[] {
+  const pattern = /(\[\s*(?:S\d+|\d+)\s*\]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/gi
   const nodes: ReactNode[] = []
   let cursor = 0
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0
     if (index > cursor) nodes.push(text.slice(cursor, index))
     const token = match[0]
-    if (token.startsWith('***')) {
+    if (/^\[\s*(?:S\d+|\d+)\s*\]$/i.test(token)) {
+      const sourceId = token.replace(/[\[\]\s]/g, '')
+      nodes.push(
+        <button
+          key={`${index}-citation-${sourceId}`}
+          type="button"
+          onClick={() => onCitationClick?.(sourceId)}
+          className="mx-0.5 inline-flex items-center justify-center rounded border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/15 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-cyber-neon-cyan transition-colors hover:bg-cyber-neon-cyan/35 hover:text-white"
+          title={`点击查看出处的原始文档 [${sourceId}]`}
+        >
+          {sourceId}
+        </button>
+      )
+    } else if (token.startsWith('***')) {
       nodes.push(<strong key={`${index}-strong-italic`} className="font-semibold italic text-cyber-text-primary">{token.slice(3, -3)}</strong>)
     } else if (token.startsWith('**')) {
       nodes.push(<strong key={`${index}-strong`} className="font-semibold text-cyber-text-primary">{token.slice(2, -2)}</strong>)
@@ -33,7 +46,7 @@ function inlineMarkdown(text: string): ReactNode[] {
   return nodes
 }
 
-export function MarkdownContent({ content }: { content: string }) {
+export function MarkdownContent({ content, onCitationClick }: { content: string; onCitationClick?: (sourceId: string) => void }) {
   const lines = content.replace(/\r\n/g, '\n').split('\n')
   const blocks: ReactNode[] = []
   let index = 0
@@ -73,7 +86,7 @@ export function MarkdownContent({ content }: { content: string }) {
     if (heading) {
       const level = heading[1].length
       const size = level === 1 ? 'text-base' : level === 2 ? 'text-sm font-bold' : 'text-xs font-semibold'
-      blocks.push(<div key={`heading-${index}`} className={`mb-1 mt-3 font-semibold ${size}`}>{inlineMarkdown(heading[2])}</div>)
+      blocks.push(<div key={`heading-${index}`} className={`mb-1 mt-3 font-semibold ${size}`}>{inlineMarkdown(heading[2], onCitationClick)}</div>)
       index++
       continue
     }
@@ -89,8 +102,8 @@ export function MarkdownContent({ content }: { content: string }) {
       blocks.push(
         <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-lg border border-cyber-border-subtle">
           <table className="w-full border-collapse text-left text-xs">
-            <thead className="bg-cyber-bg-tertiary/70"><tr>{headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-cyber-border-subtle px-3 py-2 font-semibold">{inlineMarkdown(cell)}</th>)}</tr></thead>
-            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-cyber-border-subtle/60 last:border-0">{headers.map((_, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-cyber-text-secondary">{inlineMarkdown(row[cellIndex] || '')}</td>)}</tr>)}</tbody>
+            <thead className="bg-cyber-bg-tertiary/70"><tr>{headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-cyber-border-subtle px-3 py-2 font-semibold">{inlineMarkdown(cell, onCitationClick)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-cyber-border-subtle/60 last:border-0">{headers.map((_, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-cyber-text-secondary">{inlineMarkdown(row[cellIndex] || '', onCitationClick)}</td>)}</tr>)}</tbody>
           </table>
         </div>,
       )
@@ -101,7 +114,7 @@ export function MarkdownContent({ content }: { content: string }) {
     if (/^\s*[-*+]\s+/.test(line)) {
       const items: string[] = []
       while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*[-*+]\s+/, ''))
-      blocks.push(<ul key={`ul-${index}`} className="my-2 list-disc space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{inlineMarkdown(item)}</li>)}</ul>)
+      blocks.push(<ul key={`ul-${index}`} className="my-2 list-disc space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{inlineMarkdown(item, onCitationClick)}</li>)}</ul>)
       continue
     }
 
@@ -109,7 +122,7 @@ export function MarkdownContent({ content }: { content: string }) {
     if (/^\s*\d+[.)]\s+/.test(line)) {
       const items: string[] = []
       while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*\d+[.)]\s+/, ''))
-      blocks.push(<ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{inlineMarkdown(item)}</li>)}</ol>)
+      blocks.push(<ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{inlineMarkdown(item, onCitationClick)}</li>)}</ol>)
       continue
     }
 
@@ -117,7 +130,7 @@ export function MarkdownContent({ content }: { content: string }) {
     if (/^>\s?/.test(line)) {
       const quote: string[] = []
       while (index < lines.length && /^>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^>\s?/, ''))
-      blocks.push(<blockquote key={`quote-${index}`} className="my-2 border-l-2 border-cyber-neon-cyan/50 pl-3 text-cyber-text-secondary">{quote.map((item, quoteIndex) => <Fragment key={quoteIndex}>{inlineMarkdown(item)}{quoteIndex < quote.length - 1 ? <br /> : null}</Fragment>)}</blockquote>)
+      blocks.push(<blockquote key={`quote-${index}`} className="my-2 border-l-2 border-cyber-neon-cyan/50 pl-3 text-cyber-text-secondary">{quote.map((item, quoteIndex) => <Fragment key={quoteIndex}>{inlineMarkdown(item, onCitationClick)}{quoteIndex < quote.length - 1 ? <br /> : null}</Fragment>)}</blockquote>)
       continue
     }
 
@@ -131,7 +144,7 @@ export function MarkdownContent({ content }: { content: string }) {
       !(lines[index].includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] || '')) &&
       !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index])
     ) paragraph.push(lines[index++])
-    blocks.push(<p key={`p-${index}`} className="my-2 first:mt-0 last:mb-0">{paragraph.map((item, lineIndex) => <Fragment key={lineIndex}>{inlineMarkdown(item)}{lineIndex < paragraph.length - 1 ? <br /> : null}</Fragment>)}</p>)
+    blocks.push(<p key={`p-${index}`} className="my-2 first:mt-0 last:mb-0">{paragraph.map((item, lineIndex) => <Fragment key={lineIndex}>{inlineMarkdown(item, onCitationClick)}{lineIndex < paragraph.length - 1 ? <br /> : null}</Fragment>)}</p>)
   }
   return <div className="break-words text-sm leading-6 text-cyber-text-primary">{blocks}</div>
 }

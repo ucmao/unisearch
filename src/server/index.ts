@@ -23,6 +23,7 @@ import { knowledgeIndex } from '../knowledge/knowledge-index';
 import { ragService } from '../knowledge/rag-service';
 import { analyzerRegistry, analysisService } from '../analyzers/registry';
 import { exporterRegistry, exportService } from '../exporters/registry';
+import { zipDirectoryToBuffer } from '../exporters/zip';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 
@@ -41,7 +42,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   crawlerManager.setWindowCoordinator({ prepareCrawlerWindow: windowControls.prepareCrawlerWindow });
   crawlerManager.setMaxConcurrentTasks(agentRepository.getRuntimeSettings().maxConcurrentCrawlers);
   crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
-  crawlerManager.on('crawler_finished', () => { void agentService.tick(); });
+  crawlerManager.on('crawler_finished', () => {
+    void agentService.tick();
+    try { knowledgeIndex.rebuild(); } catch {}
+  });
 
   // Error Handler
   fastify.setErrorHandler((error, request, reply) => {
@@ -321,7 +325,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/skills', async () => ({ items: skillRegistry.list() }));
   fastify.get('/api/processors', async () => ({ items: listProcessorCapabilities() }));
   fastify.get('/api/analyzers', async () => ({ items: analyzerRegistry.list() }));
-  fastify.get('/api/exporters', async () => ({ items: exporterRegistry.list() }));
+  fastify.get('/api/exporters', async () => ({ items: exporterRegistry.list(), exporters: exporterRegistry.list() }));
 
   fastify.get('/api/documents', async (request) => {
     const query = request.query as { run_id?: string; limit?: string };
@@ -841,6 +845,84 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       .header('Content-Type', 'text/csv; charset=utf-8')
       .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
       .send(Buffer.from(csvContent, 'utf-8'));
+  });
+
+  // --- Knowledge Base & RAG Endpoints ---
+  fastify.post('/api/knowledge/ask', async (request, reply) => {
+    const body = request.body as { question?: string; workflowId?: string; threadId?: string; limit?: number };
+    if (!body?.question) return reply.status(400).send({ detail: 'question is required' });
+    try {
+      const result = await ragService.answer(body.question, {
+        workflowId: body.workflowId,
+        threadId: body.threadId,
+        limit: body.limit,
+      });
+      return result;
+    } catch (err: any) {
+      return reply.status(500).send({ detail: err.message });
+    }
+  });
+
+  fastify.get('/api/knowledge/documents', async (request, reply) => {
+    const query = request.query as { workflowId?: string; threadId?: string };
+    try {
+      const documents = analysisService.documents(query.workflowId, query.threadId);
+      return { status: 'ok', count: documents.length, documents };
+    } catch (err: any) {
+      return reply.status(500).send({ detail: err.message });
+    }
+  });
+
+  fastify.post('/api/knowledge/rebuild', async (request, reply) => {
+    const body = request.body as { workflowId?: string; threadId?: string };
+    try {
+      const result = knowledgeIndex.rebuild(body);
+      return { status: 'ok', ...result };
+    } catch (err: any) {
+      return reply.status(500).send({ detail: err.message });
+    }
+  });
+
+  // --- Exporters Endpoints ---
+  fastify.post('/api/exporters/run', async (request, reply) => {
+    const body = request.body as { exporterId?: string; workflowId?: string };
+    if (!body?.exporterId) return reply.status(400).send({ detail: 'exporterId is required' });
+    try {
+      const record = await exportService.run(body.exporterId, body.workflowId);
+      return { status: 'ok', record };
+    } catch (err: any) {
+      return reply.status(500).send({ detail: err.message });
+    }
+  });
+
+  fastify.get('/api/exporters/download', async (request, reply) => {
+    const { exporterId, workflowId } = (request.query || {}) as { exporterId?: string; workflowId?: string };
+    if (!exporterId) return reply.status(400).send({ detail: 'exporterId is required' });
+    try {
+      const record = await exportService.run(exporterId, workflowId);
+      const targetPath = record.output_path;
+      if (!fs.existsSync(targetPath)) return reply.status(4404).send({ detail: 'Export output not found' });
+      const stat = fs.statSync(targetPath);
+      if (stat.isDirectory()) {
+        const zipBuffer = zipDirectoryToBuffer(targetPath);
+        const name = path.basename(targetPath);
+        const filename = `UniSearch_${name.replace(/\s+/g, '_')}.zip`;
+        return reply
+          .header('Content-Type', 'application/zip')
+          .header('Content-Disposition', `attachment; filename="${filename}"`)
+          .send(zipBuffer);
+      } else {
+        const fileBuffer = fs.readFileSync(targetPath);
+        const base = path.basename(targetPath);
+        const filename = base.startsWith('UniSearch_') ? base : `UniSearch_${base}`;
+        return reply
+          .header('Content-Type', 'text/markdown; charset=utf-8')
+          .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`)
+          .send(fileBuffer);
+      }
+    } catch (err: any) {
+      return reply.status(500).send({ detail: err.message });
+    }
   });
 
   // Serve static files (React frontend)

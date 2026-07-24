@@ -244,7 +244,9 @@ export class AnalyticsRepository {
     });
     const all = this.loadContentRows({ run_id: runId, plan_id: planId, thread_id: threadId });
     const aggregate = (items: ContentRecord[]) => ({
+      content_count: items.length,
       contents: items.length,
+      creator_count: new Set(items.map((item) => item.creator_id || item.creator_name).filter(Boolean)).size,
       likes: items.reduce((sum, item) => sum + item.likes, 0),
       saves: items.reduce((sum, item) => sum + item.saves, 0),
       comments: items.reduce((sum, item) => sum + item.comments, 0),

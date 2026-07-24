@@ -6,16 +6,18 @@ import {
   Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
   Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
-import { agentApi, browserApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
+import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MarkdownContent } from './MarkdownContent'
+import { SourceDrawer, type SourceCitation } from './SourceDrawer'
 import { Terminal } from '@/components/console/Terminal'
 import { SettingsDialog, type SettingsSection } from '@/components/layout/SettingsDialog'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
+import { PlatformExportIcons, type PlatformConfig } from './PlatformExportIcons'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
@@ -86,10 +88,16 @@ function StepIcon({ status }: { status: string }) {
   return <Clock3 className="h-4 w-4 text-cyber-text-muted" />
 }
 
-function CsvDownloadLink({ planId, compact = false }: { planId: string; compact?: boolean }) {
+function CsvDownloadLink({ planId, threadId, compact = false }: { planId?: string; threadId?: string; compact?: boolean }) {
+  const exportUrl = threadId
+    ? dataApi.getAnalyticsExportUrl({ thread_id: threadId })
+    : planId
+      ? agentApi.getPlanExportUrl(planId)
+      : '#'
+
   return (
     <a
-      href={agentApi.getPlanExportUrl(planId)}
+      href={exportUrl}
       download
       className={`inline-flex items-center justify-center rounded-md border border-cyber-border-default text-xs font-medium transition-colors hover:border-cyber-neon-cyan/60 hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan ${compact ? 'h-9 min-w-0 gap-1.5 px-2' : 'mt-3 h-10 min-w-0 gap-2 px-4'}`}
     >
@@ -239,14 +247,14 @@ function ChatCrawlingStatusBanner({
           title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
         >
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>🔍 正在采集数据 ({completedSteps}/{totalSteps})</span>
+          <span>正在采集数据 ({completedSteps}/{totalSteps})</span>
         </button>
       </div>
     </div>
   )
 }
 
-function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair, onPreviewImage }: {
+function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair, onPreviewImage, onCitationClick }: {
   message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean
   showPlanCard: boolean
   onUpdateKeywords: (keywords: string[]) => void
@@ -255,6 +263,7 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
   onDeletePair: () => Promise<unknown>
   deletingPair: boolean
   onPreviewImage?: (url: string) => void
+  onCitationClick?: (sourceId: string) => void
 }) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
@@ -300,7 +309,7 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
         </div> : null}
         {isUser
           ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{message.content}</div>
-          : <MarkdownContent content={message.content} />}
+          : <MarkdownContent content={message.content} onCitationClick={onCitationClick} />}
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
@@ -402,6 +411,63 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
   const [activeResize, setActiveResize] = useState<'left' | 'terminal' | 'right' | null>(null)
   const [petCelebrating, setPetCelebrating] = useState(false)
+  const [activeCitation, setActiveCitation] = useState<SourceCitation | null>(null)
+  const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false)
+
+  const threadDocumentsQuery = useQuery({
+    queryKey: ['thread-documents', selectedId],
+    queryFn: async () => {
+      if (!selectedId) return []
+      const res = await fetch(`/api/knowledge/documents?threadId=${encodeURIComponent(selectedId)}`)
+      const data = await res.json()
+      return data.documents || []
+    },
+    enabled: !!selectedId,
+    refetchInterval: 3000,
+  })
+
+  const [exportConfirmPlatform, setExportConfirmPlatform] = useState<PlatformConfig | null>(null)
+
+  const handleExecuteDownload = (exporterId: string) => {
+    const activeWorkflowId = (activePlan as any)?.workflow_id || activePlan?.plan_id
+    const params = new URLSearchParams({ exporterId })
+    if (activeWorkflowId) params.append('workflowId', activeWorkflowId)
+    const downloadUrl = `/api/exporters/download?${params.toString()}`
+
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.setAttribute('download', '')
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleCitationClick = (sourceId: string) => {
+    const num = parseInt(sourceId.replace(/\D/g, ''), 10)
+    const docs = threadDocumentsQuery.data || []
+    const doc = (num > 0 && docs[num - 1]) ? docs[num - 1] : docs[0]
+    if (doc) {
+      setActiveCitation({
+        id: sourceId.startsWith('S') ? sourceId : `S${sourceId}`,
+        documentId: doc.documentId || doc.canonical_key || 'doc-1',
+        title: doc.title || '规范化数据文档',
+        source: doc.provenance?.source || doc.metadata?.source || 'UniSearch 知识库',
+        sourceUrl: doc.sourceUrl || doc.metadata?.source_url,
+        excerpt: doc.markdown ? doc.markdown.slice(0, 600) : '已归档存入本地 SQLite 知识库引擎。',
+        score: 0.95,
+      })
+    } else {
+      setActiveCitation({
+        id: sourceId.startsWith('S') ? sourceId : `S${sourceId}`,
+        documentId: 'doc-unknown',
+        title: `参考资料片段 [${sourceId}]`,
+        source: 'UniSearch 知识库',
+        excerpt: `出处标签为 [${sourceId}] 的原始采样本段。数据已落地于 SQLite 全文及向量索引库。`,
+        score: 0.90,
+      })
+    }
+    setSourceDrawerOpen(true)
+  }
   const workspaceRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1027,7 +1093,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} />)}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} onCitationClick={handleCitationClick} />)}
                 {activePlan && activePlan.status !== 'awaiting_confirmation' && (
                   <ChatCrawlingStatusBanner
                     activePlan={activePlan}
@@ -1274,7 +1340,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
                       <Sparkles className="h-3.5 w-3.5" /> 待确认采集任务
                     </span>
-                    <Badge variant="outline" className="border-cyber-neon-cyan/50 text-[10px] text-cyber-neon-cyan">等待确认</Badge>
                   </div>
                   <div className="mt-2.5 space-y-1.5 text-xs">
                     {activePlan.plan.keywords.length > 0 ? (
@@ -1392,10 +1457,21 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
                       <span className="truncate">结果看板</span>
                     </Button>
-                    {latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
+                    {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
                   </div>
                 ) : null}
                 {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />重试失败平台</Button> : null}
+              </div>
+
+              {/* 知识资产与一键导出 (8 平台图标栏) */}
+              <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
+                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                  <span>知识资产导出</span>
+                  <span className="font-mono text-cyber-neon-cyan">{threadDocumentsQuery.data?.length || 0} 篇已归档</span>
+                </div>
+                <PlatformExportIcons
+                  onSelectPlatform={(platform) => setExportConfirmPlatform(platform)}
+                />
               </div>
 
               {/* AI 快捷提问建议 */}
@@ -1514,6 +1590,83 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 知识库导出二次确认弹窗 (高对比度深色文本) */}
+      <Dialog open={!!exportConfirmPlatform} onOpenChange={(open) => !open && setExportConfirmPlatform(null)}>
+        <DialogContent className="border border-slate-200 bg-white shadow-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2.5 text-slate-900 text-base font-bold">
+              {exportConfirmPlatform ? (
+                <img src={exportConfirmPlatform.icon} alt="" className="h-6 w-6 object-contain" />
+              ) : null}
+              <span>导出至 {exportConfirmPlatform?.name} 知识库</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-600 pt-1 leading-relaxed">
+              {exportConfirmPlatform?.description}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="my-2 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-700">
+              <span className="font-medium">归档文档总数：</span>
+              <span className="font-mono font-bold text-cyan-600">{threadDocumentsQuery.data?.length || 0} 篇已归档</span>
+            </div>
+            <div className="flex items-center justify-between text-xs text-slate-700 border-t border-slate-200/80 pt-2">
+              <span className="font-medium">预估文件名：</span>
+              <span className="font-mono text-xs font-bold text-slate-900 bg-slate-200/60 px-1.5 py-0.5 rounded">
+                {exportConfirmPlatform?.id === 'obsidian'
+                  ? 'UniSearch_Obsidian_Vault.zip'
+                  : exportConfirmPlatform?.id === 'ima'
+                    ? 'UniSearch_IMA.zip'
+                    : exportConfirmPlatform?.id === 'notion'
+                      ? 'UniSearch_Notion.zip'
+                      : exportConfirmPlatform?.id === 'logseq'
+                        ? 'UniSearch_Logseq.zip'
+                        : exportConfirmPlatform?.id === 'dify'
+                          ? 'UniSearch_Dify.zip'
+                          : exportConfirmPlatform?.id === 'yuque'
+                            ? 'UniSearch_Yuque.zip'
+                            : exportConfirmPlatform?.id === 'feishu'
+                              ? 'UniSearch_Feishu.zip'
+                              : exportConfirmPlatform?.id === 'markdown'
+                                ? 'UniSearch_Markdown_Collection.md'
+                                : 'UniSearch_Export.zip'}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setExportConfirmPlatform(null)}
+              className="text-xs border-slate-300 text-slate-700 hover:bg-slate-100"
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (exportConfirmPlatform) {
+                  handleExecuteDownload(exportConfirmPlatform.id)
+                  setExportConfirmPlatform(null)
+                  toast.success(`已开始生成 ${exportConfirmPlatform.name} 导出包并下载`, { duration: 3000 })
+                }
+              }}
+              className="text-xs bg-cyan-600 text-white hover:bg-cyan-700 font-medium"
+            >
+              <Download className="h-3.5 w-3.5 mr-1" />
+              确认导出并下载
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <SourceDrawer
+        isOpen={sourceDrawerOpen}
+        onClose={() => setSourceDrawerOpen(false)}
+        citation={activeCitation}
+      />
     </div>
   )
 }

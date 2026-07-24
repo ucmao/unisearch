@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../../database/connection';
 import { AnalyticsRepository } from '../../database/repository';
+import { exporterRegistry } from '../../exporters/registry';
 
 export type AgentRole = 'user' | 'assistant' | 'system';
 
@@ -491,7 +492,7 @@ export class AgentRepository {
       `).run(id(), workflowId, JSON.stringify({ goals: plan.analysis }), now, now);
       previousStep = 'analyze-results';
     }
-    const supportedExporters = new Set(['markdown', 'json', 'obsidian', 'ima']);
+    const supportedExporters = new Set(exporterRegistry.list().map((e) => e.id));
     for (const exporter of (plan.outputs || []).filter((output) => supportedExporters.has(output))) {
       this.db.prepare(`
         INSERT INTO workflow_steps (
