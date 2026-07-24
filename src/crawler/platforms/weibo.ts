@@ -1,7 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class WeiboCrawler extends AbstractCrawler {
@@ -161,7 +161,7 @@ export class WeiboCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await dbStore.storeWeiboNote(noteDetail);
+          await connectorOutput.storeWeiboNote(noteDetail);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(c.note_id);
           count++;
           
@@ -187,7 +187,7 @@ export class WeiboCrawler extends AbstractCrawler {
       create_time: status.created_at ? Math.floor(new Date(status.created_at).getTime() / 1000) : 0,
       create_date_time: status.created_at || '', source_keyword: sourceKeyword,
     };
-    await dbStore.storeWeiboNote(record);
+    await connectorOutput.storeWeiboNote(record);
     if (activeConfig.ENABLE_GET_COMMENTS) await this.getNoteComments(noteId);
     return record;
   }
@@ -220,7 +220,7 @@ export class WeiboCrawler extends AbstractCrawler {
     try {
       const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
       const comments = result?.data || [];
-      const store = async (comment: any, parent = '') => dbStore.storeWeiboComment({
+      const store = async (comment: any, parent = '') => connectorOutput.storeWeiboComment({
         comment_id: String(comment.idstr || comment.id || ''), note_id: noteId,
         content: stripHtml(comment.text_raw || comment.text || ''),
         create_time: comment.created_at ? Math.floor(new Date(comment.created_at).getTime() / 1000) : 0,

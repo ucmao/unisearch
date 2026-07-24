@@ -1,7 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, notifyLoginRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 
 const QWEN_URL = 'https://www.qianwen.com/';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -109,7 +109,7 @@ export class QwenCrawler extends AbstractCrawler {
     await this.waitForResponse();
     const result = await this.collectResult();
     if (!result.answer) throw new Error('通义千问已结束生成，但页面中未找到回答正文。');
-    await dbStore.storeQwenResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
+    await connectorOutput.storeQwenResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
       citations: result.citations, url: result.url, source_keyword: question, time: Date.now() });
   }
 

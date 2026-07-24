@@ -1,7 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -286,7 +286,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
     console.log(`  - Reasoning Length: ${resultData.reasoning.length} chars`);
     console.log(`  - Citations Count: ${resultData.citations.length} links`);
 
-    await dbStore.storeDeepSeekResult({
+    await connectorOutput.storeDeepSeekResult({
       question,
       title: question,
       reasoning_content: resultData.reasoning,

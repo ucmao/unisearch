@@ -1,7 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, notifyLoginRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const DOUBAO_URL = 'https://www.doubao.com/chat/';
@@ -133,7 +133,7 @@ export class DoubaoCrawler extends AbstractCrawler {
     await this.waitForResponse();
     const result = await this.collectResult();
     if (!result.answer) throw new Error('豆包已结束生成，但页面中未找到可导出的回答正文。');
-    await dbStore.storeDoubaoResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
+    await connectorOutput.storeDoubaoResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
       citations: result.citations, url: result.url, source_keyword: question, time: Date.now() });
   }
 

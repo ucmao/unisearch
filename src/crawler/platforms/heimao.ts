@@ -7,7 +7,7 @@ import {
   notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -195,9 +195,9 @@ export class HeimaoCrawler extends AbstractCrawler {
           await this.humanDelay(this.page, 2);
         }
 
-        // Save items to dbStore
+        // Emit items through the connector output boundary.
         for (const item of collectedItems) {
-          await dbStore.storeHeimaoResult({
+          await connectorOutput.storeHeimaoResult({
             content_id: item.content_id,
             title: item.title,
             desc: `${item.creator_name ? `[投诉商家: ${item.creator_name}] ` : ''}${item.status ? `[状态: ${item.status}] ` : ''}${item.description}`,
@@ -259,7 +259,7 @@ export class HeimaoCrawler extends AbstractCrawler {
         const idMatch = url.match(/\/complaint\/view\/(\d+)/);
         const complaintId = idMatch ? idMatch[1] : target;
 
-        await dbStore.storeHeimaoResult({
+        await connectorOutput.storeHeimaoResult({
           content_id: complaintId,
           title: detail.title,
           desc: `[被投诉方: ${detail.merchant}] ${detail.status ? `[状态: ${detail.status}] ` : ''}${detail.desc}`,

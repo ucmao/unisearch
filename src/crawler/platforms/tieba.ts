@@ -1,7 +1,7 @@
 import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class TiebaCrawler extends AbstractCrawler {
@@ -163,7 +163,7 @@ export class TiebaCrawler extends AbstractCrawler {
             source_keyword: keyword,
           };
 
-          await dbStore.storeTiebaNote(noteDetail);
+          await connectorOutput.storeTiebaNote(noteDetail);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getThreadDetail(p.note_url, keyword);
           count++;
           
@@ -210,10 +210,10 @@ export class TiebaCrawler extends AbstractCrawler {
         tieba_link: detail.forum ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(detail.forum.replace(/吧$/, ''))}` : '',
         total_replay_num: Math.max(0, detail.posts.length - 1), total_replay_page: 1, source_keyword: sourceKeyword,
       };
-      await dbStore.storeTiebaNote(record);
+      await connectorOutput.storeTiebaNote(record);
       if (activeConfig.ENABLE_GET_COMMENTS) {
         for (const post of detail.posts.slice(1, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES + 1)) {
-          await dbStore.storeTiebaComment({
+          await connectorOutput.storeTiebaComment({
             comment_id: post.id, parent_comment_id: post.parentId, content: post.text,
             creator_hash: post.authorId, user_nickname: post.authorName,
             tieba_name: detail.forum || '', tieba_link: record.tieba_link,

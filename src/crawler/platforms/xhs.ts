@@ -7,7 +7,7 @@ import {
   notifyLoginSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
@@ -262,7 +262,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
               xsec_token: item.xsec_token || '',
             };
 
-            await dbStore.storeXhsNote(noteDetail);
+            await connectorOutput.storeXhsNote(noteDetail);
             count++;
 
             // Crawl comments if enabled
@@ -342,7 +342,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           like_count: commentItem.like_count || 0,
         };
 
-        await dbStore.storeXhsComment(dbComment);
+        await connectorOutput.storeXhsComment(dbComment);
         count++;
 
         // Sub comments crawling
@@ -390,7 +390,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           parent_comment_id: rootCommentId,
           like_count: sub.like_count || 0,
         };
-        await dbStore.storeXhsComment(dbSub);
+        await connectorOutput.storeXhsComment(dbSub);
       }
     } catch (err: any) {
       console.error(`[XHS] Error crawling sub comments:`, err.message);
@@ -460,7 +460,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         image_list: [...new Set(detail.images || [])].join(','), tag_list: '', note_url: noteUrl,
         source_keyword: sourceKeyword, xsec_token: xsecToken,
       };
-      await dbStore.storeXhsNote(record);
+      await connectorOutput.storeXhsNote(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.crawlComments(noteId, xsecToken);
       return record;
     } catch (error: any) {

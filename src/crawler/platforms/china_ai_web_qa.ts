@@ -7,7 +7,7 @@ import {
   notifyLoginSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
-import { dbStore } from '../store';
+import { connectorOutput } from '../../connectors/output/connector-output';
 
 type PlatformId = 'yuanbao' | 'nami' | 'wenxin';
 
@@ -220,7 +220,7 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     await this.waitForResponse();
     const result = await this.collectResult();
     if (!result.answer) throw new Error(`${this.platform.name}已结束生成，但页面中未找到回答正文。`);
-    await dbStore.storeAiWebQaResult(this.platform.id, {
+    await connectorOutput.storeAiWebQaResult(this.platform.id, {
       question,
       title: question,
       answer: result.answer,
