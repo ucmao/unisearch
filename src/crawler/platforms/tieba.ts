@@ -3,6 +3,11 @@ import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } fr
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
+
+// Tieba's own search stops serving useful results well before this; the cap only
+// exists so a query that keeps rendering identical pages cannot loop forever.
+const TIEBA_MAX_SEARCH_PAGES = 30;
 
 export class TiebaCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -85,18 +90,83 @@ export class TiebaCrawler extends AbstractCrawler {
 
   public async search(): Promise<void> {
     const keywords = activeConfig.KEYWORDS.split(',');
+    const target = Math.max(1, activeConfig.CRAWLER_MAX_NOTES_COUNT);
     for (const keyword of keywords) {
-      console.log(`[TIEBA] Searching keyword: ${keyword}`);
+      console.log(`[TIEBA] Searching keyword: ${keyword} (target ${target})`);
       try {
-        const searchUrl = `https://tieba.baidu.com/f/search/res?qw=${encodeURIComponent(keyword)}`;
-        await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-        await this.page!.waitForTimeout(3000);
+        // Tieba search is truly paginated. Without this loop the crawler only ever
+        // saw the first page, so any depth above ~10 items was unreachable while
+        // the run still reported success.
+        //
+        // Baidu uses `pn` for both conventions across its endpoints — a 1-based
+        // page index on some, an item offset on others — so the mode is detected
+        // from the second request instead of hardcoding a guess.
+        const collected = new Map<string, any>();
+        let pageSize = 0;
+        let offsetMode = false;
+        let pagesWithoutNewResults = 0;
+        for (let pageNo = 1; collected.size < target && pageNo <= TIEBA_MAX_SEARCH_PAGES; pageNo++) {
+          const pn = offsetMode ? (pageNo - 1) * (pageSize || 10) : pageNo;
+          const posts = await this.collectSearchPage(keyword, pn);
+          const ids = posts.map((post) => post.note_id).filter(Boolean);
+          const newIds = ids.filter((id) => !collected.has(id));
 
-        // Scroll
-        await this.page!.evaluate(() => window.scrollBy(0, 1000));
-        await this.page!.waitForTimeout(1000);
+          if (pageNo === 1) {
+            pageSize = ids.length;
+          } else if (pageNo === 2 && !offsetMode && ids.length && pageSize && newIds.length <= 1) {
+            // Under offset semantics pn=2 shifts the window by exactly one item,
+            // so page 2 returns at most one unseen thread. Requiring near-total
+            // overlap keeps a genuinely duplicate-heavy page 2 from misfiring.
+            offsetMode = true;
+            console.warn('[TIEBA] Detected offset-style pagination; switching pn to item offsets.');
+            // Restart from offset 0 so the very first result is not skipped;
+            // the dedupe map absorbs the overlap with what page 1 already gave.
+            pageNo = 0;
+            continue;
+          }
 
-        const posts = await this.page!.evaluate(() => {
+          const before = collected.size;
+          for (const post of posts) {
+            if (!post.note_id || collected.has(post.note_id)) continue;
+            collected.set(post.note_id, post);
+            if (collected.size >= target) break;
+          }
+          console.log(`[TIEBA] pn=${pn}: ${posts.length} results, ${collected.size}/${target} collected.`);
+          if (collected.size === before) {
+            // The last page of a query keeps rendering, it just stops adding
+            // anything new, so "no growth" is the only reliable end signal.
+            if (++pagesWithoutNewResults >= 2) break;
+          } else {
+            pagesWithoutNewResults = 0;
+          }
+          await this.humanDelay(this.page!);
+        }
+
+        const posts = [...collected.values()];
+        if (posts.length < target) {
+          connectorEventEmitter.send({
+            type: 'warning',
+            code: 'PARTIAL_RESULT',
+            message: `贴吧关键词“${keyword}”只找到 ${posts.length} 条结果（目标 ${target} 条），可能是该词在贴吧的结果本就有限。`,
+          });
+        }
+        await this.ingestSearchResults(posts, keyword);
+      } catch (err: any) {
+        console.error(`[TIEBA] Search error for keyword ${keyword}:`, err.message);
+      }
+    }
+  }
+
+  private async collectSearchPage(keyword: string, pn: number): Promise<any[]> {
+    const searchUrl = `https://tieba.baidu.com/f/search/res?qw=${encodeURIComponent(keyword)}&pn=${pn}`;
+    await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+    await this.page!.waitForTimeout(3000);
+
+    // Scroll
+    await this.page!.evaluate(() => window.scrollBy(0, 1000));
+    await this.page!.waitForTimeout(1000);
+
+    return this.page!.evaluate(() => {
           const items: any[] = [];
           const postElements = document.querySelectorAll('.thread-content-box');
           
@@ -141,37 +211,33 @@ export class TiebaCrawler extends AbstractCrawler {
           });
           return items;
         });
+  }
 
-        console.log(`[TIEBA] Found ${posts.length} threads. Ingesting...`);
-        let count = 0;
-        
-        for (const p of posts) {
-          if (count >= activeConfig.CRAWLER_MAX_NOTES_COUNT) break;
-          if (!p.note_id) continue;
+  private async ingestSearchResults(posts: any[], keyword: string): Promise<void> {
+    console.log(`[TIEBA] Ingesting ${posts.length} threads for “${keyword}”...`);
+    // Every thread is persisted before any detail navigation happens: comment
+    // fetching moves the shared page away from the search results, and a failure
+    // partway through must not discard threads already found.
+    for (const post of posts) {
+      await connectorOutput.emitTiebaNote({
+        note_id: post.note_id,
+        title: post.title,
+        desc: post.desc,
+        note_url: post.note_url,
+        user_nickname: post.user_nickname,
+        creator_hash: post.creator_hash,
+        total_replay_num: post.comment_count,
+        total_replay_page: Math.ceil(post.comment_count / 30),
+        tieba_name: post.tieba_name,
+        tieba_link: post.tieba_link,
+        source_keyword: keyword,
+      });
+    }
 
-          const noteDetail = {
-            note_id: p.note_id,
-            title: p.title,
-            desc: p.desc,
-            note_url: p.note_url,
-            user_nickname: p.user_nickname,
-            creator_hash: p.creator_hash,
-            total_replay_num: p.comment_count,
-            total_replay_page: Math.ceil(p.comment_count / 30),
-            tieba_name: p.tieba_name,
-            tieba_link: p.tieba_link,
-            source_keyword: keyword,
-          };
-
-          await connectorOutput.emitTiebaNote(noteDetail);
-          if (activeConfig.ENABLE_GET_COMMENTS) await this.getThreadDetail(p.note_url, keyword);
-          count++;
-          
-          await this.humanDelay(this.page!);
-        }
-      } catch (err: any) {
-        console.error(`[TIEBA] Search error for keyword ${keyword}:`, err.message);
-      }
+    if (!activeConfig.ENABLE_GET_COMMENTS) return;
+    for (const post of posts) {
+      await this.getThreadDetail(post.note_url, keyword);
+      await this.humanDelay(this.page!);
     }
   }
 

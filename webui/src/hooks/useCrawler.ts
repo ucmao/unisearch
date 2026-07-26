@@ -52,11 +52,19 @@ export function useStopCrawler() {
         setStatus(platform, 'stopping')
       }
     },
-    onSuccess: (_, platform) => {
+    onSuccess: ({ data }, platform) => {
       if (platform) {
         setStatus(platform, 'idle')
       }
       queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
+      // Stopping a crawler that belongs to a plan cancels the whole plan, since
+      // otherwise the plan would just move on to its next platform. Say so.
+      const cancelled = data?.cancelled_plans?.length || 0
+      if (cancelled > 0) {
+        toast.info(`已同时中止 ${cancelled} 个采集任务（该平台属于任务计划，仅停进程会继续跑下一个平台）`)
+        queryClient.invalidateQueries({ queryKey: ['agent-threads'] })
+        queryClient.invalidateQueries({ queryKey: ['agent-thread'] })
+      }
     },
     onError: (error: Error, platform) => {
       toast.error(`停止采集失败：${error.message}`, { id: 'crawler-stop-error' })
