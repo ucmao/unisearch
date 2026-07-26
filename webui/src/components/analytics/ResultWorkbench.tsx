@@ -292,15 +292,35 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
     refetchInterval: crawlerStatus === 'running' || crawlerStatus === 'stopping' ? 3_000 : false,
   })
 
+  const tasks = tasksQuery.data?.items ?? []
+
   useEffect(() => {
     setScope(initialScope)
-    if (initialScope.startsWith('thread:')) {
-      const threadId = initialScope.slice(7)
-      setExpandedTasks((current) => new Set(current).add(threadId))
-    } else if (initialScope.startsWith('plan:')) {
-      setExpandedRounds((current) => new Set(current).add(initialScope.slice(5)))
-    }
   }, [initialScope])
+
+  useEffect(() => {
+    if (scope.startsWith('thread:')) {
+      const threadId = scope.slice(7)
+      setExpandedTasks((current) => new Set(current).add(threadId))
+    } else if (scope.startsWith('plan:')) {
+      const planId = scope.slice(5)
+      setExpandedRounds((current) => new Set(current).add(planId))
+      const task = tasks.find((t) => t.rounds.some((r) => r.plan_id === planId))
+      if (task) {
+        setExpandedTasks((current) => new Set(current).add(task.thread_id))
+      }
+    } else if (scope.startsWith('run:')) {
+      const runId = scope.slice(4)
+      const task = tasks.find((t) => t.rounds.some((r) => r.runs.some((run) => run.run_id === runId)))
+      if (task) {
+        setExpandedTasks((current) => new Set(current).add(task.thread_id))
+        const round = task.rounds.find((r) => r.runs.some((run) => run.run_id === runId))
+        if (round) {
+          setExpandedRounds((current) => new Set(current).add(round.plan_id))
+        }
+      }
+    }
+  }, [scope, tasks])
 
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
   const selectedPlanId = scope.startsWith('plan:') ? scope.slice(5) : undefined
@@ -358,7 +378,6 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   const contents = contentsQuery.data
   const comments = commentsQuery.data
   const keywordRows = useMemo(() => summary?.by_keyword ?? [], [summary])
-  const tasks = tasksQuery.data?.items ?? []
   const rounds = useMemo(() => tasks.flatMap((task) => task.rounds), [tasks])
   const runs = useMemo(() => rounds.flatMap((round) => round.runs), [rounds])
   const filteredTasks = useMemo(() => {
@@ -438,7 +457,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
 
   const renderTaskGroups = (mobile = false) => filteredTasks.map((task) => {
     const taskRuns = task.rounds.flatMap((round) => round.runs)
-    const isExpanded = expandedTasks.has(task.thread_id) || scope === `thread:${task.thread_id}` || task.rounds.some((round) => scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`))
+    const isExpanded = expandedTasks.has(task.thread_id)
     const isSelected = scope === `thread:${task.thread_id}`
     const isRunning = taskRuns.some((run) => run.status === 'running')
     const itemCount = taskRuns.reduce((total, run) => total + run.item_count, 0)
@@ -482,7 +501,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
         {isExpanded ? (
           <div className="space-y-1 border-t border-cyber-border-subtle bg-cyber-bg-secondary/35 p-1.5">
             {task.rounds.map((round, roundIndex) => {
-              const roundExpanded = expandedRounds.has(round.plan_id) || scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`)
+              const roundExpanded = expandedRounds.has(round.plan_id)
               const roundRunning = round.runs.some((run) => run.status === 'running')
               const roundItems = round.runs.reduce((sum, run) => sum + run.item_count, 0)
               return <div key={round.plan_id} className="overflow-hidden rounded border border-cyber-border-subtle/70">

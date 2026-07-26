@@ -1267,7 +1267,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 </div>
                 <Button
                   size="icon"
-                  className="absolute bottom-3 right-3 h-9 w-9"
+                  className="absolute bottom-3 right-3 h-9 w-9 rounded-full"
                   onClick={send.isPending ? stopGenerating : submit}
                   disabled={send.isPending ? isStoppingMessage : (!input.trim() || create.isPending)}
                   aria-label={send.isPending ? '停止生成' : '发送'}
@@ -1393,9 +1393,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 <div className="rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/80 p-3.5 shadow-sm">
                   <div className="flex items-center justify-between text-[10px]">
                     <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在执行采集任务...
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued' ? '采集任务排队中...' : '正在执行采集任务...'}
                     </span>
-                    <Badge variant="outline" className="animate-pulse text-[10px]">进行中</Badge>
                   </div>
                   {activePlan.plan.keywords.length ? (
                     <p className="mt-2 truncate text-[10px] text-cyber-text-muted">

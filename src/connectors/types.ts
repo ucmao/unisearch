@@ -58,7 +58,7 @@ export interface ConnectorManifest {
     description: string;
   };
   runtime: {
-    engine: 'playwright' | 'http';
+    engine: 'playwright' | 'http' | 'hybrid';
     isolatedProcess: boolean;
     supportsHeadless: boolean;
   };

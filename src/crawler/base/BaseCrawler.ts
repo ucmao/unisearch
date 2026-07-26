@@ -143,6 +143,24 @@ export abstract class AbstractCrawler {
   public abstract start(): Promise<void>;
   public abstract search(): Promise<void>;
 
+  protected async executeHybrid<T>(
+    httpTask: () => Promise<T[]>,
+    browserTask: () => Promise<T[]>,
+    fallbackCheck: (results: T[]) => boolean = (res) => res.length === 0
+  ): Promise<T[]> {
+    try {
+      const httpResults = await httpTask();
+      if (!fallbackCheck(httpResults)) {
+        return httpResults;
+      }
+      console.warn(`[HybridEngine] HTTP 采集模式未能获取有效数据 (共 ${httpResults.length} 条)，自动切换至 Playwright 浏览器模式兜底...`);
+    } catch (err: any) {
+      console.warn(`[HybridEngine] HTTP 采集遭遇异常 (${err.message})，自动切换至 Playwright 浏览器模式兜底...`);
+    }
+
+    return await browserTask();
+  }
+
   protected async humanDelay(page: Page, seconds = activeConfig.CRAWLER_MAX_SLEEP_SEC): Promise<void> {
     const jitter = 0.8 + Math.random() * 0.5;
     await page.waitForTimeout(Math.max(250, Math.round(seconds * 1000 * jitter)));
