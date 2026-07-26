@@ -1,11 +1,5 @@
 import type { ResearchPlan } from './AgentRepository';
-
-const PLATFORM_LABELS: Record<string, string> = {
-  xhs: '小红书', dy: '抖音', douyin: '抖音', ks: '快手', kuaishou: '快手', bili: '哔哩哔哩', wb: '微博', weibo: '微博', tieba: '百度贴吧', zhihu: '知乎',
-  baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗', media_parser: '综合解析', zhaopin: '智联招聘', heimao: '黑猫投诉',
-  deepseek: 'DeepSeek', doubao: '豆包', kimi: 'Kimi', nami: '纳米AI',
-  qwen: '通义千问', wenxin: '文心一言', yuanbao: '腾讯元宝',
-};
+import { platformLabel } from '../../connectors/registry';
 
 const GENERIC_MESSAGE = /^(?:你?好(?:呀|啊|哇|哦|喔|哟|嘛)?|您好|哈[喽啰罗]|嗨|hi|hello|hey|在吗|有人吗|测试(?:一下)?|开始|继续|谢谢|多谢|ok|好的|嗯+|哦+)[!！,.，。?？~～\s\p{Emoji_Presentation}\p{Extended_Pictographic}]*$/iu;
 
@@ -51,7 +45,7 @@ export function titleFromPlan(plan: ResearchPlan): string {
       .trim();
   }
   let goal = sanitizeThreadTitle(topic || plan.goal || '', 24);
-  const platforms = (plan.platforms || []).map((platform) => PLATFORM_LABELS[platform] || platform);
+  const platforms = (plan.platforms || []).map(platformLabel);
   if (platforms.length === 1 && goal && !goal.includes(platforms[0])) {
     goal = sanitizeThreadTitle(`${platforms[0]}·${goal}`, 24);
   }

@@ -13,46 +13,14 @@ export interface MentionEntity {
   command?: string
 }
 
-export const CONNECTOR_ENTITIES: MentionEntity[] = [
-  // 社交平台
-  { id: 'xhs', key: 'xhs', name: '小红书', category: 'social', categoryLabel: '社交平台', description: '作品、创作者及评论采集' },
-  { id: 'douyin', key: 'douyin', name: '抖音', category: 'social', categoryLabel: '社交平台', description: '短视频、图文及回复采集' },
-  { id: 'kuaishou', key: 'kuaishou', name: '快手', category: 'social', categoryLabel: '社交平台', description: '视频及评论采集' },
-  { id: 'bili', key: 'bili', name: '哔哩哔哩', category: 'social', categoryLabel: '社交平台', description: 'B站视频、弹幕及评论采集' },
-  { id: 'weibo', key: 'weibo', name: '微博', category: 'social', categoryLabel: '社交平台', description: '博文及转发评论采集' },
-  { id: 'tieba', key: 'tieba', name: '百度贴吧', category: 'social', categoryLabel: '社交平台', description: '主题帖及楼层回复采集' },
-  { id: 'zhihu', key: 'zhihu', name: '知乎', category: 'social', categoryLabel: '社交平台', description: '问题、回答与文章采集' },
-
-  // 搜索引擎
-  { id: 'baidu', key: 'baidu', name: '百度搜索', category: 'search', categoryLabel: '搜索引擎', description: '百度 SERP 网页检索' },
-  { id: 'bing', key: 'bing', name: '必应中国', category: 'search', categoryLabel: '搜索引擎', description: 'Bing 全球/国内网页检索' },
-  { id: 'so360', key: 'so360', name: '360搜索', category: 'search', categoryLabel: '搜索引擎', description: '360 网页搜索结果提取' },
-  { id: 'sogou', key: 'sogou', name: '搜狗搜索', category: 'search', categoryLabel: '搜索引擎', description: '搜狗网页及微信内容检索' },
-  { id: 'toutiao', key: 'toutiao', name: '头条搜索', category: 'search', categoryLabel: '搜索引擎', description: '头条全网网页与资讯检索' },
-
-  // 招聘与投诉
-  { id: 'zhaopin', key: 'zhaopin', name: '智联招聘', category: 'job_complaint', categoryLabel: '招聘与投诉', description: '招聘岗位列表与 JD 详情解析' },
-  { id: 'heimao', key: 'heimao', name: '黑猫投诉', category: 'job_complaint', categoryLabel: '招聘与投诉', description: '维权投诉单与涉诉商家解析' },
-
-  // AI 智能问答与联网
-  { id: 'deepseek', key: 'deepseek', name: 'DeepSeek', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: '网页端 R1/V3 思考过程及深度问答' },
-  { id: 'kimi', key: 'kimi', name: 'Kimi', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: 'Moonshot 长文本及联网检索问答' },
-  { id: 'doubao', key: 'doubao', name: '豆包', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: '字节豆包 AI 智能问答' },
-  { id: 'qwen', key: 'qwen', name: '通义千问', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: '阿里通义千问对话采集' },
-  { id: 'yuanbao', key: 'yuanbao', name: '腾讯元宝', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: '腾讯元宝 AI 对话及参考资料' },
-  { id: 'nami', key: 'nami', name: '纳米AI', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: '纳米 AI 搜索与总结' },
-  { id: 'wenxin', key: 'wenxin', name: '文心一言', category: 'ai_qa', categoryLabel: 'AI 问答/联网', description: '百度文心一言智能对话' },
-
-  // 工具解析
-  { id: 'media_parser', key: 'media_parser', name: '综合无水印解析', category: 'utility', categoryLabel: '工具解析', description: '多平台公开无水印音视频提取' },
-]
 
 // 从消息正文中还原出用户通过 @ 菜单选中过的 connector id。
 // 选中时插入的是纯文本 "@名称 "，发送时并无结构化字段，因此按名称在文本中
 // 反向匹配；要求 @ 前是句首或空白，避免误吃到句子中间的普通文字。
-export function extractMentionedConnectorIds(text: string): string[] {
+// entities 由 usePlatformMentionEntities() 提供（后端下发），这里不再自带平台表。
+export function extractMentionedConnectorIds(text: string, entities: MentionEntity[]): string[] {
   const found = new Set<string>()
-  for (const entity of CONNECTOR_ENTITIES) {
+  for (const entity of entities) {
     const pattern = new RegExp(`(^|\\s)@${entity.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`)
     if (pattern.test(text)) found.add(entity.id)
   }
@@ -69,9 +37,11 @@ export interface UseMentionCommandsOptions {
   value: string
   onChange: (newValue: string) => void
   onExecuteCommand?: (cmd: string) => void
+  /** @ 菜单的平台条目，来自 usePlatformMentionEntities()。 */
+  connectorEntities: MentionEntity[]
 }
 
-export function useMentionCommands({ value, onChange, onExecuteCommand }: UseMentionCommandsOptions) {
+export function useMentionCommands({ value, onChange, onExecuteCommand, connectorEntities }: UseMentionCommandsOptions) {
   const [isOpen, setIsOpen] = useState(false)
   const [triggerType, setTriggerType] = useState<'@' | '/' | null>(null)
   const [filterText, setFilterText] = useState('')
@@ -80,13 +50,13 @@ export function useMentionCommands({ value, onChange, onExecuteCommand }: UseMen
   // 过滤后的实体列表
   const filteredEntities = useCallback(() => {
     if (!triggerType) return []
-    const rawList = triggerType === '@' ? CONNECTOR_ENTITIES : SLASH_COMMANDS
+    const rawList = triggerType === '@' ? connectorEntities : SLASH_COMMANDS
     if (!filterText.trim()) return rawList
     const query = filterText.toLowerCase()
     return rawList.filter(
       (item) => item.name.toLowerCase().includes(query) || item.key.toLowerCase().includes(query) || item.description?.toLowerCase().includes(query)
     )
-  }, [triggerType, filterText])
+  }, [triggerType, filterText, connectorEntities])
 
   const items = filteredEntities()
 

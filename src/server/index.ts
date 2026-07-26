@@ -215,6 +215,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         label: connector.name,
         icon: connector.icon,
         category: connector.category,
+        description: connector.description,
         capabilities: connector.capabilities.map((capability) => capability.id),
       })),
     };

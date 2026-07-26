@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { usePlatforms, useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
+import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 import { toast } from 'sonner'
 import { ParsedIdList } from './ParsedIdList'
 import { detectPlatform } from '@/lib/urlParser'
@@ -41,33 +42,6 @@ const ICON_MAP: { [key: string]: any } = {
   'briefcase': Briefcase,
 }
 
-const PLATFORM_LABELS: Record<string, string> = {
-  xhs: '小红书',
-  dy: '抖音',
-  douyin: '抖音',
-  ks: '快手',
-  kuaishou: '快手',
-  bili: '哔哩哔哩',
-  wb: '微博',
-  weibo: '微博',
-  tieba: '百度贴吧',
-  zhihu: '知乎',
-  baidu: '百度',
-  bing: '必应',
-  so360: '360搜索',
-  sogou: '搜狗',
-  toutiao: '头条搜索',
-  media_parser: '综合解析',
-  zhaopin: '智联招聘',
-  heimao: '黑猫投诉',
-  deepseek: 'DeepSeek',
-  kimi: 'Kimi',
-  doubao: '豆包',
-  qwen: '通义千问',
-  yuanbao: '腾讯元宝',
-  nami: '纳米AI',
-  wenxin: '文心一言',
-}
 
 export function CrawlerSearchHeader() {
   const { t } = useTranslation('config')
@@ -80,6 +54,7 @@ export function CrawlerSearchHeader() {
   const connectorOptions = useCrawlerStore((state) => state.connectorOptions)
 
   const { data: platforms } = usePlatforms()
+  const platformLabels = usePlatformLabels()
   const { mutate: startCrawler } = useStartCrawler()
   const { mutate: stopCrawler } = useStopCrawler()
 
@@ -171,7 +146,7 @@ export function CrawlerSearchHeader() {
     if (config.login_type === 'cookie') {
       const missingCookiePlatform = selectedPlatforms.find((platform) => !platformCookies[platform]?.trim())
       if (missingCookiePlatform) {
-        toast.error(`请填写 ${PLATFORM_LABELS[missingCookiePlatform] || missingCookiePlatform} 的 Cookie`)
+        toast.error(`请填写 ${platformLabels[missingCookiePlatform] || missingCookiePlatform} 的 Cookie`)
         return
       }
     }
@@ -238,7 +213,7 @@ export function CrawlerSearchHeader() {
                 />
                 {selectedPlatforms[0] ? (
                   <span className="absolute right-3 top-3 rounded-full border border-cyber-neon-cyan/30 bg-cyber-bg-panel px-3 py-1 text-[10px] font-mono text-cyber-neon-cyan">
-                    {PLATFORM_LABELS[selectedPlatforms[0]] || selectedPlatforms[0]}
+                    {platformLabels[selectedPlatforms[0]] || selectedPlatforms[0]}
                   </span>
                 ) : (
                   <span className="absolute right-3 top-3 rounded-full border border-cyber-neon-orange/30 bg-cyber-bg-panel px-3 py-1 text-[10px] font-mono text-cyber-neon-orange">

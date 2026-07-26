@@ -5,33 +5,8 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
 import { useStopCrawler, useThreadLogs } from '@/hooks/useCrawler'
 import type { LogEntry } from '@/types/crawler'
+import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 
-const PLATFORM_LABELS: { [key: string]: string } = {
-  xhs: '小红书',
-  dy: '抖音',
-  douyin: '抖音',
-  ks: '快手',
-  kuaishou: '快手',
-  bili: '哔哩哔哩',
-  wb: '微博',
-  weibo: '微博',
-  tieba: '百度贴吧',
-  zhihu: '知乎',
-  baidu: '百度',
-  bing: '必应',
-  so360: '360搜索',
-  sogou: '搜狗',
-  media_parser: '综合解析',
-  zhaopin: '智联招聘',
-  heimao: '黑猫投诉',
-  deepseek: 'DeepSeek',
-  kimi: 'Kimi',
-  doubao: '豆包',
-  qwen: '通义千问',
-  yuanbao: '腾讯元宝',
-  nami: '纳米AI',
-  wenxin: '文心一言',
-}
 
 const STATUS_DOTS: { [key: string]: string } = {
   idle: 'bg-zinc-500/80',
@@ -51,6 +26,7 @@ interface TerminalProps {
 
 export function Terminal({ showCollapseButton = true, platforms, planStatus, docked = false, onClose, threadId }: TerminalProps) {
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const platformLabels = usePlatformLabels()
 
   // Store variables
   const logs = useCrawlerStore((state) => state.logs)
@@ -143,7 +119,7 @@ export function Terminal({ showCollapseButton = true, platforms, planStatus, doc
               >
                 {/* Status Dot */}
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS_DOTS[pStatus]}`} />
-                <span className="whitespace-nowrap">{PLATFORM_LABELS[p] || p}</span>
+                <span className="whitespace-nowrap">{platformLabels[p] || p}</span>
 
                 {/* Micro Actions */}
                 {isRunning ? (

@@ -7,6 +7,19 @@ export function listConnectorManifests(): ConnectorManifest[] {
   return CONNECTOR_MANIFESTS;
 }
 
+/**
+ * 平台 id → 中文名的唯一来源。名称只在 CONNECTOR_MANIFESTS 里写一次，
+ * 后端各处从这里取；前端通过 /api/config/platforms 拿同一份数据。
+ * 以前每个展示层各抄一张表，加平台就要改八处，toutiao 正是这样漏掉的。
+ */
+export const PLATFORM_LABELS: Record<string, string> = Object.fromEntries(
+  CONNECTOR_MANIFESTS.map((manifest) => [manifest.id, manifest.name]),
+);
+
+export function platformLabel(id: string): string {
+  return PLATFORM_LABELS[id] || id;
+}
+
 export function getConnectorManifest(id: string): ConnectorManifest | undefined {
   return manifests.get(id);
 }

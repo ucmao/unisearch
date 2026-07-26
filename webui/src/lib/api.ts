@@ -163,6 +163,8 @@ export interface CrawlRun {
   task_title: string
   task_name: string
   platform: string
+  /** 平台中文名，由后端统一映射（未知平台回落为 platform 原值） */
+  platform_label: string
   crawler_type: string
   keywords: string
   save_option: string
@@ -209,11 +211,13 @@ export interface StorageSummary {
   raw_records: number
 }
 
+/** 由后端从 CONNECTOR_MANIFESTS 下发；平台名称在前端不再有第二份拷贝。 */
 export interface Platform {
   value: string
   label: string
   icon: string
   category?: string
+  description?: string
   capabilities?: string[]
 }
 
