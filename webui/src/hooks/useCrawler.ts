@@ -31,13 +31,12 @@ export function useStartCrawler() {
       clearLogs(config.platform)
       setStatus(config.platform, 'running')
     },
-    onSuccess: (_, config) => {
-      toast.success(`Crawler started successfully for ${config.platform}`)
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
     },
     onError: (error: Error, config) => {
       setStatus(config.platform, 'idle')
-      toast.error(`Failed to start crawler for ${config.platform}: ${error.message}`)
+      toast.error(`启动 ${config.platform} 采集失败：${error.message}`, { id: 'crawler-start-error' })
     },
   })
 }
@@ -54,14 +53,13 @@ export function useStopCrawler() {
       }
     },
     onSuccess: (_, platform) => {
-      toast.success(`Crawler stopped for ${platform || 'all'}`)
       if (platform) {
         setStatus(platform, 'idle')
       }
       queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
     },
     onError: (error: Error, platform) => {
-      toast.error(`Failed to stop crawler: ${error.message}`)
+      toast.error(`停止采集失败：${error.message}`, { id: 'crawler-stop-error' })
       if (platform) {
         queryClient.invalidateQueries({ queryKey: ['crawlerStatus'] })
       }

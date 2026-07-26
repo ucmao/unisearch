@@ -151,6 +151,10 @@ function conversationalTurnsSinceReminder(messages: any[]): number {
   return turns;
 }
 
+function ensureMessageNotAborted(signal?: AbortSignal) {
+  signal?.throwIfAborted();
+}
+
 export class AgentService {
   private workflowTick: Promise<void> | null = null;
   private timer: NodeJS.Timeout;
@@ -291,7 +295,9 @@ export class AgentService {
     threadId: string,
     content: string,
     context: { attachment_ids?: string[]; task_references?: Array<{ plan_id: string; platforms?: string[] }> } = {},
+    signal?: AbortSignal,
   ) {
+    ensureMessageNotAborted(signal);
     const thread = agentRepository.getThread(threadId);
     if (!thread) throw new Error('任务不存在');
     const attachmentIds = Array.from(new Set((context.attachment_ids || []).map(String))).slice(0, 5);
@@ -340,6 +346,7 @@ export class AgentService {
     if (localDecision.action === 'direct_parse') {
       try {
         const result = await directParserService.parseSingleText(content);
+        ensureMessageNotAborted(signal);
         const reply = directParserService.formatMarkdownReply(content, result);
         agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
           action: 'direct_parse',
@@ -349,6 +356,7 @@ export class AgentService {
         this.scheduleMemoryCapture(threadId, content);
         return agentRepository.getThread(threadId);
       } catch (error: any) {
+        ensureMessageNotAborted(signal);
         agentRepository.addMessage(threadId, 'assistant', 'status', `无水印解析请求发生异常：${error.message || '系统错误'}`, {
           action: 'direct_parse_error',
         });
@@ -392,7 +400,8 @@ export class AgentService {
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
         const materials = this.collectMaterials(updatedThread);
         const memories = agentRepository.retrieveMemories(content).map((memory) => ({ category: memory.category, content: memory.content }));
-        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry })).trim();
+        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal })).trim();
+        ensureMessageNotAborted(signal);
         if (!reply) throw new Error('模型没有返回文本内容');
         agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
           action: 'chat',
@@ -402,6 +411,7 @@ export class AgentService {
         this.scheduleMemoryCapture(threadId, content);
         return agentRepository.getThread(threadId);
       } catch (error: any) {
+        ensureMessageNotAborted(signal);
         const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
         agentRepository.addMessage(threadId, 'assistant', 'status', `AI 服务连接失败：${reason}\n\n本次没有生成 AI 回复，请到“模型设置”检查配置并测试连接。`, {
           action: 'model_error',
@@ -415,9 +425,11 @@ export class AgentService {
         .filter((message: any) => ['user', 'assistant'].includes(message.role))
         .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
       try {
-        decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry);
+        decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry, signal);
+        ensureMessageNotAborted(signal);
         if (localDecision.action === 'create_plan' && ['chat', 'clarify'].includes(decision.action)) {
-          const generated = await modelService.createPlan(messages, planningText, onRetry);
+          const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+          ensureMessageNotAborted(signal);
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
           decision = { ...decision, action: 'create_plan' };
@@ -433,11 +445,14 @@ export class AgentService {
           decision = localDecision;
         }
       } catch (error: any) {
+        ensureMessageNotAborted(signal);
         if (localDecision.action === 'create_plan') {
           try {
-            const generated = await modelService.createPlan(messages, planningText, onRetry);
+            const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+            ensureMessageNotAborted(signal);
             decision = { action: 'create_plan', reply: '', plan: generated };
           } catch (planError: any) {
+            ensureMessageNotAborted(signal);
             const reason = modelService.getRuntimeStatus().lastError || planError.message || error.message || '未知错误';
             agentRepository.addMessage(threadId, 'assistant', 'status', `AI 计划解析失败：${reason}\n\n本次没有创建或执行任何任务，请重新描述采集平台和关键词后再试。`, {
               action: 'model_error', error: reason,
@@ -501,7 +516,8 @@ export class AgentService {
             const messages = updatedThread.messages
               .filter((message: any) => ['user', 'assistant'].includes(message.role))
               .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-            const generated = await modelService.createPlan(messages, planningText, onRetry);
+            const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+            ensureMessageNotAborted(signal);
             const plan = normalizePlan(generated, planningText, latest?.plan);
             if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0))) {
               const created = agentRepository.createPlan(threadId, plan);
@@ -509,7 +525,7 @@ export class AgentService {
               agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，已生成采集计划并自动进入本地执行队列。', { plan_id: created.plan_id, action: 'execute' });
               return agentRepository.getThread(threadId);
             }
-          } catch (err: any) {}
+          } catch (err: any) { ensureMessageNotAborted(signal); }
         }
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有等待确认的计划。你可以先告诉我想采集的具体主题。', { action: 'chat' });
       } else {
@@ -555,6 +571,7 @@ export class AgentService {
         if (requestedExporter) {
           try {
             const result = await exportService.run(requestedExporter, latest.plan_id);
+            ensureMessageNotAborted(signal);
             agentRepository.addMessage(
               threadId,
               'assistant',
@@ -563,6 +580,7 @@ export class AgentService {
               { action: 'export', exporter_id: requestedExporter, plan_id: latest.plan_id, ...result },
             );
           } catch (error: any) {
+            ensureMessageNotAborted(signal);
             agentRepository.addMessage(threadId, 'assistant', 'status', `导出失败：${error.message}`, { action: 'export_error' });
           }
           return agentRepository.getThread(threadId);
@@ -594,15 +612,18 @@ export class AgentService {
             `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}`,
             { workflowId: latest.plan_id, limit: 10 },
           );
+          ensureMessageNotAborted(signal);
           if (!rag.sources.length) {
             knowledgeIndex.rebuild(latest.plan_id);
             rag = await ragService.answer(content, { workflowId: latest.plan_id, limit: 10 });
+            ensureMessageNotAborted(signal);
           }
           agentRepository.addMessage(threadId, 'assistant', 'analysis', rag.answer, {
             retrieval: 'hybrid_rag',
             sources: rag.sources,
           });
         } catch (error: any) {
+          ensureMessageNotAborted(signal);
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, { action: 'model_error', error: error.message });
         }
         return agentRepository.getThread(threadId);
@@ -615,9 +636,11 @@ export class AgentService {
           const messages = updatedThread.messages
             .filter((message: any) => ['user', 'assistant'].includes(message.role))
             .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry });
+          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal });
+          ensureMessageNotAborted(signal);
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
         } catch (error: any) {
+          ensureMessageNotAborted(signal);
           agentRepository.addMessage(threadId, 'assistant', 'status', `AI 分析失败：${error.message}`, {
             action: 'model_error',
             error: error.message,
@@ -667,10 +690,12 @@ export class AgentService {
           .filter((message: any) => ['user', 'assistant'].includes(message.role))
           .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
         try {
-          const generated = await modelService.createPlan(messages, planningText, onRetry);
+          const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+          ensureMessageNotAborted(signal);
           plan = normalizePlan(generated, planningText, latest?.plan);
         }
         catch (error: any) {
+          ensureMessageNotAborted(signal);
           const fallbackKeywords = inferResearchKeywords(planningText);
           plan = normalizePlan({
             platforms: inferResearchPlatforms(planningText),
@@ -699,10 +724,11 @@ export class AgentService {
             const messages = updatedThread.messages
               .filter((message: any) => ['user', 'assistant'].includes(message.role))
               .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-            const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry });
+            const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal });
+            ensureMessageNotAborted(signal);
             agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
             return agentRepository.getThread(threadId);
-          } catch (error: any) {}
+          } catch (error: any) { ensureMessageNotAborted(signal); }
         }
       }
       agentRepository.addMessage(threadId, 'assistant', 'clarify', '你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。', {

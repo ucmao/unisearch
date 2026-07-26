@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import {
   AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, Eye, EyeOff, FileText,
   Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
-  Sparkles, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
+  Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -227,10 +227,8 @@ function ChatCrawlingStatusBanner({
   const handleClick = () => {
     if (!rightSidebarOpen) {
       onToggleRightSidebar()
-      toast.info('已在右侧展开任务大盘', { duration: 2000 })
     } else {
       onTriggerPulse()
-      toast.info('任务详情已在右侧大盘中显示', { duration: 2000 })
     }
   }
 
@@ -272,7 +270,6 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
       await copyText(message.content)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1600)
-      toast.success('已复制 Markdown 原文')
     } catch (error) {
       toast.error(getError(error))
     }
@@ -350,7 +347,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const handleExecuteCommand = (cmd: string) => {
     if (cmd === 'clear') {
       setInput('')
-      toast.info('已清空输入框')
     } else if (cmd === 'export') {
       toast.info('可以通过结果看板或任务大盘导出数据')
     } else if (cmd === 'crawl') {
@@ -387,8 +383,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.setQueryData(['browser-window-status'], data)
       if (data.has_views === false) {
         toast.info('当前任务为后台 HTTP 接口采集，无需网页浏览器视窗')
-      } else {
-        toast.success(data.visible ? '已打开内置采集浏览器窗口' : '已隐藏内置采集浏览器窗口')
       }
     },
     onError: (error) => toast.error(getError(error)),
@@ -474,8 +468,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const petReactionTimerRef = useRef<number | null>(null)
   const petReactionFrameRef = useRef<number | null>(null)
+  const sendAbortControllerRef = useRef<AbortController | null>(null)
+  const [isStoppingMessage, setIsStoppingMessage] = useState(false)
   const send = useMutation({
-    mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => agentApi.sendMessage(id, content, { attachment_ids: attachmentIds, task_references: references }),
+    mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
+      const controller = new AbortController()
+      sendAbortControllerRef.current = controller
+      return agentApi.sendMessage(id, content, { attachment_ids: attachmentIds, task_references: references }, controller.signal)
+    },
     onMutate: async ({ id, message }) => {
       await client.cancelQueries({ queryKey: ['agent-thread', id] })
       client.setQueryData<AgentThread>(['agent-thread', id], (current) => current ? {
@@ -491,9 +491,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-model-profile'] })
     },
     onError: (error, { id }) => {
-      toast.error(getError(error))
+      if ((error as any)?.code !== 'ERR_CANCELED') toast.error(getError(error))
       client.invalidateQueries({ queryKey: ['agent-thread', id] })
       client.invalidateQueries({ queryKey: ['agent-threads'] })
+    },
+    onSettled: () => {
+      sendAbortControllerRef.current = null
+      setIsStoppingMessage(false)
     },
   })
 
@@ -722,7 +726,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   })
   const pinThread = useMutation({
     mutationFn: ({ id, pinned }: { id: string; pinned: boolean }) => agentApi.setThreadPinned(id, pinned),
-    onSuccess: ({ data }, { pinned }) => {
+    onSuccess: ({ data }) => {
       client.setQueryData<AgentThreadSummary[]>(['agent-threads'], (current) => {
         const updated = current?.map((thread) => thread.thread_id === data.thread_id ? { ...thread, pinned_at: data.pinned_at } : thread)
         return updated?.sort((a, b) => {
@@ -732,13 +736,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       })
       client.setQueryData<AgentThread>(['agent-thread', data.thread_id], (current) => current ? { ...current, pinned_at: data.pinned_at } : current)
       client.invalidateQueries({ queryKey: ['agent-threads'] })
-      toast.success(pinned ? '任务已置顶' : '已取消置顶')
     },
     onError: (error) => toast.error(getError(error)),
   })
   const execute = useMutation({
     mutationFn: (planId: string) => agentApi.executePlan(planId),
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('任务已进入本地执行队列') },
+    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
     onError: (error) => toast.error(getError(error)),
   })
   const updatePlan = useMutation({
@@ -759,7 +762,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         },
       } : current)
     },
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.success('计划参数已更新') },
+    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
     onError: (error) => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.error(getError(error)) },
   })
 
@@ -808,6 +811,21 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setAttachments([])
     setTaskReferences([])
     send.mutate({ id: selectedId, content, attachmentIds, references, message })
+  }
+
+  const stopGenerating = () => {
+    const threadId = send.variables?.id
+    if (!threadId || isStoppingMessage) return
+    setIsStoppingMessage(true)
+    sendAbortControllerRef.current?.abort()
+    agentApi.stopMessage(threadId)
+      .then(({ data }) => toast.success(data.stopped ? '已停止生成' : '生成已结束'))
+      .catch((error) => toast.error(getError(error)))
+      .finally(() => {
+        setIsStoppingMessage(false)
+        client.invalidateQueries({ queryKey: ['agent-thread', threadId] })
+        client.invalidateQueries({ queryKey: ['agent-threads'] })
+      })
   }
 
   const removeAttachment = async (attachment: AgentAttachment) => {
@@ -1247,7 +1265,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     event.target.value = ''
                   }} />
                 </div>
-                <Button size="icon" className="absolute bottom-3 right-3 h-9 w-9" onClick={submit} disabled={!input.trim() || send.isPending || create.isPending}>{create.isPending ? <Loader2 className="animate-spin" /> : <Send />}</Button>
+                <Button
+                  size="icon"
+                  className="absolute bottom-3 right-3 h-9 w-9"
+                  onClick={send.isPending ? stopGenerating : submit}
+                  disabled={send.isPending ? isStoppingMessage : (!input.trim() || create.isPending)}
+                  aria-label={send.isPending ? '停止生成' : '发送'}
+                  title={send.isPending ? '停止生成' : '发送'}
+                >
+                  {send.isPending
+                    ? (isStoppingMessage ? <Loader2 className="animate-spin" /> : <Square className="h-4 w-4 fill-current" />)
+                    : create.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+                </Button>
               </div>
           </div>
             </div>

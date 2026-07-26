@@ -70,3 +70,27 @@ test('legacy single-profile files are ignored instead of migrated', () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('model conversation respects an aborted request signal', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-abort-'));
+  const configPath = path.join(directory, 'model-profile.json');
+
+  try {
+    const service = new ModelService(configPath);
+    service.saveProfile({
+      provider: 'custom',
+      baseUrl: 'https://example.invalid',
+      model: 'test-model',
+      apiKey: 'test-secret',
+    });
+    const controller = new AbortController();
+    controller.abort(new DOMException('用户已停止生成', 'AbortError'));
+
+    await assert.rejects(
+      service.converse([{ role: 'user', content: '测试停止' }], { signal: controller.signal }),
+      (error: any) => error?.name === 'AbortError',
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
