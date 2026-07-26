@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MarkdownContent } from './MarkdownContent'
 import { SourceDrawer, type SourceCitation } from './SourceDrawer'
+import { CollapsibleSourcesBar } from './CollapsibleSourcesBar'
 import { Terminal } from '@/components/console/Terminal'
 import { SettingsDialog, type SettingsSection } from '@/components/layout/SettingsDialog'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
@@ -267,13 +268,38 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
     try {
-      await copyText(message.content)
+      let contentToCopy = message.content.replace(/\n\s*---\s*\n\s*##?\s*📚?\s*(?:参考资料|资料来源|References|来源列表)[\s\S]*$/, '').trim()
+      const sources = message.metadata?.sources
+      if (Array.isArray(sources) && sources.length > 0) {
+        const keywords = message.metadata?.keywords || plan?.plan?.keywords || []
+        const kwText = keywords.length > 0 ? keywords.map((k: string) => `“${k}”`).join('、、') : ''
+        const listItems = sources.map((s: any, idx: number) => {
+          const title = (s.title || '未命名资料').replace(/\r?\n/g, ' ')
+          const link = s.sourceUrl ? `[${title}](${s.sourceUrl})` : `${title} [${s.id}]`
+          return `${idx + 1}. ${link}`
+        })
+        const detailsBlock = [
+          '',
+          '<details>',
+          `<summary>已搜索关键词，参考 ${sources.length} 篇资料 ›</summary>`,
+          '',
+          kwText ? kwText : '',
+          ...listItems,
+          '</details>',
+        ].filter(Boolean).join('\n')
+        contentToCopy += `\n${detailsBlock}`
+      }
+      await copyText(contentToCopy)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1600)
     } catch (error) {
       toast.error(getError(error))
     }
   }
+  const cleanContent = !isUser
+    ? message.content.replace(/\n\s*---\s*\n\s*##?\s*📚?\s*(?:参考资料|资料来源|References|来源列表)[\s\S]*$/, '').trim()
+    : message.content
+
   return (
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
@@ -304,9 +330,16 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
           })}
           {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => <span key={reference.plan_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2 py-1 text-[10px] text-cyber-text-secondary"><Database className="h-3 w-3 shrink-0" /><span className="truncate">{reference.goal}</span></span>)}
         </div> : null}
+        {!isUser && Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0 ? (
+          <CollapsibleSourcesBar
+            sources={message.metadata.sources}
+            keywords={message.metadata?.keywords || plan?.plan?.keywords}
+            onCitationClick={onCitationClick}
+          />
+        ) : null}
         {isUser
-          ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{message.content}</div>
-          : <MarkdownContent content={message.content} onCitationClick={onCitationClick} />}
+          ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{cleanContent}</div>
+          : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}

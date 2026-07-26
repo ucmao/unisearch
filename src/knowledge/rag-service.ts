@@ -14,6 +14,25 @@ export interface RagAnswer {
   }>;
 }
 
+export function buildReferencesSection(sources: RagAnswer['sources']): string {
+  if (!sources || sources.length === 0) return '';
+
+  const listItems = sources.map((s, idx) => {
+    const title = (s.title || '未命名资料').replace(/\r?\n/g, ' ');
+    const link = s.sourceUrl ? `[${title}](${s.sourceUrl})` : `${title} [${s.id}]`;
+    return `${idx + 1}. ${link}`;
+  });
+
+  return [
+    '',
+    '<details>',
+    `<summary>检索知识库，参考 ${sources.length} 篇资料 ›</summary>`,
+    '',
+    ...listItems,
+    '</details>',
+  ].join('\n');
+}
+
 export class RagService {
   constructor(
     private readonly index = knowledgeIndex,
@@ -33,6 +52,8 @@ export class RagService {
     }));
     if (!sources.length) return { answer: '知识库中没有检索到可以支持回答的资料。', sources: [] };
 
+    const referencesSection = buildReferencesSection(sources);
+
     const profile = this.model.getProfile(false);
     if (!profile.apiKeyConfigured) {
       return {
@@ -40,6 +61,7 @@ export class RagService {
           '当前未配置可用的 AI 模型，因此先返回最相关的知识库片段：',
           '',
           ...sources.slice(0, 5).map((source) => `- [${source.id}] ${source.title}：${source.excerpt.slice(0, 180)}`),
+          referencesSection,
         ].join('\n'),
         sources,
       };
@@ -52,14 +74,16 @@ export class RagService {
       })),
       images: [],
     };
-    const answer = await this.model.converse([
+    const rawAnswer = await this.model.converse([
       {
         role: 'user',
         content: `${question}\n\n请只根据提供的知识库资料回答。每个关键事实后使用 [S1]、[S2] 格式标注来源；资料不足时明确说明，不要补造。`,
       },
     ], { materials });
-    return { answer, sources };
+
+    return { answer: rawAnswer.trim(), sources };
   }
 }
 
 export const ragService = new RagService();
+

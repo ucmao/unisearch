@@ -1,0 +1,130 @@
+import { useState } from 'react'
+import { ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
+
+export interface SourceCitationItem {
+  id: string
+  documentId?: string
+  title: string
+  source?: string
+  sourceUrl?: string
+  excerpt?: string
+  score?: number
+}
+
+interface CollapsibleSourcesBarProps {
+  sources: SourceCitationItem[]
+  keywords?: string[]
+  onCitationClick?: (sourceId: string) => void
+}
+
+export const platformLabels: Record<string, string> = {
+  zhihu: '知乎',
+  xhs: '小红书',
+  weibo: '微博',
+  douyin: '抖音',
+  kuaishou: '快手',
+  bili: '哔哩哔哩',
+  tieba: '贴吧',
+  baidu: '百度搜索',
+  bing: '必应搜索',
+  so360: '360搜索',
+  sogou: '搜狗搜索',
+  zhaopin: '智联招聘',
+  heimao: '黑猫投诉',
+  deepseek: 'DeepSeek',
+  kimi: 'Kimi',
+  doubao: '豆包',
+  qwen: '通义千问',
+  yuanbao: '腾讯元宝',
+  nami: '纳米AI',
+  wenxin: '文心一言',
+  media_parser: '无水印解析',
+}
+
+export function CollapsibleSourcesBar({ sources, keywords = [], onCitationClick }: CollapsibleSourcesBarProps) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (!sources || sources.length === 0) return null
+
+  const validKeywords = Array.from(new Set((keywords || []).filter(Boolean))).slice(0, 8)
+
+  return (
+    <div className="my-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 px-3 py-2 text-xs font-sans transition-all">
+      {/* Header Bar - Collapsed by default */}
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center justify-between text-cyber-text-muted hover:text-cyber-text-primary transition-colors text-left font-normal select-none"
+      >
+        <span className="flex items-center gap-1.5">
+          <span>
+            {validKeywords.length > 0
+              ? `已搜索 ${validKeywords.length} 个关键词，参考 ${sources.length} 篇资料`
+              : `已检索知识库，参考 ${sources.length} 篇资料`}
+          </span>
+        </span>
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted" />
+        )}
+      </button>
+
+      {/* Expanded List */}
+      {expanded && (
+        <div className="mt-2 space-y-2 border-t border-cyber-border-subtle/40 pt-2 animate-in fade-in duration-150">
+          {validKeywords.length > 0 && (
+            <div className="text-[11px] text-cyber-text-muted/80 font-sans">
+              {validKeywords.map((kw) => `“${kw}”`).join('、、')}
+            </div>
+          )}
+
+          <ol className="space-y-1.5 pl-0 text-xs list-none">
+            {sources.map((source, index) => {
+              const itemTitle = source.title || '未命名资料'
+              const platformName = source.source ? (platformLabels[source.source] || source.source) : undefined
+
+              return (
+                <li key={source.id || index} className="flex items-center gap-1.5 leading-relaxed">
+                  <span className="w-4 shrink-0 text-right font-mono text-[11px] text-cyber-text-muted">
+                    {index + 1}.
+                  </span>
+                  {platformName && (
+                    <span className="rounded border border-cyber-border-subtle/60 bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-mono text-cyber-neon-purple shrink-0 leading-none">
+                      {platformName}
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0 flex items-center gap-1">
+                    {source.sourceUrl ? (
+                      <a
+                        href={source.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate text-cyber-neon-cyan/90 hover:text-cyber-neon-cyan hover:underline transition-colors"
+                        title={itemTitle}
+                      >
+                        {itemTitle}
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onCitationClick?.(source.id)}
+                        className="truncate text-left text-cyber-neon-cyan/90 hover:text-cyber-neon-cyan hover:underline transition-colors"
+                        title={`查看详情 [${source.id}]`}
+                      >
+                        {itemTitle}
+                      </button>
+                    )}
+                    {source.sourceUrl && (
+                      <ExternalLink className="h-3 w-3 shrink-0 opacity-40 text-cyber-text-muted inline-block ml-0.5" />
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
