@@ -627,7 +627,7 @@ export class AgentRepository {
 
   private hydratePlan(row: any) {
     const steps = (this.db.prepare(`
-      SELECT s.*, COALESCE(r.item_count, 0) AS item_count
+      SELECT s.*, COALESCE(r.item_count, 0) AS item_count, COALESCE(r.comment_count, 0) AS comment_count
       FROM workflow_steps s
       LEFT JOIN crawl_runs r
         ON r.run_id=json_extract(s.output_json, '$.runId')

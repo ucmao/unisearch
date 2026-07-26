@@ -6,7 +6,7 @@ import {
   Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
-import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
+import { agentApi, browserApi, configApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -136,7 +136,16 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
   const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
   const depth = plan.plan.collectionDepth || 'standard'
-  const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'].includes(p))
+  // Whether depth changes anything is a property of the capability's budget
+  // model, not of a hardcoded platform list: URL-resolve and AI Q&A both ignore
+  // it, and the old list-based check missed every non-keyword_search capability.
+  const depthQuery = useQuery({
+    queryKey: ['depth-options', plan.plan.platforms.join(','), plan.plan.capability],
+    queryFn: async () => (await configApi.getDepthOptions(plan.plan.platforms, plan.plan.capability)).data,
+    enabled: plan.plan.platforms.length > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+  const depthOptions = depthQuery.data?.options || []
 
   useEffect(() => {
     if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
@@ -190,10 +199,15 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
             </div> : null}
           </div>
         </div>
-        {!isOnlyAiQA ? (
+        {depthQuery.data?.applicable && depthOptions.length ? (
           <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
             <span className="text-cyber-text-muted">采集深度</span>
-            <div className="flex flex-wrap gap-1.5">{(['quick', 'standard', 'deep'] as const).map((item) => <button key={item} type="button" disabled={updatingPlan} onClick={() => onUpdateDepth(item)} className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${depth === item ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}>{DEPTH_LABELS[item]}</button>)}</div>
+            <div className="space-y-1">
+              <div className="flex flex-wrap gap-1.5">{depthOptions.map((item) => <button key={item.value} type="button" disabled={updatingPlan} onClick={() => onUpdateDepth(item.value)} title={item.description} className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${depth === item.value ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}>{DEPTH_LABELS[item.value]}</button>)}</div>
+              {depthOptions.find((item) => item.value === depth)?.description
+                ? <p className="text-[10px] leading-4 text-cyber-text-muted">{depthOptions.find((item) => item.value === depth)?.description}</p>
+                : null}
+            </div>
           </div>
         ) : null}
         {plan.plan.analysisSource !== 'fallback' && plan.plan.analysis.length ? <div className="grid gap-2 sm:grid-cols-[72px_1fr]"><span className="text-cyber-text-muted">分析方向</span><p className="leading-5 text-cyber-text-secondary">{plan.plan.analysis.join('、')} <span className="text-[10px] text-cyber-text-muted">（根据对话提炼，不影响采集执行）</span></p></div> : null}
@@ -211,11 +225,15 @@ function ChatCrawlingStatusBanner({
   rightSidebarOpen,
   onToggleRightSidebar,
   onTriggerPulse,
+  onStop,
+  stopping,
 }: {
   activePlan: AgentPlan
   rightSidebarOpen: boolean
   onToggleRightSidebar: () => void
   onTriggerPulse: () => void
+  onStop: () => void
+  stopping: boolean
 }) {
   if (!activePlan) return null
 
@@ -248,6 +266,16 @@ function ChatCrawlingStatusBanner({
         >
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
           <span>正在采集数据，已入库 {contentCount} 条（平台 {completedSteps}/{totalSteps}）</span>
+        </button>
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={stopping}
+          className="inline-flex items-center gap-1 rounded-md border border-cyber-border-default px-1.5 py-0.5 text-[10px] text-cyber-text-muted transition-colors hover:border-cyber-neon-pink/60 hover:text-cyber-neon-pink disabled:opacity-40"
+          title="中止本次采集"
+        >
+          {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-2.5 w-2.5 fill-current" />}
+          中止
         </button>
       </div>
     </div>
@@ -437,8 +465,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mutationFn: async () => (await browserApi.toggleWindow('toggle')).data,
     onSuccess: (data) => {
       client.setQueryData(['browser-window-status'], data)
-      if (data.has_views === false) {
-        toast.info('当前任务为后台 HTTP 接口采集，无需网页浏览器视窗')
+      if (data.can_open === false) {
+        toast.info('当前没有可查看的采集浏览器窗口（该任务为后台 HTTP 接口采集）')
       }
     },
     onError: (error) => toast.error(getError(error)),
@@ -475,6 +503,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     enabled: !!selectedId,
     refetchInterval: 3000,
   })
+
+  // 归档量必须和"数据分布"同口径：正文与评论分开数，否则两个数字永远对不上
+  const knowledgeCounts = useMemo(() => {
+    const docs = (threadDocumentsQuery.data || []) as Array<{ kind?: string }>
+    const comments = docs.filter((doc) => doc.kind === 'comment').length
+    return { articles: docs.length - comments, comments }
+  }, [threadDocumentsQuery.data])
 
   const [exportConfirmPlatform, setExportConfirmPlatform] = useState<PlatformConfig | null>(null)
 
@@ -805,6 +840,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
     onError: (error) => toast.error(getError(error)),
   })
+  const stopPlan = useMutation({
+    mutationFn: (planId: string) => agentApi.stopPlan(planId),
+    onSuccess: ({ data }) => {
+      if (data.stopped) toast.success('采集已中止')
+      else toast.info('任务已经结束，无需中止')
+    },
+    onError: (error) => toast.error(getError(error)),
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: ['agent-thread', selectedId] })
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+    },
+  })
   const updatePlan = useMutation({
     mutationFn: ({ planId, updates }: { planId: string; updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' } }) =>
       agentApi.updatePlan(planId, updates),
@@ -914,6 +961,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     [threadsQuery.data],
   )
   const isCollecting = (threadsQuery.data || []).some((thread) => thread.plan_status === 'running')
+  // The crawl runs in a background workflow, so `send.isPending` (the chat request)
+  // says nothing about it. The composer button needs this to offer a real abort.
+  const isPlanRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
   const isThinking = send.isPending && send.variables?.id === selectedId
   const toggleThreads = () => {
@@ -1130,7 +1180,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
           <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1></div>
           <div className="flex items-center gap-1">
-            {isCollecting && browserWindowQuery.data?.has_views !== false && <Button
+            {/* 采集结束后依然保留入口：失败平台要回看页面，下次任务前要预登录 */}
+            {(isCollecting || browserWindowQuery.data?.can_open) && <Button
               size="icon"
               variant="ghost"
               className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40' : 'text-cyber-text-muted hover:text-cyber-text-primary'}`}
@@ -1176,6 +1227,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     rightSidebarOpen={rightSidebarOpen}
                     onToggleRightSidebar={toggleRightSidebar}
                     onTriggerPulse={triggerRightSidebarPulse}
+                    onStop={() => stopPlan.mutate(activePlan.plan_id)}
+                    stopping={stopPlan.isPending}
                   />
                 )}
                 {isThinking && (
@@ -1325,18 +1378,32 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     event.target.value = ''
                   }} />
                 </div>
-                <Button
-                  size="icon"
-                  className="absolute bottom-3 right-3 h-9 w-9 rounded-full"
-                  onClick={send.isPending ? stopGenerating : submit}
-                  disabled={send.isPending ? isStoppingMessage : (!input.trim() || create.isPending)}
-                  aria-label={send.isPending ? '停止生成' : '发送'}
-                  title={send.isPending ? '停止生成' : '发送'}
-                >
-                  {send.isPending
-                    ? (isStoppingMessage ? <Loader2 className="animate-spin" /> : <Square className="h-4 w-4 fill-current" />)
-                    : create.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-                </Button>
+                {(() => {
+                  // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
+                  // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
+                  const mode = send.isPending ? 'stop-message'
+                    : (isPlanRunning && !input.trim()) ? 'stop-plan'
+                      : 'send'
+                  const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
+                  const busy = mode === 'stop-message' ? isStoppingMessage : mode === 'stop-plan' ? stopPlan.isPending : create.isPending
+                  return (
+                    <Button
+                      size="icon"
+                      className={`absolute bottom-3 right-3 h-9 w-9 rounded-full ${mode === 'stop-plan' ? 'bg-cyber-neon-pink/90 text-white hover:bg-cyber-neon-pink' : ''}`}
+                      onClick={() => {
+                        if (mode === 'stop-message') stopGenerating()
+                        else if (mode === 'stop-plan') { if (activePlan) stopPlan.mutate(activePlan.plan_id) }
+                        else submit()
+                      }}
+                      disabled={mode === 'send' ? (!input.trim() || create.isPending) : busy}
+                      aria-label={label}
+                      title={label}
+                    >
+                      {busy ? <Loader2 className="animate-spin" />
+                        : mode === 'send' ? <Send /> : <Square className="h-4 w-4 fill-current" />}
+                    </Button>
+                  )
+                })()}
               </div>
           </div>
             </div>
@@ -1372,7 +1439,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             ? activePlan.steps.filter((s) => s.status === 'completed' && !(s.item_count || 0)).length
             : 0
           const canRetry = activePlan
-            ? ['failed', 'partially_completed'].includes(activePlan.status)
+            ? ['failed', 'partially_completed', 'stopped'].includes(activePlan.status)
               || (activePlan.status === 'completed' && emptyStepCount > 0)
             : false
 
@@ -1380,6 +1447,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           const platformSummaryMap = new Map<string, {
             platform: string
             count: number
+            commentCount: number
             status: string
             isAI: boolean
             error_message?: string
@@ -1390,16 +1458,19 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               const existing = platformSummaryMap.get(step.platform)
               const isAI = AI_PLATFORMS.has(step.platform)
               const count = step.item_count || 0
+              const commentCount = step.comment_count || 0
               if (!existing) {
                 platformSummaryMap.set(step.platform, {
                   platform: step.platform,
                   count,
+                  commentCount,
                   status: step.status,
                   isAI,
                   error_message: step.error_message || undefined,
                 })
               } else {
                 existing.count += count
+                existing.commentCount += commentCount
                 if (step.status === 'running' || existing.status === 'running') {
                   existing.status = 'running'
                 } else if (step.status === 'completed') {
@@ -1522,6 +1593,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             <div className="flex items-center gap-2 shrink-0">
                               <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
                                 {count > 0 ? `${count} ${unit}` : item.status === 'completed' ? `0 ${unit}` : ''}
+                                {item.commentCount > 0 ? <span className="ml-1 text-[10px] font-normal text-cyber-text-muted">+{item.commentCount} 评论</span> : null}
                               </span>
                               {isZeroSuccess ? (
                                 <span title="该平台未采集到数据或可能被风控受限">
@@ -1555,14 +1627,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
                   </div>
                 ) : null}
-                {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : '重试失败/无结果平台'}</Button> : null}
+                {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : activePlan.status === 'stopped' ? '继续采集未完成平台' : '重试失败/无结果平台'}</Button> : null}
               </div>
 
               {/* 知识资产与一键导出 (8 平台图标栏) */}
               <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
                 <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
                   <span>知识资产导出</span>
-                  <span className="font-mono text-cyber-neon-cyan">{threadDocumentsQuery.data?.length || 0} 篇已归档</span>
+                  <span className="font-mono text-cyber-neon-cyan" title={`正文 ${knowledgeCounts.articles} 篇，评论 ${knowledgeCounts.comments} 条`}>
+                    {knowledgeCounts.articles} 篇已归档
+                    {knowledgeCounts.comments > 0 ? <span className="ml-1 text-cyber-text-muted">+{knowledgeCounts.comments} 评论</span> : null}
+                  </span>
                 </div>
                 <PlatformExportIcons
                   onSelectPlatform={(platform) => setExportConfirmPlatform(platform)}
@@ -1704,7 +1779,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           <div className="my-2 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-700">
               <span className="font-medium">归档文档总数：</span>
-              <span className="font-mono font-bold text-cyan-600">{threadDocumentsQuery.data?.length || 0} 篇已归档</span>
+              <span className="font-mono font-bold text-cyan-600">
+                {knowledgeCounts.articles} 篇正文
+                {knowledgeCounts.comments > 0 ? ` + ${knowledgeCounts.comments} 条评论` : ''}
+              </span>
             </div>
             <div className="flex items-center justify-between text-xs text-slate-700 border-t border-slate-200/80 pt-2">
               <span className="font-medium">预估文件名：</span>

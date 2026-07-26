@@ -2,11 +2,36 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, notifyLoginQrCodeRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { BiliWbiSigner } from '../base/biliWbiSigner';
+import { asAbsoluteUrl, configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
+
+const SEARCH_API = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
+const SPACE_API = 'https://api.bilibili.com/x/space/wbi/arc/search';
+const API_PAGE_SIZE = 30;
+/** Stop paging even if the API keeps claiming there is more. */
+const MAX_API_PAGES = 50;
+
+/** A video as gathered from search/space, before stat enrichment. */
+interface BiliVideoSeed {
+  video_id: string;
+  aid: string;
+  video_url: string;
+  title: string;
+  desc: string;
+  nickname: string;
+  creator_hash: string;
+  create_time: number;
+  video_play_count: string;
+  video_danmaku: string;
+  video_favorite_count: string;
+  video_comment: string;
+  video_cover_url: string;
+}
 
 export class BilibiliCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  private signer: BiliWbiSigner | null = null;
 
   public async start(): Promise<void> {
     console.log('[BILI] Starting Bilibili crawler (Electron CDP mode)...');
@@ -14,6 +39,7 @@ export class BilibiliCrawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'bili');
+    this.signer = new BiliWbiSigner(this.page);
 
 
 
@@ -111,95 +137,172 @@ export class BilibiliCrawler extends AbstractCrawler {
     for (const keyword of keywords) {
       console.log(`[BILI] Searching keyword: ${keyword}`);
       try {
-        const searchUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`;
-        await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-        await this.page!.waitForTimeout(3000);
-
-        // Scroll to load cards
-        await this.page!.evaluate(() => window.scrollBy(0, 800));
-        await this.page!.waitForTimeout(1000);
-
-        // Fetch cards from DOM
-        const videos = await this.page!.evaluate(() => {
-          const items: any[] = [];
-          const cards = document.querySelectorAll('.video-list-item, .bili-video-card');
-          
-          cards.forEach((card) => {
-            const titleEl = card.querySelector('h3.title, .bili-video-card__info--tit');
-            const linkEl = card.querySelector('a[href*="video/BV"]');
-            const authorEl = card.querySelector('.up-name, .bili-video-card__info--author');
-            const watchEl = card.querySelector('.watch-num, .bili-video-card__info--play');
-            
-            if (titleEl && linkEl) {
-              const href = linkEl.getAttribute('href') || '';
-              const videoId = href.match(/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '';
-              
-              items.push({
-                video_id: videoId,
-                title: titleEl.textContent?.trim() || '',
-                video_url: href.startsWith('http') ? href : 'https:' + href,
-                nickname: authorEl?.textContent?.trim() || '',
-                creator_hash: authorEl?.getAttribute('href')?.split('/').pop() || '',
-                video_play_count: watchEl?.textContent?.trim() || '0',
-              });
-            }
-          });
-          return items;
-        });
-
-        console.log(`[BILI] Found ${videos.length} videos. Ingesting...`);
-        let count = 0;
-        
-        for (const v of videos) {
-          if (count >= activeConfig.CRAWLER_MAX_NOTES_COUNT) break;
-          if (!v.video_id) continue;
-
-          let detail: any = {};
-          try {
-            const apiUrl = `https://api.bilibili.com/x/web-interface/view?bvid=${v.video_id}`;
-            const res = await this.page!.evaluate(async (url) => {
-              const resp = await fetch(url);
-              return resp.json();
-            }, apiUrl);
-            if (res && res.code === 0 && res.data) {
-              detail = res.data;
-            }
-          } catch (e: any) {
-            console.error(`[BILI] Failed to fetch details for ${v.video_id}:`, e.message);
-          }
-
-          const videoDetail = {
-            video_id: v.video_id,
-            video_url: v.video_url,
-            creator_hash: detail.owner?.mid ? String(detail.owner.mid) : v.creator_hash,
-            nickname: detail.owner?.name || v.nickname,
-            liked_count: Number(detail.stat?.like || 0),
-            video_type: 'video',
-            title: detail.title || v.title,
-            desc: detail.desc || v.title,
-            create_time: detail.pubdate || Math.floor(Date.now() / 1000),
-            disliked_count: String(detail.stat?.dislike || 0),
-            video_play_count: String(detail.stat?.view || v.video_play_count),
-            video_favorite_count: String(detail.stat?.favorite || 0),
-            video_share_count: String(detail.stat?.share || 0),
-            video_coin_count: String(detail.stat?.coin || 0),
-            video_danmaku: String(detail.stat?.danmaku || 0),
-            video_comment: String(detail.stat?.reply || 0),
-            video_cover_url: detail.pic || '',
-            source_keyword: keyword,
-          };
-
-          await connectorOutput.emitBilibiliVideo(videoDetail);
-          if (activeConfig.ENABLE_GET_COMMENTS && detail.aid) {
-            await this.getVideoComments(String(detail.aid), v.video_id);
-          }
-          count++;
-          
+        const seeds = await this.executeHybrid<BiliVideoSeed>(
+          () => this.searchViaApi(keyword),
+          () => this.searchViaDom(keyword)
+        );
+        console.log(`[BILI] Found ${seeds.length} videos. Ingesting...`);
+        for (const seed of seeds) {
+          await this.ingestSeed(seed, keyword);
           await this.humanDelay(this.page!);
         }
       } catch (err: any) {
         console.error(`[BILI] Search error for keyword ${keyword}:`, err.message);
       }
+    }
+  }
+
+  /** Paged search through the signed API — the primary path. */
+  private async searchViaApi(keyword: string): Promise<BiliVideoSeed[]> {
+    const limit = activeConfig.CRAWLER_MAX_NOTES_COUNT;
+    const seeds: BiliVideoSeed[] = [];
+    const seen = new Set<string>();
+
+    for (let pageNum = 1; seeds.length < limit && pageNum <= MAX_API_PAGES; pageNum++) {
+      const data = await this.signer!.get(SEARCH_API, {
+        search_type: 'video',
+        keyword,
+        page: pageNum,
+        page_size: API_PAGE_SIZE,
+      });
+      const results: any[] = data?.result || [];
+      if (!results.length) break;
+
+      for (const item of results) {
+        const seed = this.seedFromSearchItem(item);
+        if (!seed || seen.has(seed.video_id)) continue;
+        seen.add(seed.video_id);
+        seeds.push(seed);
+        if (seeds.length >= limit) break;
+      }
+      if (results.length < API_PAGE_SIZE) break;
+      await this.humanDelay(this.page!);
+    }
+    return seeds;
+  }
+
+  private seedFromSearchItem(item: any): BiliVideoSeed | null {
+    const bvid = item?.bvid || '';
+    const aid = item?.aid ? String(item.aid) : '';
+    if (!bvid && !aid) return null;
+    return {
+      video_id: bvid || `av${aid}`,
+      aid,
+      video_url: item.arcurl || `https://www.bilibili.com/video/${bvid || `av${aid}`}`,
+      // Search echoes the query back wrapped in <em class="keyword"> highlights.
+      title: stripHtml(item.title),
+      desc: stripHtml(item.description),
+      nickname: item.author || '',
+      creator_hash: item.mid ? String(item.mid) : '',
+      create_time: Number(item.pubdate || 0),
+      video_play_count: String(item.play ?? 0),
+      video_danmaku: String(item.video_review ?? 0),
+      video_favorite_count: String(item.favorites ?? 0),
+      video_comment: String(item.review ?? 0),
+      video_cover_url: item.pic ? asAbsoluteUrl(item.pic, 'https://i0.hdslb.com') : '',
+    };
+  }
+
+  /** Legacy DOM scrape, kept as the fallback when the API is blocked. */
+  private async searchViaDom(keyword: string): Promise<BiliVideoSeed[]> {
+    const searchUrl = `https://search.bilibili.com/all?keyword=${encodeURIComponent(keyword)}`;
+    await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
+    await this.page!.waitForTimeout(3000);
+
+    // Scroll to load cards
+    await this.page!.evaluate(() => window.scrollBy(0, 800));
+    await this.page!.waitForTimeout(1000);
+
+    const cards = await this.page!.evaluate(() => {
+      const items: any[] = [];
+      document.querySelectorAll('.video-list-item, .bili-video-card').forEach((card) => {
+        const titleEl = card.querySelector('h3.title, .bili-video-card__info--tit');
+        const linkEl = card.querySelector('a[href*="video/BV"]');
+        const authorEl = card.querySelector('.up-name, .bili-video-card__info--author');
+        const watchEl = card.querySelector('.watch-num, .bili-video-card__info--play');
+
+        if (titleEl && linkEl) {
+          const href = linkEl.getAttribute('href') || '';
+          items.push({
+            video_id: href.match(/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '',
+            title: titleEl.textContent?.trim() || '',
+            video_url: href.startsWith('http') ? href : 'https:' + href,
+            nickname: authorEl?.textContent?.trim() || '',
+            creator_hash: authorEl?.getAttribute('href')?.split('/').pop() || '',
+            video_play_count: watchEl?.textContent?.trim() || '0',
+          });
+        }
+      });
+      return items;
+    });
+
+    return cards
+      .filter((card: any) => card.video_id)
+      .slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT)
+      .map((card: any) => ({
+        video_id: card.video_id,
+        aid: '',
+        video_url: card.video_url,
+        title: card.title,
+        desc: card.title,
+        nickname: card.nickname,
+        creator_hash: card.creator_hash,
+        create_time: 0,
+        video_play_count: card.video_play_count,
+        video_danmaku: '0',
+        video_favorite_count: '0',
+        video_comment: '0',
+        video_cover_url: '',
+      }));
+  }
+
+  /**
+   * Emit a seed, topping it up from the `view` endpoint.
+   *
+   * Search and space payloads carry play/danmaku/favorite/reply but not
+   * like/coin/share/dislike, so `view` still runs — but a failure now degrades
+   * to the seed's own fields instead of dropping the record.
+   */
+  private async ingestSeed(seed: BiliVideoSeed, sourceKeyword: string): Promise<void> {
+    let detail: any = {};
+    try {
+      const identifier = seed.video_id.startsWith('BV')
+        ? `bvid=${encodeURIComponent(seed.video_id)}`
+        : `aid=${encodeURIComponent(seed.aid)}`;
+      const res = await this.page!.evaluate(
+        async (url) => (await fetch(url, { credentials: 'include' })).json(),
+        `https://api.bilibili.com/x/web-interface/view?${identifier}`
+      );
+      if (res && res.code === 0 && res.data) detail = res.data;
+    } catch (e: any) {
+      console.error(`[BILI] Failed to fetch details for ${seed.video_id}:`, e.message);
+    }
+
+    await connectorOutput.emitBilibiliVideo({
+      video_id: seed.video_id,
+      video_url: seed.video_url,
+      creator_hash: detail.owner?.mid ? String(detail.owner.mid) : seed.creator_hash,
+      nickname: detail.owner?.name || seed.nickname,
+      liked_count: Number(detail.stat?.like || 0),
+      video_type: 'video',
+      title: detail.title || seed.title,
+      desc: detail.desc || seed.desc,
+      create_time: detail.pubdate || seed.create_time || Math.floor(Date.now() / 1000),
+      disliked_count: String(detail.stat?.dislike || 0),
+      video_play_count: String(detail.stat?.view ?? seed.video_play_count),
+      video_favorite_count: String(detail.stat?.favorite ?? seed.video_favorite_count),
+      video_share_count: String(detail.stat?.share || 0),
+      video_coin_count: String(detail.stat?.coin || 0),
+      video_danmaku: String(detail.stat?.danmaku ?? seed.video_danmaku),
+      video_comment: String(detail.stat?.reply ?? seed.video_comment),
+      video_cover_url: detail.pic || seed.video_cover_url,
+      source_keyword: sourceKeyword,
+    });
+
+    // Search already hands us the aid, so comments no longer depend on `view`.
+    const aid = detail.aid ? String(detail.aid) : seed.aid;
+    if (activeConfig.ENABLE_GET_COMMENTS && aid) {
+      await this.getVideoComments(aid, seed.video_id);
     }
   }
 
@@ -281,14 +384,93 @@ export class BilibiliCrawler extends AbstractCrawler {
   public async getCreatorsAndVideos(): Promise<void> {
     for (const target of configuredTargets('bili', 'creator')) {
       const mid = firstMatch(target, [/space\.bilibili\.com\/(\d+)/i, /\b(\d+)\b/]);
-      await this.page!.goto(`https://space.bilibili.com/${encodeURIComponent(mid)}/video`, { waitUntil: 'domcontentloaded' });
-      await this.page!.waitForTimeout(2500);
-      const bvids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/BV"]'))
-        .map((link) => link.getAttribute('href')?.match(/\/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '')
-        .filter(Boolean));
-      const unique = [...new Set(bvids)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
-      console.log(`[BILI] Creator ${mid}: discovered ${unique.length} videos`);
-      for (const bvid of unique) await this.fetchVideoDetail(bvid, `UP:${mid}`);
+      const seeds = await this.executeHybrid<BiliVideoSeed>(
+        () => this.creatorVideosViaApi(mid),
+        () => this.creatorVideosViaDom(mid)
+      );
+      console.log(`[BILI] Creator ${mid}: discovered ${seeds.length} videos`);
+      for (const seed of seeds) {
+        await this.ingestSeed(seed, `UP:${mid}`);
+        await this.humanDelay(this.page!);
+      }
     }
+  }
+
+  /** Paged creator archive through the signed API — the primary path. */
+  private async creatorVideosViaApi(mid: string): Promise<BiliVideoSeed[]> {
+    const limit = activeConfig.CRAWLER_MAX_NOTES_COUNT;
+    const seeds: BiliVideoSeed[] = [];
+    const seen = new Set<string>();
+
+    for (let pageNum = 1; seeds.length < limit && pageNum <= MAX_API_PAGES; pageNum++) {
+      const data = await this.signer!.get(SPACE_API, {
+        mid,
+        ps: API_PAGE_SIZE,
+        pn: pageNum,
+        order: 'pubdate',
+        index: 1,
+      });
+      const vlist: any[] = data?.list?.vlist || [];
+      if (!vlist.length) break;
+
+      for (const item of vlist) {
+        const seed = this.seedFromSpaceItem(item, mid);
+        if (!seed || seen.has(seed.video_id)) continue;
+        seen.add(seed.video_id);
+        seeds.push(seed);
+        if (seeds.length >= limit) break;
+      }
+      const total = Number(data?.page?.count || 0);
+      if (vlist.length < API_PAGE_SIZE || pageNum * API_PAGE_SIZE >= total) break;
+      await this.humanDelay(this.page!);
+    }
+    return seeds;
+  }
+
+  private seedFromSpaceItem(item: any, mid: string): BiliVideoSeed | null {
+    const bvid = item?.bvid || '';
+    const aid = item?.aid ? String(item.aid) : '';
+    if (!bvid && !aid) return null;
+    return {
+      video_id: bvid || `av${aid}`,
+      aid,
+      video_url: `https://www.bilibili.com/video/${bvid || `av${aid}`}`,
+      title: stripHtml(item.title),
+      desc: stripHtml(item.description),
+      nickname: item.author || '',
+      creator_hash: item.mid ? String(item.mid) : mid,
+      create_time: Number(item.created || 0),
+      video_play_count: String(item.play ?? 0),
+      video_danmaku: String(item.video_review ?? 0),
+      video_favorite_count: '0',
+      video_comment: String(item.comment ?? 0),
+      video_cover_url: item.pic ? asAbsoluteUrl(item.pic, 'https://i0.hdslb.com') : '',
+    };
+  }
+
+  /** Legacy DOM scrape of the space page, kept as the fallback. */
+  private async creatorVideosViaDom(mid: string): Promise<BiliVideoSeed[]> {
+    await this.page!.goto(`https://space.bilibili.com/${encodeURIComponent(mid)}/video`, { waitUntil: 'domcontentloaded' });
+    await this.page!.waitForTimeout(2500);
+    const bvids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/BV"]'))
+      .map((link) => link.getAttribute('href')?.match(/\/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '')
+      .filter(Boolean));
+    return [...new Set(bvids)]
+      .slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT)
+      .map((bvid) => ({
+        video_id: bvid,
+        aid: '',
+        video_url: `https://www.bilibili.com/video/${bvid}`,
+        title: '',
+        desc: '',
+        nickname: '',
+        creator_hash: mid,
+        create_time: 0,
+        video_play_count: '0',
+        video_danmaku: '0',
+        video_favorite_count: '0',
+        video_comment: '0',
+        video_cover_url: '',
+      }));
   }
 }

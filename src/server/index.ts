@@ -10,12 +10,14 @@ import { analyticsRepository } from '../database/repository';
 import { agentRepository } from './services/AgentRepository';
 import { agentService } from './services/AgentService';
 import { workflowEngine } from '../workflow/workflow-engine';
+import { workflowRuntime } from '../workflow/workflow-runtime';
 import { documentEngine } from '../document/document-engine';
 import { skillRegistry } from '../skills/registry';
 import { modelService } from './services/ModelService';
 import { agentAttachmentService } from './services/AgentAttachmentService';
 import type { AppConfig } from '../tools/config';
-import { listConnectorManifests } from '../connectors/registry';
+import { getConnectorManifest, listConnectorManifests } from '../connectors/registry';
+import { DEPTH_LABELS, DEPTH_LEVELS, depthIsMeaningful, describeDepthForCapabilities } from '../connectors/depth';
 import type { ConnectorStartRequest } from '../connectors/types';
 import { processorWorkerExecutor } from '../processor/processor-worker-executor';
 import { listProcessorCapabilities } from '../processor/capabilities';
@@ -34,6 +36,7 @@ export interface ServerWindowControls {
   releaseCrawlerWindow?: (platform: string, status?: string, metrics?: any) => boolean;
   isCrawlerWindowVisible?: (platform?: string) => boolean;
   hasActiveCrawlerViews?: () => boolean;
+  canOpenCrawlerWindow?: () => boolean;
   showCrawlerWindow?: (platform?: string) => boolean;
   hideCrawlerWindow?: (platform?: string) => boolean;
   toggleCrawlerWindow?: (platform?: string) => boolean;
@@ -169,6 +172,9 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       success: true,
       visible: windowControls.isCrawlerWindowVisible?.() ?? false,
       has_views: windowControls.hasActiveCrawlerViews?.() ?? false,
+      // has_views only covers platforms that are crawling *right now*; can_open
+      // also covers finished ones, whose tabs can be reopened for inspection.
+      can_open: windowControls.canOpenCrawlerWindow?.() ?? false,
     };
   });
 
@@ -185,9 +191,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       }
       const visible = windowControls.isCrawlerWindowVisible?.(platform) ?? false;
       const hasViews = windowControls.hasActiveCrawlerViews?.() ?? false;
-      return { success: true, visible, toggled, has_views: hasViews };
+      const canOpen = windowControls.canOpenCrawlerWindow?.() ?? false;
+      return { success: true, visible, toggled, has_views: hasViews, can_open: canOpen };
     } catch (err: any) {
-      return { success: false, error: err.message, visible: false, has_views: false };
+      return { success: false, error: err.message, visible: false, has_views: false, can_open: false };
     }
   });
 
@@ -205,6 +212,30 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/config/connectors', async () => ({ connectors: listConnectorManifests() }));
+
+  // The UI must not re-derive depth budgets: it would become a second source of
+  // truth next to the manifests. It asks what the levels mean for these
+  // platforms instead, and hides the selector when none of them care.
+  fastify.get('/api/config/depth-options', async (request) => {
+    const query = request.query as { platforms?: string; capability?: string };
+    const capabilityId = query.capability || 'keyword_search';
+    const capabilities = String(query.platforms || '')
+      .split(',')
+      .map((platform) => platform.trim())
+      .filter(Boolean)
+      .flatMap((platform) => {
+        const capability = getConnectorManifest(platform)?.capabilities.find((item) => item.id === capabilityId);
+        return capability ? [capability] : [];
+      });
+    return {
+      applicable: capabilities.some(depthIsMeaningful),
+      options: DEPTH_LEVELS.map((level) => ({
+        value: level,
+        label: DEPTH_LABELS[level],
+        description: describeDepthForCapabilities(capabilities, level),
+      })),
+    };
+  });
 
   fastify.get('/api/config/options', async () => {
     return {
@@ -333,6 +364,20 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const { plan_id } = request.params as { plan_id: string };
     try { return agentService.executePlan(plan_id); }
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+  });
+
+  // Stopping a plan must go through workflowRuntime: killing the crawler process
+  // alone (POST /api/crawler/stop) only frees the slot and lets the runtime start
+  // the next queued platform, which is not what "stop" means to the user.
+  fastify.post('/api/agent/plans/:plan_id/stop', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    const plan = agentRepository.getPlan(plan_id);
+    if (!plan) return reply.status(404).send({ detail: 'Plan not found' });
+    if (!['queued', 'running'].includes(plan.status)) {
+      return { stopped: false, plan: agentRepository.getPlan(plan_id) };
+    }
+    await workflowRuntime.cancel(plan_id);
+    return { stopped: true, plan: agentRepository.getPlan(plan_id) };
   });
 
   fastify.get('/api/agent/plans/:plan_id/workflow', async (request, reply) => {

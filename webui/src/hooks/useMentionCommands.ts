@@ -14,12 +14,6 @@ export interface MentionEntity {
 }
 
 export const CONNECTOR_ENTITIES: MentionEntity[] = [
-  // 搜索引擎
-  { id: 'baidu', key: 'baidu', name: '百度搜索', category: 'search', categoryLabel: '搜索引擎', description: '百度 SERP 网页检索' },
-  { id: 'bing', key: 'bing', name: '必应中国', category: 'search', categoryLabel: '搜索引擎', description: 'Bing 全球/国内网页检索' },
-  { id: 'so360', key: 'so360', name: '360搜索', category: 'search', categoryLabel: '搜索引擎', description: '360 网页搜索结果提取' },
-  { id: 'sogou', key: 'sogou', name: '搜狗搜索', category: 'search', categoryLabel: '搜索引擎', description: '搜狗网页及微信内容检索' },
-
   // 社交平台
   { id: 'xhs', key: 'xhs', name: '小红书', category: 'social', categoryLabel: '社交平台', description: '作品、创作者及评论采集' },
   { id: 'douyin', key: 'douyin', name: '抖音', category: 'social', categoryLabel: '社交平台', description: '短视频、图文及回复采集' },
@@ -28,6 +22,12 @@ export const CONNECTOR_ENTITIES: MentionEntity[] = [
   { id: 'weibo', key: 'weibo', name: '微博', category: 'social', categoryLabel: '社交平台', description: '博文及转发评论采集' },
   { id: 'tieba', key: 'tieba', name: '百度贴吧', category: 'social', categoryLabel: '社交平台', description: '主题帖及楼层回复采集' },
   { id: 'zhihu', key: 'zhihu', name: '知乎', category: 'social', categoryLabel: '社交平台', description: '问题、回答与文章采集' },
+
+  // 搜索引擎
+  { id: 'baidu', key: 'baidu', name: '百度搜索', category: 'search', categoryLabel: '搜索引擎', description: '百度 SERP 网页检索' },
+  { id: 'bing', key: 'bing', name: '必应中国', category: 'search', categoryLabel: '搜索引擎', description: 'Bing 全球/国内网页检索' },
+  { id: 'so360', key: 'so360', name: '360搜索', category: 'search', categoryLabel: '搜索引擎', description: '360 网页搜索结果提取' },
+  { id: 'sogou', key: 'sogou', name: '搜狗搜索', category: 'search', categoryLabel: '搜索引擎', description: '搜狗网页及微信内容检索' },
 
   // 招聘与投诉
   { id: 'zhaopin', key: 'zhaopin', name: '智联招聘', category: 'job_complaint', categoryLabel: '招聘与投诉', description: '招聘岗位列表与 JD 详情解析' },

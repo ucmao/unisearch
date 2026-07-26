@@ -159,7 +159,10 @@ export function initSchema(db: Database): void {
       started_at TEXT NOT NULL,
       finished_at TEXT,
       exit_code INTEGER,
+      -- item_count counts primary content only (comments live in comment_count),
+      -- so "N 条" in the UI always means the same thing as the content tables.
       item_count INTEGER NOT NULL DEFAULT 0,
+      comment_count INTEGER NOT NULL DEFAULT 0,
       error_message TEXT,
       config_json TEXT NOT NULL DEFAULT '{}',
       FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
@@ -346,5 +349,37 @@ export function initSchema(db: Database): void {
     );
   `);
 
+  applyAdditiveMigrations(db);
+
   db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
+}
+
+/**
+ * Column additions that must NOT go through DATABASE_SCHEMA_VERSION: bumping that
+ * version drops every table, which would destroy the user's collected corpus.
+ * Everything here has to be idempotent and safe to run on every startup.
+ */
+function applyAdditiveMigrations(db: Database): void {
+  const hasColumn = (table: string, column: string) =>
+    (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
+
+  if (!hasColumn('crawl_runs', 'comment_count')) {
+    db.exec('ALTER TABLE crawl_runs ADD COLUMN comment_count INTEGER NOT NULL DEFAULT 0');
+    // Historic rows stored "content + comments" in item_count. Recompute both
+    // columns from document_sources so old tasks report the same way as new ones.
+    db.exec(`
+      UPDATE crawl_runs SET
+        comment_count = (
+          SELECT COUNT(*) FROM document_sources s
+          JOIN documents d ON d.document_id = s.document_id
+          WHERE s.run_id = crawl_runs.run_id AND d.kind = 'comment'
+        ),
+        item_count = (
+          SELECT COUNT(*) FROM document_sources s
+          JOIN documents d ON d.document_id = s.document_id
+          WHERE s.run_id = crawl_runs.run_id AND d.kind != 'comment'
+        )
+      WHERE finished_at IS NOT NULL
+    `);
+  }
 }

@@ -48,6 +48,11 @@ const SOURCE_ID_KEYS = [
   'id',
 ];
 
+// A comment payload also carries its parent's id (note_id/aweme_id/video_id/...), so the generic
+// key order above would resolve every comment of one item to the same identity. Comments must be
+// identified by their own id first.
+const COMMENT_ID_KEYS = ['comment_id', ...SOURCE_ID_KEYS.filter((key) => key !== 'comment_id')];
+
 const SOURCE_URL_KEYS = [
   'content_url',
   'note_url',
@@ -99,12 +104,12 @@ function buildRawItem(outputType: string, payload: Payload, sourceOverride?: str
   const definition = OUTPUTS[outputType];
   if (!definition) throw new Error(`Unsupported connector output type: ${outputType}`);
   const source = sourceOverride || (typeof definition.source === 'function' ? definition.source(payload) : definition.source);
-  const sourceItemId = firstString(payload, SOURCE_ID_KEYS);
-  const sourceUrl = firstString(payload, SOURCE_URL_KEYS);
-  const media = mediaUrls(payload);
   const kind = outputType === 'emitMediaParsedResult' && Array.isArray(payload.images) && payload.images.length && !payload.video_url
     ? 'image'
     : definition.kind;
+  const sourceItemId = firstString(payload, kind === 'comment' ? COMMENT_ID_KEYS : SOURCE_ID_KEYS);
+  const sourceUrl = firstString(payload, SOURCE_URL_KEYS);
+  const media = mediaUrls(payload);
 
   return parseRawItem({
     schemaVersion: RAW_ITEM_SCHEMA_VERSION,

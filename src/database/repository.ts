@@ -151,13 +151,36 @@ export class AnalyticsRepository {
   }
 
   finishRun(runId: string, status: string, exitCode: number | null, _contents: any[], errorMessage = ''): void {
-    const count = Number((this.db.prepare(
-      'SELECT COUNT(*) AS count FROM document_sources WHERE run_id=?',
-    ).get(runId) as any)?.count || 0);
+    // Comments are counted separately: a run that returned 200 comments but zero
+    // posts is a failed keyword search, and a single total would hide that.
+    const counts = this.countRunDocuments(runId);
     this.db.prepare(`
-      UPDATE crawl_runs SET status=?, finished_at=?, exit_code=?, item_count=?, error_message=?
+      UPDATE crawl_runs SET status=?, finished_at=?, exit_code=?, item_count=?, comment_count=?, error_message=?
       WHERE run_id=?
-    `).run(status, new Date().toISOString(), exitCode, count, errorMessage || null, runId);
+    `).run(
+      status, new Date().toISOString(), exitCode,
+      counts.item_count, counts.comment_count, errorMessage || null, runId,
+    );
+  }
+
+  /** Live counts for a run, so the UI can show progress before the run finishes. */
+  countRunDocuments(runId: string): { item_count: number; comment_count: number } {
+    const row = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN d.kind != 'comment' THEN 1 ELSE 0 END), 0) AS item_count,
+        COALESCE(SUM(CASE WHEN d.kind = 'comment' THEN 1 ELSE 0 END), 0) AS comment_count
+      FROM document_sources s
+      JOIN documents d ON d.document_id = s.document_id
+      WHERE s.run_id = ?
+    `).get(runId) as any;
+    return { item_count: Number(row?.item_count || 0), comment_count: Number(row?.comment_count || 0) };
+  }
+
+  /** Keeps a running crawl's counters fresh so the dashboard is not blank mid-run. */
+  refreshRunCounts(runId: string): void {
+    const counts = this.countRunDocuments(runId);
+    this.db.prepare('UPDATE crawl_runs SET item_count=?, comment_count=? WHERE run_id=?')
+      .run(counts.item_count, counts.comment_count, runId);
   }
 
   appendRunLog(runId: string, log: { platform: string; timestamp: string; level: string; message: string }): number {
