@@ -362,7 +362,10 @@ export interface AgentMemory {
 // API functions
 export const crawlerApi = {
   start: (config: CrawlerConfig) => api.post('/crawler/start', config),
-  stop: (platform?: string) => api.post('/crawler/stop', null, { params: { platform } }),
+  stop: (platform?: string) =>
+    api.post<{ status: string; message: string; cancelled_plans?: string[] }>(
+      '/crawler/stop', null, { params: { platform } },
+    ),
   getStatus: (platform?: string) => api.get<CrawlerStatus>('/crawler/status', { params: { platform } }),
   getLogs: (platform?: string, limit = 500, thread_id?: string) => api.get<{ logs: LogEntry[] }>('/crawler/logs', { params: { platform, limit, thread_id } }),
 }

@@ -15,6 +15,7 @@ import { documentEngine } from '../document/document-engine';
 import { skillRegistry } from '../skills/registry';
 import { modelService } from './services/ModelService';
 import { agentAttachmentService } from './services/AgentAttachmentService';
+import { planIdsForRunningCrawlers, type RunningCrawlerState } from './services/StopScope';
 import type { AppConfig } from '../tools/config';
 import { getConnectorManifest, listConnectorManifests } from '../connectors/registry';
 import { DEPTH_LABELS, DEPTH_LEVELS, depthIsMeaningful, describeDepthForCapabilities } from '../connectors/depth';
@@ -30,6 +31,15 @@ import { zipDirectoryToBuffer } from '../exporters/zip';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 const activeAgentMessageRequests = new Map<string, AbortController>();
+
+function runningWorkflowIds(platform?: string): string[] {
+  const status = crawlerManager.getStatus(platform);
+  const states = platform ? [status] : Object.values(status.platform_states || {});
+  return planIdsForRunningCrawlers(
+    states as RunningCrawlerState[],
+    (runId) => agentRepository.getCrawlRun(runId)?.workflow_id,
+  );
+}
 
 export interface ServerWindowControls {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
@@ -609,11 +619,23 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.post('/api/crawler/stop', async (request, reply) => {
     const query = request.query as { platform?: string };
-    const success = await crawlerManager.stop(query.platform);
-    if (!success) {
+    // Killing the crawler process is not enough when the run belongs to a plan:
+    // the workflow would mark that step cancelled and immediately start the next
+    // queued platform, so the user's "stop" would silently continue elsewhere.
+    // Those runs have to be cancelled at the workflow level instead.
+    const workflowIds = runningWorkflowIds(query.platform);
+    for (const workflowId of workflowIds) await workflowRuntime.cancel(workflowId);
+    // Ad-hoc crawls started outside a plan still need a direct stop, and
+    // cancelling a workflow already stopped its own platforms.
+    const stoppedDirectly = await crawlerManager.stop(query.platform);
+    if (!workflowIds.length && !stoppedDirectly) {
       return reply.status(400).send({ detail: 'No crawler is running or stop failed' });
     }
-    return { status: 'ok', message: `Crawler ${query.platform || 'all'} stopped successfully` };
+    return {
+      status: 'ok',
+      message: `Crawler ${query.platform || 'all'} stopped successfully`,
+      cancelled_plans: workflowIds,
+    };
   });
 
   fastify.post('/api/crawler/control', async (request, reply) => {
