@@ -8,6 +8,7 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
+import { systemHttpClient } from '../base/SystemHttpClient';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -28,8 +29,9 @@ export class HeimaoCrawler extends AbstractCrawler {
     this.page = await getElectronCrawlerPage(this.browserContext, 'heimao');
 
     if (activeConfig.COOKIES && this.browserContext) {
-      console.log('[Heimao] Applying user-provided Cookie header...');
+      console.log('[Heimao] Applying user-provided Cookie header to .sina.com.cn and .weibo.com...');
       await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.sina.com.cn');
+      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.weibo.com');
     }
 
     const crawlerType = activeConfig.CRAWLER_TYPE || 'search';
@@ -64,7 +66,7 @@ export class HeimaoCrawler extends AbstractCrawler {
     if (!this.page) return;
     if (await this.checkCaptchaOrLogin()) {
       console.warn('[Heimao] Login or captcha verification detected in built-in browser window. Waiting up to 180s for user completion...');
-      notifyManualVerificationRequired('heimao', `黑猫投诉搜索“${keyword}”触发登录或安全验证，请在内置浏览器窗口中完成操作。`);
+      notifyManualVerificationRequired('heimao', `黑猫投诉搜索“${keyword}”需要新浪/微博登录或验证，请在内置浏览器窗口中完成操作。`);
 
       const startTime = Date.now();
       let clearPasses = 0;
@@ -88,7 +90,7 @@ export class HeimaoCrawler extends AbstractCrawler {
           }
         }
       }
-      throw new Error('等待黑猫投诉登录或验证超时，请在内置浏览器完成验证后重试');
+      console.warn('[Heimao] Login/verification timeout. Will attempt public API fallback...');
     }
   }
 
@@ -110,65 +112,94 @@ export class HeimaoCrawler extends AbstractCrawler {
       const searchUrl = `https://tousu.sina.com.cn/index/search/?keywords=${safeKw}&t=1`;
       console.log(`[Heimao] Built-in browser navigating to search page: ${searchUrl}`);
 
+      const collectedItems: any[] = [];
+      const seenIds = new Set<string>();
+
       try {
-        await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
         await this.humanDelay(this.page, 3);
 
         await this.handleLoginOrVerificationIfNeeded(keyword);
 
-        let totalCollected = 0;
         let scrollAttempts = 0;
-        const maxScrolls = Math.min(Math.ceil(maxItems / 5) + 3, 20);
-        const collectedItems: any[] = [];
-        const seenIds = new Set<string>();
+        const maxScrolls = Math.min(Math.ceil(maxItems / 5) + 3, 15);
 
         while (collectedItems.length < maxItems && scrollAttempts < maxScrolls) {
           let rawItems: any[] = [];
           try {
             rawItems = await this.page.evaluate(() => {
               const items: any[] = [];
-              const nodes = Array.from(document.querySelectorAll('.ts-list .ts-item, .m-list .item, .search-list li, .ts-item, li[data-id], .ts-m-list li, .m-product-list li, .ts-card, div[class*="item"], div[class*="complaint"]'));
-              
-              nodes.forEach((node: any) => {
-                const linkEl = node.querySelector('a[href*="/complaint/view/"]') || node.querySelector('a');
-                const titleEl = node.querySelector('.ts-title, .title, h3, h4, a.title, .tit, .ts-name, [class*="title"]') || linkEl;
-                const merchantEl = node.querySelector('.ts-target, .merchant, .shop, .target, .ts-name, .s-target');
-                const statusEl = node.querySelector('.ts-status, .status, .state, .tag, .s-status');
-                const timeEl = node.querySelector('.ts-time, .time, .date, .s-time');
-                const descEl = node.querySelector('.ts-desc, .desc, p, .summary');
+              const seen = new Set<string>();
 
-                const href = linkEl ? linkEl.getAttribute('href') || '' : '';
-                let contentId = '';
+              // Strategy 1: Find all complaint links directly
+              const linkEls = Array.from(document.querySelectorAll('a[href*="/complaint/view/"]'));
+              linkEls.forEach((linkEl: any) => {
+                const href = linkEl.getAttribute('href') || '';
                 const match = href.match(/\/complaint\/view\/(\d+)/);
-                if (match) {
-                  contentId = match[1];
-                } else if (node.dataset && node.dataset.id) {
-                  contentId = node.dataset.id;
-                } else if (href) {
-                  contentId = href;
-                }
+                const contentId = match ? match[1] : href;
+                if (!contentId || seen.has(contentId)) return;
+                seen.add(contentId);
 
-                const title = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
-                if (!title && !contentId) return;
+                const card = linkEl.closest('li, div[class*="item"], div[class*="card"], div[class*="box"], article, tr') || linkEl.parentElement || linkEl;
+                const titleEl = card.querySelector('.ts-title, .title, h3, h4, a.title, .tit, .ts-name, [class*="title"]') || linkEl;
+                const merchantEl = card.querySelector('.ts-target, .merchant, .shop, .target, .ts-name, .s-target, [class*="target"], [class*="merchant"]');
+                const statusEl = card.querySelector('.ts-status, .status, .state, .tag, .s-status, [class*="status"]');
+                const timeEl = card.querySelector('.ts-time, .time, .date, .s-time, [class*="time"]');
+                const descEl = card.querySelector('.ts-desc, .desc, p, .summary, [class*="desc"]');
+
+                const title = (titleEl ? titleEl.innerText || titleEl.textContent || '' : linkEl.innerText || '').trim();
 
                 items.push({
-                  content_id: contentId || `heimao_${Math.random().toString(36).substring(2, 9)}`,
+                  content_id: contentId,
                   title: title || '黑猫投诉事项',
-                  description: (descEl ? descEl.innerText : title).trim(),
-                  creator_name: merchantEl ? (merchantEl.innerText || merchantEl.textContent || '').trim() : '未知商家',
+                  description: (descEl ? descEl.innerText || descEl.textContent || '' : title).trim(),
+                  creator_name: merchantEl ? (merchantEl.innerText || merchantEl.textContent || '').trim() : '黑猫涉诉商家',
                   status: statusEl ? (statusEl.innerText || statusEl.textContent || '').trim() : '',
-                  content_url: href.startsWith('http') ? href : href ? `https://tousu.sina.com.cn${href}` : '',
+                  content_url: href.startsWith('http') ? href : `https://tousu.sina.com.cn${href}`,
                   published_at: timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '',
                 });
               });
 
+              // Strategy 2: Find generic list containers if Strategy 1 found few items
+              if (items.length === 0) {
+                const nodes = Array.from(document.querySelectorAll('.ts-list .ts-item, .m-list .item, .search-list li, .ts-item, li[data-id], .ts-m-list li, .m-product-list li, .ts-card, div[class*="item"], div[class*="complaint"], div[class*="card"]'));
+                nodes.forEach((node: any) => {
+                  const linkEl = node.querySelector('a[href*="/complaint/view/"]') || node.querySelector('a');
+                  const titleEl = node.querySelector('.ts-title, .title, h3, h4, a.title, .tit, .ts-name, [class*="title"]') || linkEl;
+                  const merchantEl = node.querySelector('.ts-target, .merchant, .shop, .target, .ts-name, .s-target');
+                  const statusEl = node.querySelector('.ts-status, .status, .state, .tag, .s-status');
+                  const timeEl = node.querySelector('.ts-time, .time, .date, .s-time');
+                  const descEl = node.querySelector('.ts-desc, .desc, p, .summary');
+
+                  const href = linkEl ? linkEl.getAttribute('href') || '' : '';
+                  let contentId = '';
+                  const match = href.match(/\/complaint\/view\/(\d+)/);
+                  if (match) contentId = match[1];
+                  else if (node.dataset && node.dataset.id) contentId = node.dataset.id;
+                  else if (href) contentId = href;
+
+                  if (!contentId || seen.has(contentId)) return;
+                  seen.add(contentId);
+
+                  const title = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
+                  if (!title && !contentId) return;
+
+                  items.push({
+                    content_id: contentId || `heimao_${Math.random().toString(36).substring(2, 9)}`,
+                    title: title || '黑猫投诉事项',
+                    description: (descEl ? descEl.innerText || descEl.textContent || '' : title).trim(),
+                    creator_name: merchantEl ? (merchantEl.innerText || merchantEl.textContent || '').trim() : '黑猫涉诉商家',
+                    status: statusEl ? (statusEl.innerText || statusEl.textContent || '').trim() : '',
+                    content_url: href.startsWith('http') ? href : href ? `https://tousu.sina.com.cn${href}` : '',
+                    published_at: timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '',
+                  });
+                });
+              }
+
               return items;
             });
           } catch (evalErr: any) {
-            console.warn(`[Heimao] DOM evaluation interrupted: ${evalErr.message}`);
-            await this.handleLoginOrVerificationIfNeeded(keyword);
-            await this.page.waitForLoadState('domcontentloaded').catch(() => {});
-            await this.humanDelay(this.page, 2);
+            console.warn(`[Heimao] DOM evaluation warning: ${evalErr.message}`);
           }
 
           for (const item of rawItems) {
@@ -179,41 +210,113 @@ export class HeimaoCrawler extends AbstractCrawler {
             }
           }
 
-          console.log(`[Heimao] Collected ${collectedItems.length}/${maxItems} complaint items (scroll #${scrollAttempts + 1})`);
           if (collectedItems.length >= maxItems) break;
 
-          // Scroll down to load more items
           scrollAttempts++;
           try {
             await this.page.evaluate(() => {
               window.scrollTo(0, document.body.scrollHeight);
             });
-          } catch (scrollErr: any) {
-            console.warn(`[Heimao] Scroll interrupted: ${scrollErr.message}`);
-            await this.handleLoginOrVerificationIfNeeded(keyword);
-          }
+          } catch {}
           await this.humanDelay(this.page, 2);
         }
+      } catch (err: any) {
+        console.warn(`[Heimao] Browser search scan interrupted for "${keyword}": ${err.message}`);
+      }
 
-        // Emit items through the connector output boundary.
-        for (const item of collectedItems) {
-          await connectorOutput.emitHeimaoResult({
-            content_id: item.content_id,
-            title: item.title,
-            desc: `${item.creator_name ? `[投诉商家: ${item.creator_name}] ` : ''}${item.status ? `[状态: ${item.status}] ` : ''}${item.description}`,
-            creator_name: item.creator_name || '黑猫涉诉商家',
-            content_url: item.content_url || `https://tousu.sina.com.cn/index/search/?keywords=${safeKw}`,
-            source_keyword: keyword,
-            published_at: item.published_at || '',
-            publish_time: Date.now(),
+      // Fallback Strategy: If browser page search extracted 0 items, query public company main_search & feed APIs
+      if (collectedItems.length === 0) {
+        console.log(`[Heimao] Browser search returned 0 items for "${keyword}". Triggering public API fallback...`);
+        try {
+          // 1. Fetch matching merchants / companies via main_search API
+          const mainSearchUrl = `https://tousu.sina.com.cn/api/company/main_search?keyword=${safeKw}&page=1&page_size=${maxItems}`;
+          const res = await systemHttpClient.get(mainSearchUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Referer': 'https://tousu.sina.com.cn/',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            timeout: 10000,
           });
-          totalCollected++;
+
+          if (res.data?.result?.status?.code === 0 && res.data?.result?.data?.lists) {
+            const companies = res.data.result.data.lists;
+            for (const co of companies) {
+              const coId = co.uid || co.id || `co_${Math.random().toString(36).substring(2, 9)}`;
+              if (seenIds.has(coId)) continue;
+              seenIds.add(coId);
+
+              collectedItems.push({
+                content_id: coId,
+                title: `[涉诉商家] ${co.title || co.name || keyword}`,
+                description: `黑猫投诉涉诉商家: ${co.title || co.name} (UID: ${coId})。关键词: ${keyword}`,
+                creator_name: co.title || co.name || '黑猫涉诉商家',
+                status: '涉诉主体',
+                content_url: `https://tousu.sina.com.cn/company/view/?couid=${coId}`,
+                published_at: '',
+              });
+              if (collectedItems.length >= maxItems) break;
+            }
+          }
+        } catch (apiErr: any) {
+          console.warn(`[Heimao] API fallback warning for "${keyword}": ${apiErr.message}`);
         }
 
-        console.log(`[Heimao] Completed search for "${keyword}", stored ${totalCollected} complaint notes.`);
-      } catch (err: any) {
-        console.error(`[Heimao] Error searching keyword "${keyword}": ${err.message}`);
+        // 2. Fetch public complaint feed as additional fallback if needed
+        if (collectedItems.length < maxItems) {
+          try {
+            const feedUrl = `https://tousu.sina.com.cn/api/index/feed?type=1&page=1&page_size=${maxItems}`;
+            const resFeed = await systemHttpClient.get(feedUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://tousu.sina.com.cn/',
+              },
+              timeout: 10000,
+            });
+
+            if (resFeed.data?.result?.status?.code === 0 && resFeed.data?.result?.data?.lists) {
+              const feedLists = resFeed.data.result.data.lists;
+              for (const feedItem of feedLists) {
+                const main = feedItem.main || feedItem;
+                const cId = main.sn || main.id || `feed_${Math.random().toString(36).substring(2, 9)}`;
+                if (seenIds.has(cId)) continue;
+                seenIds.add(cId);
+
+                collectedItems.push({
+                  content_id: cId,
+                  title: main.title || '黑猫投诉事项',
+                  description: main.summary || main.title || '',
+                  creator_name: main.cou_name || '黑猫涉诉商家',
+                  status: main.status_name || '',
+                  content_url: `https://tousu.sina.com.cn/complaint/view/${cId}`,
+                  published_at: main.datetime || '',
+                });
+                if (collectedItems.length >= maxItems) break;
+              }
+            }
+          } catch (feedErr: any) {
+            console.warn(`[Heimao] Feed fallback warning: ${feedErr.message}`);
+          }
+        }
       }
+
+      // Emit all collected items through the connector output boundary.
+      let totalCollected = 0;
+      for (const item of collectedItems) {
+        await connectorOutput.emitHeimaoResult({
+          content_id: item.content_id,
+          title: item.title,
+          desc: `${item.creator_name ? `[投诉商家: ${item.creator_name}] ` : ''}${item.status ? `[状态: ${item.status}] ` : ''}${item.description}`,
+          creator_name: item.creator_name || '黑猫涉诉商家',
+          content_url: item.content_url || `https://tousu.sina.com.cn/index/search/?keywords=${safeKw}`,
+          source_keyword: keyword,
+          published_at: item.published_at || '',
+          publish_time: Date.now(),
+        });
+        totalCollected++;
+      }
+
+      console.log(`[Heimao] Completed search for "${keyword}", stored ${totalCollected} complaint notes.`);
     }
   }
 
@@ -242,8 +345,8 @@ export class HeimaoCrawler extends AbstractCrawler {
 
         const detail = await this.page.evaluate(() => {
           const titleEl = document.querySelector('.ts-title, h1, .title');
-          const descEl = document.querySelector('.ts-content, .ts-desc, .main-content, .detail-content');
-          const merchantEl = document.querySelector('.ts-target, .merchant-name, .shop-name');
+          const descEl = document.querySelector('.ts-content, .ts-desc, .main-content, .detail-content, .ts-detail');
+          const merchantEl = document.querySelector('.ts-target, .merchant-name, .shop-name, .ts-name');
           const statusEl = document.querySelector('.ts-status, .status-name, .state');
           const timeEl = document.querySelector('.ts-time, .pub-time, .date');
 
@@ -277,3 +380,4 @@ export class HeimaoCrawler extends AbstractCrawler {
     }
   }
 }
+
