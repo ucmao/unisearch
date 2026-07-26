@@ -77,14 +77,28 @@ export class KuaishouCrawler extends AbstractCrawler {
     try {
       if (this.browserContext) {
         const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some((c) => c.name === 'passToken' && c.value.trim().length > 0);
+        const sessionCookieNames = ['passToken', 'kuaishou.server.web_st', 'userId', 'kpf', 'did', 'kuaishou.server.web_ph'];
+        const hasSession = cookies.some((c) => sessionCookieNames.includes(c.name) && c.value.trim().length > 0);
         if (hasSession) {
           console.log('[KS] Login state confirmed via cookies.');
           return true;
         }
       }
+      if (this.page) {
+        const loggedInDOM = await this.page.evaluate(() => {
+          const hasAvatar = !!document.querySelector('.user-avatar, [class*="avatar"], a[href*="/profile/"], [class*="user-header"], [class*="user-name"]');
+          const loginBtn = Array.from(document.querySelectorAll('button, a, p, span')).find(
+            (el) => el.textContent?.trim() === '登录'
+          );
+          return hasAvatar || !loginBtn;
+        }).catch(() => false);
+        if (loggedInDOM) {
+          console.log('[KS] Login state confirmed via DOM.');
+          return true;
+        }
+      }
     } catch (err: any) {
-      console.error('[KS] Error checking cookies:', err.message);
+      console.error('[KS] Error checking login state:', err.message);
     }
     return false;
   }
@@ -94,6 +108,12 @@ export class KuaishouCrawler extends AbstractCrawler {
     for (const keyword of keywords) {
       console.log(`[KS] Searching keyword: ${keyword}`);
       try {
+        const searchUrl = `https://www.kuaishou.com/search/video?searchKey=${encodeURIComponent(keyword)}`;
+        if (this.page && (!this.page.url().includes('/search/video') || !this.page.url().includes(encodeURIComponent(keyword)))) {
+          await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+          await this.page.waitForTimeout(1500);
+        }
+
         const videos: any[] = [];
         const seenIds = new Set<string>();
         const query = `
