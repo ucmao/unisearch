@@ -4,8 +4,15 @@ import fs from 'fs';
 import net from 'net';
 import { spawn, ChildProcess } from 'child_process';
 import axios from 'axios';
-import { Playwright, Browser, BrowserContext, Page } from 'playwright';
+import { Browser, BrowserContext, Page } from 'playwright';
 import { activeConfig } from './config';
+
+/**
+ * The `playwright` module namespace itself, as obtained from `require('playwright')`.
+ * Playwright exports no such type of its own, so callers that receive the module as
+ * an argument rely on this alias.
+ */
+export type PlaywrightModule = typeof import('playwright');
 
 export class BrowserLauncher {
   public browserProcess: ChildProcess | null = null;
@@ -197,7 +204,7 @@ export class CDPBrowserManager {
   }
 
   public async launchAndConnect(
-    playwright: Playwright,
+    playwright: PlaywrightModule,
     playwrightProxy: any = null,
     userAgent: string | null = null
   ): Promise<BrowserContext> {
@@ -245,7 +252,7 @@ export class CDPBrowserManager {
   }
 
   private async connectExistingBrowser(
-    playwright: Playwright,
+    playwright: PlaywrightModule,
     playwrightProxy: any = null,
     userAgent: string | null = null
   ): Promise<BrowserContext> {
@@ -305,7 +312,7 @@ export class CDPBrowserManager {
     });
   }
 
-  private async connectViaCDP(playwright: Playwright): Promise<void> {
+  private async connectViaCDP(playwright: PlaywrightModule): Promise<void> {
     console.log(`[CDPBrowserManager] Connecting Playwright to CDP endpoint: http://127.0.0.1:${this.debugPort}`);
     this.browser = await playwright.chromium.connectOverCDP(`http://127.0.0.1:${this.debugPort}`);
   }

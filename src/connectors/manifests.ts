@@ -43,14 +43,13 @@ const EXTRA_OUTPUTS: Record<string, ConnectorOutputField[]> = {
   ],
 };
 
+// One switch, not two. On every platform except Xiaohongshu the replies arrive
+// inside the same response as the top-level comments, so a separate "collect
+// replies" toggle only ever decided whether to throw away data already fetched.
 const commentOptions = () => [
   {
-    key: 'enable_comments', label: '采集一级评论', description: '同步采集当前内容可见的一级评论。',
+    key: 'enable_comments', label: '采集评论', description: '采集当前内容的评论，含可见的楼中楼回复。',
     type: 'boolean' as const, default: false, runtimeConfigKey: 'enable_comments',
-  },
-  {
-    key: 'enable_sub_comments', label: '采集二级评论', description: '同时采集接口或页面直接返回的回复。',
-    type: 'boolean' as const, default: false, runtimeConfigKey: 'enable_sub_comments',
   },
 ];
 
@@ -64,13 +63,23 @@ const creatorField = (label: string) => ({
   type: 'string_list' as const, required: true, runtimeConfigKey: 'creator_ids',
 });
 
+/**
+ * Platform-specific caveats appended to every capability's limitations. Comment
+ * collection is one switch now, so anywhere it delivers less than "评论含回复"
+ * has to say so here rather than silently returning half the thread.
+ */
+const PLATFORM_LIMITS: Record<string, string[]> = {
+  tieba: ['帖子楼层依赖页面滚动加载，超长帖按评论上限截断；楼中楼回复最多取前 10 页。'],
+};
+
 function capabilities(
   id: string,
   name: string,
   nouns: { content: string; creator: string; comment: string },
 ): ConnectorCapability[] {
   const outputs = [...BASE_OUTPUTS, ...(EXTRA_OUTPUTS[id] || [])];
-  const commonLimits = ['仅处理当前登录态可见的公开内容。', '平台页面或接口调整后可能需要升级 Connector。'];
+  const commonLimits = ['仅处理当前登录态可见的公开内容。', '平台页面或接口调整后可能需要升级 Connector。',
+    ...(PLATFORM_LIMITS[id] || [])];
   return [
     {
       id: 'keyword_search', label: '关键词搜索', description: `按关键词发现并采集${name}${nouns.content}。`, runtimeMode: 'search',
@@ -100,8 +109,7 @@ function capabilities(
       id: 'comments', label: nouns.comment, description: `采集指定${name}${nouns.content}的评论及可见回复。`, runtimeMode: 'detail',
       budgetModel: 'single_target',
       inputFields: [targetField(`${nouns.content}链接或 ID`),
-        { key: 'enable_comments', label: '采集一级评论', description: '评论能力固定开启。', type: 'boolean', default: true, runtimeConfigKey: 'enable_comments' },
-        { key: 'enable_sub_comments', label: '采集二级评论', description: '采集可见回复。', type: 'boolean', default: true, runtimeConfigKey: 'enable_sub_comments' }],
+        { key: 'enable_comments', label: '采集评论', description: '评论能力固定开启，含可见的楼中楼回复。', type: 'boolean', default: true, runtimeConfigKey: 'enable_comments' }],
       outputType: `${id}_comment`, outputFields: [
         { key: 'comment_id', label: '评论 ID', type: 'string', required: true },
         { key: 'content_id', label: '内容 ID', type: 'string' },
@@ -355,6 +363,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('bing', '必应中国', 'globe'),
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
+  searchEngine('toutiao', '头条搜索', 'newspaper'),
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),
   complaintPlatform('heimao', '黑猫投诉', 'shield-alert'),

@@ -37,11 +37,11 @@ const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|�
 const EXPORT = /(?:导出|下载|生成).*(?:CSV|表格|数据|结果|Markdown|Obsidian|JSON|IMA)|(?:CSV|表格|Markdown|Obsidian|JSON|IMA).*(?:导出|下载|生成)/i;
 const ANALYZE = /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|归纳|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/i;
 const REVISE_ACTION = '(?:加上|增加|添加|再加|也要|去掉|删除|移除|不要|改成|改为|换成|换一个|更换|替换|修改|调整|只要)';
-const REVISE_FIELD = '(?:小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
+const REVISE_FIELD = '(?:小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
 const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.*${REVISE_ACTION})`, 'i');
-const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:去|到|在)?(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看)/i;
+const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:去|到|在)?(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看)/i;
 const ALL_PLATFORM_IDS = [
-  'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
+  'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
   'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
 ];
 
@@ -83,7 +83,7 @@ function cleanResearchSubject(text: string): string {
     .replace(/@\S+/g, ' ')
     .replace(/关键词(?:[:：]|\s)+/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
-    .replace(/小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|DeepSeek|Kimi(?: AI)?|豆包|Doubao|千问|通义千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心/gi, ' ')
+    .replace(/小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi(?: AI)?|豆包|Doubao|千问|通义千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心/gi, ' ')
     .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求/gi, ' ')
     .replace(/采集|收集|抓取|搜索|搜|查找|查一下|调查|调研|研究|监测|分析/gi, ' ')
     .replace(/(?:的)?(?:舆情|口碑|竞品|评论|评价|帖子|内容|信息|数据|讨论|报告)/gi, ' ')
@@ -110,7 +110,7 @@ export function inferResearchKeywords(text: string): string[] {
 }
 
 export function inferResearchPlatforms(text: string): string[] {
-  if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) return ['baidu', 'bing', 'so360', 'sogou'];
+  if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) return ['baidu', 'bing', 'so360', 'sogou', 'toutiao'];
   if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) return ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
   if (/(?:所有|全部|全|主流)\s*AI\s*(?:搜索|问答|类|Web\s*QA)/i.test(text)) {
     return ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
@@ -128,6 +128,7 @@ export function inferResearchPlatforms(text: string): string[] {
     [/(?:必应中国|必应|bing\.com|bing)/i, 'bing'],
     [/(?:360搜索|360|so\.com)/i, 'so360'],
     [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
+    [/(?:头条搜索|so\.toutiao\.com)/i, 'toutiao'],
     [/(?:DeepSeek|chat\.deepseek\.com)/i, 'deepseek'],
     [/(?:Kimi(?:\s*AI)?|kimi\.moonshot\.cn|kimi\.com)/i, 'kimi'],
     [/(?:豆包|Doubao|doubao\.com)/i, 'doubao'],
@@ -148,7 +149,10 @@ export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep
   if (/(?:快速|简单|即时|秒级|随便|大概|前几条|抓几条|只要列表|不要评论|不采评论|不集评论|不加评论|前[一二两三1-3]\s*页|[1-3]\s*页|前[1-3]0\s*条)/i.test(text)) {
     return 'quick';
   }
-  if (/(?:深度|详细|深入|完整|全量|全面|舆情|二级评论|回复|楼层|深入挖掘|深入分析|详细分析|前[六七八九十6-9]|10\s*页|100\s*条)/i.test(text)) {
+  // “二级评论/回复/楼层” used to force 深度 back when replies were a separate
+  // opt-in. Collecting comments now always brings their replies, so those words
+  // say nothing about how many items the user wants.
+  if (/(?:深度|详细|深入|完整|全量|全面|舆情|深入挖掘|深入分析|详细分析|前[六七八九十6-9]|10\s*页|100\s*条)/i.test(text)) {
     return 'deep';
   }
   if (/(?:标准|常规|前[四五4-5]\s*页|5\s*页|50\s*条)/i.test(text)) {

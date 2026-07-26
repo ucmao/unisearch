@@ -10,7 +10,6 @@ export interface CrawlerConfig {
   creator_ids: string    // 创作者模式下的创作者ID
   start_page: number
   enable_comments: boolean
-  enable_sub_comments: boolean
   cookies: string
   headless: boolean
   loop_execution: boolean

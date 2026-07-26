@@ -320,9 +320,8 @@ export class WeiboCrawler extends AbstractCrawler {
       });
       for (const comment of comments) {
         await store(comment);
-        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
-          for (const child of comment.comments || []) await store(child, String(comment.idstr || comment.id || ''));
-        }
+        // The reply array rides along in the same response; keeping it costs nothing.
+        for (const child of comment.comments || []) await store(child, String(comment.idstr || comment.id || ''));
       }
       console.log(`[WEIBO] Stored ${comments.length} comments for ${noteId}`);
     } catch (error: any) {

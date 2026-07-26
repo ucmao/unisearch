@@ -72,10 +72,15 @@ const KS_PROFILE_QUERY = `
     }
   }`;
 
+// Kuaishou hands every anonymous visitor `did` / `kpf` / `kwssectoken`, so those prove nothing.
+// Only these are written once an account session exists.
+const KS_AUTH_COOKIES = ['passToken', 'kuaishou.server.web_st', 'kuaishou.server.web_ph'];
+
 export class KuaishouCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
   private consecutiveDetailFailures = 0;
+  private cdpSession: any = null;
 
   public async start(): Promise<void> {
     console.log('[KS] Starting Kuaishou crawler (Electron CDP mode)...');
@@ -137,26 +142,47 @@ export class KuaishouCrawler extends AbstractCrawler {
         throw new Error('快手登录等待超时。请在内置采集浏览器中完成登录后重新运行任务。');
       }
     }
+    // Search works anonymously but visionCommentList returns an empty list, so say so up front
+    // instead of letting every video report a bogus 风控 error later.
+    if (!isLoggedIn && activeConfig.ENABLE_GET_COMMENTS) {
+      console.warn('[KS] 当前为未登录会话：快手搜索仍可用，但评论接口对未登录会话一律返回空列表，本次将采集不到任何评论。');
+    }
+  }
+
+  /** Auth cookie names visible to the crawler tab's own session partition, read over raw CDP. */
+  private async authCookieNames(): Promise<string[]> {
+    if (!this.page || !this.browserContext) return [];
+    try {
+      if (!this.cdpSession) this.cdpSession = await this.browserContext.newCDPSession(this.page);
+      const { cookies } = await this.cdpSession.send('Network.getCookies', { urls: ['https://www.kuaishou.com'] });
+      return (cookies || [])
+        .filter((c: any) => KS_AUTH_COOKIES.includes(c.name) && String(c.value || '').trim().length)
+        .map((c: any) => c.name);
+    } catch {
+      this.cdpSession = null;
+      return [];
+    }
   }
 
   private async checkLoginState(): Promise<boolean> {
     try {
-      if (this.browserContext) {
-        const cookies = await this.browserContext.cookies();
-        const sessionCookieNames = ['passToken', 'kuaishou.server.web_st', 'userId', 'kpf', 'did', 'kuaishou.server.web_ph'];
-        const hasSession = cookies.some((c) => sessionCookieNames.includes(c.name) && c.value.trim().length > 0);
-        if (hasSession) {
-          console.log('[KS] Login state confirmed via cookies.');
-          return true;
-        }
+      // The Electron crawler tab lives in its own session partition, so browserContext.cookies()
+      // never returns kuaishou cookies at all — it only sees the other platforms' partitions.
+      // A raw CDP Network.getCookies against the page reads the partition that actually applies.
+      const cookieNames = await this.authCookieNames();
+      if (cookieNames.length) {
+        console.log(`[KS] Login state confirmed via cookies (${cookieNames.join(', ')}).`);
+        return true;
       }
       if (this.page) {
+        // Only positive evidence counts, and only from the site chrome. The absence of a "登录"
+        // button means nothing (it vanishes the moment the login modal opens, and the short-video
+        // page never renders one); nor does any profile link, since every comment author on a
+        // video page is one. Both used to mark anonymous sessions as logged in.
         const loggedInDOM = await this.page.evaluate(() => {
-          const hasAvatar = !!document.querySelector('.user-avatar, [class*="avatar"], a[href*="/profile/"], [class*="user-header"], [class*="user-name"]');
-          const loginBtn = Array.from(document.querySelectorAll('button, a, p, span')).find(
-            (el) => el.textContent?.trim() === '登录'
-          );
-          return hasAvatar || !loginBtn;
+          const header = document.querySelector('header, [class*="header-"], [class*="nav-"]');
+          if (!header || header.closest('[class*="comment"]')) return false;
+          return !!header.querySelector('a[href*="/profile/"], [class*="user-avatar"], [class*="login-user"]');
         }).catch(() => false);
         if (loggedInDOM) {
           console.log('[KS] Login state confirmed via DOM.');
@@ -458,8 +484,22 @@ export class KuaishouCrawler extends AbstractCrawler {
     };
   }
 
+  /**
+   * Kuaishou scopes visionCommentList to the page the request comes from: asking for video B's
+   * comments while the tab still sits on the search results or on video A returns an empty
+   * rootComments list with no error. Landing on the photo's own page first makes the Referer match
+   * the photoId, which is what the site's own comment request always does.
+   */
+  private async openVideoPage(videoId: string): Promise<void> {
+    const url = `https://www.kuaishou.com/short-video/${encodeURIComponent(videoId)}`;
+    if (this.page!.url().includes(`/short-video/${videoId}`)) return;
+    await this.page!.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await this.page!.waitForTimeout(1500);
+  }
+
   private async getVideoComments(videoId: string): Promise<void> {
     try {
+      await this.openVideoPage(videoId);
       await this.collectCommentsViaGraphql(videoId);
     } catch (error: any) {
       console.error(`[KS] visionCommentList failed for ${videoId}: ${error.message}. Falling back to visible DOM comments.`);
@@ -507,14 +547,17 @@ export class KuaishouCrawler extends AbstractCrawler {
         if (rootCount >= maxRootComments) break;
         await emit(root, '');
         rootCount++;
-        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
-          for (const sub of root.subComments || []) await emit(sub, String(root.commentId || ''));
-        }
+        // subComments is part of the GraphQL selection set we already send.
+        for (const sub of root.subComments || []) await emit(sub, String(root.commentId || ''));
       }
-      // Kuaishou answers a throttled or fingerprint-rejected comment query with an empty list
-      // rather than an error, so an empty first page is reported instead of passing as success.
+      // Kuaishou answers an unauthenticated, throttled or fingerprint-rejected comment query with
+      // an empty list rather than an error, so an empty first page is reported instead of passing
+      // as success. An anonymous session is by far the most common cause, so check it first.
       if (isFirstPage && !roots.length) {
-        throw new Error(`快手未返回任何评论（commentCount=${result.commentCount ?? '未知'}），可能触发限流或风控`);
+        const reason = (await this.checkLoginState())
+          ? '可能触发限流或风控'
+          : '当前会话未登录，快手对未登录会话不返回评论';
+        throw new Error(`快手未返回任何评论（commentCount=${result.commentCount ?? '未知'}），${reason}`);
       }
       isFirstPage = false;
       pcursor = result.pcursor || '';
@@ -526,21 +569,32 @@ export class KuaishouCrawler extends AbstractCrawler {
 
   private async scrapeVisibleComments(videoId: string): Promise<void> {
     try {
-      if (!this.page!.url().includes(`/short-video/${videoId}`)) {
-        await this.page!.goto(`https://www.kuaishou.com/short-video/${encodeURIComponent(videoId)}`, { waitUntil: 'domcontentloaded' });
-      }
-      await this.page!.waitForTimeout(1500);
-      const comments = await this.page!.evaluate(() => Array.from(document.querySelectorAll('[data-comment-id]')).map((node) => {
-        const user = node.querySelector('[class*="user-name"], [class*="author"]');
-        const content = node.querySelector('[class*="comment-content"], [class*="content"]');
-        return {
-          id: node.getAttribute('data-comment-id') || '',
-          content: content?.textContent?.trim() || '',
-          nickname: user?.textContent?.trim() || '',
-          creatorId: user?.getAttribute('href')?.split('/').pop() || '',
-          subCount: Number(node.getAttribute('data-reply-count') || 0),
-        };
-      }).filter((comment) => comment.id && comment.content));
+      await this.openVideoPage(videoId);
+      // The rendered comment list carries no data-* attributes; items live under .comment-container
+      // as .comment-item nodes. Note the container keeps a hidden .no-comment-tip node even when it
+      // holds comments, so item count — not that node — decides whether anything was rendered.
+      const comments = await this.page!.evaluate((photoId) => {
+        const container = document.querySelector('[class*="comment-container"]');
+        if (!container) return [];
+        const nodes = Array.from(container.querySelectorAll('[class*="comment-item"], [class*="comment-row"]'));
+        return nodes.map((node, index) => {
+          const user = node.querySelector('[class*="user-name"], [class*="username"], [class*="comment-author"]');
+          const content = node.querySelector('[class*="comment-content"], [class*="comment-text"]');
+          const profile = node.querySelector('a[href*="/profile/"]');
+          const nickname = user?.textContent?.trim() || '';
+          // Fall back to the item's own text minus the nickname when the inner class names shift.
+          const text = content?.textContent?.trim()
+            || (node.textContent || '').replace(nickname, '').trim().split('\n')[0]?.trim()
+            || '';
+          return {
+            id: node.getAttribute('data-comment-id') || `dom-${photoId}-${index}`,
+            content: text,
+            nickname,
+            creatorId: profile?.getAttribute('href')?.split('/').pop() || '',
+            subCount: 0,
+          };
+        }).filter((comment) => comment.content);
+      }, videoId);
       for (const comment of comments.slice(0, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES)) {
         await connectorOutput.emitKuaishouComment({
           comment_id: comment.id, video_id: videoId, content: comment.content,

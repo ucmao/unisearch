@@ -103,7 +103,9 @@ export class SystemHttpClient {
       const ua = getRandomUserAgent(mode);
       const existingCookie = autoCookie ? this.cookieStore.getCookieString(url) : '';
       
-      const customHeaders = options.headers || {};
+      // Axios types header values as nullable, which would widen the merged record
+      // below; callers here only ever pass plain string headers.
+      const customHeaders = (options.headers || {}) as Record<string, string>;
       const mergedHeaders: Record<string, string> = {
         'User-Agent': ua,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',

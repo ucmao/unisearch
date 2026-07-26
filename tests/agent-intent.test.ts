@@ -78,7 +78,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
     previousUserText: '帮我采集微秒数智相关内容',
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
-    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou',
+    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
     'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
   ]);
 });
@@ -146,8 +146,8 @@ test('unsupported realtime weather questions get an honest contextual answer', (
 
 test('search engine alias and page range expressions are parsed correctly', () => {
   const { inferCollectionDepth } = require('../src/server/services/AgentIntent');
-  assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou']);
-  assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou']);
+  assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+  assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
   assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu']);
   assert.deepEqual(inferResearchPlatforms('在腾讯元宝问一下'), ['yuanbao']);
   assert.deepEqual(inferResearchPlatforms('用纳米 AI 搜索'), ['nami']);

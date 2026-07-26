@@ -360,14 +360,13 @@ export class BilibiliCrawler extends AbstractCrawler {
           create_time: reply.ctime || 0, creator_hash: String(reply.mid || ''), nickname: reply.member?.uname || '',
           sub_comment_count: reply.rcount || 0, parent_comment_id: '', like_count: reply.like || 0,
         });
-        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
-          for (const child of (reply.replies || [])) {
-            await connectorOutput.emitBilibiliComment({
-              comment_id: String(child.rpid || ''), video_id: videoId, content: child.content?.message || '',
-              create_time: child.ctime || 0, creator_hash: String(child.mid || ''), nickname: child.member?.uname || '',
-              sub_comment_count: 0, parent_comment_id: String(reply.rpid || ''), like_count: child.like || 0,
-            });
-          }
+        // The reply endpoint previews each thread's replies in the same payload.
+        for (const child of (reply.replies || [])) {
+          await connectorOutput.emitBilibiliComment({
+            comment_id: String(child.rpid || ''), video_id: videoId, content: child.content?.message || '',
+            create_time: child.ctime || 0, creator_hash: String(child.mid || ''), nickname: child.member?.uname || '',
+            sub_comment_count: 0, parent_comment_id: String(reply.rpid || ''), like_count: child.like || 0,
+          });
         }
       }
       console.log(`[BILI] Stored ${replies.length} comments for ${videoId}`);

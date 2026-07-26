@@ -306,9 +306,9 @@ export class ZhihuCrawler extends AbstractCrawler {
       });
       for (const comment of comments) {
         await store(comment);
-        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
-          for (const child of comment.child_comments || []) await store(child, String(comment.id || ''));
-        }
+        // root_comments already carries the replies, so dropping them would be
+        // discarding data we have paid for.
+        for (const child of comment.child_comments || []) await store(child, String(comment.id || ''));
       }
       console.log(`[ZHIHU] Stored ${comments.length} comments for ${contentType}:${contentId}`);
     } catch (error: any) {

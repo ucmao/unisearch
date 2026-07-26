@@ -17,8 +17,7 @@ import { modelService } from './services/ModelService';
 import { agentAttachmentService } from './services/AgentAttachmentService';
 import { planIdsForRunningCrawlers, type RunningCrawlerState } from './services/StopScope';
 import type { AppConfig } from '../tools/config';
-import { getConnectorManifest, listConnectorManifests } from '../connectors/registry';
-import { DEPTH_LABELS, DEPTH_LEVELS, depthIsMeaningful, describeDepthForCapabilities } from '../connectors/depth';
+import { listConnectorManifests } from '../connectors/registry';
 import type { ConnectorStartRequest } from '../connectors/types';
 import { processorWorkerExecutor } from '../processor/processor-worker-executor';
 import { listProcessorCapabilities } from '../processor/capabilities';
@@ -222,30 +221,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/config/connectors', async () => ({ connectors: listConnectorManifests() }));
-
-  // The UI must not re-derive depth budgets: it would become a second source of
-  // truth next to the manifests. It asks what the levels mean for these
-  // platforms instead, and hides the selector when none of them care.
-  fastify.get('/api/config/depth-options', async (request) => {
-    const query = request.query as { platforms?: string; capability?: string };
-    const capabilityId = query.capability || 'keyword_search';
-    const capabilities = String(query.platforms || '')
-      .split(',')
-      .map((platform) => platform.trim())
-      .filter(Boolean)
-      .flatMap((platform) => {
-        const capability = getConnectorManifest(platform)?.capabilities.find((item) => item.id === capabilityId);
-        return capability ? [capability] : [];
-      });
-    return {
-      applicable: capabilities.some(depthIsMeaningful),
-      options: DEPTH_LEVELS.map((level) => ({
-        value: level,
-        label: DEPTH_LABELS[level],
-        description: describeDepthForCapabilities(capabilities, level),
-      })),
-    };
-  });
 
   fastify.get('/api/config/options', async () => {
     return {

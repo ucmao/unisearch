@@ -6,7 +6,7 @@ import {
   Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
-import { agentApi, browserApi, configApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
+import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -108,118 +108,6 @@ function CsvDownloadLink({ planId, threadId, compact = false }: { planId?: strin
   )
 }
 
-const DEPTH_LABELS: Record<string, string> = {
-  quick: '⚡ 快速',
-  standard: '⚖️ 标准',
-  deep: '🔬 深度',
-  custom: '⚙️ 自定义',
-}
-
-// Conversation stays text-first. The legacy inline card is kept behind a
-// feature flag for comparison, while the right task panel is the source of truth.
-const SHOW_INLINE_PLAN_CARDS = false
-
-function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan }: {
-  plan: AgentPlan
-  onExecute: () => void
-  executing: boolean
-  onUpdateKeywords: (keywords: string[]) => void
-  onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
-  updatingPlan: boolean
-}) {
-  const [editingKeywords, setEditingKeywords] = useState(false)
-  const [keywordsDraft, setKeywordsDraft] = useState(plan.plan.keywords)
-  const [keywordInput, setKeywordInput] = useState('')
-  const isPending = plan.status === 'awaiting_confirmation'
-  const isActive = ['queued', 'running'].includes(plan.status)
-  const isFinished = ['completed', 'partially_completed'].includes(plan.status)
-  const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
-  const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
-  const depth = plan.plan.collectionDepth || 'standard'
-  // Whether depth changes anything is a property of the capability's budget
-  // model, not of a hardcoded platform list: URL-resolve and AI Q&A both ignore
-  // it, and the old list-based check missed every non-keyword_search capability.
-  const depthQuery = useQuery({
-    queryKey: ['depth-options', plan.plan.platforms.join(','), plan.plan.capability],
-    queryFn: async () => (await configApi.getDepthOptions(plan.plan.platforms, plan.plan.capability)).data,
-    enabled: plan.plan.platforms.length > 0,
-    staleTime: 5 * 60 * 1000,
-  })
-  const depthOptions = depthQuery.data?.options || []
-
-  useEffect(() => {
-    if (!editingKeywords) setKeywordsDraft(plan.plan.keywords)
-  }, [plan.plan.keywords, editingKeywords])
-
-  const addKeyword = () => {
-    const value = keywordInput.trim()
-    if (!value || keywordsDraft.includes(value) || keywordsDraft.length >= 12) return
-    setKeywordsDraft((current) => [...current, value])
-    setKeywordInput('')
-  }
-
-  if (!isPending) {
-    return (
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          {isActive ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-cyber-neon-cyan" /> : isFinished ? <CheckCircle2 className="h-4 w-4 shrink-0 text-cyber-neon-green" /> : <XCircle className="h-4 w-4 shrink-0 text-cyber-neon-pink" />}
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-cyber-text-primary">
-              {isActive ? '采集任务正在执行' : isFinished ? `已采集 ${totalItems} 条内容` : STATUS_LABELS[plan.status] || plan.status}
-            </p>
-            <p className="mt-0.5 text-[10px] text-cyber-text-muted">
-              {isActive ? '各平台实时进度和异常信息请查看右侧任务大盘' : `${completedPlatforms}/${plan.steps.length} 个平台完成，详细分布和结果操作在右侧`}
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="mt-3 overflow-hidden rounded-xl border border-cyber-neon-cyan/25 bg-cyber-bg-secondary/55">
-      <div className="flex items-center justify-between gap-3 border-b border-cyber-border-subtle px-4 py-3">
-        <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-cyber-neon-cyan" /><span className="text-sm font-medium">确认采集范围</span></div>
-        <Badge variant="outline" className="text-[10px]">等待确认</Badge>
-      </div>
-      <div className="space-y-3 px-4 py-3 text-xs">
-        <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
-          <span className="text-cyber-text-muted">采集平台</span>
-          <div className="flex flex-wrap gap-1.5">{plan.plan.platforms.map((platform) => <Badge key={platform} variant="outline">{PLATFORM_LABELS[platform] || platform}</Badge>)}</div>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
-          <div className="flex items-center justify-between gap-2"><span className="text-cyber-text-muted">关键词</span>{!editingKeywords ? <button type="button" onClick={() => setEditingKeywords(true)} className="text-[10px] text-cyber-neon-cyan">编辑</button> : null}</div>
-          <div>
-            <div className="flex flex-wrap gap-1.5">
-              {(editingKeywords ? keywordsDraft : plan.plan.keywords).map((item) => <Badge key={item} variant="outline" className="gap-1">{item}{editingKeywords ? <button type="button" onClick={() => setKeywordsDraft((current) => current.filter((keyword) => keyword !== item))} aria-label={`删除关键词 ${item}`}><X className="h-3 w-3" /></button> : null}</Badge>)}
-            </div>
-            {editingKeywords ? <div className="mt-2 space-y-2">
-              <div className="flex gap-2"><Input value={keywordInput} maxLength={40} className="h-8 text-xs" placeholder="添加关键词" onChange={(event) => setKeywordInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); addKeyword() } }} /><Button size="sm" variant="outline" className="h-8" onClick={addKeyword} disabled={!keywordInput.trim() || keywordsDraft.length >= 12}><Plus /></Button></div>
-              <div className="flex justify-end gap-2"><Button size="sm" variant="ghost" className="h-7" onClick={() => { setKeywordsDraft(plan.plan.keywords); setEditingKeywords(false) }}>取消</Button><Button size="sm" className="h-7" disabled={!keywordsDraft.length || updatingPlan} onClick={() => { onUpdateKeywords(keywordsDraft); setEditingKeywords(false) }}>{updatingPlan ? <Loader2 className="animate-spin" /> : null}保存</Button></div>
-            </div> : null}
-          </div>
-        </div>
-        {depthQuery.data?.applicable && depthOptions.length ? (
-          <div className="grid gap-2 sm:grid-cols-[72px_1fr]">
-            <span className="text-cyber-text-muted">采集深度</span>
-            <div className="space-y-1">
-              <div className="flex flex-wrap gap-1.5">{depthOptions.map((item) => <button key={item.value} type="button" disabled={updatingPlan} onClick={() => onUpdateDepth(item.value)} title={item.description} className={`rounded-md border px-2 py-1 text-[10px] transition-colors ${depth === item.value ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-muted hover:border-cyber-border-default hover:text-cyber-text-primary'}`}>{DEPTH_LABELS[item.value]}</button>)}</div>
-              {depthOptions.find((item) => item.value === depth)?.description
-                ? <p className="text-[10px] leading-4 text-cyber-text-muted">{depthOptions.find((item) => item.value === depth)?.description}</p>
-                : null}
-            </div>
-          </div>
-        ) : null}
-        {plan.plan.analysisSource !== 'fallback' && plan.plan.analysis.length ? <div className="grid gap-2 sm:grid-cols-[72px_1fr]"><span className="text-cyber-text-muted">分析方向</span><p className="leading-5 text-cyber-text-secondary">{plan.plan.analysis.join('、')} <span className="text-[10px] text-cyber-text-muted">（根据对话提炼，不影响采集执行）</span></p></div> : null}
-        <p className="border-t border-cyber-border-subtle pt-2 text-[10px] text-cyber-text-muted">需要更换平台或补充条件，可以直接在对话中告诉我。</p>
-      </div>
-      <div className="flex justify-end border-t border-cyber-border-subtle bg-cyber-bg-tertiary/20 px-4 py-3">
-        <Button size="sm" onClick={onExecute} disabled={executing}><Play />确认并开始</Button>
-      </div>
-    </div>
-  )
-}
-
 function ChatCrawlingStatusBanner({
   activePlan,
   rightSidebarOpen,
@@ -282,12 +170,10 @@ function ChatCrawlingStatusBanner({
   )
 }
 
-function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUpdateKeywords, onUpdateDepth, updatingPlan, onDeletePair, deletingPair, onPreviewImage, onCitationClick }: {
-  message: AgentMessage; plan: AgentPlan | null; onExecute: () => void; executing: boolean
-  showPlanCard: boolean
-  onUpdateKeywords: (keywords: string[]) => void
-  onUpdateDepth: (depth: 'quick' | 'standard' | 'deep') => void
-  updatingPlan: boolean
+function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewImage, onCitationClick }: {
+  message: AgentMessage
+  /** Only used to fall back to the plan's keywords when a message carries none. */
+  plan: AgentPlan | null
   onDeletePair: () => Promise<unknown>
   deletingPair: boolean
   onPreviewImage?: (url: string) => void
@@ -372,8 +258,6 @@ function MessageBubble({ message, plan, showPlanCard, onExecute, executing, onUp
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
-        {SHOW_INLINE_PLAN_CARDS && showPlanCard && plan && message.metadata?.plan_id === plan.plan_id
-          ? <PlanCard plan={plan} onExecute={onExecute} executing={executing} onUpdateKeywords={onUpdateKeywords} onUpdateDepth={onUpdateDepth} updatingPlan={updatingPlan} /> : null}
         <div className={`mt-1.5 flex items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
           <p className="text-[9px] text-cyber-text-muted">{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
           <div className="flex items-center opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
@@ -852,25 +736,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
   })
-  const updatePlan = useMutation({
-    mutationFn: ({ planId, updates }: { planId: string; updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' } }) =>
-      agentApi.updatePlan(planId, updates),
-    onMutate: ({ planId, updates }) => {
-      client.setQueryData<AgentThread>(['agent-thread', selectedId], (current) => current?.plan?.plan_id === planId ? {
-        ...current,
-        plan: {
-          ...current.plan,
-          plan: {
-            ...current.plan.plan,
-            ...updates,
-          },
-        },
-      } : current)
-    },
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
-    onError: (error) => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }); toast.error(getError(error)) },
-  })
-
   useEffect(() => {
     setAttachments([])
     setTaskReferences([])
@@ -948,7 +813,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
   }
   const activePlan = threadQuery.data?.plan || null
-  const latestPlanMessageId = useMemo(() => [...(threadQuery.data?.messages || [])].reverse().find((message) => message.metadata?.plan_id === activePlan?.plan_id && (message.kind === 'plan' || message.metadata?.action === 'revise_plan'))?.message_id || null, [threadQuery.data?.messages, activePlan?.plan_id])
   const filteredThreads = useMemo(() => {
     const query = threadSearchQuery.trim().toLocaleLowerCase()
     if (!query) return threadsQuery.data || []
@@ -1220,7 +1084,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} showPlanCard={message.message_id === latestPlanMessageId} executing={execute.isPending} onExecute={() => activePlan && execute.mutate(activePlan.plan_id)} onUpdateKeywords={(keywords) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { keywords } })} onUpdateDepth={(collectionDepth) => activePlan && updatePlan.mutate({ planId: activePlan.plan_id, updates: { collectionDepth } })} updatingPlan={updatePlan.isPending} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} onCitationClick={handleCitationClick} />)}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} onCitationClick={handleCitationClick} />)}
                 {activePlan && activePlan.status !== 'awaiting_confirmation' && (
                   <ChatCrawlingStatusBanner
                     activePlan={activePlan}

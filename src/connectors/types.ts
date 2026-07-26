@@ -14,7 +14,7 @@ export type ConnectorFieldType = 'string' | 'number' | 'boolean' | 'select' | 's
  * - scroll_count: infinite-scroll or cursor-driven; only item count matters, start_page is not honored.
  * - true_pagination: real page-numbered fetch; start_page changes which page is fetched first.
  * - fixed_per_keyword: no depth concept — output count equals input keyword count.
- * - single_target: fetch by explicit id/link; depth only affects whether comments are pulled alongside, not volume.
+ * - single_target: fetch by explicit id/link; depth only affects whether comments (with their replies) are pulled alongside, not volume.
  */
 export type ConnectorBudgetModel = 'scroll_count' | 'true_pagination' | 'fixed_per_keyword' | 'single_target';
 
@@ -95,7 +95,6 @@ export interface ConnectorStartRequest {
   start_page: number;
   collection_depth?: 'quick' | 'standard' | 'deep' | 'custom';
   enable_comments: boolean;
-  enable_sub_comments: boolean;
   cookies: string;
   headless: boolean;
   loop_execution: boolean;

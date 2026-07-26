@@ -1,4 +1,4 @@
-import { app, BrowserView, BrowserWindow, shell, ipcMain } from 'electron';
+import { app, BrowserView, BrowserWindow, dialog, shell, ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
@@ -7,6 +7,36 @@ import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../
 
 app.setName('UniSearch');
 process.title = 'UniSearch';
+
+// Broken pipes to child processes (a crawler worker killed by stop/skip, a
+// closed IPC channel) are expected teardown noise, not a reason to kill the
+// app with Electron's "A JavaScript error occurred in the main process" dialog.
+const IGNORED_UNCAUGHT_CODES = new Set(['EPIPE', 'ERR_IPC_CHANNEL_CLOSED', 'ERR_STREAM_DESTROYED']);
+
+function isIgnorableProcessError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return typeof code === 'string' && IGNORED_UNCAUGHT_CODES.has(code);
+}
+
+// Registering this listener suppresses Electron's built-in crash dialog, so
+// genuine errors are reported and terminated here instead.
+process.on('uncaughtException', (error) => {
+  if (isIgnorableProcessError(error)) {
+    console.warn(`[Electron] Ignored child-process pipe error: ${error.message}`);
+    return;
+  }
+  console.error('[Electron] Uncaught exception:', error);
+  dialog.showErrorBox('UniSearch 发生错误', error?.stack || String(error));
+  app.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  if (isIgnorableProcessError(reason)) {
+    console.warn('[Electron] Ignored child-process pipe rejection');
+    return;
+  }
+  console.error('[Electron] Unhandled rejection:', reason);
+});
 
 // Enable CDP remote debugging on Electron's built-in Chromium
 const cdpDebugPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);

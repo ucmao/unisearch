@@ -67,6 +67,41 @@ test('Document Engine normalizes, cleans and deduplicates RawItems with provenan
   }
 });
 
+test('comments of one note stay separate documents instead of overwriting each other', async () => {
+  const db = database();
+  try {
+    db.prepare(`
+      INSERT INTO crawl_runs
+        (run_id, task_title, task_name, platform, crawler_type, status, started_at)
+      VALUES (?, '', '', 'tieba', 'detail', 'completed', datetime('now'))
+    `).run('run-tieba');
+    const engine = new DocumentEngine(() => db);
+
+    // Every reply of a thread carries the same note_url. Keying documents on that
+    // URL made each one upsert over the last, so a whole thread landed as one row.
+    const comment = (id: string, parent: string, text: string) => buildRawItem('emitTiebaComment', {
+      comment_id: id,
+      parent_comment_id: parent,
+      content: text,
+      user_nickname: `用户-${id}`,
+      note_id: '7001',
+      note_url: 'https://tieba.baidu.com/p/7001',
+    });
+
+    const floor = await engine.ingest(comment('c1', '7001', '一楼'), 'run-tieba');
+    const reply = await engine.ingest(comment('c2', 'c1', '楼中楼'), 'run-tieba');
+    await engine.ingest(comment('c3', '7001', '二楼'), 'run-tieba');
+
+    assert.notEqual(floor.documentId, reply.documentId);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM documents').get() as any).count, 3);
+    assert.equal(engine.listByRun('run-tieba').length, 3);
+    // The note's own URL still identifies the thread itself.
+    assert.equal(floor.sourceUrl, 'https://tieba.baidu.com/p/7001');
+  } finally {
+    db.close();
+  }
+});
+
 test('default Processor registry exposes deterministic ingestion processors', () => {
   assert.deepEqual(
     documentProcessorRegistry.list().map((processor) => processor.id),

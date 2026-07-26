@@ -20,7 +20,13 @@ export const normalizeMetadataProcessor: DocumentProcessor = {
     const title = document.title.replace(/\s+/g, ' ').trim();
     const author = document.author.replace(/\s+/g, ' ').trim();
     const sourceUrl = normalizeUrl(document.sourceUrl);
-    const canonicalKey = sourceUrl || document.canonicalKey;
+    // Re-key only the documents that were identified by their URL in the first
+    // place, so that stripping a fragment still dedups `…/research#section` onto
+    // `…/research`. Comments are deliberately keyed by their own id because they
+    // all share the URL of the note they hang off; re-keying them here collapsed a
+    // whole thread of replies into a single row.
+    const keyedByUrl = Boolean(document.sourceUrl) && document.canonicalKey === document.sourceUrl;
+    const canonicalKey = keyedByUrl && sourceUrl ? sourceUrl : document.canonicalKey;
     const documentId = createHash('sha256').update(canonicalKey).digest('hex');
     return {
       document: {

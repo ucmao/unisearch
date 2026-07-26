@@ -74,7 +74,7 @@ function ConnectorField({
         description={field.description}
         icon={Database}
         checked={Boolean(value)}
-        disabled={disabled || (field.key === 'enable_sub_comments' && !Boolean(values.enable_comments))}
+        disabled={disabled}
         onCheckedChange={(checked) => setConnectorOption(connector.id, field.key, checked)}
       />
     )

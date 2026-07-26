@@ -5,7 +5,7 @@ import { TiebaCrawler } from '../crawler/platforms/tieba';
 import { WeiboCrawler } from '../crawler/platforms/weibo';
 import { XiaoHongShuCrawler } from '../crawler/platforms/xhs';
 import { ZhihuCrawler } from '../crawler/platforms/zhihu';
-import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler } from '../crawler/platforms/search_engine';
+import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler, ToutiaoCrawler } from '../crawler/platforms/search_engine';
 import { MediaParserCrawler } from '../crawler/platforms/media_parser';
 import { ZhaopinCrawler } from '../crawler/platforms/zhaopin';
 import { HeimaoCrawler } from '../crawler/platforms/heimao';
@@ -28,6 +28,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   bing: () => new BingCrawler(),
   so360: () => new So360Crawler(),
   sogou: () => new SogouCrawler(),
+  toutiao: () => new ToutiaoCrawler(),
   media_parser: () => new MediaParserCrawler(),
   zhaopin: () => new ZhaopinCrawler(),
   heimao: () => new HeimaoCrawler(),

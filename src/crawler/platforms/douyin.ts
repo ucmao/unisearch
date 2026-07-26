@@ -579,9 +579,8 @@ export class DouyinCrawler extends AbstractCrawler {
     });
     for (const comment of comments) {
       await store(comment);
-      if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
-        for (const child of comment.reply_comment || []) await store(child, String(comment.cid || ''));
-      }
+      // reply_comment is inlined by the comment list endpoint itself.
+      for (const child of comment.reply_comment || []) await store(child, String(comment.cid || ''));
     }
     return comments.length;
   }

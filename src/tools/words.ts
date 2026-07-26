@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { Segment } from 'segmentit';
 import { activeConfig } from './config';
 
 let _segment: any = null;
