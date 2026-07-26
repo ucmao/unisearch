@@ -66,7 +66,6 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
       (normalized as any)[field.runtimeConfigKey] = value;
     }
   }
-  if (normalized.enable_sub_comments && !normalized.enable_comments) normalized.enable_sub_comments = false;
   return normalized;
 }
 
@@ -78,7 +77,7 @@ const BUDGET_MODEL_NOTES: Record<ConnectorBudgetModel, string> = {
   scroll_count: '采集量由最大条数控制（页面自动滚动或翻页直到达标），指定起始页无效',
   true_pagination: '真实分页采集，采集量由最大条数控制，可指定起始页跳过前若干页',
   fixed_per_keyword: '一个关键词固定产出一条结果，没有翻页与详情页概念，采集深度对其无影响',
-  single_target: '按指定 ID 或链接定点采集，采集深度只影响是否连带采集评论，不影响条数',
+  single_target: '按指定 ID 或链接定点采集，采集深度只影响是否连带采集评论（含回复），不影响条数',
 };
 
 export function connectorCatalogForAI(): string {

@@ -26,11 +26,15 @@ function inferAssetKind(url: string): Asset['kind'] {
 
 function rawItemToDocument(item: RawItem, runId?: string): Document {
   const now = new Date().toISOString();
-  const canonicalKey = item.sourceUrl || (
-    item.sourceItemId
-      ? `${item.source}:${item.kind}:${item.sourceItemId}`
-      : `${item.source}:raw:${item.id}`
-  );
+  // A sourceUrl identifies a page, not an item. Comments all carry the URL of the
+  // note they hang off, so keying them on it made every reply of a thread collide
+  // on the ON CONFLICT(canonical_key) upsert and overwrite the previous one — a
+  // 30-reply thread persisted as exactly one document. Only kinds whose items each
+  // own a URL may be keyed by it.
+  const itemKey = item.sourceItemId
+    ? `${item.source}:${item.kind}:${item.sourceItemId}`
+    : `${item.source}:raw:${item.id}`;
+  const canonicalKey = item.kind === 'comment' ? itemKey : (item.sourceUrl || itemKey);
   const documentId = hash(canonicalKey);
   const markdown = item.hints.text || item.hints.title || '';
   const assets = (item.hints.mediaUrls || []).map((url) => ({

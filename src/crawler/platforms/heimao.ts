@@ -354,7 +354,7 @@ export class HeimaoCrawler extends AbstractCrawler {
             title: titleEl ? (titleEl as HTMLElement).innerText.trim() : '黑猫投诉单',
             desc: descEl ? (descEl as HTMLElement).innerText.trim() : '',
             merchant: merchantEl ? (merchantEl as HTMLElement).innerText.trim() : '涉诉商家',
-            status: statusEl ? (statusEl.innerText || statusEl.textContent || '').trim() : '',
+            status: statusEl ? ((statusEl as HTMLElement).innerText || statusEl.textContent || '').trim() : '',
             time: timeEl ? (timeEl as HTMLElement).innerText.trim() : '',
           };
         });

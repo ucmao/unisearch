@@ -13,7 +13,6 @@ export const DEPTH_LABELS: Record<DepthLevel, string> = {
 export interface DepthPreset {
   maxItems?: number;
   collectComments?: boolean;
-  collectSubComments?: boolean;
 }
 
 /**
@@ -25,26 +24,26 @@ export interface DepthPreset {
  */
 const COMMENT_PRESETS: Record<ConnectorBudgetModel, Record<DepthLevel, DepthPreset>> = {
   scroll_count: {
-    quick: { collectComments: false, collectSubComments: false },
-    standard: { collectComments: true, collectSubComments: false },
-    deep: { collectComments: true, collectSubComments: true },
+    quick: { collectComments: false },
+    standard: { collectComments: true },
+    deep: { collectComments: true },
   },
   true_pagination: {
-    quick: { collectComments: false, collectSubComments: false },
-    standard: { collectComments: true, collectSubComments: false },
-    deep: { collectComments: true, collectSubComments: true },
+    quick: { collectComments: false },
+    standard: { collectComments: true },
+    deep: { collectComments: true },
   },
   // One keyword always yields one answer, and there is nothing to comment on.
   fixed_per_keyword: {
-    quick: { collectComments: false, collectSubComments: false },
-    standard: { collectComments: false, collectSubComments: false },
-    deep: { collectComments: false, collectSubComments: false },
+    quick: { collectComments: false },
+    standard: { collectComments: false },
+    deep: { collectComments: false },
   },
   // Fetches an explicit id/link; depth only toggles whether comments ride along.
   single_target: {
-    quick: { collectComments: false, collectSubComments: false },
-    standard: { collectComments: true, collectSubComments: false },
-    deep: { collectComments: true, collectSubComments: true },
+    quick: { collectComments: false },
+    standard: { collectComments: true },
+    deep: { collectComments: true },
   },
 };
 
@@ -61,7 +60,7 @@ export function depthAffectsItemCount(capability: ConnectorCapability): boolean 
 
 /**
  * Comments follow depth only where the capability actually accepts them. Search
- * engines and URL-resolve declare no comment fields, so promising "含一级评论"
+ * engines and URL-resolve declare no comment fields, so promising "含评论"
  * there would be describing a toggle the connector never reads.
  */
 export function depthAffectsComments(capability: ConnectorCapability): boolean {
@@ -108,15 +107,14 @@ export function resolveDepthPreset(
   return preset;
 }
 
-/** Human-readable scope for one capability, e.g. "每关键词约 50 条，含一级评论". */
+/** Human-readable scope for one capability, e.g. "每关键词约 50 条，含评论及可见回复". */
 export function describeDepth(capability: ConnectorCapability, depth: DepthLevel | 'custom'): string {
   if (depth === 'custom') return '自定义';
   const preset = resolveDepthPreset(capability, depth);
   const parts: string[] = [];
   if (preset.maxItems !== undefined) parts.push(`每关键词约 ${preset.maxItems} 条`);
   if (depthAffectsComments(capability)) {
-    parts.push(preset.collectSubComments ? '含一级与二级评论'
-      : preset.collectComments ? '含一级评论' : '不采评论');
+    parts.push(preset.collectComments ? '含评论及可见回复' : '不采评论');
   }
   return parts.join('，') || '该能力不受采集深度影响';
 }
@@ -142,9 +140,8 @@ export function describeDepthForCapabilities(
     parts.push(low === high ? `每关键词约 ${low} 条` : `每关键词约 ${low}~${high} 条`);
   }
   if (relevant.some(depthAffectsComments)) {
-    const withSub = presets.some((preset) => preset.collectSubComments);
     const withComments = presets.some((preset) => preset.collectComments);
-    parts.push(withSub ? '含一级与二级评论' : withComments ? '含一级评论' : '不采评论');
+    parts.push(withComments ? '含评论及可见回复' : '不采评论');
   }
   return parts.join('，');
 }
@@ -165,13 +162,13 @@ export function depthPromptGuide(): string {
   };
   const lines = DEPTH_LEVELS.map((level) => {
     const comments = COMMENT_PRESETS.scroll_count[level];
-    const commentText = comments.collectSubComments ? '并在有评论的平台采集一级与二级评论'
-      : comments.collectComments ? '并在有评论的平台采集一级评论' : '且不采集评论';
+    const commentText = comments.collectComments
+      ? '并在有评论的平台采集评论及可见回复' : '且不采集评论';
     return `${level}=${DEPTH_LABELS[level]}：${SCALE[level]}，${commentText}`;
   });
   return [
     '采集深度只输出 collectionDepth 一个字段，具体条数、评论开关、起始页一律由后端按各连接器自身的上限推导，不要自行输出条数或页数。',
     ...lines.map((line) => `- ${line}`),
-    '判断规则：用户说“随便看看/先摸个底/快一点”用 quick；未特别说明用 standard；说“深挖/尽量多/全面/要看评论回复”用 deep。用户如果明确给出条数或起始页，写入 connectorOptions[平台代码] 的 max_items / start_page，不要借此改动 collectionDepth。',
+    '判断规则：用户说“随便看看/先摸个底/快一点”用 quick；未特别说明用 standard；说“深挖/尽量多/全面”用 deep。评论一旦采集就连带回复，用户提“要看评论回复”不构成选 deep 的理由。用户如果明确给出条数或起始页，写入 connectorOptions[平台代码] 的 max_items / start_page，不要借此改动 collectionDepth。',
   ].join('\n');
 }

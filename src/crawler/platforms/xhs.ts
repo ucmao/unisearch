@@ -1,4 +1,4 @@
-import { chromium, Playwright, BrowserContext, Page, asyncPlaywright } from 'playwright';
+import { BrowserContext, Page } from 'playwright';
 import {
   AbstractCrawler,
   connectToElectronChromium,
@@ -373,6 +373,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     const maxComments = activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES;
     let cursor = '';
     let count = 0;
+    let emptyFirstPage = false;
 
     try {
       while (count < maxComments) {
@@ -389,7 +390,10 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         });
 
         const comments = payload?.data?.comments || [];
-        if (comments.length === 0) break;
+        if (comments.length === 0) {
+          emptyFirstPage = cursor === '';
+          break;
+        }
         console.log(`[XHS] Crawled ${comments.length} comments (total ${count + comments.length}).`);
 
         for (const commentItem of comments) {
@@ -411,9 +415,10 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           await connectorOutput.emitXhsComment(dbComment);
           count++;
 
-          // Sub comments crawling
-          if (activeConfig.ENABLE_GET_SUB_COMMENTS && dbComment.sub_comment_count > 0) {
-            await this.crawlSubComments(noteId, xsecToken, dbComment.comment_id);
+          if (dbComment.sub_comment_count > 0) {
+            count += await this.storeSubComments(
+              noteId, xsecToken, commentItem, maxComments - count,
+            );
           }
         }
 
@@ -422,45 +427,101 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         if (!cursor) break;
         await this.humanDelay(this.page!);
       }
+      // Xiaohongshu answers an unauthenticated session with an empty comment list
+      // and HTTP 461 rather than an error, so "0 comments" would otherwise look
+      // like a note nobody replied to. Say which one it actually is.
+      if (emptyFirstPage) {
+        console.warn(`[XHS] Note ${noteId} returned no comments on the first page — `
+          + '若该笔记确有评论，通常是当前会话未登录或触发风控，小红书对这类请求返回空列表而非报错。');
+      }
     } catch (err: any) {
       console.error(`[XHS] Error crawling comments for note ${noteId}:`, err.message);
     }
   }
 
-  private async crawlSubComments(noteId: string, xsecToken: string, rootCommentId: string): Promise<void> {
-    try {
-      const query = new URLSearchParams({
-        note_id: noteId,
-        root_comment_id: rootCommentId,
-        num: '10',
-        cursor: '',
-        image_formats: 'jpg,webp,avif',
-        xsec_token: xsecToken,
-      });
-      const payload = await this.signer!.request<any>({
-        host: this.apiHost,
-        path: `/api/sns/web/v2/comment/sub/page?${query.toString()}`,
-      });
-      const subComments = payload?.data?.comments || [];
+  /**
+   * Store a root comment's replies, and return how many were stored.
+   *
+   * The comment/page response already carries the first reply of every root
+   * comment inline (`sub_comments`), so that one is free. `/comment/sub/page` is
+   * designed to continue from there — it takes `sub_comment_cursor` from the root
+   * — which is why it used to be called with an empty cursor and a hard `num=10`:
+   * a root with 29 replies could never yield more than 10, and the same reply was
+   * fetched twice. Now the inline one is kept and the cursor is followed until the
+   * platform says there is no more or the note's comment budget is used up.
+   */
+  private async storeSubComments(
+    noteId: string,
+    xsecToken: string,
+    rootComment: any,
+    budget: number,
+  ): Promise<number> {
+    const rootCommentId = String(rootComment.id || '');
+    if (!rootCommentId || budget <= 0) return 0;
 
-      for (const sub of subComments) {
-        const dbSub = {
-          comment_id: sub.id,
-          create_time: sub.create_time,
+    let stored = 0;
+    const emit = async (sub: any) => {
+      await connectorOutput.emitXhsComment({
+        comment_id: sub.id,
+        create_time: sub.create_time,
+        note_id: noteId,
+        content: sub.content,
+        creator_hash: sub.user_info?.user_id || '',
+        nickname: sub.user_info?.nickname || '',
+        sub_comment_count: 0,
+        pictures: sub.pictures?.map((p: any) => p.url || '').join(',') || '',
+        parent_comment_id: rootCommentId,
+        like_count: sub.like_count || 0,
+      });
+      stored++;
+    };
+
+    const seen = new Set<string>();
+    for (const sub of rootComment.sub_comments || []) {
+      if (stored >= budget) return stored;
+      if (sub?.id) seen.add(String(sub.id));
+      await emit(sub);
+    }
+
+    // Nothing left behind the inline reply — no request needed at all.
+    if (!rootComment.sub_comment_has_more) return stored;
+
+    let cursor = String(rootComment.sub_comment_cursor || '');
+    try {
+      while (stored < budget) {
+        const query = new URLSearchParams({
           note_id: noteId,
-          content: sub.content,
-          creator_hash: sub.user_info?.user_id || '',
-          nickname: sub.user_info?.nickname || '',
-          sub_comment_count: 0,
-          pictures: sub.pictures?.map((p: any) => p.url || '').join(',') || '',
-          parent_comment_id: rootCommentId,
-          like_count: sub.like_count || 0,
-        };
-        await connectorOutput.emitXhsComment(dbSub);
+          root_comment_id: rootCommentId,
+          num: String(Math.min(10, budget - stored)),
+          cursor,
+          image_formats: 'jpg,webp,avif',
+          xsec_token: xsecToken,
+        });
+        const payload = await this.signer!.request<any>({
+          host: this.apiHost,
+          path: `/api/sns/web/v2/comment/sub/page?${query.toString()}`,
+        });
+        const subComments = payload?.data?.comments || [];
+        if (!subComments.length) break;
+
+        for (const sub of subComments) {
+          if (stored >= budget) break;
+          const id = String(sub?.id || '');
+          if (id && seen.has(id)) continue;
+          if (id) seen.add(id);
+          await emit(sub);
+        }
+
+        if (!payload?.data?.has_more) break;
+        const next = String(payload?.data?.cursor || '');
+        if (!next || next === cursor) break;
+        cursor = next;
+        await this.humanDelay(this.page!);
       }
     } catch (err: any) {
-      console.error(`[XHS] Error crawling sub comments:`, err.message);
+      console.error(`[XHS] Error crawling sub comments of ${rootCommentId}:`, err.message);
     }
+    return stored;
   }
 
   public async getSpecifiedNotes(): Promise<void> {

@@ -13,6 +13,14 @@ function extractUrls(input: string): string[] {
 
 export class MediaParserCrawler extends AbstractCrawler {
   public async start(): Promise<void> {
+    await this.search();
+  }
+
+  /**
+   * This connector only resolves the URLs it is handed, so there is no keyword
+   * mode to branch into — `search` is simply the one pass it performs.
+   */
+  public async search(): Promise<void> {
     const rawTargets = activeConfig.SPECIFIED_IDS || activeConfig.KEYWORDS || '';
     const targets = extractUrls(rawTargets);
 

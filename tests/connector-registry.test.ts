@@ -16,13 +16,12 @@ const baseRequest: ConnectorStartRequest = {
   keywords: '科莱特',
   start_page: 1,
   enable_comments: false,
-  enable_sub_comments: false,
   cookies: '',
   headless: false,
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 21);
+assert.equal(listConnectorManifests().length, 22);
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -89,5 +88,6 @@ assert.match(catalog, /yuanbao=腾讯元宝/);
 assert.match(catalog, /nami=纳米AI/);
 assert.match(catalog, /zhaopin=智联招聘/);
 assert.match(catalog, /heimao=黑猫投诉/);
+assert.match(catalog, /toutiao=头条搜索/);
 
 console.log('connector registry tests passed');

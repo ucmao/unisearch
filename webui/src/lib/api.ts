@@ -41,7 +41,6 @@ export interface CrawlerConfig {
   creator_ids?: string
   start_page: number
   enable_comments: boolean
-  enable_sub_comments: boolean
   cookies: string
   headless: boolean
   loop_execution: boolean
@@ -475,13 +474,6 @@ export const dataApi = {
 export const configApi = {
   getPlatforms: () => api.get<{ platforms: Platform[] }>('/config/platforms'),
   getConnectors: () => api.get<{ connectors: ConnectorManifest[] }>('/config/connectors'),
-  // Depth budgets live in the connector manifests; the UI asks what they resolve
-  // to instead of recomputing them and drifting out of sync.
-  getDepthOptions: (platforms: string[], capability?: string) =>
-    api.get<{
-      applicable: boolean
-      options: Array<{ value: 'quick' | 'standard' | 'deep'; label: string; description: string }>
-    }>('/config/depth-options', { params: { platforms: platforms.join(','), capability } }),
   getOptions: () =>
     api.get<{
       login_types: ConfigOption[]

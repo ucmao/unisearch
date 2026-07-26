@@ -1,8 +1,8 @@
-import { BrowserType, BrowserContext, Page, Playwright } from 'playwright';
+import { BrowserType, BrowserContext, Page } from 'playwright';
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { BrowserLauncher } from '../../tools/browser';
+import { BrowserLauncher, PlaywrightModule } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
 import { CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
 import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
@@ -36,7 +36,7 @@ async function configureCrawlerPage(browserContext: BrowserContext, page: Page):
   return page;
 }
 
-export async function connectToElectronChromium(playwright: Playwright): Promise<BrowserContext> {
+export async function connectToElectronChromium(playwright: PlaywrightModule): Promise<BrowserContext> {
   const cdpPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);
   const cdpUrl = `http://127.0.0.1:${cdpPort}`;
   console.log(`[BaseCrawler] Connecting directly to Electron built-in Chromium via CDP (${cdpUrl})...`);
@@ -193,7 +193,7 @@ export abstract class AbstractCrawler {
 
 
   public async launchBrowserWithCDP(
-    playwright: Playwright,
+    playwright: PlaywrightModule,
     playwrightProxy: any,
     userAgent: string,
     headless = true

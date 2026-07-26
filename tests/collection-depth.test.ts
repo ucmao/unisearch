@@ -57,14 +57,12 @@ test('depth is reported as not applicable where it changes nothing', () => {
   assert.equal(depthIsMeaningful(capability('xhs')), true);
 });
 
-test('comment toggles still escalate with depth', () => {
+test('comments switch on at 标准 and stay on, replies included either way', () => {
   const target = capability('xhs');
   assert.deepEqual(
-    (['quick', 'standard', 'deep'] as const).map((depth) => {
-      const preset = resolveDepthPreset(target, depth);
-      return [preset.collectComments, preset.collectSubComments];
-    }),
-    [[false, false], [true, false], [true, true]],
+    (['quick', 'standard', 'deep'] as const)
+      .map((depth) => resolveDepthPreset(target, depth).collectComments),
+    [false, true, true],
   );
 });
 
@@ -77,7 +75,7 @@ test('plan scope summary shows a range for mixed platforms', () => {
   assert.match(mixed, /每关键词约 \d+~\d+ 条/);
   const single = describeDepthForCapabilities([capability('xhs')], 'standard');
   assert.match(single, /每关键词约 \d+ 条/);
-  assert.match(single, /含一级评论/);
+  assert.match(single, /含评论及可见回复/);
   // AI-only plans must not claim an item budget they do not honour.
   assert.equal(describeDepthForCapabilities([capability('deepseek')], 'deep'), '');
 });

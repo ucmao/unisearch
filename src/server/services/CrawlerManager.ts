@@ -175,9 +175,21 @@ export class CrawlerTask {
         throw new Error('Worker subprocess stdin is unavailable');
       }
 
+      // Killing the worker (stop/skip) tears down these pipes; without an error
+      // listener the resulting EPIPE bubbles up as an uncaught exception and
+      // crashes the Electron main process.
+      this.process.stdin.on('error', () => {});
+      this.process.stdout?.on('error', () => {});
+      this.process.stderr?.on('error', () => {});
+
       // Pipe configuration to worker stdin
-      this.process.stdin.write(JSON.stringify(this.config) + '\n');
-      this.process.stdin.end();
+      try {
+        this.process.stdin.write(JSON.stringify(this.config) + '\n');
+        this.process.stdin.end();
+      } catch {
+        // Worker died before it could read its configuration; the exit handler
+        // below reports the failure.
+      }
 
       // Read stdout line-by-line
       this.process.stdout?.on('data', (data: Buffer) => {
@@ -459,9 +471,16 @@ export class CrawlerManager extends EventEmitter {
       run_id: task.currentRunId || undefined,
       thread_id: task.config.thread_id || undefined,
     });
-    if (task.process.send) {
-      task.process.send({ type: 'SKIP_CONNECTOR' });
-    } else {
+    let skipSent = false;
+    if (task.process.send && task.process.connected) {
+      try {
+        task.process.send({ type: 'SKIP_CONNECTOR' });
+        skipSent = true;
+      } catch {
+        // IPC channel already closed (worker exiting) — fall back to stopping.
+      }
+    }
+    if (!skipSent) {
       await task.stop(this);
     }
     this.emit('skipped', { platform });

@@ -20,7 +20,7 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
-    百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou',
+    百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou', 头条: 'toutiao', 头条搜索: 'toutiao',
     DeepSeek: 'deepseek', Kimi: 'kimi', 'Kimi AI': 'kimi', 豆包: 'doubao', Doubao: 'doubao',
     千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',

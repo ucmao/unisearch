@@ -15,6 +15,7 @@ import {
   Zap,
   Globe,
   Briefcase,
+  Newspaper,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ const ICON_MAP: { [key: string]: any } = {
   'search': Search,
   'globe': Globe,
   'compass': Globe,
+  'newspaper': Newspaper,
   'briefcase': Briefcase,
 }
 
@@ -54,6 +56,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   bing: '必应',
   so360: '360搜索',
   sogou: '搜狗',
+  toutiao: '头条搜索',
   media_parser: '综合解析',
   zhaopin: '智联招聘',
   heimao: '黑猫投诉',

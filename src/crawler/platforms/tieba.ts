@@ -9,6 +9,49 @@ import { connectorEventEmitter } from '../../core/contracts/connector-event-emit
 // exists so a query that keeps rendering identical pages cannot loop forever.
 const TIEBA_MAX_SEARCH_PAGES = 30;
 
+/** A floor (楼层) of a thread — what Tieba calls a post and we store as a comment. */
+interface ThreadPost {
+  id: string;
+  parentId: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  time: string;
+  subCount: number;
+  /** Replies the thread payload already carried; the rest need `/p/comment`. */
+  subComments: SubComment[];
+}
+
+interface ThreadPage {
+  title: string;
+  forum: string;
+  totalPages: number;
+  /** Thread-level author, which is the only reliable way to spot the opening post. */
+  authorId: string;
+  authorName: string;
+  createTime: string;
+  posts: ThreadPost[];
+}
+
+/** A 楼中楼 reply hanging off one floor. */
+interface SubComment {
+  id: string;
+  text: string;
+  authorId: string;
+  authorName: string;
+  time: string;
+}
+
+/** The JSON API returns unix seconds; the stored shape has always been a local string. */
+function formatTiebaTime(seconds: unknown): string {
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value <= 0) return '';
+  const date = new Date(value * 1000);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export class TiebaCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
@@ -241,54 +284,240 @@ export class TiebaCrawler extends AbstractCrawler {
     }
   }
 
+  /**
+   * Turn one `/c/f/pb/page_pc` payload into the shape the collector works with.
+   * Kept pure so the mapping can be tested against a captured payload.
+   */
+  protected normalizeThreadPayload(payload: any): ThreadPage {
+    const names = new Map<string, string>();
+    for (const user of payload?.user_list || []) {
+      names.set(String(user.id || ''), String(user.name_show || user.name || ''));
+    }
+    const threadId = String(payload?.thread?.id || '');
+    const posts: ThreadPost[] = (payload?.post_list || []).map((post: any) => {
+      const authorId = String(post.author_id || '');
+      // `content` is a rich-text array; type 0 is the plain-text run, the rest are
+      // emoticons, images and links that carry no text of their own.
+      const text = (post.content || [])
+        .filter((part: any) => part?.type === 0 && part?.text)
+        .map((part: any) => part.text)
+        .join('')
+        .trim();
+      const inline = (post.sub_post_list?.sub_post_list || []).map((sub: any) => ({
+        id: String(sub.id || ''),
+        text: (sub.content || []).filter((part: any) => part?.type === 0 && part?.text)
+          .map((part: any) => part.text).join('').trim(),
+        authorId: String(sub.author_id || ''),
+        authorName: names.get(String(sub.author_id || '')) || '',
+        time: formatTiebaTime(sub.time),
+      })).filter((sub: SubComment) => sub.id && sub.text);
+      return {
+        id: String(post.id || ''),
+        parentId: threadId,
+        text,
+        authorId,
+        authorName: names.get(authorId) || '',
+        time: formatTiebaTime(post.time),
+        subCount: Number(post.sub_post_number || 0),
+        subComments: inline,
+      };
+    }).filter((post: ThreadPost) => post.text);
+    const author = payload?.thread?.author || {};
+    return {
+      title: String(payload?.thread?.title || ''),
+      forum: String(payload?.display_forum?.name || payload?.forum?.name || ''),
+      totalPages: Number(payload?.page?.total_page || 1),
+      authorId: String(author.id || ''),
+      authorName: String(author.name_show || author.name || ''),
+      createTime: formatTiebaTime(payload?.thread?.create_time),
+      posts,
+    };
+  }
+
+  /**
+   * Collect a thread's floors.
+   *
+   * Tieba's PC site is a Vue app now: there is no `.l_post` markup and `?pn=` does
+   * nothing — floors arrive from `POST /c/f/pb/page_pc` and are rendered into a
+   * virtual list. That endpoint rejects hand-made calls (`error_code 110001`)
+   * because it is signed, so rather than reimplement the signature we let the page
+   * make its own requests and read the replies off the wire, scrolling the list to
+   * ask for the next page.
+   */
+  protected async collectThreadPages(noteUrl: string, maxFloors: number): Promise<ThreadPage[]> {
+    const payloads: any[] = [];
+    const capture = async (response: any) => {
+      if (!response.url().includes('/c/f/pb/page_pc')) return;
+      try { payloads.push(await response.json()); } catch { /* non-JSON error page */ }
+    };
+    this.page!.on('response', capture);
+    try {
+      await this.page!.goto(noteUrl, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(2500);
+
+      const floors = () => payloads.reduce((sum, item) => sum + (item?.post_list?.length || 0), 0);
+      let idleRounds = 0;
+      // 20 scrolls at ~15 floors a page is far more than any comment budget needs;
+      // it only bounds a thread that keeps answering without advancing.
+      for (let round = 0; round < 20 && floors() < maxFloors && idleRounds < 3; round++) {
+        const before = payloads.length;
+        const scrolled = await this.page!.evaluate(() => {
+          const box = document.querySelector('.pc-pb-box');
+          if (!box) return false;
+          box.scrollTop = box.scrollHeight;
+          box.dispatchEvent(new Event('scroll', { bubbles: true }));
+          return true;
+        });
+        if (!scrolled) break;
+        await this.page!.waitForTimeout(1200);
+        idleRounds = payloads.length > before ? 0 : idleRounds + 1;
+        const last = payloads[payloads.length - 1];
+        if (last && last.page && !last.page.has_more) break;
+      }
+    } catch (error: any) {
+      console.error(`[TIEBA] Failed to read thread pages for ${noteUrl}: ${error.message}`);
+    } finally {
+      this.page!.off('response', capture);
+    }
+    return payloads
+      .filter((payload) => payload?.error_code === 0 || payload?.post_list)
+      .map((payload) => this.normalizeThreadPayload(payload));
+  }
+
+  /**
+   * Fetch a floor's 楼中楼 replies from within the page, so the request carries the
+   * browser's own session. The endpoint returns an HTML fragment, not JSON.
+   */
+  protected async fetchSubComments(threadId: string, postId: string, limit: number): Promise<SubComment[]> {
+    if (limit <= 0) return [];
+    try {
+      return await this.page!.evaluate(async ({ tid, pid, max }) => {
+        const collected: any[] = [];
+        for (let pn = 1; pn <= 10 && collected.length < max; pn++) {
+          const url = `https://tieba.baidu.com/p/comment?tid=${tid}&pid=${pid}&pn=${pn}`;
+          const response = await fetch(url, { credentials: 'include' });
+          if (!response.ok) break;
+          const fragment = new DOMParser().parseFromString(await response.text(), 'text/html');
+          const items = Array.from(fragment.querySelectorAll('.lzl_single_post'));
+          if (!items.length) break;
+          for (const item of items) {
+            let field: any = {};
+            try { field = JSON.parse(item.getAttribute('data-field') || '{}'); } catch {}
+            const text = item.querySelector('.lzl_content_main')?.textContent?.trim() || '';
+            if (!text) continue;
+            collected.push({
+              id: String(field.spid || ''),
+              text,
+              // The fragment carries no numeric user id, only the portrait token.
+              authorId: String(field.portrait || ''),
+              authorName: String(field.showname || field.user_name || item.querySelector('.at')?.textContent?.trim() || ''),
+              time: item.querySelector('.lzl_time')?.textContent?.trim() || '',
+            });
+            if (collected.length >= max) break;
+          }
+          if (items.length < 10) break;
+        }
+        return collected.filter((comment) => comment.id);
+      }, { tid: threadId, pid: postId, max: limit });
+    } catch (error: any) {
+      console.error(`[TIEBA] Failed to fetch sub-comments for post ${postId}: ${error.message}`);
+      return [];
+    }
+  }
+
   private async getThreadDetail(target: string, sourceKeyword: string): Promise<any | null> {
     const resolved = await resolveRedirect(this.page!, target);
     const noteId = firstMatch(resolved, [/\/p\/(\d+)/i, /[?&]tid=(\d+)/i, /^\s*(\d+)\s*$/]);
     const noteUrl = `https://tieba.baidu.com/p/${encodeURIComponent(noteId)}`;
+    const maxComments = Math.max(0, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES);
     try {
-      if (!this.page!.url().includes(`/p/${noteId}`)) await this.page!.goto(noteUrl, { waitUntil: 'domcontentloaded' });
-      await this.page!.waitForTimeout(1200);
-      const detail = await this.page!.evaluate(() => {
-        const title = document.querySelector('.core_title_txt, h1')?.textContent?.trim() || document.title.replace(/_百度贴吧$/, '');
-        const forum = document.querySelector('.card_title_fname, a.card_title_fname')?.textContent?.trim() || '';
-        const posts = Array.from(document.querySelectorAll('.l_post')).map((post, index) => {
-          let field: any = {};
-          try { field = JSON.parse(post.getAttribute('data-field') || '{}'); } catch {}
-          const author = field.author || {};
-          const content = field.content || {};
-          return {
-            id: String(content.post_id || post.getAttribute('data-pid') || `${Date.now()}-${index}`),
-            parentId: String(content.post_id === content.thread_id ? '' : content.thread_id || ''),
-            text: post.querySelector('.d_post_content')?.textContent?.trim() || '',
-            authorId: String(author.user_id || author.portrait || ''),
-            authorName: author.user_name || post.querySelector('.p_author_name')?.textContent?.trim() || '',
-            time: content.date || post.querySelector('.tail-info:last-child')?.textContent?.trim() || '',
-            subCount: Number(content.comment_num || 0),
-          };
-        }).filter((post) => post.text);
-        return { title, forum, posts };
-      });
-      const first = detail.posts[0] || {};
+      const pages = await this.collectThreadPages(noteUrl, maxComments + 1);
+      if (!pages.length) {
+        console.warn(`[TIEBA] Thread ${noteId} returned no page payload — `
+          + '贴吧 PC 端接口或页面结构可能又变了，或当前会话被风控拦截。');
+        return null;
+      }
+      const firstPage = pages[0];
+      const floors: ThreadPost[] = [];
+      const seenIds = new Set<string>();
+      let originalPost: ThreadPost | undefined;
+
+      // The virtual list re-renders pages as it scrolls, so the same floor can show
+      // up in more than one payload; ids decide what is actually new.
+      for (const page of pages) {
+        for (const post of page.posts) {
+          if (seenIds.has(post.id)) continue;
+          seenIds.add(post.id);
+          // `thread.post_id` is the first post of whichever page the payload covers,
+          // not the opening post, so the thread-level author is what identifies it.
+          const isOpening = !originalPost && !floors.length
+            && (!firstPage.authorId || post.authorId === firstPage.authorId);
+          if (isOpening) originalPost = post;
+          else floors.push(post);
+        }
+      }
+
+      const forum = pages.find((page) => page.forum)?.forum || '';
       const record = {
-        note_id: noteId, title: detail.title || first.text?.slice(0, 100) || '', desc: first.text || '',
-        note_url: noteUrl, publish_time: first.time || '', creator_hash: first.authorId || '',
-        user_nickname: first.authorName || '', tieba_name: detail.forum || '',
-        tieba_link: detail.forum ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(detail.forum.replace(/吧$/, ''))}` : '',
-        total_replay_num: Math.max(0, detail.posts.length - 1), total_replay_page: 1, source_keyword: sourceKeyword,
+        note_id: noteId, title: firstPage.title || originalPost?.text?.slice(0, 100) || '',
+        desc: originalPost?.text || '', note_url: noteUrl,
+        publish_time: originalPost?.time || firstPage.createTime || '',
+        creator_hash: originalPost?.authorId || firstPage.authorId || '',
+        user_nickname: originalPost?.authorName || firstPage.authorName || '',
+        tieba_name: forum,
+        tieba_link: forum ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(forum.replace(/吧$/, ''))}` : '',
+        total_replay_num: floors.length, total_replay_page: firstPage.totalPages,
+        source_keyword: sourceKeyword,
       };
       await connectorOutput.emitTiebaNote(record);
+
+      let stored = 0;
+      let subTotal = 0;
       if (activeConfig.ENABLE_GET_COMMENTS) {
-        for (const post of detail.posts.slice(1, activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES + 1)) {
+        for (const post of floors) {
+          if (stored >= maxComments) break;
           await connectorOutput.emitTiebaComment({
             comment_id: post.id, parent_comment_id: post.parentId, content: post.text,
             creator_hash: post.authorId, user_nickname: post.authorName,
-            tieba_name: detail.forum || '', tieba_link: record.tieba_link,
+            tieba_name: forum, tieba_link: record.tieba_link,
             publish_time: post.time, sub_comment_count: post.subCount,
             note_id: noteId, note_url: noteUrl,
           });
+          stored++;
+          if (post.subCount <= 0) continue;
+
+          // The thread payload inlines up to four replies per floor, so those are
+          // free. Only what is left over costs a request, and floors share one
+          // budget with their 楼中楼 so a busy floor cannot starve the ones after it.
+          const emitted = new Set<string>();
+          const replies = [...post.subComments];
+          if (post.subCount > replies.length) {
+            const remaining = maxComments - stored - replies.length;
+            replies.push(...await this.fetchSubComments(noteId, post.id, remaining));
+          }
+
+          for (const sub of replies) {
+            // The fragment can hand back a full page of 10 regardless of what we
+            // asked for, so the budget is enforced here rather than trusted upstream.
+            if (stored >= maxComments) break;
+            if (emitted.has(sub.id)) continue;
+            emitted.add(sub.id);
+            await connectorOutput.emitTiebaComment({
+              // parent_comment_id points at the floor, so the reply tree stays reconstructable.
+              comment_id: sub.id, parent_comment_id: post.id, content: sub.text,
+              creator_hash: sub.authorId, user_nickname: sub.authorName,
+              tieba_name: forum, tieba_link: record.tieba_link,
+              publish_time: sub.time, sub_comment_count: 0,
+              note_id: noteId, note_url: noteUrl,
+            });
+            stored++;
+            subTotal++;
+          }
         }
       }
-      console.log(`[TIEBA] Stored thread ${noteId} with ${Math.max(0, detail.posts.length - 1)} visible replies`);
+      console.log(`[TIEBA] Stored thread ${noteId}: ${stored - subTotal} replies`
+        + `${subTotal ? ` + ${subTotal} sub-replies` : ''} from ${pages.length} payload(s)`
+        + ` of ${firstPage.totalPages} page(s)`);
       return record;
     } catch (error: any) {
       console.error(`[TIEBA] Failed to collect thread ${target}: ${error.message}`);

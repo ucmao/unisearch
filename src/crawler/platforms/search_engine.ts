@@ -422,7 +422,299 @@ export class So360Crawler extends AbstractCrawler {
   }
 }
 
-// 4. Sogou Search Crawler (SystemHttpClient + Multi-Page Pagination + Mobile Fallback)
+// 4. Toutiao Search Crawler (Hybrid: HTTP First + Playwright Fallback)
+export interface ToutiaoSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  publisher: string;
+  publish_time: string;
+  images: string[];
+}
+
+/** Toutiao paginates through `page_num` (0-based) and requires the `search_id` minted by page 0. */
+interface ToutiaoPageResult {
+  items: ToutiaoSearchResultItem[];
+  searchId: string;
+}
+
+const TOUTIAO_RESULTS_PER_PAGE = 10;
+
+function toutiaoPageUrl(keyword: string, pageNum: number, searchId: string): string {
+  const base = `https://so.toutiao.com/search?keyword=${encodeURIComponent(keyword)}&pd=synthesis&dvpf=pc`;
+  if (pageNum <= 0) return base;
+  return `${base}&source=pagination&action_type=pagination&page_num=${pageNum}` +
+    `&search_id=${encodeURIComponent(searchId)}&from=search_tab&cur_tab_title=search_tab`;
+}
+
+function firstHttpUrl(...candidates: any[]): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && /^https?:\/\//.test(candidate)) return candidate;
+  }
+  return '';
+}
+
+/**
+ * Toutiao renders each result card twice: once as SSR markup, and once as a
+ * `<script type="application/json">` payload used to hydrate it. The markup is
+ * emotion-generated and frequently degrades to an empty `undefined-default`
+ * placeholder, so the JSON payload is the only reliable source. Web results
+ * (external sites) nest their fields under `display`, while Toutiao-hosted
+ * articles and 微头条 expose them at the top level — hence the field fallbacks.
+ */
+function parseToutiaoPage(html: string): ToutiaoPageResult {
+  const $ = cheerio.load(html);
+  const items: ToutiaoSearchResultItem[] = [];
+
+  $('script[data-druid-card-data-id][type="application/json"]').each((_, el) => {
+    let parsed: any;
+    try {
+      parsed = JSON.parse($(el).contents().text());
+    } catch {
+      return;
+    }
+
+    const data = parsed?.data;
+    if (!data || typeof data !== 'object') return;
+
+    const display = data.display && typeof data.display === 'object' ? data.display : {};
+    const info = display.info && typeof display.info === 'object' ? display.info : {};
+
+    const title = cleanText(data.title || display.title?.text || data.emphasized?.title || '');
+    const url = firstHttpUrl(
+      data.article_url, info.url, data.url, data.share_url,
+      data.ttsearch_msite_url, data.source_url, data.open_url
+    );
+    if (!title || !url) return;
+
+    const snippet = cleanText(
+      data.abstract || display.summary?.text || data.emphasized?.summary || data.hot_board_summary || ''
+    );
+    const publisher = cleanText(data.media_name || data.source || info.site_name || info.domain || '') || '头条搜索';
+
+    let publishTime = cleanText(data.datetime || '');
+    if (!publishTime) {
+      const ts = Number(data.publish_time || data.create_time || data.behot_time || data.display_time);
+      if (Number.isFinite(ts) && ts > 1e9) {
+        publishTime = new Date(ts * 1000).toISOString().slice(0, 19).replace('T', ' ');
+      }
+    }
+
+    const images: string[] = [];
+    for (const candidate of [data.large_image_url, data.middle_image_url, data.image_url, ...(Array.isArray(info.images) ? info.images : [])]) {
+      const img = firstHttpUrl(candidate);
+      if (img) images.push(img);
+    }
+    for (const entry of Array.isArray(data.image_list) ? data.image_list : []) {
+      const img = firstHttpUrl(entry?.url);
+      if (img) images.push(img);
+    }
+
+    items.push({
+      title,
+      url,
+      snippet,
+      publisher,
+      publish_time: publishTime,
+      // Cards can carry a dozen near-identical thumbnails; keep the payload small.
+      images: [...new Set(images)].slice(0, 5),
+    });
+  });
+
+  const searchIdMatch = /"searchId"\s*:\s*"([0-9A-Za-z]+)"/.exec(html);
+  return { items, searchId: searchIdMatch ? searchIdMatch[1] : '' };
+}
+
+export class ToutiaoCrawler extends AbstractCrawler {
+  private async fetchPage(keyword: string, pageNum: number, searchId: string): Promise<ToutiaoPageResult> {
+    const res = await systemHttpClient.get(toutiaoPageUrl(keyword, pageNum, searchId), {
+      mode: 'desktop',
+      referer: 'https://so.toutiao.com/',
+      timeout: 8000,
+      // Toutiao's own session cookies make it report `has_more: 0` from the third
+      // page onwards, capping every keyword at ~15 results. Staying cookie-less
+      // keeps pagination alive for the full ~14 pages the SERP advertises.
+      autoCookie: false,
+    });
+    return parseToutiaoPage(res.data);
+  }
+
+  private async searchViaHttp(keyword: string, maxItems: number, startPage: number): Promise<ToutiaoSearchResultItem[]> {
+    const maxPages = Math.ceil(maxItems / TOUTIAO_RESULTS_PER_PAGE);
+    const results: ToutiaoSearchResultItem[] = [];
+    const seen = new Set<string>();
+    let searchId = '';
+
+    // Pagination needs the search_id minted by page 0, so a non-default start
+    // page still has to fetch it first (its results are then skipped).
+    const firstPageNum = Math.max(0, startPage - 1);
+    if (firstPageNum > 0) {
+      console.log(`[TOUTIAO] [HTTP] Priming search_id from page 1 before jumping to page ${startPage}...`);
+      try {
+        searchId = (await this.fetchPage(keyword, 0, '')).searchId;
+        await sleep(1000);
+      } catch (err: any) {
+        console.error(`[TOUTIAO] [HTTP] Failed to prime search_id: ${err.message}`);
+        return results;
+      }
+      if (!searchId) {
+        console.error('[TOUTIAO] [HTTP] Could not obtain a search_id; aborting.');
+        return results;
+      }
+    }
+
+    for (let page = startPage; page < startPage + maxPages; page++) {
+      if (results.length >= maxItems) break;
+
+      const pageNum = page - 1;
+      console.log(`[TOUTIAO] [HTTP] Fetching page ${page} (page_num=${pageNum})...`);
+
+      try {
+        let parsed = await this.fetchPage(keyword, pageNum, searchId);
+        if (!searchId) searchId = parsed.searchId;
+
+        // Toutiao intermittently answers with a bootstrap shell that carries no
+        // hydration payloads at all — including on the very first request, which
+        // still mints a usable search_id. One re-request through the pagination
+        // form reliably recovers the page, so an empty body is retried rather
+        // than treated as the end of the result set.
+        if (parsed.items.length === 0 && searchId) {
+          console.log(`[TOUTIAO] [HTTP] Page ${page} returned no payload; retrying via pagination form...`);
+          await sleep(900);
+          parsed = await this.fetchPage(keyword, pageNum, searchId);
+        }
+
+        if (parsed.items.length === 0) {
+          console.log(`[TOUTIAO] [HTTP] Page ${page} is empty after retry. Stopping pagination.`);
+          break;
+        }
+
+        let pageCount = 0;
+        for (const item of parsed.items) {
+          if (results.length >= maxItems) break;
+          if (seen.has(item.url)) continue;
+          seen.add(item.url);
+          results.push(item);
+          pageCount++;
+        }
+
+        // Results came back but every one was already collected: the tail has
+        // started repeating, so there is nothing further to page into.
+        if (pageCount === 0) {
+          console.log(`[TOUTIAO] [HTTP] Page ${page} only repeated earlier results. Stopping pagination.`);
+          break;
+        }
+        await sleep(1000);
+      } catch (err: any) {
+        console.error(`[TOUTIAO] [HTTP] Page ${page} failed: ${err.message}`);
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  private async searchViaBrowser(keyword: string, maxItems: number, startPage: number): Promise<ToutiaoSearchResultItem[]> {
+    console.log(`[TOUTIAO] [Browser Fallback] Initializing Playwright browser page for keyword "${keyword}"...`);
+    const results: ToutiaoSearchResultItem[] = [];
+    const seen = new Set<string>();
+    let searchId = '';
+
+    try {
+      const playwright = require('playwright');
+      const browserContext = await connectToElectronChromium(playwright);
+      const page = await getElectronCrawlerPage(browserContext, 'toutiao');
+
+      // Same as the HTTP path: pagination is keyed on page 0's search_id.
+      if (startPage > 1) {
+        console.log(`[TOUTIAO] [Browser Fallback] Priming search_id from page 1 before jumping to page ${startPage}...`);
+        await page.goto(toutiaoPageUrl(keyword, 0, ''), { waitUntil: 'domcontentloaded', timeout: 25000 });
+        searchId = parseToutiaoPage(await page.content()).searchId;
+        if (!searchId) {
+          console.error('[TOUTIAO] [Browser Fallback] Could not obtain a search_id; aborting.');
+          return results;
+        }
+        await this.humanDelay(page, 2);
+      }
+
+      const maxPages = Math.ceil(maxItems / TOUTIAO_RESULTS_PER_PAGE);
+      for (let p = startPage; p < startPage + maxPages; p++) {
+        if (results.length >= maxItems) break;
+
+        const pageNum = p - 1;
+        const searchUrl = toutiaoPageUrl(keyword, pageNum, searchId);
+        console.log(`[TOUTIAO] [Browser Fallback] Navigating to page ${p}: ${searchUrl}`);
+
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForSelector('.result-content', { timeout: 6000 }).catch(() => {});
+
+        const parsed = parseToutiaoPage(await page.content());
+        if (!searchId) searchId = parsed.searchId;
+
+        let pageCount = 0;
+        for (const item of parsed.items) {
+          if (results.length >= maxItems) break;
+          if (seen.has(item.url)) continue;
+          seen.add(item.url);
+          results.push(item);
+          pageCount++;
+        }
+
+        if (pageCount === 0) {
+          console.log(`[TOUTIAO] [Browser Fallback] No new items on page ${p}.`);
+          break;
+        }
+        await this.humanDelay(page, 2);
+      }
+    } catch (err: any) {
+      console.error(`[TOUTIAO] [Browser Fallback] Search failed: ${err.message}`);
+    }
+
+    return results;
+  }
+
+  public async search(): Promise<void> {
+    const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
+    const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
+    const startPage = activeConfig.START_PAGE || 1;
+
+    for (const keyword of keywords) {
+      console.log(`[TOUTIAO] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
+
+      const items = await this.executeHybrid(
+        () => this.searchViaHttp(keyword, maxItems, startPage),
+        () => this.searchViaBrowser(keyword, maxItems, startPage)
+      );
+
+      let rank = 0;
+      for (const item of items) {
+        rank++;
+        await connectorOutput.emitSearchEngineResult({
+          search_engine: 'toutiao',
+          title: item.title,
+          url: item.url,
+          real_url: item.url,
+          snippet: item.snippet,
+          publisher: item.publisher,
+          publish_time: item.publish_time,
+          images: item.images,
+          search_rank: rank,
+          source_keyword: keyword,
+        });
+
+        console.log(`[TOUTIAO] [#${rank}/${maxItems}] ${item.title} -> ${item.url}`);
+      }
+    }
+  }
+
+  public async start(): Promise<void> {
+    console.log('[TOUTIAO] Starting Toutiao Search hybrid crawler (HTTP + Playwright fallback)...');
+    await this.search();
+    console.log('[TOUTIAO] Toutiao Search crawler finished.');
+  }
+}
+
+// 5. Sogou Search Crawler (SystemHttpClient + Multi-Page Pagination + Mobile Fallback)
 export class SogouCrawler extends AbstractCrawler {
   public async search(): Promise<void> {
     const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);

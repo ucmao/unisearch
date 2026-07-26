@@ -128,7 +128,6 @@ export class WorkflowRuntime {
       // The 'comments' capability exists solely to fetch comments, so it forces them on
       // regardless of depth. Every other combination comes from the capability's own preset.
       const resolvedComments = capabilityId === 'comments' ? true : Boolean(preset.collectComments);
-      const resolvedSubComments = capabilityId === 'comments' ? true : Boolean(preset.collectSubComments);
       const connectorOptions = {
         collection_depth: depth,
         ...(preset.maxItems !== undefined ? { max_items: preset.maxItems }
@@ -137,7 +136,6 @@ export class WorkflowRuntime {
         ...(capabilityId === 'creator_profile' ? { creator_ids: targets } : {}),
         ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
         enable_comments: resolvedComments,
-        enable_sub_comments: resolvedSubComments,
       };
       try {
         const started = await crawlerManager.start({
@@ -155,7 +153,6 @@ export class WorkflowRuntime {
           start_page: Number((connectorOptions as Record<string, unknown>).start_page) || 1,
           collection_depth: depth,
           enable_comments: resolvedComments,
-          enable_sub_comments: resolvedSubComments,
           cookies: '',
           headless: plan.headless,
           loop_execution: false,

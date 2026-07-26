@@ -70,13 +70,12 @@ const defaultConfig: CrawlerConfig = {
   creator_ids: '',
   start_page: 1,
   enable_comments: false,
-  enable_sub_comments: false,
   cookies: '',
   headless: false,
   loop_execution: false,
 }
 
-const SUPPORTED_PLATFORMS = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou']
+const SUPPORTED_PLATFORMS = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao']
 
 const initialStatuses = SUPPORTED_PLATFORMS.reduce((acc, p) => ({ ...acc, [p]: 'idle' as const }), {})
 const initialRunningInfo = SUPPORTED_PLATFORMS.reduce(

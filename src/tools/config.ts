@@ -33,7 +33,6 @@ export interface AppConfig {
   ENABLE_GET_MEIDAS: boolean;
   ENABLE_GET_COMMENTS: boolean;
   CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES: number;
-  ENABLE_GET_SUB_COMMENTS: boolean;
   
   ENABLE_GET_WORDCLOUD: boolean;
   STOP_WORDS_FILE: string;
@@ -95,7 +94,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   ENABLE_GET_MEIDAS: false,
   ENABLE_GET_COMMENTS: false,
   CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES: 10,
-  ENABLE_GET_SUB_COMMENTS: false,
   
   ENABLE_GET_WORDCLOUD: false,
   STOP_WORDS_FILE: './resources/hit_stopwords.txt',
@@ -149,9 +147,6 @@ export function applyConfig(updates: any): AppConfig {
 
   if (updates.enable_comments !== undefined) {
     mappedUpdates.ENABLE_GET_COMMENTS = updates.enable_comments;
-  }
-  if (updates.enable_sub_comments !== undefined) {
-    mappedUpdates.ENABLE_GET_SUB_COMMENTS = updates.enable_sub_comments;
   }
 
   // Handle platform specific creator/specified list inputs

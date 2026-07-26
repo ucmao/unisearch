@@ -28,6 +28,7 @@ export const CONNECTOR_ENTITIES: MentionEntity[] = [
   { id: 'bing', key: 'bing', name: '必应中国', category: 'search', categoryLabel: '搜索引擎', description: 'Bing 全球/国内网页检索' },
   { id: 'so360', key: 'so360', name: '360搜索', category: 'search', categoryLabel: '搜索引擎', description: '360 网页搜索结果提取' },
   { id: 'sogou', key: 'sogou', name: '搜狗搜索', category: 'search', categoryLabel: '搜索引擎', description: '搜狗网页及微信内容检索' },
+  { id: 'toutiao', key: 'toutiao', name: '头条搜索', category: 'search', categoryLabel: '搜索引擎', description: '头条全网网页与资讯检索' },
 
   // 招聘与投诉
   { id: 'zhaopin', key: 'zhaopin', name: '智联招聘', category: 'job_complaint', categoryLabel: '招聘与投诉', description: '招聘岗位列表与 JD 详情解析' },
