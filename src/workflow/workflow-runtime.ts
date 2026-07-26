@@ -1,4 +1,5 @@
 import { getConnectorManifest } from '../connectors/registry';
+import { analyticsRepository } from '../database/repository';
 import { resolveDepthPreset } from '../connectors/depth';
 import { documentEngine } from '../document/document-engine';
 import { processorWorkerExecutor } from '../processor/processor-worker-executor';
@@ -44,7 +45,9 @@ export class WorkflowRuntime {
     // A connector that exits cleanly without collecting anything is 'completed',
     // so an all-empty plan reads as 'completed' too. Treat those steps as retryable.
     const emptyStepKeys = collectEmptyStepKeys(workflow);
-    const isRetryableStatus = ['awaiting_confirmation', 'failed', 'partially_completed', 'interrupted']
+    // 'stopped' is retryable too: a user who aborts mid-run should be able to
+    // resume the platforms that never finished, without rebuilding the plan.
+    const isRetryableStatus = ['awaiting_confirmation', 'failed', 'partially_completed', 'interrupted', 'stopped']
       .includes(workflow.status);
     if (!isRetryableStatus && !(workflow.status === 'completed' && emptyStepKeys.length)) {
       throw new Error('当前 Workflow 不能执行');
@@ -90,7 +93,12 @@ export class WorkflowRuntime {
     for (const step of workflow.steps) {
       if (step.status !== 'running') continue;
       const state = crawlerManager.getStatus(step.platform);
-      if (state.status === 'running' || state.status === 'stopping') continue;
+      if (state.status === 'running' || state.status === 'stopping') {
+        // item_count is otherwise only written when the run finishes, leaving the
+        // dashboard blank for the whole duration of a slow platform.
+        if (step.run_id) analyticsRepository.refreshRunCounts(step.run_id);
+        continue;
+      }
       const run = step.run_id ? agentRepository.getCrawlRun(step.run_id) : null;
       if (run?.status === 'completed') agentRepository.updateStep(step.step_id, 'completed', step.run_id, null);
       else {
@@ -115,7 +123,7 @@ export class WorkflowRuntime {
         continue;
       }
       const depth = plan.collectionDepth || 'standard';
-      const preset = resolveDepthPreset(capability.budgetModel, depth);
+      const preset = resolveDepthPreset(capability, depth);
       const maxItemsDefault = capability.inputFields.find((field) => field.key === 'max_items')?.default;
       // The 'comments' capability exists solely to fetch comments, so it forces them on
       // regardless of depth. Every other combination comes from the capability's own preset.

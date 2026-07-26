@@ -274,7 +274,10 @@ export interface AgentPlanStep {
   status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped'
   run_id: string | null
   error_message: string | null
+  /** 正文条数（不含评论） */
   item_count?: number
+  /** 该平台附带采集到的评论条数 */
+  comment_count?: number
 }
 
 export interface AgentPlan {
@@ -469,6 +472,13 @@ export const dataApi = {
 export const configApi = {
   getPlatforms: () => api.get<{ platforms: Platform[] }>('/config/platforms'),
   getConnectors: () => api.get<{ connectors: ConnectorManifest[] }>('/config/connectors'),
+  // Depth budgets live in the connector manifests; the UI asks what they resolve
+  // to instead of recomputing them and drifting out of sync.
+  getDepthOptions: (platforms: string[], capability?: string) =>
+    api.get<{
+      applicable: boolean
+      options: Array<{ value: 'quick' | 'standard' | 'deep'; label: string; description: string }>
+    }>('/config/depth-options', { params: { platforms: platforms.join(','), capability } }),
   getOptions: () =>
     api.get<{
       login_types: ConfigOption[]
@@ -502,6 +512,8 @@ export const agentApi = {
   deleteMessagePair: (threadId: string, messageId: string) =>
     api.delete<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`),
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
+  stopPlan: (planId: string) =>
+    api.post<{ stopped: boolean; plan: AgentPlan }>(`/agent/plans/${encodeURIComponent(planId)}/stop`, null, { timeout: 60000 }),
   updatePlan: (planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) =>
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}`, updates),
   updatePlanAnalysis: (planId: string, analysis: string[]) =>
@@ -536,9 +548,9 @@ export const envApi = {
 }
 
 export const browserApi = {
-  getWindowStatus: () => api.get<{ success: boolean; visible: boolean; has_views?: boolean }>('/browser/window'),
+  getWindowStatus: () => api.get<{ success: boolean; visible: boolean; has_views?: boolean; can_open?: boolean }>('/browser/window'),
   toggleWindow: (action: 'show' | 'hide' | 'toggle' = 'toggle') =>
-    api.post<{ success: boolean; visible: boolean; toggled?: boolean; has_views?: boolean }>('/browser/window', { action }),
+    api.post<{ success: boolean; visible: boolean; toggled?: boolean; has_views?: boolean; can_open?: boolean }>('/browser/window', { action }),
 }
 
 export default api

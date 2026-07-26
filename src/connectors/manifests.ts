@@ -75,6 +75,9 @@ function capabilities(
     {
       id: 'keyword_search', label: '关键词搜索', description: `按关键词发现并采集${name}${nouns.content}。`, runtimeMode: 'search',
       budgetModel: 'scroll_count',
+      // Infinite-scroll feeds stay relevant deep into the list, so 深度 is worth
+      // a large share of the 500 ceiling rather than the old flat 100.
+      depthBudget: { quick: 20, standard: 50, deep: 200 },
       inputFields: [
         { key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的内容数。', type: 'number', default: 15, min: 1, max: 500, runtimeConfigKey: 'crawler_max_notes_count' },
         ...commentOptions(),
@@ -149,6 +152,9 @@ const searchEngine = (
     {
       id: 'keyword_search', label: '关键词全网搜索', description: `在${name}上按关键词进行网页搜索并提取结果摘要。`, runtimeMode: 'search',
       budgetModel: 'true_pagination',
+      // SERP tails degrade into ads and near-duplicates, and most engines stop
+      // serving useful results well before 100, so depth stays deliberately low.
+      depthBudget: { quick: 10, standard: 30, deep: 80 },
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的搜索结果条目数。',
@@ -259,6 +265,7 @@ const jobPlatform = (
     {
       id: 'keyword_search', label: '岗位关键词搜索', description: `在${name}按关键词搜索招聘岗位信息。`, runtimeMode: 'search',
       budgetModel: 'scroll_count',
+      depthBudget: { quick: 20, standard: 50, deep: 150 },
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的岗位数。',
@@ -305,6 +312,7 @@ const complaintPlatform = (
     {
       id: 'keyword_search', label: '投诉关键词搜索', description: `在${name}按关键词搜索消费投诉事件与问题列表。`, runtimeMode: 'search',
       budgetModel: 'scroll_count',
+      depthBudget: { quick: 20, standard: 50, deep: 150 },
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的投诉单数。',

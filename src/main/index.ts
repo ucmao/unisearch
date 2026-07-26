@@ -340,6 +340,16 @@ export function hasActiveCrawlerViews(): boolean {
   return crawlerViews.size > 0;
 }
 
+/**
+ * Views are destroyed when a platform finishes, but the user still needs to get
+ * into the browser afterwards — to see what a failed platform was actually
+ * looking at, or to log in before starting the next run. Any platform we have
+ * ever opened a tab for can be reopened on demand.
+ */
+export function canOpenCrawlerWindow(): boolean {
+  return crawlerViews.size > 0 || crawlerTabStates.size > 0;
+}
+
 function resolveCrawlerPlatform(platform?: string): string | null {
   if (platform && crawlerTabStates.has(platform)) return platform;
   if (activeCrawlerPlatform && crawlerTabStates.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
@@ -350,6 +360,17 @@ export function showCrawlerWindow(platform?: string): boolean {
   const resolvedPlatform = resolveCrawlerPlatform(platform);
   if (!resolvedPlatform) return false;
   const hub = createCrawlerHubWindow();
+  const existing = crawlerViews.get(resolvedPlatform);
+  if (!existing || existing.webContents.isDestroyed()) {
+    // Reopen a released tab instead of showing an empty hub. createCrawlerView
+    // marks the tab 'running', which would be a lie here, so restore its state.
+    const previousState = crawlerTabStates.get(resolvedPlatform);
+    const view = createCrawlerView(resolvedPlatform);
+    if (previousState) crawlerTabStates.set(resolvedPlatform, previousState);
+    if (!view.webContents.isDestroyed()) {
+      void view.webContents.loadURL(crawlerMarkerUrl(resolvedPlatform)).catch(() => {});
+    }
+  }
   if (!activateCrawlerView(resolvedPlatform)) return false;
   if (hub.isMinimized()) hub.restore();
   hub.show();
@@ -486,6 +507,7 @@ app.on('ready', async () => {
       releaseCrawlerWindow,
       isCrawlerWindowVisible,
       hasActiveCrawlerViews,
+      canOpenCrawlerWindow,
       showCrawlerWindow,
       hideCrawlerWindow,
       toggleCrawlerWindow,

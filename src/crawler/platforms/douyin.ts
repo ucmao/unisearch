@@ -19,11 +19,23 @@ interface DouyinSearchCapture {
   bodyError: string;
 }
 
+// Douyin serves the search feed from several endpoints depending on the page
+// build (`.../general/search/single/`, `.../search/item/`, and the newer
+// `.../general/search/stream/`). Matching the family instead of exact paths
+// keeps the crawler alive across their A/B rollouts.
+const DOUYIN_SEARCH_ENDPOINT = /\/aweme\/v1\/web\/[^?]*search[^?]*\//i;
+
 export class DouyinCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
   private consecutiveCommentFailures = 0;
   private consecutiveDetailFailures = 0;
+  // A persistent listener + buffer, rather than one-shot waitForResponse calls.
+  // The one-shot version raced with page load and with the 3-minute captcha wait:
+  // its 20s timer expired long before the response it was meant to catch arrived.
+  private searchResponseBuffer: DouyinSearchCapture[] = [];
+  private searchResponseWaiters: Array<(capture: DouyinSearchCapture) => void> = [];
+  private searchListenerAttached = false;
 
   public async start(): Promise<void> {
     console.log('[DY] Starting Douyin crawler (Electron CDP mode)...');
@@ -173,21 +185,50 @@ export class DouyinCrawler extends AbstractCrawler {
     return /图形验证|安全验证|完成下列验证|拖动滑块|验证后继续/.test(text);
   }
 
-  private captureSearchResponse(timeout = 20000): Promise<DouyinSearchCapture | null> {
-    return this.page!.waitForResponse(
-      (response) => /\/aweme\/v1\/web\/(?:general\/search\/single|search\/item)\//i.test(response.url())
-        && response.request().method() === 'GET',
-      { timeout },
-    ).then(async (response) => {
-      try {
-        return { ok: response.ok(), status: response.status(), data: await response.json(), bodyError: '' };
-      } catch (error: any) {
-        return {
-          ok: response.ok(), status: response.status(), data: null,
-          bodyError: error.message || String(error),
-        };
-      }
-    }).catch(() => null);
+  private attachSearchResponseListener(): void {
+    if (this.searchListenerAttached) return;
+    this.searchListenerAttached = true;
+    this.page!.on('response', (response) => {
+      if (response.request().method() !== 'GET') return;
+      if (!DOUYIN_SEARCH_ENDPOINT.test(response.url())) return;
+      void (async () => {
+        let capture: DouyinSearchCapture;
+        try {
+          capture = { ok: response.ok(), status: response.status(), data: await response.json(), bodyError: '' };
+        } catch (error: any) {
+          capture = {
+            ok: response.ok(), status: response.status(), data: null,
+            bodyError: error.message || String(error),
+          };
+        }
+        const waiter = this.searchResponseWaiters.shift();
+        if (waiter) waiter(capture);
+        else this.searchResponseBuffer.push(capture);
+      })();
+    });
+  }
+
+  /** Payloads that already arrived are returned immediately; otherwise wait. */
+  private nextSearchResponse(timeout = 20000): Promise<DouyinSearchCapture | null> {
+    const buffered = this.searchResponseBuffer.shift();
+    if (buffered) return Promise.resolve(buffered);
+    return new Promise((resolve) => {
+      let waiter: (capture: DouyinSearchCapture) => void;
+      const timer = setTimeout(() => {
+        this.searchResponseWaiters = this.searchResponseWaiters.filter((item) => item !== waiter);
+        resolve(null);
+      }, timeout);
+      waiter = (capture: DouyinSearchCapture) => {
+        clearTimeout(timer);
+        resolve(capture);
+      };
+      this.searchResponseWaiters.push(waiter);
+    });
+  }
+
+  /** Payloads from a previous keyword must not leak into the next one. */
+  private resetSearchResponses(): void {
+    this.searchResponseBuffer = [];
   }
 
   private async waitForInteractiveLogin(reason: string): Promise<void> {
@@ -206,16 +247,17 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   private async openSearchPage(keyword: string, allowLoginRetry = true): Promise<DouyinSearchCapture | null> {
-    const searchCapture = this.captureSearchResponse();
+    this.attachSearchResponseListener();
+    this.resetSearchResponses();
     const searchUrl = `https://www.douyin.com/search/${encodeURIComponent(keyword)}?type=general`;
     await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    let capture = await searchCapture;
-    await this.page!.waitForTimeout(2500);
+    // The timer starts after navigation completes, so a slow first paint no longer
+    // eats the capture window; anything that already landed is buffered anyway.
+    let capture = await this.nextSearchResponse(20000);
 
     if (await this.hasManualVerification()) {
       const verifiedCapture = await this.waitForManualVerification(keyword);
       if (verifiedCapture) capture = verifiedCapture;
-      await this.page!.waitForTimeout(3000);
     }
 
     if (!await this.checkLoginState()) {
@@ -223,13 +265,21 @@ export class DouyinCrawler extends AbstractCrawler {
       await this.waitForInteractiveLogin(`搜索“${keyword}”时抖音判定当前登录已失效`);
       return this.openSearchPage(keyword, false);
     }
+
+    // Risk control can serve an interstitial that neither trips the captcha
+    // detector nor issues a search request. One reload usually clears it.
+    if (!capture) {
+      console.warn('[DY] No search response after first load. Reloading once...');
+      this.resetSearchResponses();
+      await this.page!.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      capture = await this.nextSearchResponse(15000);
+    }
     return capture;
   }
 
   private async waitForManualVerification(keyword: string): Promise<DouyinSearchCapture | null> {
     console.warn('[DY] Graphical verification detected. Waiting up to 180 seconds for manual completion...');
     notifyManualVerificationRequired('douyin', `搜索“${keyword}”需要完成图形验证`);
-    const responseAfterVerification = this.captureSearchResponse();
     const startTime = Date.now();
     let stablePasses = 0;
     while (Date.now() - startTime < 180 * 1000) {
@@ -240,7 +290,15 @@ export class DouyinCrawler extends AbstractCrawler {
         if (stablePasses >= 2) {
           console.log('[DY] Manual verification completed. Resuming search...');
           notifyManualVerificationSuccess('douyin');
-          return await responseAfterVerification;
+          // Only start waiting now: the user may have taken minutes to solve the
+          // captcha, and any response from before it is stale.
+          this.resetSearchResponses();
+          const afterVerification = await this.nextSearchResponse(15000);
+          if (afterVerification) return afterVerification;
+          // Some captcha flows leave the page on the challenge URL without
+          // re-issuing the search, so ask for it explicitly.
+          await this.page!.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+          return await this.nextSearchResponse(20000);
         }
       }
       await this.page!.waitForTimeout(1000);
@@ -335,15 +393,19 @@ export class DouyinCrawler extends AbstractCrawler {
 
         if (videoMap.size === 0) {
           const pageText = (await this.page!.locator('body').innerText().catch(() => '')).slice(0, 2000);
+          // The full page text goes to the log, never into the error message: it
+          // is unreadable in the UI and its stray "验证"/"登录" words hijack
+          // classifyConnectorError into reporting the wrong failure code.
+          console.warn(`[DY] Empty search result. Page text: ${pageText}`);
           if (!capture) {
-            throw new Error(`未捕获到抖音搜索请求，页面可能被风控或尚未完成加载。页面摘要：${pageText}`);
+            throw new Error('未捕获到抖音搜索请求，页面可能被风控或尚未完成加载。请打开内置采集浏览器查看抖音页面当前状态。');
           }
           if (capture.bodyError) {
-            throw new Error(`CDP 无法读取搜索响应，且页面未渲染出作品。请打开内置浏览器检查验证或风控提示。页面摘要：${pageText}`);
+            throw new Error('CDP 无法读取搜索响应，且页面未渲染出作品。请打开内置采集浏览器检查是否有验证或风控提示。');
           }
           const isExplicitEmptyResult = /暂无搜索结果|没有找到相关|未找到相关|换个关键词试试/.test(pageText);
           if (!isExplicitEmptyResult) {
-            throw new Error(`抖音未返回作品，也未显示“无搜索结果”。页面可能仍处于验证或风控状态。页面摘要：${pageText}`);
+            throw new Error('抖音未返回作品，也未显示“无搜索结果”，页面可能仍处于验证或风控状态。详细页面内容见采集日志。');
           }
           console.warn(`[DY] Search explicitly returned no matching content. status_code=${postsRes?.status_code ?? 'unknown'}`);
         }
@@ -355,9 +417,8 @@ export class DouyinCrawler extends AbstractCrawler {
         let stalledScrolls = 0;
         for (let scroll = 0; videoMap.size < targetCount && scroll < maxScrolls; scroll++) {
           const before = videoMap.size;
-          const nextCapturePromise = this.captureSearchResponse(8000);
           await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-          const nextCapture = await nextCapturePromise;
+          const nextCapture = await this.nextSearchResponse(8000);
           await this.page!.waitForTimeout(1200);
 
           if (await this.hasManualVerification()) {
@@ -486,12 +547,60 @@ export class DouyinCrawler extends AbstractCrawler {
     }
   }
 
+  // Douyin's comment endpoint tolerates a bare, cookie-authenticated fetch without
+  // a_bogus/msToken most of the time (verified empirically against a logged-in
+  // session), unlike search which Douyin signs and risk-controls much more tightly.
+  // Returns null on anything short of a clean JSON success so the caller can fall
+  // back to a real page navigation.
+  private async fetchCommentsBare(awemeId: string): Promise<any | null> {
+    const url = `https://www.douyin.com/aweme/v1/web/comment/list/?device_platform=webapp&aid=6383&aweme_id=${encodeURIComponent(awemeId)}&cursor=0&count=20&item_type=0`;
+    try {
+      const result = await this.page!.evaluate(async (u) => {
+        const res = await fetch(u, { credentials: 'include' });
+        const contentType = res.headers.get('content-type') || '';
+        if (!res.ok || !contentType.includes('json')) return null;
+        return res.json();
+      }, url);
+      if (!result || Number(result.status_code || 0) !== 0) return null;
+      return result;
+    } catch {
+      return null;
+    }
+  }
+
+  private async storeComments(awemeId: string, result: any): Promise<number> {
+    const comments = result?.comments || [];
+    const store = async (comment: any, parent = '') => connectorOutput.emitDouyinComment({
+      comment_id: String(comment.cid || ''), aweme_id: awemeId, content: comment.text || '',
+      create_time: comment.create_time || 0, creator_hash: String(comment.user?.uid || comment.user?.sec_uid || ''),
+      nickname: comment.user?.nickname || '', sub_comment_count: comment.reply_comment_total || 0,
+      parent_comment_id: parent, like_count: comment.digg_count || 0,
+      pictures: (comment.image_list || []).map((image: any) => image.origin_url?.url_list?.at(-1) || '').filter(Boolean).join(','),
+    });
+    for (const comment of comments) {
+      await store(comment);
+      if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
+        for (const child of comment.reply_comment || []) await store(child, String(comment.cid || ''));
+      }
+    }
+    return comments.length;
+  }
+
   private async getAwemeComments(awemeId: string): Promise<void> {
     if (this.consecutiveCommentFailures >= 2) return;
     try {
-      // Opening the real detail page lets Douyin generate the current signed comment
-      // request. Calling the endpoint with a hand-built URL is commonly answered by
-      // an HTML verification page instead of JSON.
+      // Fast path: skip the full page navigation entirely when the bare fetch works.
+      const bare = await this.fetchCommentsBare(awemeId);
+      if (bare) {
+        const count = await this.storeComments(awemeId, bare);
+        this.consecutiveCommentFailures = 0;
+        console.log(`[DY] Stored ${count} comments for ${awemeId} (bare fetch)`);
+        return;
+      }
+
+      // Fallback: opening the real detail page lets Douyin generate the current signed
+      // comment request. A hand-built URL is sometimes answered with a verification
+      // page instead of JSON, so let the real front-end sign it when the bare path fails.
       const commentCapture = this.page!.waitForResponse(
         (response) => {
           if (!response.url().includes('/aweme/v1/web/comment/list/')) return false;
@@ -519,22 +628,9 @@ export class DouyinCrawler extends AbstractCrawler {
       if (Number(result?.status_code || 0) !== 0) {
         throw new Error(`status_code=${result?.status_code ?? 'unknown'}${result?.status_msg ? `, ${result.status_msg}` : ''}`);
       }
-      const comments = result?.comments || [];
-      const store = async (comment: any, parent = '') => connectorOutput.emitDouyinComment({
-        comment_id: String(comment.cid || ''), aweme_id: awemeId, content: comment.text || '',
-        create_time: comment.create_time || 0, creator_hash: String(comment.user?.uid || comment.user?.sec_uid || ''),
-        nickname: comment.user?.nickname || '', sub_comment_count: comment.reply_comment_total || 0,
-        parent_comment_id: parent, like_count: comment.digg_count || 0,
-        pictures: (comment.image_list || []).map((image: any) => image.origin_url?.url_list?.at(-1) || '').filter(Boolean).join(','),
-      });
-      for (const comment of comments) {
-        await store(comment);
-        if (activeConfig.ENABLE_GET_SUB_COMMENTS) {
-          for (const child of comment.reply_comment || []) await store(child, String(comment.cid || ''));
-        }
-      }
+      const count = await this.storeComments(awemeId, result);
       this.consecutiveCommentFailures = 0;
-      console.log(`[DY] Stored ${comments.length} comments for ${awemeId}`);
+      console.log(`[DY] Stored ${count} comments for ${awemeId}`);
     } catch (error: any) {
       this.consecutiveCommentFailures++;
       console.warn(`[DY] Comments unavailable for ${awemeId}: ${error.message}`);

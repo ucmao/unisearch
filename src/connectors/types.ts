@@ -49,6 +49,13 @@ export interface ConnectorCapability {
   description: string;
   runtimeMode: 'search' | 'detail' | 'creator';
   budgetModel: ConnectorBudgetModel;
+  /**
+   * Items per depth level for this specific capability. Optional: capabilities
+   * that omit it fall back to a share of the max_items ceiling. Values above
+   * that ceiling are clamped, never passed through — normalizeConnectorRequest
+   * rejects them and would fail the entire step.
+   */
+  depthBudget?: Partial<Record<'quick' | 'standard' | 'deep', number>>;
   inputFields: ConnectorInputField[];
   outputType: string;
   outputFields: ConnectorOutputField[];

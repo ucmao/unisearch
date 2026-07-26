@@ -4,6 +4,7 @@ import { agentRepository, type ResearchPlan } from './AgentRepository';
 import { inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
+import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
 import { normalizeAnalysisGoals } from './ResearchAnalysis';
 import { directParserService } from './DirectParserService';
@@ -765,7 +766,15 @@ export class AgentService {
         if (overrideStartPage) details.push(`从第 ${overrideStartPage} 页开始`);
         depthSummary = details.length ? details.join('，') : '自定义';
       } else {
-        depthSummary = depth === 'deep' ? '深度' : depth === 'standard' ? '标准' : '快速';
+        // Spell out what the depth actually resolves to. "范围：标准" alone told
+        // the user nothing and did not match what the planner prompt promised.
+        const capabilities = plan.platforms
+          .map((platform: string) => getConnectorManifest(platform)?.capabilities
+            .find((item) => item.id === (plan.capability || 'keyword_search')))
+          .filter((item: any): item is NonNullable<typeof item> => Boolean(item));
+        const detail = describeDepthForCapabilities(capabilities, depth);
+        depthSummary = DEPTH_LABELS[depth as DepthLevel] || '标准';
+        if (detail) depthSummary += `（${detail}）`;
       }
       scopeLine = `\n范围：${depthSummary}`;
     }

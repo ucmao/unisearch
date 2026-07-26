@@ -9,27 +9,42 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { XhsSigner } from '../base/xhsSigner';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  private signer: XhsSigner | null = null;
+
+  private get apiHost(): string {
+    return activeConfig.XHS_INTERNATIONAL ? 'webapi.rednote.com' : 'edith.xiaohongshu.com';
+  }
+
+  private get indexUrl(): string {
+    return activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
+  }
 
   public async start(): Promise<void> {
     console.log('[XHS] Starting XiaoHongShu crawler (Electron CDP mode)...');
-    
+
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'xhs');
+
+    // Record the web app's own signed requests so API calls can reuse their shape.
+    this.signer = new XhsSigner(this.page);
+    this.signer.attach();
 
 
 
 
     // Navigate to homepage
-    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
-    await this.page.goto(indexUrl, { waitUntil: 'domcontentloaded' });
+    await this.page.goto(this.indexUrl, { waitUntil: 'domcontentloaded' });
 
     // Handle Login
     await this.handleLogin();
+
+    await this.primeSigner();
 
     // Run Crawler Tasks
     if (activeConfig.CRAWLER_TYPE === 'search') {
@@ -41,6 +56,25 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     }
 
     console.log('[XHS] XiaoHongShu crawler finished.');
+  }
+
+  /**
+   * Browse the explore feed briefly so the web app issues its own signed
+   * requests; those become the template every later API call is built from.
+   */
+  private async primeSigner(): Promise<void> {
+    if (this.signer?.hasTemplate()) return;
+    try {
+      if (!this.page!.url().includes('/explore')) {
+        await this.page!.goto(`${this.indexUrl}/explore`, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+      const ready = await this.signer!.waitForTemplate(15000);
+      console.log(ready
+        ? '[XHS] Signed request template captured; API mode enabled.'
+        : '[XHS] No signed request captured yet; will retry after the first UI search.');
+    } catch (error: any) {
+      console.warn(`[XHS] Failed to prime the signer: ${error.message}`);
+    }
   }
 
   private async handleLogin(): Promise<void> {
@@ -172,8 +206,8 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   public async search(): Promise<void> {
     console.log('[XHS] Beginning keyword search...');
     const keywords = activeConfig.KEYWORDS.split(',');
-    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
-    
+    const indexUrl = this.indexUrl;
+
     for (const keyword of keywords) {
       console.log(`[XHS] Searching keyword: ${keyword}`);
       
@@ -275,23 +309,8 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
 
           if (count >= targetCount) break;
 
-          // Scroll down to trigger next page of search results
-          console.log(`[XHS] Scrolling to fetch next page of notes (${count}/${targetCount})...`);
           pageIndex++;
-          try {
-            const [nextResponse] = await Promise.all([
-              this.page!.waitForResponse((response) => {
-                const url = response.url();
-                return response.request().method() === 'POST' && url.includes('/api/sns/web/v2/search/notes');
-              }, { timeout: 8000 }),
-              this.page!.evaluate(() => window.scrollBy(0, 3000)),
-            ]);
-            const nextData = await nextResponse.json();
-            currentNotes = nextData.data?.items || [];
-          } catch {
-            console.log('[XHS] No further search pages returned or scroll timeout.');
-            break;
-          }
+          currentNotes = await this.fetchSearchPage(keyword, pageIndex, count, targetCount);
         }
       } catch (err: any) {
         console.error(`[XHS] Error searching keyword ${keyword}:`, err.message);
@@ -300,55 +319,108 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     }
   }
 
+  /**
+   * Page 1 comes from the UI so the app produces a signed request we can clone;
+   * every later page is a direct signed API call, which avoids the scroll race
+   * and is roughly an order of magnitude faster.
+   */
+  private async fetchSearchPage(
+    keyword: string,
+    pageIndex: number,
+    collected: number,
+    targetCount: number,
+  ): Promise<any[]> {
+    const bodyTemplate = this.signer?.getSearchBodyTemplate();
+    if (this.signer?.hasTemplate() && bodyTemplate) {
+      try {
+        console.log(`[XHS] Requesting search page ${pageIndex} via signed API (${collected}/${targetCount})...`);
+        const payload = await this.signer.request<any>({
+          host: this.apiHost,
+          path: '/api/sns/web/v2/search/notes',
+          method: 'POST',
+          body: { ...bodyTemplate, keyword, page: pageIndex },
+        });
+        return payload?.data?.items || [];
+      } catch (error: any) {
+        console.warn(`[XHS] Signed search pagination failed, falling back to scrolling: ${error.message}`);
+      }
+    }
+
+    console.log(`[XHS] Scrolling to fetch search page ${pageIndex} (${collected}/${targetCount})...`);
+    try {
+      const [nextResponse] = await Promise.all([
+        this.page!.waitForResponse((response) => {
+          const url = response.url();
+          return response.request().method() === 'POST' && url.includes('/api/sns/web/v2/search/notes');
+        }, { timeout: 8000 }),
+        this.page!.evaluate(() => window.scrollBy(0, 3000)),
+      ]);
+      const nextData = await nextResponse.json();
+      return nextData.data?.items || [];
+    } catch {
+      console.log('[XHS] No further search pages returned or scroll timeout.');
+      return [];
+    }
+  }
+
   private async crawlComments(noteId: string, xsecToken: string): Promise<void> {
     console.log(`[XHS] Crawling comments for note: ${noteId}`);
+    if (!this.signer?.hasTemplate()) {
+      console.warn('[XHS] No signed request template captured yet; skipping comments.');
+      return;
+    }
+
+    const maxComments = activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES;
+    let cursor = '';
+    let count = 0;
+
     try {
-      const comments = await this.page!.evaluate(async ({ id, token }) => {
-        try {
-          const apiHost = window.location.hostname.includes('rednote.com') ? 'webapi.rednote.com' : 'edith.xiaohongshu.com';
-          const url = `https://${apiHost}/api/sns/web/v2/comment/page?note_id=${id}&xsec_token=${token}&image_formats=jpg,webp,gif`;
-
-          const resp = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json, text/plain, */*',
-            },
-          });
-          
-          const text = await resp.text();
-          const data = JSON.parse(text);
-          return data.data?.comments || [];
-        } catch (err: any) {
-          return [];
-        }
-      }, { id: noteId, token: xsecToken });
-
-      console.log(`[XHS] Crawled ${comments.length} comments.`);
-      
-      let count = 0;
-      for (const commentItem of comments) {
-        if (count >= activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES) break;
-
-        const dbComment = {
-          comment_id: commentItem.id,
-          create_time: commentItem.create_time,
+      while (count < maxComments) {
+        const query = new URLSearchParams({
           note_id: noteId,
-          content: commentItem.content,
-          creator_hash: commentItem.user_info?.user_id || '',
-          nickname: commentItem.user_info?.nickname || '',
-          sub_comment_count: commentItem.sub_comment_count || 0,
-          pictures: commentItem.pictures?.map((p: any) => p.url || '').join(',') || '',
-          parent_comment_id: '',
-          like_count: commentItem.like_count || 0,
-        };
+          cursor,
+          top_comment_id: '',
+          image_formats: 'jpg,webp,avif',
+          xsec_token: xsecToken,
+        });
+        const payload = await this.signer.request<any>({
+          host: this.apiHost,
+          path: `/api/sns/web/v2/comment/page?${query.toString()}`,
+        });
 
-        await connectorOutput.emitXhsComment(dbComment);
-        count++;
+        const comments = payload?.data?.comments || [];
+        if (comments.length === 0) break;
+        console.log(`[XHS] Crawled ${comments.length} comments (total ${count + comments.length}).`);
 
-        // Sub comments crawling
-        if (activeConfig.ENABLE_GET_SUB_COMMENTS && dbComment.sub_comment_count > 0) {
-          await this.crawlSubComments(noteId, xsecToken, dbComment.comment_id);
+        for (const commentItem of comments) {
+          if (count >= maxComments) break;
+
+          const dbComment = {
+            comment_id: commentItem.id,
+            create_time: commentItem.create_time,
+            note_id: noteId,
+            content: commentItem.content,
+            creator_hash: commentItem.user_info?.user_id || '',
+            nickname: commentItem.user_info?.nickname || '',
+            sub_comment_count: Number(commentItem.sub_comment_count) || 0,
+            pictures: commentItem.pictures?.map((p: any) => p.url || '').join(',') || '',
+            parent_comment_id: '',
+            like_count: commentItem.like_count || 0,
+          };
+
+          await connectorOutput.emitXhsComment(dbComment);
+          count++;
+
+          // Sub comments crawling
+          if (activeConfig.ENABLE_GET_SUB_COMMENTS && dbComment.sub_comment_count > 0) {
+            await this.crawlSubComments(noteId, xsecToken, dbComment.comment_id);
+          }
         }
+
+        if (!payload?.data?.has_more) break;
+        cursor = payload.data.cursor || '';
+        if (!cursor) break;
+        await this.humanDelay(this.page!);
       }
     } catch (err: any) {
       console.error(`[XHS] Error crawling comments for note ${noteId}:`, err.message);
@@ -357,25 +429,19 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
 
   private async crawlSubComments(noteId: string, xsecToken: string, rootCommentId: string): Promise<void> {
     try {
-      const subComments = await this.page!.evaluate(async ({ id, token, rootId }) => {
-        try {
-          const apiHost = window.location.hostname.includes('rednote.com') ? 'webapi.rednote.com' : 'edith.xiaohongshu.com';
-          const url = `https://${apiHost}/web_api/sns/v2/comment/sub/page?note_id=${id}&xsec_token=${token}&root_comment_id=${rootId}&page_size=10&image_formats=jpg,webp,gif`;
-
-          const resp = await fetch(url, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json, text/plain, */*',
-            },
-          });
-          
-          const text = await resp.text();
-          const data = JSON.parse(text);
-          return data.data?.comments || [];
-        } catch (err: any) {
-          return [];
-        }
-      }, { id: noteId, token: xsecToken, rootId: rootCommentId });
+      const query = new URLSearchParams({
+        note_id: noteId,
+        root_comment_id: rootCommentId,
+        num: '10',
+        cursor: '',
+        image_formats: 'jpg,webp,avif',
+        xsec_token: xsecToken,
+      });
+      const payload = await this.signer!.request<any>({
+        host: this.apiHost,
+        path: `/api/sns/web/v2/comment/sub/page?${query.toString()}`,
+      });
+      const subComments = payload?.data?.comments || [];
 
       for (const sub of subComments) {
         const dbSub = {
@@ -402,7 +468,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   }
 
   public async getCreatorsAndNotes(): Promise<void> {
-    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
+    const indexUrl = this.indexUrl;
     for (const target of configuredTargets('xhs', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const creatorId = firstMatch(resolved, [/\/user\/profile\/([^/?#]+)/i, /[?&]user_id=([^&#]+)/i]);
@@ -418,14 +484,84 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     }
   }
 
+  /**
+   * Structured note detail from the signed feed API. Returns null so the caller
+   * can fall back to DOM scraping when signing or the endpoint is unavailable.
+   */
+  private async fetchNoteDetailFromApi(
+    noteId: string,
+    xsecToken: string,
+    noteUrl: string,
+    sourceKeyword: string,
+  ): Promise<any | null> {
+    if (!this.signer?.hasTemplate()) return null;
+    try {
+      const payload = await this.signer.request<any>({
+        host: this.apiHost,
+        path: '/api/sns/web/v1/feed',
+        method: 'POST',
+        body: {
+          source_note_id: noteId,
+          image_formats: ['jpg', 'webp', 'avif'],
+          extra: { need_body_topic: '1' },
+          xsec_source: 'pc_search',
+          xsec_token: xsecToken,
+        },
+      });
+
+      const card = payload?.data?.items?.[0]?.note_card;
+      if (!card) return null;
+
+      const interact = card.interact_info || {};
+      const images = (card.image_list || [])
+        .map((image: any) => image.url_default || image.url || image.info_list?.[0]?.url || '')
+        .filter(Boolean);
+      const videoUrl = card.video?.media?.stream?.h264?.[0]?.master_url
+        || card.video?.media?.stream?.h265?.[0]?.master_url
+        || '';
+
+      return {
+        note_id: noteId,
+        type: card.type === 'video' ? 'video' : 'normal',
+        title: card.title || '',
+        desc: card.desc || '',
+        video_url: videoUrl,
+        time: card.time || Math.floor(Date.now() / 1000),
+        last_update_time: card.last_update_time || Math.floor(Date.now() / 1000),
+        creator_hash: card.user?.user_id || '',
+        nickname: card.user?.nickname || '',
+        liked_count: Number(interact.liked_count) || 0,
+        collected_count: Number(interact.collected_count) || 0,
+        comment_count: Number(interact.comment_count) || 0,
+        share_count: Number(interact.share_count ?? interact.shared_count) || 0,
+        image_list: [...new Set<string>(images)].join(','),
+        tag_list: (card.tag_list || []).map((tag: any) => tag.name || '').filter(Boolean).join(','),
+        note_url: noteUrl,
+        source_keyword: sourceKeyword,
+        xsec_token: xsecToken,
+      };
+    } catch (error: any) {
+      console.warn(`[XHS] Signed detail request failed for ${noteId}, falling back to DOM: ${error.message}`);
+      return null;
+    }
+  }
+
   private async fetchNoteDetail(target: string, sourceKeyword: string): Promise<any | null> {
-    const indexUrl = activeConfig.XHS_INTERNATIONAL ? 'https://www.rednote.com' : 'https://www.xiaohongshu.com';
+    const indexUrl = this.indexUrl;
     const resolved = await resolveRedirect(this.page!, target);
     const noteId = firstMatch(resolved, [/\/explore\/([^/?#]+)/i, /\/discovery\/item\/([^/?#]+)/i, /[?&]note_id=([^&#]+)/i]);
     const xsecToken = resolved.match(/[?&]xsec_token=([^&#]+)/i)?.[1] || '';
     const noteUrl = /^https?:\/\//i.test(resolved) && resolved.includes(noteId)
       ? resolved
       : `${indexUrl}/explore/${encodeURIComponent(noteId)}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_user` : ''}`;
+
+    const apiRecord = await this.fetchNoteDetailFromApi(noteId, xsecToken, noteUrl, sourceKeyword);
+    if (apiRecord) {
+      await connectorOutput.emitXhsNote(apiRecord);
+      if (activeConfig.ENABLE_GET_COMMENTS) await this.crawlComments(noteId, xsecToken);
+      return apiRecord;
+    }
+
     try {
       if (this.page!.url() !== noteUrl) await this.page!.goto(noteUrl, { waitUntil: 'domcontentloaded' });
       await this.page!.waitForTimeout(1800);

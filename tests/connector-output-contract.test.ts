@@ -25,6 +25,27 @@ test('connector payloads are emitted as a versioned RawItem contract', () => {
   assert.deepEqual(item.metadata, {});
 });
 
+test('comments are identified by their own id, not by their parent item id', () => {
+  const build = (commentId: string) => buildRawItem('emitKuaishouComment', {
+    comment_id: commentId,
+    video_id: 'video-1',
+    content: `内容-${commentId}`,
+    create_time: 1700000000,
+    nickname: '用户',
+  });
+
+  const first = build('comment-a');
+  const second = build('comment-b');
+
+  // A shared identity would collapse every comment of one video into a single document,
+  // because documents are upserted on canonical_key.
+  assert.equal(first.sourceItemId, 'comment-a');
+  assert.equal(second.sourceItemId, 'comment-b');
+  assert.notEqual(first.id, second.id);
+  assert.equal(first.parentId, 'video-1');
+  assert.equal(second.parentId, 'video-1');
+});
+
 test('connector output can be tested without a database through OutputSink', async () => {
   const first = new MemoryOutputSink();
   const second = new MemoryOutputSink();
