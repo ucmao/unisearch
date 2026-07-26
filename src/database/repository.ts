@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from './connection';
+import { platformLabel } from '../connectors/registry';
 
 export interface RunConfig {
   platform: string;
@@ -52,15 +53,6 @@ export interface CommentRecord {
   sub_comment_count: number;
 }
 
-const PLATFORM_LABELS: Record<string, string> = {
-  xhs: '小红书', douyin: '抖音', kuaishou: '快手', bili: '哔哩哔哩',
-  weibo: '微博', tieba: '贴吧', zhihu: '知乎', baidu: '百度',
-  bing: '必应', so360: '360搜索', sogou: '搜狗', media_parser: '综合解析',
-  zhaopin: '智联招聘', heimao: '黑猫投诉', deepseek: 'DeepSeek',
-  doubao: '豆包', kimi: 'Kimi', nami: '纳米AI', qwen: '通义千问',
-  wenxin: '文心一言', yuanbao: '腾讯元宝',
-};
-
 function parseJson(value: unknown): Record<string, any> {
   if (typeof value !== 'string') return {};
   try { return JSON.parse(value); } catch { return {}; }
@@ -101,7 +93,7 @@ function rowToContent(row: any): ContentRecord {
   return {
     run_id: row.run_id || '',
     platform: row.source,
-    platform_label: PLATFORM_LABELS[row.source] || row.source,
+    platform_label: platformLabel(row.source),
     content_id: row.source_item_id || row.document_id,
     content_type: row.kind,
     keyword: row.keywords || '未标记关键词',
@@ -278,13 +270,13 @@ export class AnalyticsRepository {
       engagement: items.reduce((sum, item) => sum + item.engagement, 0),
     });
     const group = (key: 'keyword' | 'platform') => [...new Set(selected.map((item) => item[key]))]
-      .map((value) => ({ [key]: value, ...(key === 'platform' ? { platform_label: PLATFORM_LABELS[value] || value } : {}), ...aggregate(selected.filter((item) => item[key] === value)) }));
+      .map((value) => ({ [key]: value, ...(key === 'platform' ? { platform_label: platformLabel(value) } : {}), ...aggregate(selected.filter((item) => item[key] === value)) }));
     return {
       totals: aggregate(selected),
       by_keyword: group('keyword'),
       by_platform: group('platform'),
       filters: {
-        platforms: [...new Set(all.map((item) => item.platform))].map((value) => [value, PLATFORM_LABELS[value] || value]),
+        platforms: [...new Set(all.map((item) => item.platform))].map((value) => [value, platformLabel(value)]),
         keywords: [...new Set(all.map((item) => item.keyword))],
       },
     };
@@ -311,7 +303,7 @@ export class AnalyticsRepository {
       const parentCommentId = String(raw.parent_comment_id || '');
       const contentId = String(raw.note_id || raw.aweme_id || raw.video_id || raw.content_id || '');
       return {
-        platform: row.source, platform_label: PLATFORM_LABELS[row.source] || row.source,
+        platform: row.source, platform_label: platformLabel(row.source),
         content_id: contentId, comment_id: row.source_item_id || row.document_id,
         parent_comment_id: parentCommentId,
         level: parentCommentId && parentCommentId !== '0' ? 2 : 1,
@@ -361,8 +353,11 @@ export class AnalyticsRepository {
       FROM crawl_runs r LEFT JOIN workflow_runs w ON w.workflow_id=r.workflow_id
       LEFT JOIN agent_threads t ON t.thread_id=r.thread_id
       ORDER BY r.started_at DESC LIMIT ? OFFSET ?
-    `).all(pageSize, (page - 1) * pageSize);
-    return { items, total, page, page_size: pageSize, pages: Math.ceil(total / pageSize) };
+    `).all(pageSize, (page - 1) * pageSize) as any[];
+    return {
+      items: items.map((run) => ({ ...run, platform_label: platformLabel(run.platform) })),
+      total, page, page_size: pageSize, pages: Math.ceil(total / pageSize),
+    };
   }
 
   listTaskHierarchy(): any {
@@ -379,7 +374,7 @@ export class AnalyticsRepository {
       if (!tasks.has(threadId)) tasks.set(threadId, { thread_id: threadId, task_title: run.task_title, rounds: new Map() });
       const task = tasks.get(threadId);
       if (!task.rounds.has(workflowId)) task.rounds.set(workflowId, { plan_id: workflowId, round_title: run.round_title, runs: [] });
-      task.rounds.get(workflowId).runs.push(run);
+      task.rounds.get(workflowId).runs.push({ ...run, platform_label: platformLabel(run.platform) });
     }
     const items = [...tasks.values()].map((task) => ({ ...task, rounds: [...task.rounds.values()] }));
     return { items, total: items.length, round_total: items.reduce((sum, item) => sum + item.rounds.length, 0), run_total: rows.length };

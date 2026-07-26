@@ -386,7 +386,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
     return tasks.filter((task) =>
       task.task_title.toLocaleLowerCase().includes(normalizedQuery)
       || task.rounds.some((round) => round.round_title.toLocaleLowerCase().includes(normalizedQuery)
-        || round.runs.some((run) => `${run.task_name} ${run.platform} ${run.keywords}`.toLocaleLowerCase().includes(normalizedQuery)))
+        || round.runs.some((run) => `${run.task_name} ${run.platform} ${run.platform_label || ''} ${run.keywords}`.toLocaleLowerCase().includes(normalizedQuery)))
     )
   }, [tasks, taskQuery])
   const selectedRun = runs.find((run) => run.run_id === selectedRunId)
@@ -518,11 +518,11 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                 {roundExpanded ? <div className="border-t border-cyber-border-subtle/70 px-1 py-1">
                   {round.runs.map((run) => <div key={run.run_id} className={`group/run relative rounded ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/60'}`}>
                     <button type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-1.5 pl-6 pr-9 text-left">
-                      <span className="flex items-center justify-between gap-2"><span className="truncate text-[10px] text-cyber-text-secondary">{run.platform}</span><Badge variant="outline" className="text-[8px]">{runStatusLabel[run.status] ?? run.status}</Badge></span>
+                      <span className="flex items-center justify-between gap-2"><span className="truncate text-[10px] text-cyber-text-secondary">{run.platform_label || run.platform}</span><Badge variant="outline" className="text-[8px]">{runStatusLabel[run.status] ?? run.status}</Badge></span>
                       <span className="mt-0.5 flex justify-between text-[9px] text-cyber-text-muted"><span>{formatRunTime(run.started_at)}</span><span>{run.item_count} 条</span></span>
                     </button>
                     <span className="absolute left-2 top-2.5 h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan/50" />
-                    {run.status !== 'running' ? <DeleteConfirmDialog title="彻底删除该平台执行记录及采集数据？" description={`将彻底物理删除“${run.task_name}”在 ${run.platform} 平台本次执行采集的所有数据与记录。`} onConfirm={() => deleteRun(run.run_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-0.5 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>} /> : null}
+                    {run.status !== 'running' ? <DeleteConfirmDialog title="彻底删除该平台执行记录及采集数据？" description={`将彻底物理删除“${run.task_name}”在 ${run.platform_label || run.platform} 平台本次执行采集的所有数据与记录。`} onConfirm={() => deleteRun(run.run_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-0.5 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>} /> : null}
                   </div>)}
                 </div> : null}
               </div>

@@ -397,6 +397,18 @@ export class AgentService {
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
           decision = { ...decision, action: 'create_plan' };
+        } else if (
+          localDecision.action === 'execute'
+          && latest?.status === 'awaiting_confirmation'
+          && ['chat', 'clarify', 'status'].includes(decision.action)
+        ) {
+          // The user typed an unambiguous confirmation ("开始搜索"、"确认"…) while a
+          // plan is sitting in awaiting_confirmation. That is the one moment where
+          // starting execution is exactly what was asked, so a model reply that
+          // instead chats or reports progress is a misroute. Only non-mutating
+          // model actions are overridden here — a genuine revise_plan/stop/export
+          // still wins, and this never creates a plan that the user has not seen.
+          decision = localDecision;
         } else if (['status', 'analyze', 'export'].includes(localDecision.action)) {
           // These intents are backed by local state.  Do not let a model turn a
           // request to inspect real results into ordinary chat (and then claim it
@@ -424,6 +436,10 @@ export class AgentService {
             return agentRepository.getThread(threadId);
           }
         } else if (localDecision.action === 'clarify') {
+          decision = localDecision;
+        } else if (localDecision.action === 'execute' && latest?.status === 'awaiting_confirmation') {
+          // Confirming an existing plan needs no model call — the plan is already
+          // on screen and the user just approved it.
           decision = localDecision;
         } else if (localDecision.action === 'status') {
           // Status is read-only, so the deterministic result is a safe fallback

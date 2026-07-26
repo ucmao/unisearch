@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { ExternalLink, LogIn, ShieldAlert, SkipForward, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 
 interface AuthRequiredEventData {
   platform: string
@@ -8,36 +9,11 @@ interface AuthRequiredEventData {
   reason?: string
 }
 
-const PLATFORM_NAMES: Record<string, string> = {
-  bili: '哔哩哔哩',
-  xhs: '小红书',
-  dy: '抖音',
-  douyin: '抖音',
-  ks: '快手',
-  kuaishou: '快手',
-  wb: '微博',
-  weibo: '微博',
-  tieba: '百度贴吧',
-  zhihu: '知乎',
-  baidu: '百度',
-  bing: '必应',
-  so360: '360搜索',
-  sogou: '搜狗',
-  media_parser: '综合解析',
-  zhaopin: '智联招聘',
-  heimao: '黑猫投诉',
-  deepseek: 'DeepSeek',
-  doubao: '豆包',
-  kimi: 'Kimi',
-  qwen: '通义千问',
-  yuanbao: '腾讯元宝',
-  nami: '纳米AI',
-  wenxin: '文心一言',
-}
 
 export const CrawlerAuthNotice: React.FC = () => {
   const [items, setItems] = useState<AuthRequiredEventData[]>([])
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
+  const platformLabels = usePlatformLabels()
 
   useEffect(() => {
     const eventSource = new EventSource('/api/crawler/events')
@@ -120,7 +96,7 @@ export const CrawlerAuthNotice: React.FC = () => {
 
       <div className="max-h-72 space-y-2 overflow-y-auto p-3">
         {items.map((item) => {
-          const platformName = PLATFORM_NAMES[item.platform] || item.platform.toUpperCase()
+          const platformName = platformLabels[item.platform] || item.platform.toUpperCase()
           const isManual = item.kind === 'manual'
           return (
             <div key={item.platform} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/70 p-3">

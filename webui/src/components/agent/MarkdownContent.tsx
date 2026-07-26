@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode } from 'react'
-import { platformLabels, type SourceCitationItem } from './CollapsibleSourcesBar'
+import { type SourceCitationItem } from './CollapsibleSourcesBar'
+import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 
 function safeHref(value: string) {
   return /^(?:https?:\/\/|mailto:)/i.test(value) ? value : undefined
@@ -7,6 +8,7 @@ function safeHref(value: string) {
 
 function inlineMarkdown(
   text: string,
+  platformLabels: Record<string, string>,
   sources?: SourceCitationItem[],
   onCitationClick?: (sourceId: string) => void
 ): ReactNode[] {
@@ -81,7 +83,8 @@ export function MarkdownContent({
   sources?: SourceCitationItem[]
   onCitationClick?: (sourceId: string) => void
 }) {
-  const renderInline = (text: string) => inlineMarkdown(text, sources, onCitationClick)
+  const platformLabels = usePlatformLabels()
+  const renderInline = (text: string) => inlineMarkdown(text, platformLabels, sources, onCitationClick)
   const lines = content.replace(/\r\n/g, '\n').split('\n')
   const blocks: ReactNode[] = []
   let index = 0

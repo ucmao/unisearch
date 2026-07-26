@@ -87,7 +87,13 @@ test('confirmation only executes a pending plan', () => {
   for (const message of ['开始吧', '就按这个执行吧', '按上面的计划来', '执行这个计划', '直接采集', '执行呀', '开始呀', '好的呀', '行呀', 'OK', 'okay']) {
     assert.equal(localIntentDecision(message, { planStatus: 'awaiting_confirmation' }).action, 'execute', message);
   }
+  // “开始 + 采集类动词”也是确认，不能被当成一条缺平台的新调研请求
+  for (const message of ['开始搜索。', '开始采集吧', '马上采集', '现在就搜', '直接搜索', '开搜', '立即执行']) {
+    assert.equal(localIntentDecision(message, { planStatus: 'awaiting_confirmation' }).action, 'execute', message);
+  }
   assert.equal(localIntentDecision('开始吧').action, 'chat');
+  // 没有待确认计划时，这些词仍应走正常调研/澄清流程，不能凭空启动
+  assert.notEqual(localIntentDecision('开始搜索。').action, 'execute');
   assert.equal(localIntentDecision('执行').action, 'execute');
   assert.equal(localIntentDecision('执行呀').action, 'execute');
   assert.equal(localIntentDecision('开跑').action, 'execute');

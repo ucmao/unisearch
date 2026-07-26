@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, Eye, EyeOff, FileText,
+  AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileText, Globe,
   Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
@@ -23,13 +23,7 @@ import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
 import { useMentionCommands, extractMentionedConnectorIds } from '@/hooks/useMentionCommands'
-
-const PLATFORM_LABELS: Record<string, string> = {
-  xhs: '小红书', dy: '抖音', douyin: '抖音', ks: '快手', kuaishou: '快手', bili: '哔哩哔哩', wb: '微博', weibo: '微博', tieba: '百度贴吧', zhihu: '知乎',
-  baidu: '百度', bing: '必应', so360: '360搜索', sogou: '搜狗', media_parser: '综合解析', zhaopin: '智联招聘', heimao: '黑猫投诉',
-  deepseek: 'DeepSeek', doubao: '豆包', kimi: 'Kimi', nami: '纳米AI',
-  qwen: '通义千问', wenxin: '文心一言', yuanbao: '腾讯元宝',
-}
+import { usePlatformLabels, usePlatformMentionEntities } from '@/hooks/usePlatformCatalog'
 
 const AI_PLATFORMS = new Set([
   'deepseek', 'doubao', 'kimi', 'nami', 'qwen', 'wenxin', 'yuanbao',
@@ -300,10 +294,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     }
   }
 
+  const platformLabels = usePlatformLabels()
+  const connectorEntities = usePlatformMentionEntities()
   const mentionCommands = useMentionCommands({
     value: input,
     onChange: setInput,
     onExecuteCommand: handleExecuteCommand,
+    connectorEntities,
   })
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
@@ -449,7 +446,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
       sendAbortControllerRef.current = controller
-      const mentionedConnectors = extractMentionedConnectorIds(content)
+      const mentionedConnectors = extractMentionedConnectorIds(content, connectorEntities)
       return agentApi.sendMessage(id, content, {
         attachment_ids: attachmentIds,
         task_references: references,
@@ -1048,14 +1045,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {(isCollecting || browserWindowQuery.data?.can_open) && <Button
               size="icon"
               variant="ghost"
-              className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40' : 'text-cyber-text-muted hover:text-cyber-text-primary'}`}
+              className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary text-cyber-neon-cyan' : ''}`}
               onClick={() => toggleBrowserWindow.mutate()}
               disabled={toggleBrowserWindow.isPending}
               title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
               aria-label={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
               aria-pressed={browserWindowQuery.data?.visible}
             >
-              {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : browserWindowQuery.data?.visible ? <Eye className="h-4 w-4 text-cyber-neon-cyan" /> : <EyeOff className="h-4 w-4" />}
+              {toggleBrowserWindow.isPending ? <Loader2 className="animate-spin" /> : <Globe />}
             </Button>}
             <Button className="md:hidden" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}</Button>
             {selectedId && <Button
@@ -1186,7 +1183,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     )
                   })}
                   {taskReferences.map((reference) => <span key={reference.plan_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
-                    <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => PLATFORM_LABELS[platform] || platform).join('/')}` : ''}</span>
+                    <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => platformLabels[platform] || platform).join('/')}` : ''}</span>
                     <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
                   </span>)}
                 </div> : null}
@@ -1379,7 +1376,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       </p>
                     ) : null}
                     <div className="flex flex-wrap items-center gap-1 text-[10px] text-cyber-text-muted">
-                      <span>平台：{activePlan.plan.platforms.map((p) => PLATFORM_LABELS[p] || p).join('、')}</span>
+                      <span>平台：{activePlan.plan.platforms.map((p) => platformLabels[p] || p).join('、')}</span>
                     </div>
                   </div>
                   <Button
@@ -1446,7 +1443,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="truncate font-medium text-cyber-text-primary">
-                                {PLATFORM_LABELS[item.platform] || item.platform}
+                                {platformLabels[item.platform] || item.platform}
                               </span>
                               {item.isAI ? (
                                 <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
@@ -1605,11 +1602,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               return <div key={task.plan_id} className={`rounded-xl border p-3 ${selected ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle'}`}>
                 <button type="button" onClick={() => toggleTaskReference(task)} className="flex w-full items-start gap-3 text-left">
                   <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-cyber-bg-primary' : 'border-cyber-border-default'}`}>{selected ? '✓' : ''}</span>
-                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-cyber-text-primary">{task.goal}</span><span className="mt-1 block text-[10px] text-cyber-text-muted">{task.content_count} 条内容 · {task.platforms.map((platform) => PLATFORM_LABELS[platform] || platform).join('、')}</span></span>
+                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-cyber-text-primary">{task.goal}</span><span className="mt-1 block text-[10px] text-cyber-text-muted">{task.content_count} 条内容 · {task.platforms.map((platform) => platformLabels[platform] || platform).join('、')}</span></span>
                 </button>
                 {selected ? <div className="mt-3 flex flex-wrap gap-1.5 border-t border-cyber-border-subtle pt-3">
                   <button type="button" onClick={() => setReferencePlatforms(task, [])} className={`rounded-md border px-2 py-1 text-[10px] ${!selected.platforms.length ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>全部平台</button>
-                  {task.platforms.map((platform) => <button key={platform} type="button" onClick={() => setReferencePlatforms(task, [platform])} className={`rounded-md border px-2 py-1 text-[10px] ${selected.platforms.includes(platform) ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>{PLATFORM_LABELS[platform] || platform}</button>)}
+                  {task.platforms.map((platform) => <button key={platform} type="button" onClick={() => setReferencePlatforms(task, [platform])} className={`rounded-md border px-2 py-1 text-[10px] ${selected.platforms.includes(platform) ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>{platformLabels[platform] || platform}</button>)}
                 </div> : null}
               </div>
             })}

@@ -6,8 +6,11 @@ import { configuredTargets, firstMatch, resolveRedirect } from '../base/connecto
 import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
 
 // Tieba's own search stops serving useful results well before this; the cap only
-// exists so a query that keeps rendering identical pages cannot loop forever.
+// exists so a query that keeps answering identical pages cannot loop forever.
 const TIEBA_MAX_SEARCH_PAGES = 30;
+/** `rn` the search page asks for itself; larger values are not honoured. */
+const TIEBA_SEARCH_PAGE_SIZE = 20;
+const TIEBA_SEARCH_API = '/mo/q/search/multsearch';
 
 /** A floor (楼层) of a thread — what Tieba calls a post and we store as a comment. */
 interface ThreadPost {
@@ -42,6 +45,18 @@ interface SubComment {
   time: string;
 }
 
+/** The search payload carries titles and abstracts with HTML entities still in them. */
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#3[49];/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
 /** The JSON API returns unix seconds; the stored shape has always been a local string. */
 function formatTiebaTime(seconds: unknown): string {
   const value = Number(seconds);
@@ -55,6 +70,8 @@ function formatTiebaTime(seconds: unknown): string {
 export class TiebaCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  /** The signed `multsearch` URL captured for the keyword currently being walked. */
+  private searchEndpoint: { keyword: string; url: string } | null = null;
 
   public async start(): Promise<void> {
     console.log('[TIEBA] Starting Tieba crawler (Electron CDP mode)...');
@@ -137,37 +154,14 @@ export class TiebaCrawler extends AbstractCrawler {
     for (const keyword of keywords) {
       console.log(`[TIEBA] Searching keyword: ${keyword} (target ${target})`);
       try {
-        // Tieba search is truly paginated. Without this loop the crawler only ever
-        // saw the first page, so any depth above ~10 items was unreachable while
-        // the run still reported success.
-        //
-        // Baidu uses `pn` for both conventions across its endpoints — a 1-based
-        // page index on some, an item offset on others — so the mode is detected
-        // from the second request instead of hardcoding a guess.
+        // Tieba search is truly paginated, but only through its JSON endpoint —
+        // the rendered page shows five threads and ignores `pn` in the URL, so
+        // scraping the DOM capped every keyword at five results no matter the
+        // configured depth.
         const collected = new Map<string, any>();
-        let pageSize = 0;
-        let offsetMode = false;
         let pagesWithoutNewResults = 0;
-        for (let pageNo = 1; collected.size < target && pageNo <= TIEBA_MAX_SEARCH_PAGES; pageNo++) {
-          const pn = offsetMode ? (pageNo - 1) * (pageSize || 10) : pageNo;
-          const posts = await this.collectSearchPage(keyword, pn);
-          const ids = posts.map((post) => post.note_id).filter(Boolean);
-          const newIds = ids.filter((id) => !collected.has(id));
-
-          if (pageNo === 1) {
-            pageSize = ids.length;
-          } else if (pageNo === 2 && !offsetMode && ids.length && pageSize && newIds.length <= 1) {
-            // Under offset semantics pn=2 shifts the window by exactly one item,
-            // so page 2 returns at most one unseen thread. Requiring near-total
-            // overlap keeps a genuinely duplicate-heavy page 2 from misfiring.
-            offsetMode = true;
-            console.warn('[TIEBA] Detected offset-style pagination; switching pn to item offsets.');
-            // Restart from offset 0 so the very first result is not skipped;
-            // the dedupe map absorbs the overlap with what page 1 already gave.
-            pageNo = 0;
-            continue;
-          }
-
+        for (let pn = 1; collected.size < target && pn <= TIEBA_MAX_SEARCH_PAGES; pn++) {
+          const { posts, hasMore } = await this.collectSearchPage(keyword, pn);
           const before = collected.size;
           for (const post of posts) {
             if (!post.note_id || collected.has(post.note_id)) continue;
@@ -175,13 +169,14 @@ export class TiebaCrawler extends AbstractCrawler {
             if (collected.size >= target) break;
           }
           console.log(`[TIEBA] pn=${pn}: ${posts.length} results, ${collected.size}/${target} collected.`);
+          if (!posts.length) break;
           if (collected.size === before) {
-            // The last page of a query keeps rendering, it just stops adding
-            // anything new, so "no growth" is the only reliable end signal.
+            // A tail page keeps answering, it just stops adding anything new.
             if (++pagesWithoutNewResults >= 2) break;
           } else {
             pagesWithoutNewResults = 0;
           }
+          if (!hasMore) break;
           await this.humanDelay(this.page!);
         }
 
@@ -200,60 +195,135 @@ export class TiebaCrawler extends AbstractCrawler {
     }
   }
 
-  private async collectSearchPage(keyword: string, pn: number): Promise<any[]> {
-    const searchUrl = `https://tieba.baidu.com/f/search/res?qw=${encodeURIComponent(keyword)}&pn=${pn}`;
-    await this.page!.goto(searchUrl, { waitUntil: 'domcontentloaded' });
-    await this.page!.waitForTimeout(3000);
+  /**
+   * Locate the signed search call the results page makes for itself.
+   *
+   * `/f/search/res` is a Vue app that renders five threads and never reads `pn`
+   * off the URL; the real result set comes from `multsearch`, which does paginate.
+   * That endpoint is signed, but the signature only covers the query — swapping
+   * `pn` on a captured URL is accepted — so the page is loaded once per keyword
+   * and its own request is reused instead of reimplementing Baidu's signature.
+   */
+  protected async resolveSearchEndpoint(keyword: string): Promise<string | null> {
+    if (this.searchEndpoint?.keyword === keyword) return this.searchEndpoint.url;
+    let captured = '';
+    const capture = (request: any) => {
+      const url = request.url();
+      if (!captured && url.includes(TIEBA_SEARCH_API)) captured = url;
+    };
+    this.page!.on('request', capture);
+    try {
+      await this.page!.goto(
+        `https://tieba.baidu.com/f/search/res?ie=utf-8&qw=${encodeURIComponent(keyword)}`,
+        { waitUntil: 'domcontentloaded' },
+      );
+      for (let waited = 0; waited < 20 && !captured; waited++) await this.page!.waitForTimeout(300);
+    } catch (error: any) {
+      console.error(`[TIEBA] Failed to open search page for ${keyword}: ${error.message}`);
+    } finally {
+      this.page!.off('request', capture);
+    }
+    if (!captured) return null;
+    this.searchEndpoint = { keyword, url: captured };
+    return captured;
+  }
 
-    // Scroll
-    await this.page!.evaluate(() => window.scrollBy(0, 1000));
-    await this.page!.waitForTimeout(1000);
+  /** Map one `multsearch` payload; kept pure so the mapping can be tested. */
+  protected normalizeSearchPayload(payload: any): { posts: any[]; hasMore: boolean } {
+    const cards: any[] = payload?.data?.card_list || [];
+    // The list also carries forum, user and recommendation cards; only threads
+    // are results.
+    const posts = cards
+      .filter((card) => card?.cardInfo === 'thread' && card?.data?.tid)
+      .map((card) => {
+        const thread = card.data;
+        const forum = String(thread.forum_name || thread.forum_info?.forum_name || '');
+        return {
+          note_id: String(thread.tid),
+          title: decodeEntities(String(thread.title || '')),
+          desc: decodeEntities(String(thread.content || thread.abstract || '')),
+          note_url: `https://tieba.baidu.com/p/${thread.tid}`,
+          user_nickname: String(thread.user?.show_nickname || thread.user?.user_name || ''),
+          creator_hash: String(thread.user?.user_id || ''),
+          comment_count: Number(thread.post_num || 0),
+          tieba_name: forum,
+          tieba_link: forum ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(forum)}` : '',
+        };
+      });
+    return { posts, hasMore: Number(payload?.data?.has_more || 0) === 1 };
+  }
 
+  protected async collectSearchPage(keyword: string, pn: number): Promise<{ posts: any[]; hasMore: boolean }> {
+    const endpoint = await this.resolveSearchEndpoint(keyword);
+    if (!endpoint) {
+      console.warn('[TIEBA] Search API request was never observed — '
+        + '贴吧搜索页结构可能又变了，本次仅解析首屏结果。');
+      return { posts: pn === 1 ? await this.collectSearchPageFromDom() : [], hasMore: false };
+    }
+    const url = new URL(endpoint);
+    url.searchParams.set('pn', String(pn));
+    url.searchParams.set('rn', String(TIEBA_SEARCH_PAGE_SIZE));
+    try {
+      // Fetched from the page so the call carries the browser's own session.
+      const payload = await this.page!.evaluate(async (target: string) => {
+        const response = await fetch(target, { credentials: 'include' });
+        if (!response.ok) return null;
+        try { return await response.json(); } catch { return null; }
+      }, url.toString());
+      return this.normalizeSearchPayload(payload);
+    } catch (error: any) {
+      console.error(`[TIEBA] Search page ${pn} failed for ${keyword}: ${error.message}`);
+      return { posts: [], hasMore: false };
+    }
+  }
+
+  /** Last resort when the JSON call cannot be captured: the five rendered cards. */
+  private async collectSearchPageFromDom(): Promise<any[]> {
     return this.page!.evaluate(() => {
-          const items: any[] = [];
-          const postElements = document.querySelectorAll('.thread-content-box');
-          
-          postElements.forEach((post) => {
-            const titleEl = post.querySelector('.title-wrap span');
-            const descEl = post.querySelector('.abstract-wrap span');
-            const authorEl = post.querySelector('.forum-attention');
-            const linkEl = post.querySelector('.action-link-bg, .comment-link-zone, .item-link-bg');
-            const tiebaNameEl = post.querySelector('.forum-name-text');
-            
-            const href = linkEl ? linkEl.getAttribute('href') || '' : '';
-            const noteId = href.match(/p\/([0-9]+)/)?.[1] || '';
-            
-            const itemWarps = Array.from(post.querySelectorAll('.item-warp'));
-            let commentCount = 0;
-            
-            itemWarps.forEach((warp) => {
-              const iconUse = warp.querySelector('use');
-              const iconHref = iconUse ? (iconUse.getAttribute('xlink:href') || iconUse.getAttribute('href') || '') : '';
-              const numEl = warp.querySelector('.action-number');
-              const valText = numEl ? numEl.textContent?.trim() || '' : '';
-              
-              if (iconHref.includes('comment')) {
-                commentCount = parseInt(valText) || 0;
-              }
-            });
+      const items: any[] = [];
+      const postElements = document.querySelectorAll('.thread-content-box');
 
-            if (titleEl) {
-              const tiebaName = tiebaNameEl?.textContent?.trim() || '';
-              items.push({
-                note_id: noteId,
-                title: titleEl.textContent?.trim() || '',
-                desc: descEl?.textContent?.trim() || '',
-                note_url: href.startsWith('http') ? href : 'https://tieba.baidu.com' + href,
-                user_nickname: authorEl?.textContent?.trim() || '',
-                creator_hash: authorEl ? authorEl.textContent?.trim() || '' : '',
-                comment_count: commentCount,
-                tieba_name: tiebaName,
-                tieba_link: tiebaName ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(tiebaName.replace('吧', ''))}` : '',
-              });
-            }
-          });
-          return items;
+      postElements.forEach((post) => {
+        const titleEl = post.querySelector('.title-wrap span');
+        const descEl = post.querySelector('.abstract-wrap span');
+        const authorEl = post.querySelector('.forum-attention');
+        const linkEl = post.querySelector('.action-link-bg, .comment-link-zone, .item-link-bg');
+        const tiebaNameEl = post.querySelector('.forum-name-text');
+
+        const href = linkEl ? linkEl.getAttribute('href') || '' : '';
+        const noteId = href.match(/p\/([0-9]+)/)?.[1] || '';
+
+        const itemWarps = Array.from(post.querySelectorAll('.item-warp'));
+        let commentCount = 0;
+
+        itemWarps.forEach((warp) => {
+          const iconUse = warp.querySelector('use');
+          const iconHref = iconUse ? (iconUse.getAttribute('xlink:href') || iconUse.getAttribute('href') || '') : '';
+          const numEl = warp.querySelector('.action-number');
+          const valText = numEl ? numEl.textContent?.trim() || '' : '';
+
+          if (iconHref.includes('comment')) {
+            commentCount = parseInt(valText) || 0;
+          }
         });
+
+        if (titleEl) {
+          const tiebaName = tiebaNameEl?.textContent?.trim() || '';
+          items.push({
+            note_id: noteId,
+            title: titleEl.textContent?.trim() || '',
+            desc: descEl?.textContent?.trim() || '',
+            note_url: href.startsWith('http') ? href : 'https://tieba.baidu.com' + href,
+            user_nickname: authorEl?.textContent?.trim() || '',
+            creator_hash: authorEl ? authorEl.textContent?.trim() || '' : '',
+            comment_count: commentCount,
+            tieba_name: tiebaName,
+            tieba_link: tiebaName ? `https://tieba.baidu.com/f?kw=${encodeURIComponent(tiebaName.replace('吧', ''))}` : '',
+          });
+        }
+      });
+      return items;
+    });
   }
 
   private async ingestSearchResults(posts: any[], keyword: string): Promise<void> {

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 import { ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
 
 export interface SourceCitationItem {
@@ -17,32 +18,10 @@ interface CollapsibleSourcesBarProps {
   onCitationClick?: (sourceId: string) => void
 }
 
-export const platformLabels: Record<string, string> = {
-  zhihu: '知乎',
-  xhs: '小红书',
-  weibo: '微博',
-  douyin: '抖音',
-  kuaishou: '快手',
-  bili: '哔哩哔哩',
-  tieba: '贴吧',
-  baidu: '百度搜索',
-  bing: '必应搜索',
-  so360: '360搜索',
-  sogou: '搜狗搜索',
-  zhaopin: '智联招聘',
-  heimao: '黑猫投诉',
-  deepseek: 'DeepSeek',
-  kimi: 'Kimi',
-  doubao: '豆包',
-  qwen: '通义千问',
-  yuanbao: '腾讯元宝',
-  nami: '纳米AI',
-  wenxin: '文心一言',
-  media_parser: '无水印解析',
-}
 
 export function CollapsibleSourcesBar({ sources, keywords = [], onCitationClick }: CollapsibleSourcesBarProps) {
   const [expanded, setExpanded] = useState(false)
+  const platformLabels = usePlatformLabels()
 
   if (!sources || sources.length === 0) return null
 

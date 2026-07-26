@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { TiebaCrawler } from '../src/crawler/platforms/tieba';
 import { applyConfig, resetConfig } from '../src/tools/config';
 
@@ -10,8 +12,8 @@ interface Harness {
 
 /**
  * Drives the real search loop with a stubbed page fetch. `serve` decides what a
- * given `pn` value returns, which is how both pagination conventions are
- * simulated without touching the network.
+ * given `pn` returns, so the loop's stopping rules can be exercised without a
+ * browser.
  */
 async function runSearch(
   serve: (pn: number) => string[],
@@ -30,18 +32,20 @@ async function runSearch(
   crawler.ingestSearchResults = async (posts: any[]) => { harness.ingested = posts; };
   crawler.collectSearchPage = async (_keyword: string, pn: number) => {
     harness.requestedPn.push(pn);
-    return serve(pn).map((id) => ({ note_id: id, title: id, note_url: `https://tieba.baidu.com/p/${id}`, comment_count: 0 }));
+    const ids = serve(pn);
+    return {
+      posts: ids.map((id) => ({ note_id: id, title: id, note_url: `https://tieba.baidu.com/p/${id}`, comment_count: 0 })),
+      hasMore: ids.length > 0,
+    };
   };
   await crawler.search();
   resetConfig();
   return harness;
 }
 
-const PAGE_SIZE = 10;
-/** Endpoint where `pn` is a 1-based page index. */
+const PAGE_SIZE = 20;
+/** `pn` is a 1-based page index on the multsearch endpoint. */
 const byPage = (total: number) => (pn: number) => ids((pn - 1) * PAGE_SIZE, total);
-/** Endpoint where `pn` is an item offset. */
-const byOffset = (total: number) => (pn: number) => ids(pn, total);
 
 function ids(from: number, total: number): string[] {
   const out: string[] = [];
@@ -50,40 +54,24 @@ function ids(from: number, total: number): string[] {
 }
 
 test('search paginates until the requested amount is reached', async () => {
-  // The old implementation fetched exactly one page, so a 50-item target could
-  // never be satisfied and the run still finished as "completed".
+  // The DOM-scraping implementation saw five threads per keyword and no more, so
+  // any target above that was unreachable while the run still reported success.
   const harness = await runSearch(byPage(200), { maxItems: 50 });
   assert.equal(harness.ingested.length, 50);
-  assert.ok(harness.requestedPn.length >= 5, `只请求了 ${harness.requestedPn.length} 页`);
+  assert.deepEqual(harness.requestedPn, [1, 2, 3]);
 });
 
 test('search stops at the end of the result set instead of looping', async () => {
-  const harness = await runSearch(byPage(23), { maxItems: 50 });
+  const harness = await runSearch(byPage(23), { maxItems: 100 });
   assert.equal(harness.ingested.length, 23);
-  // Two consecutive barren pages end it; it must not walk to the page cap.
-  assert.ok(harness.requestedPn.length <= 6, `多请求了 ${harness.requestedPn.length} 页`);
+  assert.ok(harness.requestedPn.length <= 4, `多请求了 ${harness.requestedPn.length} 页`);
 });
 
-test('offset-style pn is detected and adapted to, without skipping the first result', async () => {
-  const harness = await runSearch(byOffset(200), { maxItems: 50 });
-  assert.equal(harness.ingested.length, 50);
-  const collected = harness.ingested.map((post) => post.note_id);
-  assert.ok(collected.includes('t0'), '重新按 offset 抓取时漏掉了第一条');
-  assert.equal(new Set(collected).size, collected.length, '跨页出现重复');
-  assert.ok(harness.requestedPn.includes(0), '未从 offset 0 重新开始');
-});
-
-test('a duplicate-heavy page 2 is not mistaken for offset pagination', async () => {
-  // Baidu results repeat themselves often. Half of page 2 overlapping page 1 is
-  // ordinary duplication, not evidence that pn shifted by one item — treating it
-  // as offset mode would make the crawler skip pages 2 through 9.
-  const harness = await runSearch((pn) => {
-    if (pn === 1) return ids(0, 200);
-    if (pn === 2) return [...ids(5, 200).slice(0, 5), ...ids(10, 200).slice(0, 5)];
-    return ids((pn - 1) * PAGE_SIZE, 200);
-  }, { maxItems: 40 });
-  assert.ok(!harness.requestedPn.includes(0), '误判为 offset 分页');
-  assert.equal(harness.ingested.length, 40);
+test('a page that only repeats what is already collected ends the walk', async () => {
+  // Baidu keeps answering past the last real page; "no growth" is the signal.
+  const harness = await runSearch(() => ids(0, 20), { maxItems: 100 });
+  assert.equal(harness.ingested.length, 20);
+  assert.ok(harness.requestedPn.length <= 4, `重复页请求了 ${harness.requestedPn.length} 次`);
 });
 
 test('a single-page result set is still ingested', async () => {
@@ -94,12 +82,45 @@ test('a single-page result set is still ingested', async () => {
 test('an empty result set neither loops nor throws', async () => {
   const harness = await runSearch(() => [], { maxItems: 50 });
   assert.equal(harness.ingested.length, 0);
-  assert.ok(harness.requestedPn.length <= 3, `空结果请求了 ${harness.requestedPn.length} 次`);
+  assert.equal(harness.requestedPn.length, 1);
 });
 
 test('every keyword gets its own pagination run', async () => {
   const harness = await runSearch(byPage(200), { keywords: 'a,b', maxItems: 20 });
   // ingested holds the last keyword only; the request log covers both.
   assert.equal(harness.ingested.length, 20);
-  assert.ok(harness.requestedPn.filter((pn) => pn === 1).length === 2, '第二个关键词没有从第一页重新开始');
+  assert.equal(harness.requestedPn.filter((pn) => pn === 1).length, 2, '第二个关键词没有从第一页重新开始');
+});
+
+test('a captured multsearch payload maps onto the stored fields', async () => {
+  const payload = JSON.parse(
+    readFileSync(path.join(__dirname, 'fixtures/tieba-search-multsearch.json'), 'utf-8'),
+  );
+  const crawler = new TiebaCrawler() as any;
+  const { posts, hasMore } = crawler.normalizeSearchPayload(payload);
+
+  assert.equal(hasMore, true);
+  // The card list also carries a forum card, which is not a result.
+  assert.deepEqual(posts.map((post: any) => post.note_id), ['10533844286', '10846980096', '10445136629']);
+  assert.deepEqual(posts[0], {
+    note_id: '10533844286',
+    title: '制造业干到头了？他靠科莱特SAP培训找到了新出路',
+    desc: '一次深思熟虑的转行 在制造业摸爬滚打十余年，兼任质量组&库房组的组长，'
+      + '高学员对生产流程、前台业务早已驾轻就熟。但随着职业发展的瓶颈逐渐显现，他萌生了转行的想法。',
+    note_url: 'https://tieba.baidu.com/p/10533844286',
+    user_nickname: '滴答嘀嗒滴嗒嘀',
+    creator_hash: '886597166',
+    comment_count: 14,
+    tieba_name: 'sap培训',
+    tieba_link: 'https://tieba.baidu.com/f?kw=sap%E5%9F%B9%E8%AE%AD',
+  });
+});
+
+test('the last page of a query reports no more pages', () => {
+  const crawler = new TiebaCrawler() as any;
+  assert.deepEqual(crawler.normalizeSearchPayload({ data: { has_more: 0, card_list: [] } }), {
+    posts: [],
+    hasMore: false,
+  });
+  assert.deepEqual(crawler.normalizeSearchPayload(null), { posts: [], hasMore: false });
 });
