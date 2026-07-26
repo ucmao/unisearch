@@ -22,7 +22,7 @@ import { PlatformExportIcons, type PlatformConfig } from './PlatformExportIcons'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
-import { useMentionCommands } from '@/hooks/useMentionCommands'
+import { useMentionCommands, extractMentionedConnectorIds } from '@/hooks/useMentionCommands'
 
 const PLATFORM_LABELS: Record<string, string> = {
   xhs: '小红书', dy: '抖音', douyin: '抖音', ks: '快手', kuaishou: '快手', bili: '哔哩哔哩', wb: '微博', weibo: '微博', tieba: '百度贴吧', zhihu: '知乎',
@@ -135,7 +135,7 @@ function PlanCard({ plan, onExecute, executing, onUpdateKeywords, onUpdateDepth,
   const isFinished = ['completed', 'partially_completed'].includes(plan.status)
   const totalItems = plan.stats?.content_count ?? plan.steps.reduce((total, step) => total + (step.item_count || 0), 0)
   const completedPlatforms = plan.steps.filter((step) => step.status === 'completed').length
-  const depth = plan.plan.collectionDepth || (plan.plan.collectComments ? 'standard' : 'quick')
+  const depth = plan.plan.collectionDepth || 'standard'
   const isOnlyAiQA = plan.plan.platforms.length > 0 && plan.plan.platforms.every((p) => ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'].includes(p))
 
   useEffect(() => {
@@ -224,6 +224,7 @@ function ChatCrawlingStatusBanner({
 
   const totalSteps = activePlan.steps.length
   const completedSteps = activePlan.steps.filter((s) => s.status === 'completed').length
+  const contentCount = activePlan.stats?.content_count ?? 0
 
   const handleClick = () => {
     if (!rightSidebarOpen) {
@@ -246,7 +247,7 @@ function ChatCrawlingStatusBanner({
           title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
         >
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>正在采集数据 ({completedSteps}/{totalSteps})</span>
+          <span>正在采集数据，已入库 {contentCount} 条（平台 {completedSteps}/{totalSteps}）</span>
         </button>
       </div>
     </div>
@@ -397,6 +398,28 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
   const [addMenuOpen, setAddMenuOpen] = useState(false)
+  const addMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!addMenuOpen) return
+    const handlePointerDown = (e: PointerEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setAddMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setAddMenuOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [addMenuOpen])
+
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
   const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; platforms: string[] }>>([])
@@ -507,7 +530,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
       sendAbortControllerRef.current = controller
-      return agentApi.sendMessage(id, content, { attachment_ids: attachmentIds, task_references: references }, controller.signal)
+      const mentionedConnectors = extractMentionedConnectorIds(content)
+      return agentApi.sendMessage(id, content, {
+        attachment_ids: attachmentIds,
+        task_references: references,
+        ...(mentionedConnectors.length ? { mentioned_connectors: mentionedConnectors } : {}),
+      }, controller.signal)
     },
     onMutate: async ({ id, message }) => {
       await client.cancelQueries({ queryKey: ['agent-thread', id] })
@@ -788,9 +816,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           plan: {
             ...current.plan.plan,
             ...updates,
-            ...(updates.collectionDepth === 'quick' ? { collectComments: false, collectSubComments: false, startPage: 1 } : {}),
-            ...(updates.collectionDepth === 'standard' ? { collectComments: true, collectSubComments: false, startPage: 1 } : {}),
-            ...(updates.collectionDepth === 'deep' ? { collectComments: true, collectSubComments: true, startPage: 1 } : {}),
           },
         },
       } : current)
@@ -1260,6 +1285,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     }
                   }}
                   onMouseEnterItem={(index) => mentionCommands.setSelectedIndex(index)}
+                  onClose={mentionCommands.closePopover}
+                  anchorRef={composerInputRef}
                 />
                 <textarea
                   ref={composerInputRef}
@@ -1279,7 +1306,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   placeholder={!selectedId ? '输入问题，或使用 @ 呼出 Connector、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Connector 平台，或使用 / 呼出快捷指令…'}
                   className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted"
                 />
-                <div className="absolute bottom-3 left-3">
+                <div ref={addMenuRef} className="absolute bottom-3 left-3">
                   <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
                     {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
                   </Button>
@@ -1340,7 +1367,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
           const isPending = activePlan?.status === 'awaiting_confirmation'
           const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
-          const canRetry = activePlan ? ['failed', 'partially_completed'].includes(activePlan.status) : false
+          // 正常退出但 0 条的平台同样计入可重试，否则它会被算作“已完成”而失去补救入口
+          const emptyStepCount = activePlan
+            ? activePlan.steps.filter((s) => s.status === 'completed' && !(s.item_count || 0)).length
+            : 0
+          const canRetry = activePlan
+            ? ['failed', 'partially_completed'].includes(activePlan.status)
+              || (activePlan.status === 'completed' && emptyStepCount > 0)
+            : false
 
           // 汇总各平台累计抓取数据分布
           const platformSummaryMap = new Map<string, {
@@ -1521,7 +1555,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
                   </div>
                 ) : null}
-                {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />重试失败平台</Button> : null}
+                {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : '重试失败/无结果平台'}</Button> : null}
               </div>
 
               {/* 知识资产与一键导出 (8 平台图标栏) */}

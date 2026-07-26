@@ -14,6 +14,12 @@ export interface MentionEntity {
 }
 
 export const CONNECTOR_ENTITIES: MentionEntity[] = [
+  // 搜索引擎
+  { id: 'baidu', key: 'baidu', name: '百度搜索', category: 'search', categoryLabel: '搜索引擎', description: '百度 SERP 网页检索' },
+  { id: 'bing', key: 'bing', name: '必应中国', category: 'search', categoryLabel: '搜索引擎', description: 'Bing 全球/国内网页检索' },
+  { id: 'so360', key: 'so360', name: '360搜索', category: 'search', categoryLabel: '搜索引擎', description: '360 网页搜索结果提取' },
+  { id: 'sogou', key: 'sogou', name: '搜狗搜索', category: 'search', categoryLabel: '搜索引擎', description: '搜狗网页及微信内容检索' },
+
   // 社交平台
   { id: 'xhs', key: 'xhs', name: '小红书', category: 'social', categoryLabel: '社交平台', description: '作品、创作者及评论采集' },
   { id: 'douyin', key: 'douyin', name: '抖音', category: 'social', categoryLabel: '社交平台', description: '短视频、图文及回复采集' },
@@ -22,12 +28,6 @@ export const CONNECTOR_ENTITIES: MentionEntity[] = [
   { id: 'weibo', key: 'weibo', name: '微博', category: 'social', categoryLabel: '社交平台', description: '博文及转发评论采集' },
   { id: 'tieba', key: 'tieba', name: '百度贴吧', category: 'social', categoryLabel: '社交平台', description: '主题帖及楼层回复采集' },
   { id: 'zhihu', key: 'zhihu', name: '知乎', category: 'social', categoryLabel: '社交平台', description: '问题、回答与文章采集' },
-
-  // 搜索引擎
-  { id: 'baidu', key: 'baidu', name: '百度搜索', category: 'search', categoryLabel: '搜索引擎', description: '百度 SERP 网页检索' },
-  { id: 'bing', key: 'bing', name: '必应中国', category: 'search', categoryLabel: '搜索引擎', description: 'Bing 全球/国内网页检索' },
-  { id: 'so360', key: 'so360', name: '360搜索', category: 'search', categoryLabel: '搜索引擎', description: '360 网页搜索结果提取' },
-  { id: 'sogou', key: 'sogou', name: '搜狗搜索', category: 'search', categoryLabel: '搜索引擎', description: '搜狗网页及微信内容检索' },
 
   // 招聘与投诉
   { id: 'zhaopin', key: 'zhaopin', name: '智联招聘', category: 'job_complaint', categoryLabel: '招聘与投诉', description: '招聘岗位列表与 JD 详情解析' },
@@ -45,6 +45,18 @@ export const CONNECTOR_ENTITIES: MentionEntity[] = [
   // 工具解析
   { id: 'media_parser', key: 'media_parser', name: '综合无水印解析', category: 'utility', categoryLabel: '工具解析', description: '多平台公开无水印音视频提取' },
 ]
+
+// 从消息正文中还原出用户通过 @ 菜单选中过的 connector id。
+// 选中时插入的是纯文本 "@名称 "，发送时并无结构化字段，因此按名称在文本中
+// 反向匹配；要求 @ 前是句首或空白，避免误吃到句子中间的普通文字。
+export function extractMentionedConnectorIds(text: string): string[] {
+  const found = new Set<string>()
+  for (const entity of CONNECTOR_ENTITIES) {
+    const pattern = new RegExp(`(^|\\s)@${entity.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`)
+    if (pattern.test(text)) found.add(entity.id)
+  }
+  return Array.from(found)
+}
 
 export const SLASH_COMMANDS: MentionEntity[] = [
   { id: 'cmd_crawl', key: 'crawl', name: '/crawl', category: 'action', categoryLabel: '快捷指令', description: '发起多平台采集任务（例如: /crawl 极氪001）', command: '/crawl ' },

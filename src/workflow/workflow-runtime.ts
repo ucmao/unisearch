@@ -1,4 +1,5 @@
 import { getConnectorManifest } from '../connectors/registry';
+import { resolveDepthPreset } from '../connectors/depth';
 import { documentEngine } from '../document/document-engine';
 import { processorWorkerExecutor } from '../processor/processor-worker-executor';
 import { agentRepository, type ResearchPlan } from '../server/services/AgentRepository';
@@ -17,6 +18,12 @@ const TERMINAL_WORKFLOW_STATUSES = new Set([
   'completed', 'partially_completed', 'failed', 'cancelled', 'stopped', 'interrupted',
 ]);
 
+function collectEmptyStepKeys(workflow: any): string[] {
+  return (workflow.steps || [])
+    .filter((step: any) => step.status === 'completed' && Number(step.item_count || 0) === 0)
+    .map((step: any) => String(step.step_key));
+}
+
 export class WorkflowRuntime {
   constructor() {
     workflowEngine.registerHandler('processor.documents.finalize', (input, context) =>
@@ -34,11 +41,16 @@ export class WorkflowRuntime {
   queue(workflowId: string): any {
     const workflow = agentRepository.getPlan(workflowId);
     if (!workflow) throw new Error('Workflow 不存在');
-    if (!['awaiting_confirmation', 'failed', 'partially_completed', 'interrupted'].includes(workflow.status)) {
+    // A connector that exits cleanly without collecting anything is 'completed',
+    // so an all-empty plan reads as 'completed' too. Treat those steps as retryable.
+    const emptyStepKeys = collectEmptyStepKeys(workflow);
+    const isRetryableStatus = ['awaiting_confirmation', 'failed', 'partially_completed', 'interrupted']
+      .includes(workflow.status);
+    if (!isRetryableStatus && !(workflow.status === 'completed' && emptyStepKeys.length)) {
       throw new Error('当前 Workflow 不能执行');
     }
     if (workflow.status === 'awaiting_confirmation') agentRepository.updatePlanStatus(workflowId, 'queued');
-    else workflowEngine.retry(workflowId);
+    else workflowEngine.retry(workflowId, emptyStepKeys);
     return agentRepository.getPlan(workflowId);
   }
 
@@ -103,18 +115,21 @@ export class WorkflowRuntime {
         continue;
       }
       const depth = plan.collectionDepth || 'standard';
-      const maxCount = depth === 'quick' ? 30 : depth === 'deep' ? 100 : 50;
-      const maxPages = depth === 'quick' ? 3 : depth === 'deep' ? 10 : 5;
+      const preset = resolveDepthPreset(capability.budgetModel, depth);
+      const maxItemsDefault = capability.inputFields.find((field) => field.key === 'max_items')?.default;
+      // The 'comments' capability exists solely to fetch comments, so it forces them on
+      // regardless of depth. Every other combination comes from the capability's own preset.
+      const resolvedComments = capabilityId === 'comments' ? true : Boolean(preset.collectComments);
+      const resolvedSubComments = capabilityId === 'comments' ? true : Boolean(preset.collectSubComments);
       const connectorOptions = {
         collection_depth: depth,
-        crawler_max_notes_count: maxCount,
-        max_items: maxCount,
-        max_pages: maxPages,
+        ...(preset.maxItems !== undefined ? { max_items: preset.maxItems }
+          : maxItemsDefault !== undefined ? { max_items: Number(maxItemsDefault) } : {}),
         ...(plan.connectorOptions?.[step.platform] || {}),
         ...(capabilityId === 'creator_profile' ? { creator_ids: targets } : {}),
         ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
-        enable_comments: capabilityId === 'comments' ? true : plan.collectComments,
-        enable_sub_comments: capabilityId === 'comments' ? true : plan.collectSubComments,
+        enable_comments: resolvedComments,
+        enable_sub_comments: resolvedSubComments,
       };
       try {
         const started = await crawlerManager.start({
@@ -127,10 +142,12 @@ export class WorkflowRuntime {
           specified_ids: ['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? targets.join(',') : '',
           creator_ids: capabilityId === 'creator_profile' ? targets.join(',') : '',
           connector_options: connectorOptions,
-          start_page: plan.startPage,
+          // Only true_pagination capabilities declare a start_page input field; for
+          // everyone else this stays 1 and the connector ignores it anyway.
+          start_page: Number((connectorOptions as Record<string, unknown>).start_page) || 1,
           collection_depth: depth,
-          enable_comments: plan.collectComments,
-          enable_sub_comments: plan.collectSubComments,
+          enable_comments: resolvedComments,
+          enable_sub_comments: resolvedSubComments,
           cookies: '',
           headless: plan.headless,
           loop_execution: false,

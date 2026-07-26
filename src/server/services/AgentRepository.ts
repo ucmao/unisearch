@@ -13,13 +13,15 @@ export interface ResearchPlan {
   capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve';
   targets?: string[];
   connectorOptions?: Record<string, Record<string, unknown>>;
+  /**
+   * The only stored representation of "how much to collect". Concrete crawl
+   * parameters (item budget, comment toggles, start page) are derived per
+   * capability at execution time via resolveDepthPreset + the connector
+   * manifest; anything the user overrides explicitly lives in connectorOptions.
+   */
   collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom';
-  collectComments: boolean;
-  collectSubComments: boolean;
-  startPage: number;
   loginType: 'qrcode' | 'cookie' | 'none';
   headless: boolean;
-  maxItems?: number;
   customScopeDescription?: string;
   analysis: string[];
   analysisSource?: 'ai' | 'fallback' | 'user';

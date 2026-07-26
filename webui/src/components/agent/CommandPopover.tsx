@@ -9,6 +9,8 @@ interface CommandPopoverProps {
   selectedIndex: number
   onSelect: (item: MentionEntity) => void
   onMouseEnterItem: (index: number) => void
+  onClose?: () => void
+  anchorRef?: React.RefObject<HTMLElement | null>
 }
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -55,8 +57,38 @@ export function CommandPopover({
   selectedIndex,
   onSelect,
   onMouseEnterItem,
+  onClose,
+  anchorRef,
 }: CommandPopoverProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen || !onClose) return
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        (!anchorRef?.current || !anchorRef.current.contains(target))
+      ) {
+        onClose()
+      }
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, onClose, anchorRef])
 
   useEffect(() => {
     if (containerRef.current && selectedIndex >= 0) {

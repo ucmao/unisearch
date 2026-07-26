@@ -18,7 +18,7 @@ test('fallback titles remove conversational lead-ins and sensitive values', () =
 test('plan titles include a single platform when the goal does not name it', () => {
   assert.equal(titleFromPlan({
     goal: '扫地机器人口碑调研', platforms: ['xhs'], keywords: ['扫地机器人'],
-    collectComments: true, collectSubComments: false, startPage: 1, loginType: 'qrcode', headless: false,
+    collectionDepth: 'standard', loginType: 'qrcode', headless: false,
     analysis: ['用户观点'], outputs: ['csv'],
   }), '小红书·扫地机器人');
 });

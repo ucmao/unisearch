@@ -64,33 +64,9 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
     ? input.analysisSource
     : suppliedAnalysis ? 'ai' : 'fallback';
 
-  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = input?.collectSubComments === true
-    ? 'deep'
-    : input?.collectComments === false
-      ? 'quick'
-      : input?.collectComments === true
-        ? 'standard'
-        : ['quick', 'standard', 'deep', 'custom'].includes(String(input?.collectionDepth))
-          ? input.collectionDepth
-          : inferCollectionDepth(userText);
-
-  let collectComments = input?.collectComments !== undefined ? Boolean(input.collectComments) : true;
-  let collectSubComments = Boolean(input?.collectSubComments);
-  let startPage = Math.max(1, Math.min(20, Number(input?.startPage) || 1));
-
-  if (collectionDepth === 'quick') {
-    collectComments = false;
-    collectSubComments = false;
-    startPage = 1;
-  } else if (collectionDepth === 'standard') {
-    collectComments = true;
-    collectSubComments = false;
-    startPage = 1;
-  } else if (collectionDepth === 'deep') {
-    collectComments = true;
-    collectSubComments = true;
-    startPage = 1;
-  }
+  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = ['quick', 'standard', 'deep', 'custom'].includes(String(input?.collectionDepth))
+    ? input.collectionDepth
+    : inferCollectionDepth(userText);
 
   const selectedPlatforms = platforms.length ? platforms : inferredPlatforms;
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
@@ -104,9 +80,6 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
     targets,
     connectorOptions: input?.connectorOptions && typeof input.connectorOptions === 'object' ? input.connectorOptions : {},
     collectionDepth,
-    collectComments,
-    collectSubComments,
-    startPage,
     loginType,
     headless: Boolean(input?.headless),
     analysis: normalizeAnalysisGoals(input?.analysis, goal),
@@ -120,13 +93,7 @@ function isAnalysisIntent(text: string) {
 }
 
 function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPlan {
-  const collectionDepth = patch.collectSubComments === true
-    ? 'deep'
-    : patch.collectComments === false
-      ? 'quick'
-      : patch.collectComments === true
-        ? 'standard'
-        : patch.collectionDepth || base.collectionDepth;
+  const collectionDepth = patch.collectionDepth || base.collectionDepth;
   return {
     ...base,
     ...patch,
@@ -279,7 +246,11 @@ export class AgentService {
   async sendMessage(
     threadId: string,
     content: string,
-    context: { attachment_ids?: string[]; task_references?: Array<{ plan_id: string; platforms?: string[] }> } = {},
+    context: {
+      attachment_ids?: string[];
+      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+      mentioned_connectors?: string[];
+    } = {},
     signal?: AbortSignal,
   ) {
     ensureMessageNotAborted(signal);
@@ -326,6 +297,7 @@ export class AgentService {
       previousUserText: lastUserMessage?.content,
       previousAssistantText: lastAssistantMessage?.content,
       hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
+      mentionedConnectors: context.mentioned_connectors,
     });
 
     if (localDecision.action === 'direct_parse') {
@@ -412,7 +384,13 @@ export class AgentService {
       try {
         decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry, signal);
         ensureMessageNotAborted(signal);
-        if (localDecision.action === 'create_plan' && ['chat', 'clarify'].includes(decision.action)) {
+        if (localDecision.action === 'create_plan' && ['chat', 'clarify', 'status', 'analyze', 'export'].includes(decision.action)) {
+          // localDecision already confirmed both a subject and a platform are
+          // present in this text (that's the only way it reaches create_plan),
+          // so a model reply that instead reads it as a status/analyze/export
+          // query is a misroute, not a legitimate alternative reading. Without
+          // this, the model can silently discard an otherwise-complete
+          // collection request and answer as if no plan exists.
           const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
           ensureMessageNotAborted(signal);
           decision = { action: 'create_plan', reply: '', plan: generated };
@@ -771,20 +749,20 @@ export class AgentService {
 
     let scopeLine = '';
     if (!isOnlyAiQA) {
-      const depth = plan.collectionDepth || (plan.collectSubComments ? 'deep' : plan.collectComments ? 'standard' : 'quick');
+      const depth = plan.collectionDepth || 'standard';
+      // Explicit per-platform overrides are the only thing left that can deviate from
+      // the depth preset, so they are what's worth spelling out to the user.
+      const overrides = Object.values(plan.connectorOptions || {});
+      const overrideMaxItems = overrides.map((option) => Number(option?.max_items)).find((value) => Number.isFinite(value) && value > 0);
+      const overrideStartPage = overrides.map((option) => Number(option?.start_page)).find((value) => Number.isFinite(value) && value > 1);
       let depthSummary = '';
-
-      const isCustomParams = (plan.startPage && plan.startPage > 1) || (plan.maxItems && ![15, 30, 50, 100].includes(plan.maxItems));
 
       if (plan.customScopeDescription) {
         depthSummary = plan.customScopeDescription;
-      } else if (isCustomParams || depth === 'custom') {
+      } else if (depth === 'custom' || overrideMaxItems || overrideStartPage) {
         const details: string[] = [];
-        if (plan.maxItems) details.push(`每个关键词最多 ${plan.maxItems} 条`);
-        if (plan.startPage && plan.startPage > 1) details.push(`从第 ${plan.startPage} 页开始`);
-        if (plan.collectSubComments) details.push('含二级评论');
-        else if (plan.collectComments) details.push('含一级评论');
-        else details.push('不采集评论');
+        if (overrideMaxItems) details.push(`每个关键词最多 ${overrideMaxItems} 条`);
+        if (overrideStartPage) details.push(`从第 ${overrideStartPage} 页开始`);
         depthSummary = details.length ? details.join('，') : '自定义';
       } else {
         depthSummary = depth === 'deep' ? '深度' : depth === 'standard' ? '标准' : '快速';
@@ -792,7 +770,22 @@ export class AgentService {
       scopeLine = `\n范围：${depthSummary}`;
     }
 
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
+    // A fresh create_plan for a new round can silently pull in more platforms/keywords
+    // than the previous round covered (the model is free to expand for better coverage).
+    // Surface that expansion instead of letting the user confirm a broadened scope unknowingly.
+    let diffLine = '';
+    if (decision.action === 'create_plan' && latest) {
+      const addedPlatforms = plan.platforms.filter((p) => !latest.plan.platforms.includes(p));
+      const addedKeywords = plan.capability === 'keyword_search'
+        ? plan.keywords.filter((k) => !latest.plan.keywords.includes(k))
+        : [];
+      const parts: string[] = [];
+      if (addedPlatforms.length) parts.push(`平台新增 ${addedPlatforms.map((p) => LABELS[p]).join('、')}`);
+      if (addedKeywords.length) parts.push(`关键词新增 ${addedKeywords.join('、')}`);
+      if (parts.length) diffLine = `\n（相比上一轮，${parts.join('，')}；如果不需要可以直接告诉我去掉）`;
+    }
+
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
     if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
   }
@@ -801,12 +794,20 @@ export class AgentService {
     await workflowRuntime.cancel(plan.plan_id);
   }
 
+  private describeStepFailures(plan: any): string {
+    const failures = plan.steps
+      .filter((step: any) => (step.status === 'failed' || step.status === 'cancelled') && step.error_message)
+      .map((step: any) => `${LABELS[step.platform] || step.platform}：${step.error_message}`);
+    return failures.length ? `\n失败原因：${failures.join('；')}` : '';
+  }
+
   private describePlanStatus(plan: any): string {
     const stats = agentRepository.getPlanStats(plan.plan_id);
     const completed = plan.steps.filter((step: any) => step.status === 'completed').length;
     const distribution = stats.by_platform.length
       ? `\n平台分布：${stats.by_platform.map((item) => `${item.platform_label || LABELS[item.platform] || item.platform} ${item.count} 条`).join('，')}。`
       : '';
+    const failureReasons = this.describeStepFailures(plan);
 
     if (plan.status === 'awaiting_confirmation') return '当前计划还在等待确认，尚未开始采集，所以已入库 0 条内容。';
     if (plan.status === 'queued') return `任务正在排队，目前已入库 ${stats.content_count} 条内容。${distribution}`.trim();
@@ -815,8 +816,8 @@ export class AgentService {
       return '任务状态显示已完成，但实际入库为 0 条内容。这通常表示爬虫进程正常退出了，但没有搜到结果或数据没有成功写入；建议查看采集控制台日志。';
     }
     if (plan.status === 'completed') return `本次任务已完成，共采集到 ${stats.content_count} 条内容。${distribution}`.trim();
-    if (plan.status === 'partially_completed') return `本次任务部分完成，共采集到 ${stats.content_count} 条内容，成功 ${completed}/${plan.steps.length} 个平台。${distribution}`.trim();
-    if (plan.status === 'failed') return `本次任务执行失败，目前实际入库 ${stats.content_count} 条内容。建议查看采集控制台日志后重试。${distribution}`.trim();
+    if (plan.status === 'partially_completed') return `本次任务部分完成，共采集到 ${stats.content_count} 条内容，成功 ${completed}/${plan.steps.length} 个平台。${distribution}${failureReasons}`.trim();
+    if (plan.status === 'failed') return `本次任务执行失败，目前实际入库 ${stats.content_count} 条内容。${distribution}${failureReasons || '\n建议查看采集控制台日志后重试。'}`.trim();
     if (plan.status === 'stopped') return `任务已停止，停止前共入库 ${stats.content_count} 条内容。${distribution}`.trim();
     return `当前任务状态为 ${plan.status}，已入库 ${stats.content_count} 条内容。${distribution}`.trim();
   }
@@ -841,21 +842,7 @@ export class AgentService {
       updatedPlan.analysisSource = 'user';
     }
     if (updates.collectionDepth && ['quick', 'standard', 'deep', 'custom'].includes(updates.collectionDepth)) {
-      const depth = updates.collectionDepth;
-      updatedPlan.collectionDepth = depth;
-      if (depth === 'quick') {
-        updatedPlan.collectComments = false;
-        updatedPlan.collectSubComments = false;
-        updatedPlan.startPage = 1;
-      } else if (depth === 'standard') {
-        updatedPlan.collectComments = true;
-        updatedPlan.collectSubComments = false;
-        updatedPlan.startPage = 1;
-      } else if (depth === 'deep') {
-        updatedPlan.collectComments = true;
-        updatedPlan.collectSubComments = true;
-        updatedPlan.startPage = 1;
-      }
+      updatedPlan.collectionDepth = updates.collectionDepth;
     }
     return agentRepository.updatePendingPlan(planId, updatedPlan);
   }
