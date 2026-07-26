@@ -94,3 +94,67 @@ test('model conversation respects an aborted request signal', async () => {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('model conversation always receives active memories as user context', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-memory-'));
+  const configPath = path.join(directory, 'model-profile.json');
+
+  try {
+    const service = new ModelService(configPath);
+    let capturedMessages: Array<{ role: string; content: unknown }> = [];
+    (service as any).chat = async (messages: Array<{ role: string; content: unknown }>) => {
+      capturedMessages = messages;
+      return 'ok';
+    };
+
+    await service.converse([{ role: 'user', content: '普通问题' }], {
+      memories: [{ category: 'rule', content: '用户保存的长期偏好', source: 'manual' }],
+    });
+
+    const memoryPrompt = String(capturedMessages.find((message) =>
+      message.role === 'system' && String(message.content).includes('<user_memories_json>'),
+    )?.content || '');
+    assert.match(memoryPrompt, /用户手动保存，应优先采用/);
+    assert.match(memoryPrompt, /用户保存的长期偏好/);
+    assert.match(memoryPrompt, /"source":"manual"/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('automatic memory consolidation returns one validated summary per category', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-consolidation-'));
+  const configPath = path.join(directory, 'model-profile.json');
+
+  try {
+    const service = new ModelService(configPath);
+    let capturedInput = '';
+    (service as any).chat = async (messages: Array<{ role: string; content: unknown }>) => {
+      capturedInput = String(messages.at(-1)?.content || '');
+      return JSON.stringify({ summaries: [
+        { category: 'identity', content: '用户是产品经理' },
+        { category: 'preference', content: '用户偏好简洁回答' },
+        { category: 'context', content: '' },
+        { category: 'rule', content: '' },
+      ] });
+    };
+
+    const summaries = await service.consolidateMemories(
+      [{ messageId: 'message-1', content: '我现在负责产品工作' }],
+      [{ category: 'identity', content: '用户从事互联网行业' }],
+      ['请使用简体中文'],
+    );
+
+    assert.equal(summaries?.length, 4);
+    assert.equal(summaries?.find((summary) => summary.category === 'identity')?.content, '用户是产品经理');
+    assert.match(capturedInput, /existing_summaries_json/);
+    assert.match(capturedInput, /manual_memories_json/);
+
+    (service as any).chat = async () => JSON.stringify({ summaries: [
+      { category: 'identity', content: '缺少其他类别' },
+    ] });
+    assert.equal(await service.consolidateMemories([{ messageId: '2', content: '测试' }], [], []), null);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

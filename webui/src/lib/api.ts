@@ -351,7 +351,7 @@ export interface AgentMemory {
   content: string
   confidence: number
   importance: number
-  status: 'active' | 'candidate'
+  status: 'active' | 'candidate' | 'superseded'
   source_thread_id?: string | null
   source_message_id?: string | null
   created_at: string
@@ -518,6 +518,8 @@ export const agentApi = {
   getRuntimeSettings: () => api.get<RuntimeSettings>('/agent/runtime-settings'),
   saveRuntimeSettings: (settings: Partial<RuntimeSettings>) => api.put<RuntimeSettings>('/agent/runtime-settings', settings),
   listMemories: () => api.get<{ items: AgentMemory[] }>('/agent/memories'),
+  createMemory: (input: { content: string; category?: AgentMemory['category'] }) =>
+    api.post<AgentMemory>('/agent/memories', input),
   updateMemory: (memoryId: string, input: { content?: string; status?: AgentMemory['status'] }) =>
     api.patch<AgentMemory>(`/agent/memories/${encodeURIComponent(memoryId)}`, input),
   deleteMemory: (memoryId: string) => api.delete(`/agent/memories/${encodeURIComponent(memoryId)}`),
