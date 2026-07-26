@@ -26,6 +26,7 @@ import { exporterRegistry, exportService } from '../exporters/registry';
 import { zipDirectoryToBuffer } from '../exporters/zip';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
+const activeAgentMessageRequests = new Map<string, AbortController>();
 
 export interface ServerWindowControls {
   prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
@@ -297,8 +298,25 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       task_references?: Array<{ plan_id: string; platforms?: string[] }>;
     };
     if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
-    try { return await agentService.sendMessage(thread_id, content.trim(), { attachment_ids, task_references }); }
-    catch (error: any) { return reply.status(400).send({ detail: error.message }); }
+    const previous = activeAgentMessageRequests.get(thread_id);
+    if (previous) return reply.status(409).send({ detail: '该任务已有消息正在处理中' });
+    const controller = new AbortController();
+    activeAgentMessageRequests.set(thread_id, controller);
+    try { return await agentService.sendMessage(thread_id, content.trim(), { attachment_ids, task_references }, controller.signal); }
+    catch (error: any) {
+      if (controller.signal.aborted) return reply.status(409).send({ detail: '已停止生成' });
+      return reply.status(400).send({ detail: error.message });
+    } finally {
+      if (activeAgentMessageRequests.get(thread_id) === controller) activeAgentMessageRequests.delete(thread_id);
+    }
+  });
+
+  fastify.post('/api/agent/threads/:thread_id/messages/stop', async (request) => {
+    const { thread_id } = request.params as any;
+    const controller = activeAgentMessageRequests.get(thread_id);
+    if (!controller) return { stopped: false };
+    controller.abort(new DOMException('用户已停止生成', 'AbortError'));
+    return { stopped: true };
   });
 
   fastify.delete('/api/agent/threads/:thread_id/messages/:message_id', async (request, reply) => {

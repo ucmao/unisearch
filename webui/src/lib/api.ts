@@ -497,8 +497,10 @@ export const agentApi = {
   sendMessage: (threadId: string, content: string, context: {
     attachment_ids?: string[]
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
-  } = {}) =>
-    api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000 }),
+  } = {}, signal?: AbortSignal) =>
+    api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000, signal }),
+  stopMessage: (threadId: string) =>
+    api.post<{ stopped: boolean }>(`/agent/threads/${encodeURIComponent(threadId)}/messages/stop`),
   deleteMessagePair: (threadId: string, messageId: string) =>
     api.delete<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`),
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
