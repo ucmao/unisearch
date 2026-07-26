@@ -74,6 +74,7 @@ function capabilities(
   return [
     {
       id: 'keyword_search', label: '关键词搜索', description: `按关键词发现并采集${name}${nouns.content}。`, runtimeMode: 'search',
+      budgetModel: 'scroll_count',
       inputFields: [
         { key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的内容数。', type: 'number', default: 15, min: 1, max: 500, runtimeConfigKey: 'crawler_max_notes_count' },
         ...commentOptions(),
@@ -82,16 +83,19 @@ function capabilities(
     },
     {
       id: 'content_detail', label: `${nouns.content}详情`, description: `根据 ID、链接或分享地址采集${name}${nouns.content}详情。`, runtimeMode: 'detail',
+      budgetModel: 'single_target',
       inputFields: [targetField(`${nouns.content}链接或 ID`), ...commentOptions()],
       outputType: `${id}_content`, outputFields: outputs, limitations: commonLimits,
     },
     {
       id: 'creator_profile', label: `${nouns.creator}主页`, description: `采集${name}${nouns.creator}主页可见内容。`, runtimeMode: 'creator',
+      budgetModel: 'single_target',
       inputFields: [creatorField(`${nouns.creator} ID 或主页`), ...commentOptions()],
       outputType: `${id}_creator_content`, outputFields: outputs, limitations: commonLimits,
     },
     {
       id: 'comments', label: nouns.comment, description: `采集指定${name}${nouns.content}的评论及可见回复。`, runtimeMode: 'detail',
+      budgetModel: 'single_target',
       inputFields: [targetField(`${nouns.content}链接或 ID`),
         { key: 'enable_comments', label: '采集一级评论', description: '评论能力固定开启。', type: 'boolean', default: true, runtimeConfigKey: 'enable_comments' },
         { key: 'enable_sub_comments', label: '采集二级评论', description: '采集可见回复。', type: 'boolean', default: true, runtimeConfigKey: 'enable_sub_comments' }],
@@ -106,6 +110,7 @@ function capabilities(
     },
     {
       id: 'url_resolve', label: 'URL解析', description: `展开${name}分享短链、识别真实${nouns.content} ID 并补采详情。`, runtimeMode: 'detail',
+      budgetModel: 'single_target',
       inputFields: [targetField('分享链接或内容链接')], outputType: `${id}_resolved_content`, outputFields: outputs,
       limitations: ['短链必须能在当前网络环境中正常打开。', ...commonLimits],
     },
@@ -143,10 +148,15 @@ const searchEngine = (
   capabilities: [
     {
       id: 'keyword_search', label: '关键词全网搜索', description: `在${name}上按关键词进行网页搜索并提取结果摘要。`, runtimeMode: 'search',
+      budgetModel: 'true_pagination',
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的搜索结果条目数。',
           type: 'number', default: 15, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+        {
+          key: 'start_page', label: '起始页', description: '从第几页开始采集，可用于跳过前若干页或断点续采。仅真实分页采集的连接器支持。',
+          type: 'number', default: 1, min: 1, max: 20, runtimeConfigKey: 'start_page',
         },
       ],
       outputType: `${id}_search_result`, outputFields: [
@@ -176,6 +186,7 @@ const utilityParser = (
   capabilities: [
     {
       id: 'url_resolve', label: '全网无水印解析', description: '输入任意支持平台的作品链接、分享短链或分享文案，自动解析无水印高清原视频、原图、音频与元数据。', runtimeMode: 'detail',
+      budgetModel: 'single_target',
       inputFields: [
         {
           key: 'specified_ids', label: '目标链接或短链', description: '支持作品链接、短链或分享文本，多个目标使用逗号或换行分隔。',
@@ -211,6 +222,7 @@ const aiWebQA = (
   capabilities: [
     {
       id: 'keyword_search', label: 'AI 搜索问答对比', description: `在 ${name} 网页端模拟提问并抓取思考过程、回答正文及新闻参考资料。`, runtimeMode: 'search',
+      budgetModel: 'fixed_per_keyword',
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '向 AI 提交的问题词条数。',
@@ -246,6 +258,7 @@ const jobPlatform = (
   capabilities: [
     {
       id: 'keyword_search', label: '岗位关键词搜索', description: `在${name}按关键词搜索招聘岗位信息。`, runtimeMode: 'search',
+      budgetModel: 'scroll_count',
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的岗位数。',
@@ -263,6 +276,7 @@ const jobPlatform = (
     },
     {
       id: 'content_detail', label: '职位详情解析', description: `根据 ID 或完整链接解析${name}职位详细 JD 描述及精准发布时间。`, runtimeMode: 'detail',
+      budgetModel: 'single_target',
       inputFields: [targetField('职位详情链接或 ID')], outputType: `${id}_job_detail`, outputFields: [
         { key: 'content_id', label: '职位 ID', type: 'string', required: true },
         { key: 'title', label: '职位名称', type: 'string' },
@@ -290,6 +304,7 @@ const complaintPlatform = (
   capabilities: [
     {
       id: 'keyword_search', label: '投诉关键词搜索', description: `在${name}按关键词搜索消费投诉事件与问题列表。`, runtimeMode: 'search',
+      budgetModel: 'scroll_count',
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的投诉单数。',
@@ -307,6 +322,7 @@ const complaintPlatform = (
     },
     {
       id: 'content_detail', label: '投诉单详情解析', description: `根据 ID 或链接解析${name}完整投诉内容、涉诉金额与处理节点。`, runtimeMode: 'detail',
+      budgetModel: 'single_target',
       inputFields: [targetField('投诉详情链接或 ID')], outputType: `${id}_complaint_detail`, outputFields: [
         { key: 'content_id', label: '投诉单 ID', type: 'string', required: true },
         { key: 'title', label: '投诉标题', type: 'string' },

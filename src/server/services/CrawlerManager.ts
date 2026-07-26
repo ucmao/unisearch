@@ -36,6 +36,7 @@ export class CrawlerTask {
   public logs: LogEntry[] = [];
   private logId = 0;
   private lastEventSequence = -1;
+  private lastErrorMessage: string | null = null;
   public shouldLoop: boolean;
   private loopTimeout: NodeJS.Timeout | null = null;
 
@@ -136,6 +137,7 @@ export class CrawlerTask {
     this.currentRunId = runId;
     this.startedAt = new Date().toISOString();
     this.lastEventSequence = -1;
+    this.lastErrorMessage = null;
 
     const isPackaged = process.env.NODE_ENV === 'production' || require('electron').app?.isPackaged;
     let workerPath = '';
@@ -212,7 +214,8 @@ export class CrawlerTask {
             } else if (event.type === 'warning') {
               this.addLog(`[${event.code}] ${event.message}`, 'warning', manager);
             } else if (event.type === 'failed') {
-              this.addLog(`[${event.code}] ${event.message}`, 'error', manager);
+              this.lastErrorMessage = `[${event.code}] ${event.message}`;
+              this.addLog(this.lastErrorMessage, 'error', manager);
             }
           } catch (error: any) {
             this.addLog(`忽略无效的 Connector IPC 消息: ${error.message}`, 'warning', manager);
@@ -254,7 +257,7 @@ export class CrawlerTask {
           this.addLog('爬虫单次循环已成功结束', 'success', manager);
           runStatus = 'completed';
         } else {
-          this.addLog(`爬虫进程异常退出，退出码: ${exitCode}`, 'error', manager);
+          this.addLog(`爬虫进程异常退出，退出码: ${exitCode}${this.lastErrorMessage ? ` (${this.lastErrorMessage})` : ''}`, 'error', manager);
           runStatus = 'failed';
         }
 
@@ -262,7 +265,10 @@ export class CrawlerTask {
           ? parseFloat(((Date.now() - new Date(this.startedAt).getTime()) / 1000).toFixed(1))
           : 0;
 
-        const { itemCount } = await this.finalizeRun(runStatus, exitCode, manager);
+        const errorMessage = runStatus === 'failed'
+          ? (this.lastErrorMessage || `进程退出码: ${exitCode}`)
+          : '';
+        const { itemCount } = await this.finalizeRun(runStatus, exitCode, manager, errorMessage);
 
         if (this.status !== 'stopping' && this.shouldLoop) {
           this.status = 'idle';
@@ -277,7 +283,7 @@ export class CrawlerTask {
             status: runStatus,
             itemCount,
             durationSeconds,
-            error: runStatus === 'failed' ? (exitCode !== 0 ? `进程退出码: ${exitCode}` : '页面响应超时或触发验证') : null,
+            error: runStatus === 'failed' ? errorMessage : null,
           });
         }
       });

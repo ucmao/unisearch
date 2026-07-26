@@ -81,8 +81,8 @@ export class WorkflowEngine {
     this.repository.requestCancel(workflowId);
   }
 
-  retry(workflowId: string): any {
-    this.repository.resetForRetry(workflowId);
+  retry(workflowId: string, retryStepKeys: string[] = []): any {
+    this.repository.resetForRetry(workflowId, retryStepKeys);
     return this.repository.get(workflowId);
   }
 

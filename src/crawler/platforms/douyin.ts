@@ -23,6 +23,7 @@ export class DouyinCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
   private consecutiveCommentFailures = 0;
+  private consecutiveDetailFailures = 0;
 
   public async start(): Promise<void> {
     console.log('[DY] Starting Douyin crawler (Electron CDP mode)...');
@@ -293,6 +294,7 @@ export class DouyinCrawler extends AbstractCrawler {
 
   public async search(): Promise<void> {
     const keywords = activeConfig.KEYWORDS.split(',');
+    const failures: string[] = [];
     for (const keyword of keywords) {
       console.log(`[DY] Searching keyword: ${keyword}`);
       try {
@@ -434,8 +436,13 @@ export class DouyinCrawler extends AbstractCrawler {
         }
       } catch (err: any) {
         console.error(`[DY] Search error for keyword ${keyword}:`, err.message);
-        throw err;
+        failures.push(`"${keyword}": ${err.message}`);
       }
+    }
+    if (failures.length && failures.length === keywords.length) {
+      throw new Error(`全部关键词采集失败：${failures.join('；')}`);
+    } else if (failures.length) {
+      console.warn(`[DY] ${failures.length}/${keywords.length} 个关键词采集失败，其余关键词已正常入库: ${failures.join('；')}`);
     }
   }
 
@@ -449,6 +456,7 @@ export class DouyinCrawler extends AbstractCrawler {
       const result = await this.page!.evaluate(async (url) => (await fetch(url, { credentials: 'include' })).json(), apiUrl);
       const info = result?.aweme_detail;
       if (!info?.aweme_id) throw new Error(result?.status_msg || `status ${result?.status_code ?? 'unknown'}`);
+      this.consecutiveDetailFailures = 0;
       const videoItem = info.video || {};
       const coverList = (videoItem.raw_cover || videoItem.origin_cover || {}).url_list || [];
       const playList = videoItem.play_addr_h264?.url_list || videoItem.play_addr?.url_list || [];
@@ -469,7 +477,11 @@ export class DouyinCrawler extends AbstractCrawler {
       if (activeConfig.ENABLE_GET_COMMENTS) await this.getAwemeComments(record.aweme_id);
       return record;
     } catch (error: any) {
+      this.consecutiveDetailFailures++;
       console.error(`[DY] Failed to collect detail ${target}: ${error.message}`);
+      if (this.consecutiveDetailFailures >= 3 && !(await this.checkLoginState())) {
+        throw new Error(`连续 ${this.consecutiveDetailFailures} 个作品采集失败，且登录状态已失效: ${error.message}`);
+      }
       return null;
     }
   }

@@ -9,6 +9,15 @@ export type ConnectorCapabilityId =
 
 export type ConnectorFieldType = 'string' | 'number' | 'boolean' | 'select' | 'string_list' | 'secret';
 
+/**
+ * How a capability's "collection depth" translates into concrete crawl parameters.
+ * - scroll_count: infinite-scroll or cursor-driven; only item count matters, start_page is not honored.
+ * - true_pagination: real page-numbered fetch; start_page changes which page is fetched first.
+ * - fixed_per_keyword: no depth concept — output count equals input keyword count.
+ * - single_target: fetch by explicit id/link; depth only affects whether comments are pulled alongside, not volume.
+ */
+export type ConnectorBudgetModel = 'scroll_count' | 'true_pagination' | 'fixed_per_keyword' | 'single_target';
+
 export interface ConnectorFieldOption {
   value: string;
   label: string;
@@ -39,6 +48,7 @@ export interface ConnectorCapability {
   label: string;
   description: string;
   runtimeMode: 'search' | 'detail' | 'creator';
+  budgetModel: ConnectorBudgetModel;
   inputFields: ConnectorInputField[];
   outputType: string;
   outputFields: ConnectorOutputField[];

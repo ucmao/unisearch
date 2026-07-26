@@ -260,9 +260,6 @@ export interface ResearchPlanData {
   targets?: string[]
   connectorOptions?: Record<string, Record<string, unknown>>
   collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom'
-  collectComments: boolean
-  collectSubComments: boolean
-  startPage: number
   loginType: 'qrcode' | 'cookie'
   headless: boolean
   analysis: string[]
@@ -497,6 +494,7 @@ export const agentApi = {
   sendMessage: (threadId: string, content: string, context: {
     attachment_ids?: string[]
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
+    mentioned_connectors?: string[]
   } = {}, signal?: AbortSignal) =>
     api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000, signal }),
   stopMessage: (threadId: string) =>

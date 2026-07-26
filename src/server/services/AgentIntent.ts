@@ -16,6 +16,8 @@ export interface IntentContext {
   previousUserText?: string;
   previousAssistantText?: string;
   hasPreviousPlanKeywords?: boolean;
+  /** Connector ids the user explicitly picked from the "@" mention menu (see useMentionCommands). */
+  mentionedConnectors?: string[];
 }
 
 const GREETING = /^(?:hi|hello|hey|ni\s*hao|你好(?:呀|啊)?|您好|嗨|哈喽|在吗|早上好|早安|下午好|晚上好|晚安)[!！,.，。?？~～\s]*$/i;
@@ -77,6 +79,8 @@ function splitExplicitKeywords(value: string, sourceText: string): string[] {
 
 function cleanResearchSubject(text: string): string {
   return text
+    // "@" 提及菜单插入的是 "@连接器名 " 这种无空格 token，与其余清洗规则无关，先整体去掉
+    .replace(/@\S+/g, ' ')
     .replace(/关键词(?:[:：]|\s)+/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
     .replace(/小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|DeepSeek|Kimi(?: AI)?|豆包|Doubao|千问|通义千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心/gi, ' ')
@@ -157,7 +161,11 @@ const DIRECT_PARSE_KEYWORDS = /(?:去水印|解析|提取视频|无水印|视频
 const COMMON_SHARE_URLS = /(?:v\.douyin\.com|douyin\.com|xhslink\.com|xiaohongshu\.com|b23\.tv|bilibili\.com|kuaishou\.com|v\.kuaishou\.com|weibo\.cn|weibo\.com|zhihu\.com)/i;
 const BATCH_RESEARCH_KEYWORDS = /(?:采集|抓取|搜索|调研|研究|监测|批量|每关键词|条数|页数|评论数|分析|舆情|竞品)/i;
 
-export function isDirectParseRequest(text: string, previousAssistantText?: string): boolean {
+export function isDirectParseRequest(
+  text: string,
+  previousAssistantText?: string,
+  mentionedConnectors: string[] = [],
+): boolean {
   const hasUrl = /https?:\/\/[^\s，。；;\n]+/i.test(text);
   const matchesDirectKeyword = DIRECT_PARSE_KEYWORDS.test(text);
   const matchesShareUrl = COMMON_SHARE_URLS.test(text);
@@ -172,7 +180,11 @@ export function isDirectParseRequest(text: string, previousAssistantText?: strin
   if (matchesDirectKeyword && (hasUrl || matchesShareUrl || /解析/i.test(text))) {
     return true;
   }
-  if (hasUrl && matchesShareUrl && !isBatchRequest) {
+  // 用户在 @ 菜单里明确选中了某个真实 connector（而非"综合无水印解析"），
+  // 说明这条裸链接应交给该 connector 的完整采集流程（含登录态、评论等），
+  // 而不能被"有链接就当作快速解析"的启发式规则悄悄接管。
+  const mentionedRealConnector = mentionedConnectors.some((id) => id !== 'media_parser');
+  if (hasUrl && matchesShareUrl && !isBatchRequest && !mentionedRealConnector) {
     return true;
   }
   if (previousAssistantText && /(?:解析|去水印|提供.*链接)/i.test(previousAssistantText) && (hasUrl || matchesShareUrl)) {
@@ -190,7 +202,7 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
   const value = text.trim();
   const status = context.planStatus || null;
 
-  if (isDirectParseRequest(value, context.previousAssistantText)) {
+  if (isDirectParseRequest(value, context.previousAssistantText, context.mentionedConnectors)) {
     return { action: 'direct_parse', reply: '' };
   }
 

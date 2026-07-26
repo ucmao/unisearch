@@ -1,5 +1,6 @@
 import { connectorEventEmitter } from '../contracts/connector-event-emitter';
 import type { RawItem } from '../contracts/raw-item';
+import { ConnectorRuntimeError } from '../contracts/errors';
 import type { OutputSinkContext, OutputSinkResult } from './types';
 import { BaseOutputSink } from './types';
 
@@ -33,7 +34,13 @@ export class IpcOutputSink extends BaseOutputSink {
   }
 
   override async abort(error: Error): Promise<void> {
-    connectorEventEmitter.send({ type: 'failed', code: 'UNKNOWN', message: error.message, retryable: false });
+    const classified = error instanceof ConnectorRuntimeError ? error : null;
+    connectorEventEmitter.send({
+      type: 'failed',
+      code: classified?.code || 'UNKNOWN',
+      message: error.message,
+      retryable: classified?.retryable ?? false,
+    });
     connectorEventEmitter.reset();
   }
 }

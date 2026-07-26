@@ -5,6 +5,8 @@ import {
   getElectronCrawlerPage,
   notifyLoginRequired,
   notifyLoginSuccess,
+  notifyManualVerificationRequired,
+  notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
@@ -13,6 +15,7 @@ import { configuredTargets, firstMatch, resolveRedirect } from '../base/connecto
 export class KuaishouCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  private consecutiveDetailFailures = 0;
 
   public async start(): Promise<void> {
     console.log('[KS] Starting Kuaishou crawler (Electron CDP mode)...');
@@ -27,6 +30,9 @@ export class KuaishouCrawler extends AbstractCrawler {
     const landingText = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
     if (/"result"\s*:\s*2/.test(landingText)) {
       throw new Error('快手拒绝了当前浏览器指纹（result=2）。请完全退出并重启 UniSearch 后重试。');
+    }
+    if (await this.hasManualVerification()) {
+      await this.waitForManualVerification('打开快手首页时触发安全验证');
     }
     await this.handleLogin();
 
@@ -103,8 +109,60 @@ export class KuaishouCrawler extends AbstractCrawler {
     return false;
   }
 
+  private async hasManualVerification(): Promise<boolean> {
+    const selectors = [
+      '[class*="captcha"]',
+      '[class*="verify-modal"]',
+      '[class*="risk-modal"]',
+      'iframe[src*="captcha"]',
+      'iframe[src*="verify"]',
+    ];
+    for (const selector of selectors) {
+      if (await this.page!.isVisible(selector, { timeout: 300 }).catch(() => false)) return true;
+    }
+    const text = await this.page!.locator('body').innerText({ timeout: 1000 }).catch(() => '');
+    return /安全验证|拖动滑块|验证码|完成验证|风险验证/.test(text);
+  }
+
+  private async waitForManualVerification(reason: string): Promise<void> {
+    console.warn(`[KS] Manual verification detected: ${reason}`);
+    notifyManualVerificationRequired('kuaishou', reason);
+    const startTime = Date.now();
+    let stablePasses = 0;
+    while (Date.now() - startTime < 180 * 1000) {
+      if (await this.hasManualVerification()) {
+        stablePasses = 0;
+      } else {
+        stablePasses++;
+        if (stablePasses >= 2) {
+          console.log('[KS] Manual verification completed. Resuming...');
+          notifyManualVerificationSuccess('kuaishou');
+          return;
+        }
+      }
+      await this.page!.waitForTimeout(1000);
+    }
+    throw new Error('等待快手安全验证超时，请重新运行任务并在 3 分钟内完成验证');
+  }
+
+  private async waitForInteractiveLogin(reason: string): Promise<void> {
+    console.warn(`[KS] Login is required: ${reason}`);
+    notifyLoginRequired('kuaishou', reason);
+    const startTime = Date.now();
+    while (Date.now() - startTime < 120 * 1000) {
+      if (await this.checkLoginState()) {
+        console.log('[KS] Login successful. Resuming crawler...');
+        notifyLoginSuccess('kuaishou');
+        return;
+      }
+      await this.page!.waitForTimeout(1000);
+    }
+    throw new Error('快手登录等待超时。请在内置采集浏览器中完成登录后重新运行任务。');
+  }
+
   public async search(): Promise<void> {
     const keywords = activeConfig.KEYWORDS.split(',');
+    const failures: string[] = [];
     for (const keyword of keywords) {
       console.log(`[KS] Searching keyword: ${keyword}`);
       try {
@@ -154,7 +212,15 @@ export class KuaishouCrawler extends AbstractCrawler {
           }, { query, keyword, pcursor: String(pageNumber), searchSessionId });
           const result = payload?.data?.visionSearchPhoto;
           if (!result || result.result !== 1) {
-            throw new Error(`快手搜索接口拒绝请求（result=${result?.result ?? 'unknown'}），登录状态可能已失效`);
+            if (await this.hasManualVerification()) {
+              await this.waitForManualVerification(`搜索"${keyword}"时触发快手安全验证`);
+              continue;
+            }
+            if (!(await this.checkLoginState())) {
+              await this.waitForInteractiveLogin(`搜索"${keyword}"时快手判定当前登录已失效`);
+              continue;
+            }
+            throw new Error(`快手搜索接口拒绝请求（result=${result?.result ?? 'unknown'}），登录有效但请求被拒绝，可能触发限流或风控`);
           }
           const feeds = Array.isArray(result.feeds) ? result.feeds : [];
           console.log(`[KS] GraphQL search page ${pageNumber}: ${feeds.length} feeds`);
@@ -214,8 +280,13 @@ export class KuaishouCrawler extends AbstractCrawler {
         }
       } catch (err: any) {
         console.error(`[KS] Search error for keyword ${keyword}:`, err.message);
-        throw err;
+        failures.push(`"${keyword}": ${err.message}`);
       }
+    }
+    if (failures.length && failures.length === keywords.length) {
+      throw new Error(`全部关键词采集失败：${failures.join('；')}`);
+    } else if (failures.length) {
+      console.warn(`[KS] ${failures.length}/${keywords.length} 个关键词采集失败，其余关键词已正常入库: ${failures.join('；')}`);
     }
   }
 
@@ -262,6 +333,9 @@ export class KuaishouCrawler extends AbstractCrawler {
           authorName: author.name || photo.userName || '',
         };
       }, videoId);
+      if (!detail.title && !detail.authorName && !detail.cover) {
+        throw new Error('未获取到作品详情数据，页面可能显示登录或风控提示');
+      }
       const record = {
         video_id: String(detail.id || videoId), video_type: 'video', title: detail.title || '', desc: detail.title || '',
         video_url: url, video_cover_url: detail.cover || '', video_play_url: detail.play || '',
@@ -272,9 +346,14 @@ export class KuaishouCrawler extends AbstractCrawler {
       };
       await connectorOutput.emitKuaishouVideo(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(record.video_id);
+      this.consecutiveDetailFailures = 0;
       return record;
     } catch (error: any) {
+      this.consecutiveDetailFailures++;
       console.error(`[KS] Failed to collect detail ${target}: ${error.message}`);
+      if (this.consecutiveDetailFailures >= 3 && !(await this.checkLoginState())) {
+        throw new Error(`连续 ${this.consecutiveDetailFailures} 个作品采集失败，且登录状态已失效: ${error.message}`);
+      }
       return null;
     }
   }

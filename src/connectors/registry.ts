@@ -1,5 +1,5 @@
 import { CONNECTOR_MANIFESTS } from './manifests';
-import type { ConnectorCapability, ConnectorManifest, ConnectorStartRequest } from './types';
+import type { ConnectorBudgetModel, ConnectorCapability, ConnectorManifest, ConnectorStartRequest } from './types';
 
 const manifests = new Map(CONNECTOR_MANIFESTS.map((manifest) => [manifest.id, manifest]));
 
@@ -74,12 +74,19 @@ export function connectorLabels(): Record<string, string> {
   return Object.fromEntries(CONNECTOR_MANIFESTS.map((manifest) => [manifest.id, manifest.name]));
 }
 
+const BUDGET_MODEL_NOTES: Record<ConnectorBudgetModel, string> = {
+  scroll_count: '采集量由最大条数控制（页面自动滚动或翻页直到达标），指定起始页无效',
+  true_pagination: '真实分页采集，采集量由最大条数控制，可指定起始页跳过前若干页',
+  fixed_per_keyword: '一个关键词固定产出一条结果，没有翻页与详情页概念，采集深度对其无影响',
+  single_target: '按指定 ID 或链接定点采集，采集深度只影响是否连带采集评论，不影响条数',
+};
+
 export function connectorCatalogForAI(): string {
   return CONNECTOR_MANIFESTS.map((manifest) => {
     const capabilities = manifest.capabilities.map((capability) => {
       const inputs = capability.inputFields.map((field) => `${field.key}:${field.type}${field.required ? '(必填)' : ''}`).join('、') || '无额外参数';
       const outputs = capability.outputFields.map((field) => field.key).join('、');
-      return `${capability.id}（${capability.label}；输入：${inputs}；输出类型：${capability.outputType}[${outputs}]；边界：${capability.limitations.join('；')}）`;
+      return `${capability.id}（${capability.label}；输入：${inputs}；输出类型：${capability.outputType}[${outputs}]；采集模型：${BUDGET_MODEL_NOTES[capability.budgetModel]}；边界：${capability.limitations.join('；')}）`;
     }).join('；');
     return `- ${manifest.id}=${manifest.name}：${manifest.description} 能力：${capabilities}`;
   }).join('\n');
