@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { AbstractCrawler } from '../base/BaseCrawler';
+import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
@@ -131,93 +131,200 @@ export class BaiduCrawler extends AbstractCrawler {
   }
 }
 
-// 2. Bing China Search Crawler (SystemHttpClient + Multi-Page Pagination)
+// 2. Bing China Search Crawler (Hybrid: HTTP First + Playwright Fallback)
+export interface BingSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  publisher: string;
+  publish_time: string;
+  images: string[];
+}
+
 export class BingCrawler extends AbstractCrawler {
+  private async searchViaHttp(keyword: string, maxItems: number, startPage: number): Promise<BingSearchResultItem[]> {
+    const maxPages = Math.ceil(maxItems / 10);
+    const results: BingSearchResultItem[] = [];
+
+    for (let page = startPage; page < startPage + maxPages; page++) {
+      if (results.length >= maxItems) break;
+
+      const first = (page - 1) * 10 + 1;
+      const url = `https://cn.bing.com/search?q=${encodeURIComponent(keyword)}&first=${first}`;
+      console.log(`[BING] [HTTP] Fetching page ${page} (first=${first})...`);
+
+      try {
+        const res = await systemHttpClient.get(url, { mode: 'desktop', timeout: 8000 });
+        const $ = cheerio.load(res.data);
+        const containers = $('li.b_algo, #b_results > li.b_algo, .b_algo');
+
+        if (containers.length === 0) {
+          console.log(`[BING] [HTTP] No items found on page ${page}.`);
+          break;
+        }
+
+        let pageCount = 0;
+        for (let i = 0; i < containers.length; i++) {
+          if (results.length >= maxItems) break;
+
+          const $item = $(containers[i]);
+          const $titleLink = $item.find('h2 a').first();
+          const pageUrl = $titleLink.attr('href') || '';
+          const title = cleanText($titleLink.text());
+
+          if (!title || !pageUrl) continue;
+          pageCount++;
+
+          let snippet = cleanText(
+            $item.find('.b_algoSlug, .b_caption, p, [class*="b_lineclamp"]').first().text()
+          );
+          if (!snippet) {
+            snippet = cleanText($item.text().replace(title, '')).slice(0, 150);
+          }
+
+          const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应中国';
+          const timeMatch = /(\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}月\d{1,2}日|\d+\s*(?:小时|分钟|天)前)/.exec($item.text());
+
+          const images: string[] = [];
+          $item.find('img').each((_, imgEl) => {
+            const src = $(imgEl).attr('src');
+            if (src && src.startsWith('http')) images.push(src);
+          });
+
+          results.push({
+            title,
+            url: pageUrl,
+            snippet,
+            publisher,
+            publish_time: timeMatch ? timeMatch[1] : '',
+            images,
+          });
+        }
+
+        if (pageCount === 0) break;
+        await sleep(800);
+      } catch (err: any) {
+        console.error(`[BING] [HTTP] Page ${page} failed: ${err.message}`);
+        break;
+      }
+    }
+
+    return results;
+  }
+
+  private async searchViaBrowser(keyword: string, maxItems: number, startPage: number): Promise<BingSearchResultItem[]> {
+    console.log(`[BING] [Browser Fallback] Initializing Playwright browser page for keyword "${keyword}"...`);
+    const results: BingSearchResultItem[] = [];
+
+    try {
+      const playwright = require('playwright');
+      const browserContext = await connectToElectronChromium(playwright);
+      const page = await getElectronCrawlerPage(browserContext, 'bing');
+
+      const maxPages = Math.ceil(maxItems / 10);
+      for (let p = startPage; p < startPage + maxPages; p++) {
+        if (results.length >= maxItems) break;
+
+        const first = (p - 1) * 10 + 1;
+        const searchUrl = `https://cn.bing.com/search?q=${encodeURIComponent(keyword)}&first=${first}`;
+        console.log(`[BING] [Browser Fallback] Navigating to page ${p}: ${searchUrl}`);
+
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForSelector('li.b_algo, #b_results > li.b_algo, .b_algo', { timeout: 6000 }).catch(() => {});
+
+        const pageContent = await page.content();
+        const $ = cheerio.load(pageContent);
+        const containers = $('li.b_algo, #b_results > li.b_algo, .b_algo');
+
+        if (containers.length === 0) {
+          console.log(`[BING] [Browser Fallback] No items found on page ${p}.`);
+          break;
+        }
+
+        let pageCount = 0;
+        for (let i = 0; i < containers.length; i++) {
+          if (results.length >= maxItems) break;
+
+          const $item = $(containers[i]);
+          const $titleLink = $item.find('h2 a').first();
+          const pageUrl = $titleLink.attr('href') || '';
+          const title = cleanText($titleLink.text());
+
+          if (!title || !pageUrl) continue;
+          pageCount++;
+
+          let snippet = cleanText(
+            $item.find('.b_algoSlug, .b_caption, p, [class*="b_lineclamp"]').first().text()
+          );
+          if (!snippet) {
+            snippet = cleanText($item.text().replace(title, '')).slice(0, 150);
+          }
+
+          const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应中国';
+          const timeMatch = /(\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}月\d{1,2}日|\d+\s*(?:小时|分钟|天)前)/.exec($item.text());
+
+          const images: string[] = [];
+          $item.find('img').each((_, imgEl) => {
+            const src = $(imgEl).attr('src');
+            if (src && src.startsWith('http')) images.push(src);
+          });
+
+          results.push({
+            title,
+            url: pageUrl,
+            snippet,
+            publisher,
+            publish_time: timeMatch ? timeMatch[1] : '',
+            images,
+          });
+        }
+
+        if (pageCount === 0) break;
+        await this.humanDelay(page, 2);
+      }
+    } catch (err: any) {
+      console.error(`[BING] [Browser Fallback] Search failed: ${err.message}`);
+    }
+
+    return results;
+  }
+
   public async search(): Promise<void> {
     const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
     const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
     const startPage = activeConfig.START_PAGE || 1;
-    const maxPages = Math.ceil(maxItems / 10);
 
     for (const keyword of keywords) {
       console.log(`[BING] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
-      let totalRank = 0;
 
-      for (let page = startPage; page < startPage + maxPages; page++) {
-        if (totalRank >= maxItems) break;
+      const items = await this.executeHybrid(
+        () => this.searchViaHttp(keyword, maxItems, startPage),
+        () => this.searchViaBrowser(keyword, maxItems, startPage)
+      );
 
-        const first = (page - 1) * 10 + 1;
-        const url = `https://cn.bing.com/search?q=${encodeURIComponent(keyword)}&first=${first}`;
-        console.log(`[BING] Fetching page ${page} (first=${first})...`);
+      let rank = 0;
+      for (const item of items) {
+        rank++;
+        await connectorOutput.emitSearchEngineResult({
+          search_engine: 'bing',
+          title: item.title,
+          url: item.url,
+          real_url: item.url,
+          snippet: item.snippet,
+          publisher: item.publisher,
+          publish_time: item.publish_time,
+          images: item.images,
+          search_rank: rank,
+          source_keyword: keyword,
+        });
 
-        try {
-          const res = await systemHttpClient.get(url, { mode: 'desktop', timeout: 8000 });
-          const $ = cheerio.load(res.data);
-          const containers = $('li.b_algo, #b_results > li.b_algo, .b_algo');
-
-          if (containers.length === 0) {
-            console.log(`[BING] No items found on page ${page}. Stopping pagination.`);
-            break;
-          }
-
-          let pageCount = 0;
-          for (let i = 0; i < containers.length; i++) {
-            if (totalRank >= maxItems) break;
-
-            const $item = $(containers[i]);
-            const $titleLink = $item.find('h2 a').first();
-            const pageUrl = $titleLink.attr('href') || '';
-            const title = cleanText($titleLink.text());
-
-            if (!title || !pageUrl) continue;
-
-            totalRank++;
-            pageCount++;
-
-            let snippet = cleanText(
-              $item.find('.b_algoSlug, .b_caption, p, [class*="b_lineclamp"]').first().text()
-            );
-            if (!snippet) {
-              snippet = cleanText($item.text().replace(title, '')).slice(0, 150);
-            }
-
-            const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应中国';
-            const timeMatch = /(\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}月\d{1,2}日|\d+\s*(?:小时|分钟|天)前)/.exec($item.text());
-
-            const images: string[] = [];
-            $item.find('img').each((_, imgEl) => {
-              const src = $(imgEl).attr('src');
-              if (src && src.startsWith('http')) images.push(src);
-            });
-
-            await connectorOutput.emitSearchEngineResult({
-              search_engine: 'bing',
-              title,
-              url: pageUrl,
-              real_url: pageUrl,
-              snippet,
-              publisher,
-              publish_time: timeMatch ? timeMatch[1] : '',
-              images,
-              search_rank: totalRank,
-              source_keyword: keyword,
-            });
-
-            console.log(`[BING] [P${page} #${totalRank}/${maxItems}] ${title} -> ${pageUrl}`);
-          }
-
-          if (pageCount === 0) break;
-          await sleep(1000);
-        } catch (err: any) {
-          console.error(`[BING] Search failed on page ${page} for "${keyword}": ${err.message}`);
-          break;
-        }
+        console.log(`[BING] [#${rank}/${maxItems}] ${item.title} -> ${item.url}`);
       }
     }
   }
 
   public async start(): Promise<void> {
-    console.log('[BING] Starting Bing China pure HTTP crawler with SystemHttpClient...');
+    console.log('[BING] Starting Bing China hybrid crawler (HTTP + Playwright fallback)...');
     await this.search();
     console.log('[BING] Bing China crawler finished.');
   }

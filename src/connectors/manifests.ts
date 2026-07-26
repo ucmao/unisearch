@@ -139,7 +139,7 @@ const searchEngine = (
     required: false, methods: ['none'],
     description: '无需登录，直接通过 HTTP 接口免认证全网搜索。',
   },
-  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  runtime: { engine: 'hybrid', isolatedProcess: true, supportsHeadless: true },
   capabilities: [
     {
       id: 'keyword_search', label: '关键词全网搜索', description: `在${name}上按关键词进行网页搜索并提取结果摘要。`, runtimeMode: 'search',
