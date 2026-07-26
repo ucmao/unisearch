@@ -283,9 +283,89 @@ test('memory settings and permanent memories are stored locally', () => {
     assert.equal(repo.listMemories()[0].content, '用户希望被称为青青');
     assert.equal(repo.retrieveMemories('我是谁？', 5)[0].memory_id, created.memory_id);
 
+    initSchema(db);
+    assert.equal(repo.listMemories().length, 1, 'reinitializing the schema must preserve memories');
+
     repo.deleteThread(thread.thread_id);
     assert.equal(repo.listMemories().length, 1, 'deleting a conversation must not delete permanent memory');
     assert.equal(repo.listMemories()[0].source_thread_id, null);
+  } finally {
+    db.close();
+  }
+});
+
+test('manual memories are independent and recalled before automatic memories', () => {
+  const { db, repository: repo } = repository();
+  try {
+    repo.upsertMemory({
+      category: 'context', memoryKey: 'automatic_context', content: '自动提取的背景',
+      confidence: 0.9, importance: 0.9, status: 'active',
+    });
+    const first = repo.upsertMemory({
+      category: 'rule', memoryKey: 'user_manual_first', content: '第一条用户记忆',
+      confidence: 1, importance: 1, status: 'active',
+    });
+    const second = repo.upsertMemory({
+      category: 'rule', memoryKey: 'user_manual_second', content: '第二条用户记忆',
+      confidence: 1, importance: 1, status: 'active',
+    });
+
+    assert.notEqual(first.memory_id, second.memory_id);
+    assert.equal(repo.listMemories().length, 3);
+    assert.deepEqual(
+      repo.retrieveMemories('', 2).map((memory) => memory.content).sort(),
+      ['第一条用户记忆', '第二条用户记忆'].sort(),
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test('automatic memories are consolidated while user-owned memories stay protected', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const manual = repo.upsertMemory({
+      category: 'rule', memoryKey: 'user_manual_protected', content: '用户明确保存的内容',
+      confidence: 1, importance: 1, status: 'active',
+    });
+    repo.upsertMemory({
+      category: 'identity', memoryKey: 'legacy_name', content: '旧的身份碎片',
+      confidence: 0.9, importance: 0.8, status: 'active',
+    });
+    repo.upsertMemory({
+      category: 'identity', memoryKey: 'legacy_role', content: '旧的职业碎片',
+      confidence: 0.9, importance: 0.8, status: 'active',
+    });
+
+    repo.replaceAutomaticMemorySummaries([
+      { category: 'identity', content: '用户的身份与职业已经整合' },
+      { category: 'preference', content: '用户偏好简洁回答' },
+      { category: 'context', content: '' },
+      { category: 'rule', content: '' },
+    ]);
+
+    assert.deepEqual(repo.listAutomaticMemories().map((memory) => memory.memory_key).sort(), [
+      'auto_summary_identity', 'auto_summary_preference',
+    ]);
+    assert.equal(repo.listMemories().find((memory) => memory.memory_id === manual.memory_id)?.content, '用户明确保存的内容');
+
+    const automatic = repo.listAutomaticMemories()[0];
+    const userEdited = repo.updateMemory(automatic.memory_id, { content: '用户修正后的内容' });
+    assert.match(userEdited?.memory_key || '', /^user_manual_/);
+
+    repo.replaceAutomaticMemorySummaries([
+      { category: 'identity', content: '系统后续整理的身份摘要' },
+      { category: 'preference', content: '' },
+      { category: 'context', content: '' },
+      { category: 'rule', content: '' },
+    ]);
+    assert.equal(repo.listMemories().find((memory) => memory.memory_id === automatic.memory_id)?.content, '用户修正后的内容');
+
+    repo.upsertMemory({
+      category: 'rule', memoryKey: manual.memory_key, content: '系统尝试覆盖用户内容',
+      confidence: 1, importance: 1, status: 'active',
+    });
+    assert.equal(repo.listMemories().find((memory) => memory.memory_id === manual.memory_id)?.content, '用户明确保存的内容');
   } finally {
     db.close();
   }

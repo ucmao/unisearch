@@ -84,6 +84,7 @@ test('All registered knowledge exporters create portable artifacts', async () =>
   try {
     const document = await seed(db);
     const exporters = exporterRegistry.list().map((e) => e.id);
+    const outputPaths = new Map<string, string>();
     assert.equal(exporters.length >= 8, true);
     for (const id of exporters) {
       const target = path.join(directory, id);
@@ -94,11 +95,12 @@ test('All registered knowledge exporters create portable artifacts', async () =>
         now: () => new Date('2026-07-24T00:00:00.000Z'),
       });
       assert.equal(result.itemCount, 1);
+      outputPaths.set(id, result.outputPath);
     }
-    assert.match(readFileSync(path.join(directory, 'markdown', 'UniSearch资料.md'), 'utf8'), /document_id:/);
-    assert.match(readFileSync(path.join(directory, 'ima', 'IMA', 'manifest.json'), 'utf8'), /sources/);
-    assert.match(readFileSync(path.join(directory, 'notion', 'Notion', 'database.csv'), 'utf8'), /DocumentID/);
-    assert.match(readFileSync(path.join(directory, 'dify', 'Dify', 'chunks.jsonl'), 'utf8'), /metadata/);
+    assert.match(readFileSync(outputPaths.get('markdown')!, 'utf8'), /document_id:/);
+    assert.match(readFileSync(path.join(outputPaths.get('ima')!, 'manifest.json'), 'utf8'), /sources/);
+    assert.match(readFileSync(path.join(outputPaths.get('notion')!, 'database.csv'), 'utf8'), /DocumentID/);
+    assert.match(readFileSync(path.join(outputPaths.get('dify')!, 'chunks.jsonl'), 'utf8'), /metadata/);
   } finally {
     db.close();
     rmSync(directory, { recursive: true, force: true });

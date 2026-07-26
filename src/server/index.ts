@@ -4,6 +4,7 @@ import fastifyWebsocket from '@fastify/websocket';
 import cors from '@fastify/cors';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { crawlerManager } from './services/CrawlerManager';
 import { analyticsRepository } from '../database/repository';
 import { agentRepository } from './services/AgentRepository';
@@ -453,6 +454,29 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/agent/memories', async () => ({ items: agentRepository.listMemories() }));
+
+  fastify.post('/api/agent/memories', async (request, reply) => {
+    try {
+      const body = request.body as any;
+      const content = String(body?.content || '').trim();
+      if (!content) return reply.status(400).send({ detail: '记忆内容不能为空' });
+      const category = ['identity', 'preference', 'context', 'rule'].includes(body?.category)
+        ? body.category
+        : 'rule';
+      const memoryKey = `user_manual_${crypto.randomUUID().replace(/-/g, '')}`;
+      const memory = agentRepository.upsertMemory({
+        category,
+        memoryKey,
+        content,
+        confidence: 1.0,
+        importance: 1.0,
+        status: 'active',
+      });
+      return memory;
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
 
   fastify.patch('/api/agent/memories/:memory_id', async (request, reply) => {
     const { memory_id } = request.params as { memory_id: string };

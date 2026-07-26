@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -48,10 +48,6 @@ const sections: { value: SettingsSection; label: string; description: string; ic
   { value: 'memory', label: '记忆', description: '长期偏好与背景', icon: Brain },
 ]
 
-const memoryCategoryLabels: Record<AgentMemory['category'], string> = {
-  identity: '身份', preference: '偏好', context: '背景', rule: '规则',
-}
-
 function getError(error: any) {
   return error?.response?.data?.detail || error?.message || '操作失败'
 }
@@ -91,6 +87,8 @@ export function SettingsDialog({
   const [showApiKey, setShowApiKey] = useState(false)
   const [editMemoryId, setEditMemoryId] = useState<string | null>(null)
   const [editMemoryContent, setEditMemoryContent] = useState('')
+  const [isAddingMemory, setIsAddingMemory] = useState(false)
+  const [newMemoryContent, setNewMemoryContent] = useState('')
   const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
   const dialogOpen = open ?? internalOpen
 
@@ -172,6 +170,16 @@ export function SettingsDialog({
     onSuccess: ({ data }) => {
       queryClient.setQueryData(['agent-runtime-settings'], data)
       toast.success('采集并发设置已保存')
+    },
+    onError: (error) => toast.error(getError(error)),
+  })
+  const createMemory = useMutation({
+    mutationFn: (content: string) => agentApi.createMemory({ content }),
+    onSuccess: () => {
+      setNewMemoryContent('')
+      setIsAddingMemory(false)
+      queryClient.invalidateQueries({ queryKey: ['agent-memories'] })
+      toast.success('已新建记忆')
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -444,14 +452,14 @@ export function SettingsDialog({
                       <div className="flex items-center justify-between gap-5 py-4">
                         <div>
                           <p className="text-sm font-medium text-cyber-text-primary">启用记忆</p>
-                          <p className="mt-0.5 text-xs text-cyber-text-muted">从对话与任务中自动提取新记忆，并将其带入新对话</p>
+                          <p className="mt-0.5 text-xs text-cyber-text-muted">将保存在本机的长期记忆带入对话</p>
                         </div>
                         <SettingToggle checked={memorySettingsQuery.data.enabled} onChange={(enabled) => saveMemorySettings.mutate({ enabled })} />
                       </div>
                       <div className="flex items-center justify-between gap-5 py-4">
                         <div>
-                          <p className="text-sm font-medium text-cyber-text-primary">允许从采集与分析任务生成记忆</p>
-                          <p className="mt-0.5 text-xs text-cyber-text-muted">根据使用了网页采集、数据检索或工具辅助的任务生成记忆</p>
+                          <p className="text-sm font-medium text-cyber-text-primary">自动提取记忆</p>
+                          <p className="mt-0.5 text-xs text-cyber-text-muted">从对话中自动提取长期有用的称呼、偏好和背景</p>
                         </div>
                         <SettingToggle disabled={!memorySettingsQuery.data.enabled} checked={memorySettingsQuery.data.autoCapture} onChange={(autoCapture) => saveMemorySettings.mutate({ autoCapture })} />
                       </div>
@@ -480,7 +488,52 @@ export function SettingsDialog({
                           <p className="text-sm font-medium text-cyber-text-primary">已保存的记忆</p>
                           <p className="mt-0.5 text-xs text-cyber-text-muted">共 {memoriesQuery.data?.length || 0} 条记忆</p>
                         </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5 border-cyber-neon-cyan/30 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
+                          onClick={() => { setIsAddingMemory(true); setNewMemoryContent('') }}
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          新建记忆
+                        </Button>
                       </div>
+
+                      {isAddingMemory ? (
+                        <div className="mb-3 rounded-xl border border-cyber-neon-cyan/40 bg-cyber-bg-secondary/60 p-3">
+                          <p className="mb-1.5 text-xs font-medium text-cyber-neon-cyan">添加自定义记忆/硬性偏好：</p>
+                          <div className="flex gap-2">
+                            <Input
+                              autoFocus
+                              placeholder="例如：爬虫数据导出 CSV 时默认使用 UTF-8 编码"
+                              value={newMemoryContent}
+                              onChange={(e) => setNewMemoryContent(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && newMemoryContent.trim()) {
+                                  createMemory.mutate(newMemoryContent.trim())
+                                }
+                              }}
+                              className="h-8 text-xs flex-1"
+                            />
+                            <Button
+                              size="sm"
+                              className="h-8 bg-cyber-neon-cyan text-black hover:bg-cyber-neon-cyan/80"
+                              disabled={!newMemoryContent.trim() || createMemory.isPending}
+                              onClick={() => createMemory.mutate(newMemoryContent.trim())}
+                            >
+                              保存
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8"
+                              onClick={() => setIsAddingMemory(false)}
+                            >
+                              取消
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="space-y-2">
                         {!memoriesQuery.data?.length ? (
                           <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-8 text-center text-xs text-cyber-text-muted">
@@ -488,39 +541,40 @@ export function SettingsDialog({
                           </div>
                         ) : null}
                         {memoriesQuery.data?.map((memory) => (
-                          <div key={memory.memory_id} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-3.5 transition-colors hover:border-cyber-border-default">
-                            <div className="flex items-start gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="mb-1.5 flex items-center gap-2">
-                                  <span className="rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary">
-                                    {memoryCategoryLabels[memory.category] || '记忆'}
-                                  </span>
-                                  {memory.status === 'candidate' ? <span className="text-[10px] text-cyber-neon-orange">待验证</span> : null}
+                            <div key={memory.memory_id} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-3.5 transition-colors hover:border-cyber-border-default">
+                              <div className="flex items-start gap-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                                    <span className={memory.memory_key.startsWith('user_manual_')
+                                      ? 'rounded border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/10 px-2 py-0.5 text-[10px] font-medium text-cyber-neon-cyan'
+                                      : 'rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary'}>
+                                      {memory.memory_key.startsWith('user_manual_') ? '手动添加' : '自动整理'}
+                                    </span>
+                                  </div>
+                                  {editMemoryId === memory.memory_id ? (
+                                    <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />
+                                  ) : (
+                                    <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>
+                                  )}
+                                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
+                                    <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>
+                                  </div>
                                 </div>
-                                {editMemoryId === memory.memory_id ? (
-                                  <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />
-                                ) : (
-                                  <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>
-                                )}
-                                <p className="mt-1.5 text-[10px] text-cyber-text-muted">
-                                  更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 items-center gap-1">
-                                {editMemoryId === memory.memory_id ? (
-                                  <>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => { setEditMemoryId(memory.memory_id); setEditMemoryContent(memory.content) }} title="编辑"><Pencil className="h-3.5 w-3.5" /></Button>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-neon-pink" disabled={deleteMemory.isPending} onClick={() => deleteMemory.mutate(memory.memory_id)} title="删除"><Trash2 className="h-3.5 w-3.5" /></Button>
-                                  </>
-                                )}
+                                <div className="flex shrink-0 items-center gap-1">
+                                  {editMemoryId === memory.memory_id ? (
+                                    <>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => { setEditMemoryId(memory.memory_id); setEditMemoryContent(memory.content) }} title="编辑"><Pencil className="h-3.5 w-3.5" /></Button>
+                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-neon-pink" disabled={deleteMemory.isPending} onClick={() => deleteMemory.mutate(memory.memory_id)} title="删除"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                    </>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
                         ))}
                       </div>
                     </div>

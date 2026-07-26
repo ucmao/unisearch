@@ -57,12 +57,17 @@ export interface AgentMemoryRecord {
   content: string;
   confidence: number;
   importance: number;
-  status: 'active' | 'candidate';
+  status: 'active' | 'candidate' | 'superseded';
   source_thread_id: string | null;
   source_message_id: string | null;
   created_at: string;
   updated_at: string;
   last_used_at: string | null;
+}
+
+export interface AutomaticMemorySummary {
+  category: AgentMemoryRecord['category'];
+  content: string;
 }
 
 function id(): string {
@@ -345,20 +350,30 @@ export class AgentRepository {
   }
 
   listMemories(): AgentMemoryRecord[] {
-    return this.db.prepare(`SELECT * FROM agent_memories ORDER BY CASE status WHEN 'candidate' THEN 0 ELSE 1 END, importance DESC, updated_at DESC`)
+    return this.db.prepare(`SELECT * FROM agent_memories WHERE status != 'superseded' ORDER BY CASE WHEN memory_key LIKE 'user_manual_%' THEN 0 ELSE 1 END, CASE status WHEN 'candidate' THEN 0 ELSE 1 END, updated_at DESC`)
       .all() as AgentMemoryRecord[];
   }
 
   upsertMemory(input: {
-    category: AgentMemoryRecord['category']; memoryKey: string; content: string;
-    confidence: number; importance: number; status: AgentMemoryRecord['status'];
-    sourceThreadId?: string; sourceMessageId?: string;
+    category: AgentMemoryRecord['category'];
+    memoryKey: string;
+    content: string;
+    confidence: number;
+    importance: number;
+    status: AgentMemoryRecord['status'];
+    sourceThreadId?: string;
+    sourceMessageId?: string;
   }): AgentMemoryRecord {
     const now = new Date().toISOString();
     const memoryId = id();
     const memoryKey = String(input.memoryKey).trim().slice(0, 120);
     const content = String(input.content).trim().slice(0, 500);
     if (!memoryKey || !content) throw new Error('记忆内容不能为空');
+
+    const existing = this.db.prepare('SELECT * FROM agent_memories WHERE memory_key=?')
+      .get(memoryKey) as AgentMemoryRecord | undefined;
+    if (existing?.memory_key.startsWith('user_manual_')) return existing;
+
     this.db.prepare(`
       INSERT INTO agent_memories
         (memory_id, category, memory_key, content, confidence, importance, status, source_thread_id, source_message_id, created_at, updated_at)
@@ -380,45 +395,93 @@ export class AgentRepository {
     return this.db.prepare('SELECT * FROM agent_memories WHERE memory_key=?').get(memoryKey) as AgentMemoryRecord;
   }
 
-  updateMemory(memoryId: string, input: { content?: string; status?: AgentMemoryRecord['status'] }): AgentMemoryRecord | null {
+  updateMemory(memoryId: string, input: {
+    content?: string;
+    status?: AgentMemoryRecord['status'];
+  }): AgentMemoryRecord | null {
     const existing = this.db.prepare('SELECT * FROM agent_memories WHERE memory_id=?').get(memoryId) as AgentMemoryRecord | undefined;
     if (!existing) return null;
+
     const content = typeof input.content === 'string' ? input.content.trim().slice(0, 500) : existing.content;
     if (!content) throw new Error('记忆内容不能为空');
-    const status = input.status === 'active' || input.status === 'candidate' ? input.status : existing.status;
-    this.db.prepare('UPDATE agent_memories SET content=?, status=?, updated_at=? WHERE memory_id=?')
-      .run(content, status, new Date().toISOString(), memoryId);
+
+    const status = ['active', 'candidate', 'superseded'].includes(String(input.status))
+      ? (input.status as AgentMemoryRecord['status'])
+      : existing.status;
+    const userEditedAutomaticMemory = typeof input.content === 'string' && !existing.memory_key.startsWith('user_manual_');
+    const memoryKey = userEditedAutomaticMemory ? `user_manual_${id()}` : existing.memory_key;
+    this.db.prepare(`
+      UPDATE agent_memories
+      SET memory_key=?, content=?, confidence=?, importance=?, status=?, source_thread_id=?, source_message_id=?, updated_at=?
+      WHERE memory_id=?
+    `).run(
+      memoryKey,
+      content,
+      userEditedAutomaticMemory ? 1 : existing.confidence,
+      userEditedAutomaticMemory ? 1 : existing.importance,
+      userEditedAutomaticMemory ? 'active' : status,
+      userEditedAutomaticMemory ? null : existing.source_thread_id,
+      userEditedAutomaticMemory ? null : existing.source_message_id,
+      new Date().toISOString(),
+      memoryId,
+    );
     return this.db.prepare('SELECT * FROM agent_memories WHERE memory_id=?').get(memoryId) as AgentMemoryRecord;
+  }
+
+  listAutomaticMemories(): AgentMemoryRecord[] {
+    return this.db.prepare(`
+      SELECT * FROM agent_memories
+      WHERE status='active' AND memory_key NOT LIKE 'user_manual_%'
+      ORDER BY updated_at ASC
+    `).all() as AgentMemoryRecord[];
+  }
+
+  replaceAutomaticMemorySummaries(summaries: AutomaticMemorySummary[]): AgentMemoryRecord[] {
+    const categories: AgentMemoryRecord['category'][] = ['identity', 'preference', 'context', 'rule'];
+    const normalized = new Map<AgentMemoryRecord['category'], string>();
+    for (const summary of summaries) {
+      if (!categories.includes(summary.category)) continue;
+      normalized.set(summary.category, String(summary.content || '').trim().slice(0, 500));
+    }
+
+    this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM agent_memories WHERE memory_key NOT LIKE 'user_manual_%'`).run();
+      for (const category of categories) {
+        const content = normalized.get(category);
+        if (!content) continue;
+        this.upsertMemory({
+          category,
+          memoryKey: `auto_summary_${category}`,
+          content,
+          confidence: 1,
+          importance: 0.8,
+          status: 'active',
+        });
+      }
+    })();
+    return this.listAutomaticMemories();
   }
 
   deleteMemory(memoryId: string): boolean {
     return this.db.prepare('DELETE FROM agent_memories WHERE memory_id=?').run(memoryId).changes > 0;
   }
 
-  deleteMemoryByKey(memoryKey: string): boolean {
-    return this.db.prepare('DELETE FROM agent_memories WHERE memory_key=?').run(memoryKey).changes > 0;
-  }
-
   clearMemories(): number {
     return this.db.prepare('DELETE FROM agent_memories').run().changes;
   }
 
-  retrieveMemories(query: string, limit?: number): AgentMemoryRecord[] {
+  retrieveMemories(_query = '', limit?: number): AgentMemoryRecord[] {
     const settings = this.getMemorySettings();
     if (!settings.enabled || !settings.autoRecall) return [];
-    const rows = this.db.prepare(`SELECT * FROM agent_memories WHERE status='active' ORDER BY importance DESC, updated_at DESC LIMIT 200`)
-      .all() as AgentMemoryRecord[];
-    const normalized = query.toLocaleLowerCase().replace(/\s+/g, '');
-    const grams = new Set<string>();
-    for (let index = 0; index < normalized.length - 1; index++) grams.add(normalized.slice(index, index + 2));
-    const scored = rows.map((row) => {
-      const text = `${row.memory_key}${row.content}`.toLocaleLowerCase().replace(/\s+/g, '');
-      let overlap = 0;
-      for (const gram of grams) if (text.includes(gram)) overlap++;
-      const baseline = ['identity', 'preference', 'rule'].includes(row.category) ? 0.18 : 0;
-      return { row, score: overlap / Math.max(1, grams.size) + row.importance * 0.35 + baseline };
-    }).sort((a, b) => b.score - a.score);
-    const selected = scored.slice(0, Math.max(1, Math.min(20, limit || settings.recallLimit))).map(({ row }) => row);
+
+    const recallLimit = Math.max(1, Math.min(20, limit || settings.recallLimit));
+    const selected = this.db.prepare(`
+      SELECT * FROM agent_memories
+      WHERE status='active'
+      ORDER BY CASE WHEN memory_key LIKE 'user_manual_%' THEN 0 ELSE 1 END, updated_at DESC
+      LIMIT ?
+    `).all(recallLimit) as AgentMemoryRecord[];
+
     if (selected.length) {
       const placeholders = selected.map(() => '?').join(',');
       this.db.prepare(`UPDATE agent_memories SET last_used_at=? WHERE memory_id IN (${placeholders})`)

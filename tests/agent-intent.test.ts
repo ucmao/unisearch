@@ -18,10 +18,9 @@ test('greetings stay conversational and never create a plan', () => {
   }
 });
 
-test('identity and remembered-name questions stay in the memory-aware conversation path', () => {
+test('identity and remembered-name questions remain ordinary conversation', () => {
   for (const message of ['你是？', '你是谁', '我是谁？', '你叫啥', '你叫什么名字？', '我叫什么', '还记得我叫什么吗？', '记得你的名字吗']) {
     assert.equal(localIntentDecision(message).action, 'chat', message);
-    assert.equal(isSimpleConversation(message), true, message);
   }
 });
 

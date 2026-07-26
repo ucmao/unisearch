@@ -25,7 +25,6 @@ const CAPABILITY = /你(?:可以|能)(?:做|干)什么|怎么用|使用帮助|�
 const PLATFORM_CAPABILITY = /(?:支持|可以|能).*(?:采集|抓取|搜索)?.*(?:什么|哪些)平台|(?:什么|哪些)平台.*(?:支持|可以|能)|支持的平台/i;
 const RESEARCH_HOW_TO = /(?:采集|收集|搜索|调研|任务).*(?:怎么做|怎么用|如何操作|操作流程|步骤)|(?:怎么|如何).*(?:采集|收集|搜索|调研|创建任务)/i;
 const MODEL_INFO = /(?:你|当前|现在)?(?:用的|使用的|配置的)?(?:是)?什么模型|模型(?:名称|版本|信息)|which model/i;
-const IDENTITY_CONVERSATION = /^(?:(?:你|我)是(?:谁|什么|啥)?|(?:你|我)叫(?:什么|啥)(?:名字)?|(?:你|我)叫什么(?:名字)?|(?:还)?记得(?:你|我)(?:叫|是)(?:谁|什么|啥)(?:名字)?吗?|(?:还)?记得(?:你|我)的名字吗)[!！,.，。?？\s]*$/i;
 const WEATHER = /天气|气温|下雨|降雨|温度|weather/i;
 const LOCATION = /^(?:我在|我住在|城市是|地点是)?\s*[\u4e00-\u9fa5]{2,12}(?:市)?[!！,.，。\s]*$/;
 const CONFIRM_PARTICLE = '(?:呀|啊|吧|呗|哈|咯|呐|哦|捏)?';
@@ -47,7 +46,7 @@ const ALL_PLATFORM_IDS = [
 export function isSimpleConversation(text: string): boolean {
   const value = text.trim();
   return GREETING.test(value) || THANKS.test(value) || GOODBYE.test(value) || CAPABILITY.test(value)
-    || PLATFORM_CAPABILITY.test(value) || IDENTITY_CONVERSATION.test(value) || WEATHER.test(value);
+    || PLATFORM_CAPABILITY.test(value) || WEATHER.test(value);
 }
 
 export function hasResearchSubject(text: string): boolean {

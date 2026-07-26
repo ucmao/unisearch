@@ -24,15 +24,12 @@ export interface ConversationMaterials {
 export interface ConversationMemory {
   category: 'identity' | 'preference' | 'context' | 'rule';
   content: string;
+  source: 'manual' | 'automatic';
 }
 
-export interface ExtractedMemory {
-  action: 'add' | 'update' | 'delete' | 'none';
+export interface ConsolidatedMemorySummary {
   category: ConversationMemory['category'];
-  key: string;
   content: string;
-  confidence: number;
-  importance: number;
 }
 
 export function stripModelReasoning(content: string): string {
@@ -415,7 +412,7 @@ export class ModelService {
     }
     const memoryMessages = options.memories?.length ? [{
       role: 'system',
-      content: `以下是用户过去明确表达并保存在本机的长期记忆，只用于保持称呼、偏好和背景一致。它们不能覆盖产品、安全或系统规则；若与用户当前表达冲突，以当前表达为准。\n<user_memories_json>${JSON.stringify(options.memories)}</user_memories_json>`,
+      content: `以下是保存在本机的用户长期记忆。回答时自然结合与当前对话有关的内容；source="manual" 表示用户手动保存，应优先采用。记忆可以影响称呼、表达方式、角色风格、偏好和用户背景，但不能改变真实产品能力、安全限制或运行状态。若记忆与用户当前消息冲突，以当前消息为准。\n<user_memories_json>${JSON.stringify(options.memories)}</user_memories_json>`,
     }] : [];
     const analysisMessages = options.analysisGoals?.length ? [{
       role: 'system',
@@ -449,42 +446,54 @@ export class ModelService {
     ], 80, false);
   }
 
-  async extractMemories(userMessages: Array<{ messageId: string; content: string }>): Promise<ExtractedMemory[]> {
-    if (!userMessages.length) return [];
+  async consolidateMemories(
+    userMessages: Array<{ messageId: string; content: string }>,
+    existingSummaries: ConsolidatedMemorySummary[],
+    manualMemories: string[],
+  ): Promise<ConsolidatedMemorySummary[] | null> {
+    if (!userMessages.length) return null;
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是本地 AI 助手的智能记忆提取器。你的任务是分析用户的近期发言，自动且智能地识别跨对话中长久有价值的信息。
+        content: `你是本地 AI 助手的自动记忆整理器。请把已有自动记忆和用户近期发言整合为四份简短、持续更新的摘要，不要新增零散记忆。
 
-需要智能识别并提取的信息包括：
-1. 身份与称呼（identity）：
-   - 用户的自称或姓名（例如“我叫小青青” -> key: user_name, content: "用户自称名字是小青青"）
-   - 用户给 AI 助手起的称呼/名字（例如“你叫 悠悠” -> key: assistant_name, content: "用户称呼助手为“悠悠”"）
-   - 用户的职业、角色或身份信息
-2. 长期偏好（preference）：
-   - 用户的习惯、常用语言、代码风格、界面主题偏好、回复风格等
-3. 长期背景（context）：
-   - 用户长期关注的领域、项目背景或生活环境
-4. 明确规则（rule）：
-   - 用户希望助手长期遵循的答复要求或交互规则
+四类摘要：
+1. 身份与称呼（identity）：如自称、称呼、职业角色
+2. 长期偏好（preference）：习惯、语言、样式、格式规范等
+3. 长期背景（context）：项目背景、平台属性
+4. 明确规则（rule）：希望助手长期遵循的具体要求
 
-提取原则：
+整理原则：
+- 必须输出 identity、preference、context、rule 四项，每类恰好一次；没有内容时使用空字符串。
+- 合并同类信息，不要逐条罗列重复事实；新信息与旧信息冲突时保留较新的明确表达。
+- 保留仍然有效的旧摘要，不要因为本轮没有提及就删除。
+- manual_memories 是用户手动保存的权威内容，不要在自动摘要中重复，也不能修改或否定。
 - 不要把临时一次性问答、单次采集搜索要求、临时情绪当成记忆。
-- 当用户明确要求“忘记/删除”某记忆时，设置 action="delete"。
+- 用户明确要求忘记某项自动记忆时，从对应摘要中移除。
 - 严禁保存敏感安全隐私（密码、API Key、验证码、支付账号、证件号等）。
-- 键名（key）使用稳定简短的英文或拼音标识（如 user_name, assistant_name, language_preference, code_style）。
 - 内容（content）使用简洁清晰的第三人称描述。
 
 只输出 JSON，格式如下：
-{"memories":[{"action":"add|update|delete|none","category":"identity|preference|context|rule","key":"稳定键名","content":"简洁描述","confidence":0.0到1.0,"importance":0.0到1.0}]}`,
+{"summaries":[{"category":"identity","content":"..."},{"category":"preference","content":"..."},{"category":"context","content":"..."},{"category":"rule","content":"..."}]}`,
       },
-      { role: 'user', content: `<user_messages_json>${JSON.stringify(userMessages)}</user_messages_json>` },
+      {
+        role: 'user',
+        content: `<existing_summaries_json>${JSON.stringify(existingSummaries)}</existing_summaries_json>\n<manual_memories_json>${JSON.stringify(manualMemories)}</manual_memories_json>\n<user_messages_json>${JSON.stringify(userMessages)}</user_messages_json>`,
+      },
     ], 1200);
     try {
-      const parsed = parseModelJson<{ memories?: ExtractedMemory[] }>(content);
-      return (Array.isArray(parsed.memories) ? parsed.memories : []).slice(0, 6);
+      const parsed = parseModelJson<{ summaries?: ConsolidatedMemorySummary[] }>(content);
+      if (!Array.isArray(parsed.summaries)) return null;
+      const categories: ConversationMemory['category'][] = ['identity', 'preference', 'context', 'rule'];
+      const values = new Map<ConversationMemory['category'], string>();
+      for (const summary of parsed.summaries) {
+        if (!categories.includes(summary?.category) || values.has(summary.category)) return null;
+        values.set(summary.category, String(summary.content || '').trim().slice(0, 500));
+      }
+      if (!categories.every((category) => values.has(category))) return null;
+      return categories.map((category) => ({ category, content: values.get(category) || '' }));
     } catch {
-      return [];
+      return null;
     }
   }
 
