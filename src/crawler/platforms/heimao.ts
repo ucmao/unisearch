@@ -308,6 +308,9 @@ export class HeimaoCrawler extends AbstractCrawler {
           title: item.title,
           desc: `${item.creator_name ? `[投诉商家: ${item.creator_name}] ` : ''}${item.status ? `[状态: ${item.status}] ` : ''}${item.description}`,
           creator_name: item.creator_name || '黑猫涉诉商家',
+          merchant_name: item.creator_name || '黑猫涉诉商家',
+          status: item.status || '',
+          rank: totalCollected + 1,
           content_url: item.content_url || `https://tousu.sina.com.cn/index/search/?keywords=${safeKw}`,
           source_keyword: keyword,
           published_at: item.published_at || '',
@@ -367,6 +370,8 @@ export class HeimaoCrawler extends AbstractCrawler {
           title: detail.title,
           desc: `[被投诉方: ${detail.merchant}] ${detail.status ? `[状态: ${detail.status}] ` : ''}${detail.desc}`,
           creator_name: detail.merchant || '黑猫涉诉商家',
+          merchant_name: detail.merchant || '黑猫涉诉商家',
+          status: detail.status || '',
           content_url: url,
           source_keyword: activeConfig.KEYWORDS || '',
           published_at: detail.time || '',
@@ -380,4 +385,3 @@ export class HeimaoCrawler extends AbstractCrawler {
     }
   }
 }
-
