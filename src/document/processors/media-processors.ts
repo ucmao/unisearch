@@ -121,6 +121,7 @@ export const ffmpegExtractAudioProcessor: DocumentProcessor = {
         assetId: audioAssetId,
         documentId: document.documentId,
         kind: 'audio',
+        role: 'content',
         url: `file://${output}`,
         mimeType: 'audio/wav',
         localPath: output,

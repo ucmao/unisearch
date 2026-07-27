@@ -319,11 +319,12 @@ export class DocumentEngine {
   private persistAssets(document: CanonicalDocument): void {
     const statement = this.db.prepare(`
       INSERT INTO document_assets (
-        asset_id, document_id, kind, url, mime_type, local_path,
+        asset_id, document_id, kind, role, url, mime_type, local_path,
         metadata_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(document_id, url) DO UPDATE SET
         kind=excluded.kind,
+        role=excluded.role,
         mime_type=excluded.mime_type,
         local_path=COALESCE(excluded.local_path, document_assets.local_path),
         metadata_json=excluded.metadata_json,
@@ -334,6 +335,7 @@ export class DocumentEngine {
         asset.assetId,
         document.documentId,
         asset.kind,
+        asset.role,
         asset.url,
         asset.mimeType || null,
         asset.localPath || null,
@@ -426,6 +428,7 @@ export class DocumentEngine {
         assetId: asset.asset_id,
         documentId: asset.document_id,
         kind: asset.kind,
+        role: asset.role,
         url: asset.url,
         ...(optional(asset.mime_type) ? { mimeType: optional(asset.mime_type) } : {}),
         ...(optional(asset.local_path) ? { localPath: optional(asset.local_path) } : {}),

@@ -61,6 +61,17 @@ const attributeLabels: Record<string, string> = {
   mediaType: '媒体类型', tags: '标签', reasoningContent: '推理内容',
 }
 
+const assetRoleLabels: Record<CanonicalDocument['assets'][number]['role'], string> = {
+  cover: '封面', content: '正文资源', avatar: '头像', thumbnail: '缩略图',
+  attachment: '附件', unknown: '其他资源',
+}
+
+function previewAsset(document: CanonicalDocument) {
+  return document.assets.find((asset) => asset.role === 'cover')
+    || document.assets.find((asset) => asset.role === 'thumbnail')
+    || document.assets.find((asset) => asset.kind === 'image')
+}
+
 function formatNumber(value: number) {
   if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}亿`
   if (value >= 10_000) return `${(value / 10_000).toFixed(1)}万`
@@ -143,6 +154,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
   const visibleAttributes = document
     ? Object.fromEntries(Object.entries(document.attributes).filter(([key]) => key !== 'reasoningContent'))
     : {}
+  const cover = document ? previewAsset(document) : undefined
   return (
     <Dialog open={Boolean(document)} onOpenChange={onOpenChange}>
       <DialogContent className="left-auto right-0 top-0 flex h-dvh w-[min(720px,94vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 p-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right">
@@ -157,6 +169,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
         </DialogHeader>
         {document ? (
           <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
+            {cover ? <img src={cover.url} alt={document.title || '文档封面'} referrerPolicy="no-referrer" className="max-h-72 w-full rounded-md border border-cyber-border-subtle bg-cyber-bg-secondary object-contain" /> : null}
             <section className="grid gap-3 sm:grid-cols-2">
               <Detail label="Document ID" value={document.documentId} mono />
               <Detail label="来源内容 ID" value={document.sourceItemId} mono />
@@ -180,7 +193,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
               <section>
                 <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">媒体资源</h3>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {document.assets.map((asset) => <a key={asset.assetId} href={asset.url} target="_blank" rel="noreferrer" className="truncate rounded border border-cyber-border-subtle p-3 text-xs text-cyber-neon-cyan hover:bg-cyber-neon-cyan/5">{asset.kind} · {asset.url}</a>)}
+                  {document.assets.map((asset) => <a key={asset.assetId} href={asset.url} target="_blank" rel="noreferrer" className="truncate rounded border border-cyber-border-subtle p-3 text-xs text-cyber-neon-cyan hover:bg-cyber-neon-cyan/5">{assetRoleLabels[asset.role]} · {asset.kind} · {asset.url}</a>)}
                 </div>
               </section>
             ) : null}
@@ -325,7 +338,10 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   ].filter((column) => visibleColumns.has(column.key))
 
   const cell = (document: CanonicalDocument, key: string) => {
-    if (key === 'title') return <div className="max-w-[360px]"><p className="truncate font-medium text-cyber-text-primary">{document.title || '无标题'}</p><p className="mt-1 line-clamp-2 text-[11px] text-cyber-text-muted">{document.summary || document.markdown || '—'}</p></div>
+    if (key === 'title') {
+      const preview = previewAsset(document)
+      return <div className="flex max-w-[420px] items-start gap-3">{preview ? <img src={preview.url} alt="" referrerPolicy="no-referrer" className="h-14 w-20 shrink-0 rounded border border-cyber-border-subtle bg-cyber-bg-secondary object-cover" /> : null}<div className="min-w-0"><p className="truncate font-medium text-cyber-text-primary">{document.title || '无标题'}</p><p className="mt-1 line-clamp-2 text-[11px] text-cyber-text-muted">{document.summary || document.markdown || '—'}</p></div></div>
+    }
     if (key === 'platform') return <Badge variant="outline">{platformLabels.get(document.platform) || document.platform}</Badge>
     if (key === 'kind') return kindLabels[document.kind] || document.kind
     if (key === 'subject') return <div><p className="text-cyber-text-secondary">{document.subject.name || document.subject.id || '—'}</p><p className="text-[10px] text-cyber-text-muted">{subjectTypeLabels[document.subject.type] || document.subject.type}</p></div>

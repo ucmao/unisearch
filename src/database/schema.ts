@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 6;
+export const DATABASE_SCHEMA_VERSION = 7;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -267,6 +267,7 @@ export function initSchema(db: Database): void {
       asset_id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
       kind TEXT NOT NULL,
+      role TEXT NOT NULL,
       url TEXT NOT NULL,
       mime_type TEXT,
       local_path TEXT,

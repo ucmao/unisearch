@@ -30,6 +30,7 @@ async function seed(db: Database.Database) {
     title: 'UniSearch 架构说明',
     snippet: 'UniSearch 使用 Workflow 调度 Connector 和 Processor，并通过 Document Engine 统一保存资料。',
     real_url: 'https://example.com/unisearch',
+    images: ['https://example.com/unisearch-thumbnail.jpg'],
   }));
 }
 
@@ -44,6 +45,7 @@ test('knowledge index chunks Documents and supports hybrid retrieval', async () 
     assert.match(results[0].content, /Document Engine/);
     assert.equal(results[0].metadata.projectorVersion, KNOWLEDGE_PROJECTOR_VERSION);
     assert.equal(results[0].metadata.platform, 'bing');
+    assert.equal(results[0].metadata.assets[0].role, 'thumbnail');
     assert.equal(results[0].metadata.totalChunks, 1);
     assert.equal(typeof results[0].metadata.characterStart, 'number');
     assert.equal(localEmbedding('测试').length, 256);

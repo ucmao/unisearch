@@ -28,6 +28,8 @@ test('new database contains only Document and Workflow architecture tables', () 
     for (const removedColumn of ['author', 'metadata_json']) {
       assert.equal(documentColumns.has(removedColumn), false, `${removedColumn} should not exist`);
     }
+    const assetColumns = new Set((db.pragma('table_info(document_assets)') as Array<{ name: string }>).map((column) => column.name));
+    assert.ok(assetColumns.has('role'));
     assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   } finally {
     db.close();

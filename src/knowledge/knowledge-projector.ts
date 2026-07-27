@@ -27,7 +27,7 @@ export interface KnowledgeProjectionMetadata {
   metrics: Record<string, number | null>;
   attributes: Record<string, unknown>;
   citations: CanonicalDocument['citations'];
-  assets: Array<Pick<CanonicalDocument['assets'][number], 'assetId' | 'kind' | 'url' | 'mimeType'>>;
+  assets: Array<Pick<CanonicalDocument['assets'][number], 'assetId' | 'kind' | 'role' | 'url' | 'mimeType'>>;
 }
 
 export interface KnowledgeProjection {
@@ -106,8 +106,8 @@ export class KnowledgeProjector {
       metrics: document.metrics,
       attributes,
       citations: document.citations,
-      assets: document.assets.map(({ assetId, kind, url, mimeType }) => ({
-        assetId, kind, url, ...(mimeType ? { mimeType } : {}),
+      assets: document.assets.map(({ assetId, kind, role, url, mimeType }) => ({
+        assetId, kind, role, url, ...(mimeType ? { mimeType } : {}),
       })),
     };
     const context = [

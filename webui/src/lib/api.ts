@@ -66,6 +66,7 @@ export interface CanonicalAsset {
   assetId: string
   documentId: string
   kind: 'image' | 'video' | 'audio' | 'file' | 'unknown'
+  role: 'cover' | 'content' | 'avatar' | 'thumbnail' | 'attachment' | 'unknown'
   url: string
   mimeType?: string
   localPath?: string
