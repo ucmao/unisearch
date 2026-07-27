@@ -13,6 +13,7 @@ export const assetSchema = z.object({
   assetId: z.string().min(1),
   documentId: z.string().min(1),
   kind: z.enum(['image', 'video', 'audio', 'file', 'unknown']),
+  role: z.enum(['cover', 'content', 'avatar', 'thumbnail', 'attachment', 'unknown']),
   url: z.string().min(1),
   mimeType: z.string().optional(),
   localPath: z.string().optional(),

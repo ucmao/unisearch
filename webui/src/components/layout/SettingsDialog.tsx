@@ -335,7 +335,7 @@ export function SettingsDialog({
                     <label className="block space-y-1.5">
                       <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
                         <span>API Key</span>
-                        {form.apiKeyConfigured ? (
+                        {form.apiKeyConfigured || form.apiKey ? (
                           <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-500">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                             已配置
@@ -346,7 +346,7 @@ export function SettingsDialog({
                         <Input
                           type={showApiKey ? 'text' : 'password'}
                           value={form.apiKey || ''}
-                          onChange={(event) => setForm({ ...form, apiKey: event.target.value, clearApiKey: false })}
+                          onChange={(event) => setForm({ ...form, apiKey: event.target.value, clearApiKey: event.target.value === '' })}
                           placeholder="填写 API Key"
                           className={form.apiKey ? 'pr-9' : ''}
                         />

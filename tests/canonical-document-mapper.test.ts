@@ -54,6 +54,7 @@ test('social mapper normalizes aliases without manufacturing missing metrics', (
   assert.deepEqual(document.metrics, { likes: 12, comments: 3 });
   assert.equal(document.metrics.views, undefined);
   assert.equal(document.assets[0].kind, 'image');
+  assert.equal(document.assets[0].role, 'content');
   assert.equal(document.provenance.runId, 'run-xhs');
 });
 
@@ -64,6 +65,8 @@ test('Bilibili mapper preserves platform-specific metrics', () => {
     video_danmaku: '30', video_comment: '20', video_cover_url: 'https://example.com/cover.jpg',
   }));
   assert.deepEqual(document.metrics, { saves: 80, comments: 20, views: 12_000, coins: 50, danmaku: 30 });
+  assert.equal(document.assets[0].role, 'cover');
+  assert.equal(document.assets[0].url, 'https://example.com/cover.jpg');
 });
 
 test('comment mapper preserves its own identity and parent relation', () => {
@@ -90,6 +93,20 @@ test('search mapper maps snippet, publisher, rank and assets', () => {
   assert.equal(document.rank, 4);
   assert.deepEqual(document.metrics, {});
   assert.equal(document.assets.length, 1);
+  assert.equal(document.assets[0].role, 'thumbnail');
+});
+
+test('mapper preserves a cover supplied only through RawItem hints', () => {
+  const raw = buildRawItem('emitDouyinAweme', {
+    aweme_id: 'cover-only-1', title: '封面测试', desc: '正文',
+  });
+  const document = mapRawItemToCanonicalDocument({
+    ...raw,
+    hints: { ...raw.hints, mediaUrls: undefined, coverUrl: 'https://example.com/only-cover.jpg' },
+  });
+  assert.equal(document.assets.length, 1);
+  assert.equal(document.assets[0].kind, 'image');
+  assert.equal(document.assets[0].role, 'cover');
 });
 
 test('AI mapper keeps final answer canonical and citations structured', () => {

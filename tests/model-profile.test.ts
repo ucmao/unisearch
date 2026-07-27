@@ -71,6 +71,36 @@ test('legacy single-profile files are ignored instead of migrated', () => {
   }
 });
 
+test('public model profile checks do not decrypt the stored API key', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-profile-'));
+  const configPath = path.join(directory, 'model-profile.json');
+
+  try {
+    fs.writeFileSync(configPath, JSON.stringify({
+      version: 2,
+      activeProvider: 'minimax',
+      profiles: {
+        minimax: {
+          baseUrl: 'https://api.minimaxi.com/v1',
+          model: 'MiniMax-M3',
+          temperature: 0.2,
+          timeoutMs: 120000,
+          apiKeyEncrypted: 'encrypted-key',
+        },
+        deepseek: { baseUrl: 'https://api.deepseek.com', model: 'DeepSeek-V4-Flash', temperature: 0.2, timeoutMs: 120000 },
+        custom: { baseUrl: '', model: '', temperature: 0.2, timeoutMs: 120000 },
+      },
+    }));
+    const service = new ModelService(configPath);
+    (service as any).decrypt = () => { throw new Error('不应读取钥匙串'); };
+
+    assert.equal(service.getProfile(false).apiKeyConfigured, true);
+    assert.equal(service.getProfiles().profiles[0].apiKeyConfigured, true);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('model conversation respects an aborted request signal', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-abort-'));
   const configPath = path.join(directory, 'model-profile.json');

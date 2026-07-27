@@ -34,6 +34,7 @@ test('Document Engine persists Canonical Document v2 fields without legacy alias
       nickname: '  示例作者  ',
       creator_id: 'creator-1',
       source_keyword: '新能源',
+      cover_url: 'https://example.com/note-cover.jpg',
       liked_count: '1.2万',
       comment_count: 8,
     }), 'run-xhs');
@@ -45,6 +46,7 @@ test('Document Engine persists Canonical Document v2 fields without legacy alias
     assert.deepEqual(document.subject, { id: 'creator-1', name: '示例作者', type: 'creator' });
     assert.deepEqual(document.metrics, { likes: 12_000, comments: 8 });
     assert.equal(document.metrics.views, undefined);
+    assert.equal(document.assets[0].role, 'cover');
 
     const row = db.prepare('SELECT * FROM documents WHERE document_id=?').get(document.documentId) as any;
     assert.equal(row.platform, 'xhs');
@@ -53,6 +55,9 @@ test('Document Engine persists Canonical Document v2 fields without legacy alias
     assert.deepEqual(JSON.parse(row.metrics_json), { likes: 12_000, comments: 8 });
     assert.equal('author' in row, false);
     assert.equal('metadata_json' in row, false);
+    const storedAsset = db.prepare('SELECT role FROM document_assets WHERE document_id=?').get(document.documentId) as any;
+    assert.equal(storedAsset.role, 'cover');
+    assert.equal(engine.get(document.documentId)?.assets[0].role, 'cover');
   } finally {
     db.close();
   }

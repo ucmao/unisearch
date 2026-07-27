@@ -70,6 +70,7 @@ export function parseModelJson<T>(content: string): T {
 type ModelProvider = ModelProfile['provider'];
 
 type StoredProviderProfile = Omit<ModelProfile, 'provider' | 'apiKey'> & {
+  apiKey?: string;
   apiKeyEncrypted?: string;
   connectionVerifiedAt?: string;
 };
@@ -148,27 +149,20 @@ export class ModelService {
   }
 
   private decrypt(provider: ModelProvider, value?: string): string {
-    if (!value) return this.apiKeyMemory[provider] || '';
-    try {
-      const { safeStorage } = require('electron');
-      if (safeStorage?.isEncryptionAvailable()) return safeStorage.decryptString(Buffer.from(value, 'base64'));
-    } catch { }
-    return this.apiKeyMemory[provider] || '';
+    if (this.apiKeyMemory[provider]) return this.apiKeyMemory[provider]!;
+    if (!value) return '';
+    return value;
   }
 
   private encrypt(value: string): string | undefined {
-    try {
-      const { safeStorage } = require('electron');
-      if (safeStorage?.isEncryptionAvailable()) return safeStorage.encryptString(value).toString('base64');
-    } catch { }
     return undefined;
   }
 
-  getProfile(includeSecret = false, requestedProvider?: ModelProvider): ModelProfile & { apiKeyConfigured: boolean; connectionVerified: boolean; lastError: string } {
+  getProfile(includeSecret = true, requestedProvider?: ModelProvider): ModelProfile & { apiKeyConfigured: boolean; connectionVerified: boolean; lastError: string } {
     const config = this.readConfig();
     const provider = requestedProvider || config.activeProvider;
     const stored = config.profiles[provider];
-    const apiKey = this.decrypt(provider, stored.apiKeyEncrypted);
+    const apiKey = stored.apiKey || this.decrypt(provider, stored.apiKeyEncrypted) || this.apiKeyMemory[provider] || '';
     return {
       provider,
       baseUrl: stored.baseUrl,
@@ -176,7 +170,7 @@ export class ModelService {
       temperature: stored.temperature,
       timeoutMs: stored.timeoutMs,
       ...(includeSecret ? { apiKey } : {}),
-      apiKeyConfigured: Boolean(apiKey),
+      apiKeyConfigured: Boolean(apiKey || stored.apiKey || stored.apiKeyEncrypted || this.apiKeyMemory[provider]),
       connectionVerified: Boolean(stored.connectionVerifiedAt),
       lastError: this.lastErrors[provider] || '',
     };
@@ -213,7 +207,7 @@ export class ModelService {
     const nextBaseUrl = (input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl).trim()).replace(/\/$/, '');
     const nextModel = input.model === undefined ? previous.model : String(input.model).trim();
     const inputApiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
-    const previousApiKey = this.decrypt(provider, previous.apiKeyEncrypted);
+    const previousApiKey = previous.apiKey || (inputApiKey ? this.decrypt(provider, previous.apiKeyEncrypted) : '');
     const keyChanged = Boolean(input.clearApiKey) || Boolean(inputApiKey && inputApiKey !== previousApiKey);
     const connectionChanged = nextBaseUrl !== previous.baseUrl.replace(/\/$/, '')
       || nextModel !== previous.model
@@ -224,20 +218,23 @@ export class ModelService {
       temperature: Number.isFinite(input.temperature) ? input.temperature! : previous.temperature,
       timeoutMs: Number.isFinite(input.timeoutMs) ? input.timeoutMs! : previous.timeoutMs,
       apiKeyEncrypted: previous.apiKeyEncrypted,
+      apiKey: previous.apiKey,
       connectionVerifiedAt: connectionChanged ? undefined : previous.connectionVerifiedAt,
     };
     if (input.clearApiKey) {
       delete this.apiKeyMemory[provider];
       delete next.apiKeyEncrypted;
+      delete next.apiKey;
     } else if (inputApiKey) {
       this.apiKeyMemory[provider] = inputApiKey;
+      next.apiKey = inputApiKey;
       next.apiKeyEncrypted = this.encrypt(inputApiKey);
     }
     config.activeProvider = provider;
     config.profiles[provider] = next;
     if (connectionChanged) this.lastErrors[provider] = '';
     this.writeConfig(config);
-    return this.getProfile(false);
+    return this.getProfile(true);
   }
 
   private markConnectionVerified(provider: ModelProvider) {

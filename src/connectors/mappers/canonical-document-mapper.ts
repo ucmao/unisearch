@@ -205,6 +205,19 @@ function inferAssetKind(url: string): 'image' | 'video' | 'audio' | 'file' | 'un
   return 'unknown';
 }
 
+function inferAssetRole(
+  url: string,
+  kind: ReturnType<typeof inferAssetKind>,
+  coverUrl: string | undefined,
+  definition: ConnectorMappingDefinition,
+): 'cover' | 'content' | 'thumbnail' | 'attachment' | 'unknown' {
+  if (coverUrl && url === coverUrl) return 'cover';
+  if (kind === 'file') return 'attachment';
+  if (definition.family === 'search' && kind === 'image') return 'thumbnail';
+  if (kind === 'image' || kind === 'video' || kind === 'audio') return 'content';
+  return 'unknown';
+}
+
 function buildSummary(item: RawItem, definition: ConnectorMappingDefinition, attributes: Record<string, any>, markdown: string): string {
   const payload = item.payload as Payload;
   if (definition.family === 'job') {
@@ -248,7 +261,11 @@ export function mapRawItemToCanonicalDocument(item: RawItem, runId?: string): Ca
     ? firstString(payload, ['platform', 'source_platform'])
     : undefined;
   const keyword = firstString(payload, ['source_keyword', 'keyword', 'question']);
-  const urls = [...new Set(item.hints.mediaUrls || [])];
+  const coverUrl = item.hints.coverUrl?.trim() || undefined;
+  // Keep the explicitly identified cover first and preserve its semantic role.
+  // Some custom RawItem producers only populate coverUrl, while the built-in
+  // connector output also includes it in mediaUrls.
+  const urls = [...new Set([coverUrl, ...(item.hints.mediaUrls || [])].filter((url): url is string => Boolean(url)))];
   const now = item.fetchedAt;
   const resultRank = rank(payload);
   const updatedAt = sourceUpdatedAt(payload);
@@ -276,9 +293,17 @@ export function mapRawItemToCanonicalDocument(item: RawItem, runId?: string): Ca
     metrics: metrics(effectiveDefinition, payload),
     attributes,
     citations: citations(payload),
-    assets: urls.map((url) => ({
-      assetId: hash(`${documentId}:${url}`), documentId, kind: inferAssetKind(url), url, metadata: {},
-    })),
+    assets: urls.map((url) => {
+      const kind = inferAssetKind(url);
+      return {
+        assetId: hash(`${documentId}:${url}`),
+        documentId,
+        kind,
+        role: inferAssetRole(url, kind, coverUrl, effectiveDefinition),
+        url,
+        metadata: {},
+      };
+    }),
     provenance: {
       source: item.source,
       ...(item.sourceItemId ? { sourceItemId: item.sourceItemId } : {}),
