@@ -1,4 +1,4 @@
-import type { Document } from '../documents/types';
+import type { CanonicalDocument as Document } from '../documents/canonical';
 
 export interface ExportContext {
   workflowId?: string;
@@ -18,4 +18,3 @@ export interface Exporter {
   name: string;
   export(documents: Document[], context: ExportContext): Promise<ExportResult>;
 }
-

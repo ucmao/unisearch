@@ -64,8 +64,11 @@ Workflow 持久化在 `workflow_runs` 和 `workflow_steps`：
 
 ## 数据库断代策略
 
-数据库 schema version 由后续阶段统一维护。检测到旧版本时，应用直接删除旧 schema 并创建新表，
-不迁移旧平台表、`content_records`、`agent_plans` 或 `agent_plan_steps`。
+数据库 schema version 已切换到 Canonical Document v2。检测到旧版本时，应用直接删除旧 schema 并创建新表，
+不迁移旧平台表、v1 Document、`content_records`、`agent_plans` 或 `agent_plan_steps`。
+
+每条 `document_sources` 绑定一个 `document_versions` 快照。Analytics 按执行、Workflow 或任务查询时读取对应快照，
+不从原始 payload 重新解释业务字段；无范围查询时每个 Document 只返回最新来源快照。
 
 ## 暂未包含
 

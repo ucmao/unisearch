@@ -2,7 +2,8 @@ import { createHash, randomUUID } from 'crypto';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import type { Artifact, Document } from '../../core/documents/types';
+import type { Artifact } from '../../core/documents/types';
+import type { CanonicalDocument as Document } from '../../core/documents/canonical';
 import type { DocumentProcessor, ProcessorResult } from '../../core/processors/types';
 
 function hash(value: string): string {
@@ -148,4 +149,3 @@ export const whisperTranscribeProcessor: DocumentProcessor = {
     return { document, artifacts };
   },
 };
-

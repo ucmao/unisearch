@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 5;
+export const DATABASE_SCHEMA_VERSION = 6;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -187,30 +187,48 @@ export function initSchema(db: Database): void {
       document_id TEXT PRIMARY KEY,
       canonical_key TEXT NOT NULL UNIQUE,
       kind TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      markdown TEXT NOT NULL DEFAULT '',
-      author TEXT NOT NULL DEFAULT '',
-      published_at TEXT,
+      platform TEXT NOT NULL,
+      original_platform TEXT,
+      source_item_id TEXT,
+      parent_source_item_id TEXT,
       source_url TEXT,
+      keyword TEXT,
+      rank INTEGER,
+      title TEXT NOT NULL DEFAULT '',
+      summary TEXT NOT NULL DEFAULT '',
+      markdown TEXT NOT NULL DEFAULT '',
+      subject_id TEXT,
+      subject_name TEXT,
+      subject_type TEXT NOT NULL DEFAULT 'unknown',
+      published_at TEXT,
+      source_updated_at TEXT,
+      fetched_at TEXT NOT NULL,
       language TEXT NOT NULL DEFAULT 'und',
       content_hash TEXT NOT NULL,
-      metadata_json TEXT NOT NULL DEFAULT '{}',
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      attributes_json TEXT NOT NULL DEFAULT '{}',
+      citations_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_documents_kind_updated ON documents(kind, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_platform_kind
+      ON documents(platform, kind, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_keyword ON documents(keyword);
+    CREATE INDEX IF NOT EXISTS idx_documents_subject
+      ON documents(subject_type, subject_name);
+    CREATE INDEX IF NOT EXISTS idx_documents_published
+      ON documents(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash);
 
     CREATE TABLE IF NOT EXISTS document_versions (
       version_id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
+      revision_hash TEXT NOT NULL,
       content_hash TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '',
-      markdown TEXT NOT NULL DEFAULT '',
-      metadata_json TEXT NOT NULL DEFAULT '{}',
+      canonical_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
-      UNIQUE(document_id, content_hash)
+      UNIQUE(document_id, revision_hash)
     );
     CREATE INDEX IF NOT EXISTS idx_document_versions_document
       ON document_versions(document_id, created_at DESC);
@@ -218,22 +236,25 @@ export function initSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS document_sources (
       source_record_id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
+      document_version_id TEXT NOT NULL,
       run_id TEXT,
-      source TEXT NOT NULL,
+      platform TEXT NOT NULL,
       source_item_id TEXT,
+      parent_source_item_id TEXT,
       source_url TEXT,
       raw_item_id TEXT NOT NULL,
       raw_payload_json TEXT NOT NULL DEFAULT '{}',
       fetched_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      FOREIGN KEY(document_version_id) REFERENCES document_versions(version_id) ON DELETE CASCADE,
       FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE,
       UNIQUE(run_id, raw_item_id)
     );
     CREATE INDEX IF NOT EXISTS idx_document_sources_document ON document_sources(document_id);
     CREATE INDEX IF NOT EXISTS idx_document_sources_run ON document_sources(run_id);
     CREATE INDEX IF NOT EXISTS idx_document_sources_source_item
-      ON document_sources(source, source_item_id);
+      ON document_sources(platform, source_item_id);
     CREATE TRIGGER IF NOT EXISTS delete_orphan_document
     AFTER DELETE ON document_sources
     BEGIN
@@ -349,37 +370,5 @@ export function initSchema(db: Database): void {
     );
   `);
 
-  applyAdditiveMigrations(db);
-
   db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
-}
-
-/**
- * Column additions that must NOT go through DATABASE_SCHEMA_VERSION: bumping that
- * version drops every table, which would destroy the user's collected corpus.
- * Everything here has to be idempotent and safe to run on every startup.
- */
-function applyAdditiveMigrations(db: Database): void {
-  const hasColumn = (table: string, column: string) =>
-    (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
-
-  if (!hasColumn('crawl_runs', 'comment_count')) {
-    db.exec('ALTER TABLE crawl_runs ADD COLUMN comment_count INTEGER NOT NULL DEFAULT 0');
-    // Historic rows stored "content + comments" in item_count. Recompute both
-    // columns from document_sources so old tasks report the same way as new ones.
-    db.exec(`
-      UPDATE crawl_runs SET
-        comment_count = (
-          SELECT COUNT(*) FROM document_sources s
-          JOIN documents d ON d.document_id = s.document_id
-          WHERE s.run_id = crawl_runs.run_id AND d.kind = 'comment'
-        ),
-        item_count = (
-          SELECT COUNT(*) FROM document_sources s
-          JOIN documents d ON d.document_id = s.document_id
-          WHERE s.run_id = crawl_runs.run_id AND d.kind != 'comment'
-        )
-      WHERE finished_at IS NOT NULL
-    `);
-  }
 }

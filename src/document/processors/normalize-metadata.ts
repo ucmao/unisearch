@@ -18,7 +18,8 @@ export const normalizeMetadataProcessor: DocumentProcessor = {
   resourceClass: 'cpu',
   async process(document) {
     const title = document.title.replace(/\s+/g, ' ').trim();
-    const author = document.author.replace(/\s+/g, ' ').trim();
+    const summary = document.summary.replace(/\s+/g, ' ').trim();
+    const subjectName = document.subject.name?.replace(/\s+/g, ' ').trim();
     const sourceUrl = normalizeUrl(document.sourceUrl);
     // Re-key only the documents that were identified by their URL in the first
     // place, so that stripping a fragment still dedups `…/research#section` onto
@@ -34,7 +35,11 @@ export const normalizeMetadataProcessor: DocumentProcessor = {
         documentId,
         canonicalKey,
         title,
-        author,
+        summary,
+        subject: {
+          ...document.subject,
+          ...(subjectName ? { name: subjectName } : { name: undefined }),
+        },
         sourceUrl,
         assets: document.assets.map((asset) => ({ ...asset, documentId })),
       },

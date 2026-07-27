@@ -80,13 +80,13 @@ test('task hierarchy merges multiple workflows under one AI thread', async () =>
     assert.equal(hierarchy.run_total, 3);
     assert.equal(hierarchy.items[0].rounds.length, 2);
     assert.equal(hierarchy.items[0].rounds.find((round) => round.plan_id === 'workflow-2')?.runs.length, 2);
-    assert.equal(repo.queryContents({ thread_id: 'thread-1' }).total, 3);
-    assert.equal(repo.queryContents({ plan_id: 'workflow-1' }).total, 1);
-    assert.equal(repo.queryContents({ plan_id: 'workflow-2' }).total, 2);
+    assert.equal(repo.queryDocuments({ thread_id: 'thread-1' }).total, 3);
+    assert.equal(repo.queryDocuments({ workflow_id: 'workflow-1' }).total, 1);
+    assert.equal(repo.queryDocuments({ workflow_id: 'workflow-2' }).total, 2);
 
-    const summary = repo.summary(null, null, null, null, 'thread-1');
+    const summary = repo.summary({ thread_id: 'thread-1' });
     assert.equal(summary.totals.content_count, 3);
-    assert.equal(summary.totals.creator_count, 1);
+    assert.equal(summary.totals.subject_count, 1);
   } finally {
     db.close();
   }

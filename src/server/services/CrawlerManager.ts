@@ -84,7 +84,7 @@ export class CrawlerTask {
       // In JS migration, platform-specific tables can be queried to get crawled contents.
       // For simplicity, we query the latest contents ingested during this run.
       if (!runId) return [];
-      const res = analyticsRepository.queryContents({
+      const res = analyticsRepository.queryDocuments({
         run_id: runId,
         platform: this.platform,
         page: 1,

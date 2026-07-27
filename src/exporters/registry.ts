@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import type { Database } from 'better-sqlite3';
-import type { Document } from '../core/documents/types';
+import type { CanonicalDocument as Document } from '../core/documents/canonical';
 import type { Exporter, ExportResult } from '../core/exporters/types';
 import { getDb, getDatabasePath } from '../database/connection';
 import { AnalysisService } from '../analyzers/registry';
@@ -16,9 +16,10 @@ function frontmatter(document: Document): string {
   return [
     '---',
     `title: ${quote(document.title)}`,
-    `source: ${quote(document.provenance.source)}`,
+    `source: ${quote(document.platform)}`,
     `url: ${quote(document.sourceUrl || '')}`,
-    `author: ${quote(document.author)}`,
+    `subject: ${quote(document.subject.name || '')}`,
+    `subject_type: ${quote(document.subject.type)}`,
     `document_id: ${quote(document.documentId)}`,
     '---',
   ].join('\n');
@@ -52,7 +53,7 @@ exporterRegistry.register({
   name: 'JSON 数据包',
   async export(documents, context): Promise<ExportResult> {
     const outputPath = path.join(context.outputDirectory, 'documents.json');
-    fs.writeFileSync(outputPath, JSON.stringify({ schemaVersion: 1, documents }, null, 2), 'utf8');
+    fs.writeFileSync(outputPath, JSON.stringify({ schemaVersion: 2, documents }, null, 2), 'utf8');
     return { outputPath, itemCount: documents.length, metadata: { format: 'json' } };
   },
 });
@@ -97,7 +98,7 @@ exporterRegistry.register({
     const manifest = documents.map((document, index) => {
       const file = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
       fs.writeFileSync(path.join(sources, file), markdown(document), 'utf8');
-      return { file: `sources/${file}`, title: document.title, url: document.sourceUrl || '', source: document.provenance.source };
+      return { file: `sources/${file}`, title: document.title, url: document.sourceUrl || '', source: document.platform };
     });
     fs.writeFileSync(path.join(bundle, 'manifest.json'), JSON.stringify({ schemaVersion: 1, createdAt: context.now().toISOString(), sources: manifest }, null, 2), 'utf8');
     return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'ima-markdown-bundle' } };
@@ -116,7 +117,7 @@ exporterRegistry.register({
       const fileName = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
       fs.writeFileSync(path.join(bundle, fileName), markdown(document), 'utf8');
       const safeStr = (v: string) => `"${(v || '').replace(/"/g, '""')}"`;
-      csvRows.push([safeStr(document.title), safeStr(document.provenance.source), safeStr(document.sourceUrl || ''), safeStr(document.author), safeStr(document.documentId)].join(','));
+      csvRows.push([safeStr(document.title), safeStr(document.platform), safeStr(document.sourceUrl || ''), safeStr(document.subject.name || ''), safeStr(document.documentId)].join(','));
     });
     fs.writeFileSync(path.join(bundle, 'database.csv'), csvRows.join('\n'), 'utf8');
     return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'notion-bundle' } };
@@ -135,9 +136,9 @@ exporterRegistry.register({
       const fileName = `${String(index + 1).padStart(3, '0')}-${safeName(document.title)}.md`;
       const content = [
         `- title:: ${document.title}`,
-        `- source:: ${document.provenance.source}`,
+        `- source:: ${document.platform}`,
         `- url:: ${document.sourceUrl || ''}`,
-        `- author:: ${document.author}`,
+        `- subject:: ${document.subject.name || ''}`,
         '',
         document.markdown,
       ].join('\n');
@@ -158,9 +159,10 @@ exporterRegistry.register({
       content: document.markdown,
       metadata: {
         title: document.title,
-        source: document.provenance.source,
+        source: document.platform,
         url: document.sourceUrl || '',
-        author: document.author,
+        subject: document.subject.name || '',
+        subject_type: document.subject.type,
         document_id: document.documentId,
       },
     }));
@@ -235,4 +237,3 @@ export class ExportService {
 }
 
 export const exportService = new ExportService();
-

@@ -36,7 +36,7 @@ analyzerRegistry.register({
   async analyze(documents): Promise<AnalysisReport> {
     const bySource = new Map<string, number>();
     for (const document of documents) {
-      const source = String(document.metadata.source || document.provenance.source || 'unknown');
+      const source = document.platform;
       bySource.set(source, (bySource.get(source) || 0) + 1);
     }
     const topKeywords = keywords(documents.map((document) => `${document.title}\n${document.markdown}`).join('\n'));
@@ -118,4 +118,3 @@ export class AnalysisService {
 }
 
 export const analysisService = new AnalysisService();
-

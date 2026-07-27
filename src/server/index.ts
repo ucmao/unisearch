@@ -701,78 +701,39 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   // Analytics routes
   fastify.get('/api/data/analytics/summary', async (request) => {
-    const query = request.query as { run_id?: string; plan_id?: string; thread_id?: string; platform?: string; keyword?: string };
-    return analyticsRepository.summary(query.run_id, query.platform, query.keyword, query.plan_id, query.thread_id);
+    const query = request.query as {
+      run_id?: string; workflow_id?: string; thread_id?: string; platform?: string;
+      kind?: string; keyword?: string; subject_type?: string; query?: string;
+    };
+    return analyticsRepository.summary(query);
   });
 
-  fastify.get('/api/data/analytics/contents', async (request) => {
+  fastify.get('/api/data/analytics/documents', async (request) => {
     const query = request.query as {
       run_id?: string;
-      plan_id?: string;
+      workflow_id?: string;
       thread_id?: string;
       platform?: string;
+      kind?: string;
       keyword?: string;
+      subject_type?: string;
       query?: string;
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
       page?: string;
       page_size?: string;
     };
-    return analyticsRepository.queryContents({
+    return analyticsRepository.queryDocuments({
       run_id: query.run_id,
-      plan_id: query.plan_id,
+      workflow_id: query.workflow_id,
       thread_id: query.thread_id,
       platform: query.platform,
+      kind: query.kind,
       keyword: query.keyword,
+      subject_type: query.subject_type,
       query: query.query,
       sort_by: query.sort_by,
       sort_order: query.sort_order,
-      page: query.page ? parseInt(query.page, 10) : 1,
-      page_size: query.page_size ? parseInt(query.page_size, 10) : 20,
-    });
-  });
-
-  fastify.get('/api/data/analytics/comments', async (request) => {
-    const query = request.query as {
-      run_id?: string;
-      plan_id?: string;
-      thread_id?: string;
-      platform?: string;
-      content_id?: string;
-      level?: string;
-      query?: string;
-      page?: string;
-      page_size?: string;
-    };
-    return analyticsRepository.queryComments({
-      run_id: query.run_id,
-      plan_id: query.plan_id,
-      thread_id: query.thread_id,
-      platform: query.platform,
-      content_id: query.content_id,
-      level: query.level ? parseInt(query.level, 10) : null,
-      query: query.query,
-      page: query.page ? parseInt(query.page, 10) : 1,
-      page_size: query.page_size ? parseInt(query.page_size, 10) : 20,
-    });
-  });
-
-  fastify.get('/api/data/analytics/comments/threads', async (request) => {
-    const query = request.query as {
-      platform: string;
-      content_id: string;
-      run_id?: string;
-      plan_id?: string;
-      thread_id?: string;
-      page?: string;
-      page_size?: string;
-    };
-    return analyticsRepository.queryCommentThreads({
-      platform: query.platform,
-      content_id: query.content_id,
-      run_id: query.run_id,
-      plan_id: query.plan_id,
-      thread_id: query.thread_id,
       page: query.page ? parseInt(query.page, 10) : 1,
       page_size: query.page_size ? parseInt(query.page_size, 10) : 20,
     });
@@ -865,43 +826,47 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/data/analytics/export', async (request, reply) => {
     const query = request.query as {
       run_id?: string;
-      plan_id?: string;
+      workflow_id?: string;
       thread_id?: string;
       platform?: string;
+      kind?: string;
       keyword?: string;
+      subject_type?: string;
       query?: string;
       sort_by?: string;
     };
 
-    const res = analyticsRepository.queryContents({
+    const res = analyticsRepository.queryDocuments({
       run_id: query.run_id,
-      plan_id: query.plan_id,
+      workflow_id: query.workflow_id,
       thread_id: query.thread_id,
       platform: query.platform,
+      kind: query.kind,
       keyword: query.keyword,
+      subject_type: query.subject_type,
       query: query.query,
-      sort_by: query.sort_by || 'engagement',
+      sort_by: query.sort_by || 'updated_at',
       sort_order: 'desc',
       page: 1,
       page_size: 1000000,
     });
 
     const columns = [
-      { key: 'run_id', header: '任务ID' },
-      { key: 'platform_label', header: '平台' },
+      { key: 'documentId', header: '文档ID' },
+      { key: 'platform', header: '平台' },
+      { key: 'originalPlatform', header: '原始平台' },
+      { key: 'kind', header: '类型' },
       { key: 'keyword', header: '关键词' },
-      { key: 'content_id', header: '内容ID' },
+      { key: 'sourceItemId', header: '来源内容ID' },
       { key: 'title', header: '标题' },
-      { key: 'creator_id', header: '创作者ID' },
-      { key: 'creator_name', header: '创作者昵称' },
-      { key: 'likes', header: '点赞数' },
-      { key: 'saves', header: '收藏数' },
-      { key: 'comments', header: '评论数' },
-      { key: 'shares', header: '分享数' },
-      { key: 'views', header: '播放数' },
-      { key: 'engagement', header: '互动量' },
-      { key: 'published_at', header: '发布时间' },
-      { key: 'content_url', header: '内容链接' },
+      { key: 'summary', header: '摘要' },
+      { key: 'subjectId', header: '主体ID' },
+      { key: 'subjectName', header: '主体名称' },
+      { key: 'subjectType', header: '主体类型' },
+      { key: 'publishedAt', header: '发布时间' },
+      { key: 'sourceUrl', header: '内容链接' },
+      { key: 'metrics', header: '指标JSON' },
+      { key: 'attributes', header: '属性JSON' },
     ];
 
     // Build CSV string with UTF-8 BOM
@@ -910,17 +875,19 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     
     for (const item of res.items) {
       const row = columns.map((col) => {
-        let val = item[col.key];
-        if (col.key === 'published_at' && val) {
-          try {
-            val = new Date(Number(val) * 1000).toLocaleString('zh-CN');
-          } catch {
-            val = String(val);
-          }
-        }
-        val = val === null || val === undefined ? '' : String(val);
+        const values: Record<string, unknown> = {
+          ...item,
+          subjectId: item.subject.id,
+          subjectName: item.subject.name,
+          subjectType: item.subject.type,
+          metrics: item.metrics,
+          attributes: item.attributes,
+        };
+        let val = values[col.key];
+        if (val && typeof val === 'object') val = JSON.stringify(val);
+        const text = val === null || val === undefined ? '' : String(val);
         // Escape quotes
-        return `"${val.replace(/"/g, '""')}"`;
+        return `"${text.replace(/"/g, '""')}"`;
       });
       csvContent += row.join(',') + '\n';
     }
