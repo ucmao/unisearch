@@ -390,6 +390,7 @@ export const dataApi = {
     kind?: string
     keyword?: string
     subject_type?: string
+    parent_source_item_id?: string
     query?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'

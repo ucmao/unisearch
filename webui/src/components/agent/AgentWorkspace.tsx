@@ -892,17 +892,21 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   return (
     <div ref={workspaceRef} className="flex h-full min-h-0 overflow-hidden">
       <aside
-        className={`relative hidden shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/70 md:flex ${activeResize === 'left' ? '' : 'transition-[width] duration-200'}`}
-        style={{ width: threadsCollapsed ? 56 : leftSidebarWidth }}
+        className={`relative shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/70 ${threadsCollapsed ? 'hidden' : 'hidden md:flex'}`}
+        style={{ width: leftSidebarWidth }}
       >
-        <div className={`flex items-center px-2 pb-2 pt-3 ${threadsCollapsed ? 'justify-center' : 'justify-between'}`}>
-          {!threadsCollapsed && <div className="pl-3 text-xl font-semibold tracking-tight text-cyber-text-primary">UniSearch</div>}
-          <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={toggleThreads} title={threadsCollapsed ? '展开任务栏' : '收起任务栏'}>
-            {threadsCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+        <div className="flex h-11 shrink-0 items-center justify-end px-2 app-drag">
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 app-no-drag" onClick={toggleThreads} title="收起任务栏">
+            <PanelLeftClose className="h-4 w-4" />
           </Button>
         </div>
+        <div className="pb-2 pl-5 pr-3 pt-1 text-xl font-semibold tracking-tight text-cyber-text-primary">
+          UniSearch
+        </div>
         <div className="px-2 pb-3">
-          <Button className={threadsCollapsed ? 'h-9 w-9 p-0' : 'w-full justify-start'} variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">{createNewTask.isPending ? <Loader2 className="animate-spin" /> : <SquarePen />}{!threadsCollapsed && '新建任务'}</Button>
+          <Button className="w-full justify-start gap-2" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">
+            {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SquarePen className="h-4 w-4" />}新建任务
+          </Button>
         </div>
         {!threadsCollapsed && <>
           <div className="mx-2 border-t border-cyber-border-subtle" />
@@ -1038,9 +1042,19 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle px-4 sm:px-6">
-          <div className="min-w-0"><h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1></div>
-          <div className="flex items-center gap-1">
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-4 sm:pr-6 app-drag ${threadsCollapsed ? 'pl-[74px]' : 'pl-4 sm:pl-6'}`}>
+          <div className="flex items-center gap-1.5 min-w-0">
+            {threadsCollapsed && (
+              <div className="flex items-center gap-1 app-no-drag">
+                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">
+                  <PanelLeftOpen className="h-4 w-4" />
+                </Button>
+                <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
+              </div>
+            )}
+            <h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1>
+          </div>
+          <div className="flex items-center gap-1 app-no-drag">
             {/* 采集结束后依然保留入口：失败平台要回看页面，下次任务前要预登录 */}
             {(isCollecting || browserWindowQuery.data?.can_open) && <Button
               size="icon"

@@ -4,20 +4,31 @@ import axios from 'axios'
 import { toast } from 'sonner'
 import {
   ArrowDown,
+  ArrowLeft,
   ArrowUp,
   ArrowUpDown,
-  BarChart3,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  Clock,
+  Code,
   Columns3,
   Download,
   ExternalLink,
+  FileJson,
   FileSearch,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  Check,
   History,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
   Trash2,
+  User,
   Users,
 } from 'lucide-react'
 import { dataApi, type CanonicalDocument } from '@/lib/api'
@@ -31,6 +42,30 @@ import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 type ExportFormat = 'csv' | 'json' | 'markdown'
+
+const EXPORT_FORMAT_OPTIONS = [
+  {
+    id: 'csv',
+    title: 'CSV 表格',
+    ext: '.csv',
+    hint: '适合 Excel / WPS 表格数据分析',
+    icon: FileSpreadsheet,
+  },
+  {
+    id: 'json',
+    title: 'JSON 数据',
+    ext: '.json',
+    hint: '适合 API 对接与程序开发',
+    icon: FileJson,
+  },
+  {
+    id: 'markdown',
+    title: 'Markdown 文档',
+    ext: '.md',
+    hint: '适合 Obsidian / Notion 笔记阅读',
+    icon: FileType,
+  },
+] as const
 
 const BASE_COLUMNS = [
   ['title', '标题 / 摘要'],
@@ -56,6 +91,42 @@ const subjectTypeLabels: Record<string, string> = {
 const metricLabels: Record<string, string> = {
   likes: '点赞', saves: '收藏', comments: '评论', shares: '分享', views: '浏览/播放',
   replies: '回复', voteups: '赞同', coins: '投币', danmaku: '弹幕',
+}
+
+const PLATFORM_CONFIGS: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  baidu: { label: '百度', bg: 'bg-blue-500/10 dark:bg-blue-400/15', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
+  bing: { label: '必应', bg: 'bg-teal-500/10 dark:bg-teal-400/15', text: 'text-teal-600 dark:text-teal-400', border: 'border-teal-500/20' },
+  so360: { label: '360搜索', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
+  sogou: { label: '搜狗', bg: 'bg-orange-500/10 dark:bg-orange-400/15', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' },
+  toutiao: { label: '头条搜索', bg: 'bg-red-500/10 dark:bg-red-400/15', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' },
+  xhs: { label: '小红书', bg: 'bg-rose-500/10 dark:bg-rose-400/15', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-500/20' },
+  douyin: { label: '抖音', bg: 'bg-slate-800/10 dark:bg-slate-200/15', text: 'text-slate-700 dark:text-slate-200', border: 'border-slate-400/20' },
+  kuaishou: { label: '快手', bg: 'bg-amber-500/10 dark:bg-amber-400/15', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20' },
+  bili: { label: '哔哩哔哩', bg: 'bg-pink-500/10 dark:bg-pink-400/15', text: 'text-pink-600 dark:text-pink-400', border: 'border-pink-500/20' },
+  weibo: { label: '微博', bg: 'bg-yellow-500/10 dark:bg-yellow-400/15', text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/20' },
+  tieba: { label: '贴吧', bg: 'bg-indigo-500/10 dark:bg-indigo-400/15', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/20' },
+  zhihu: { label: '知乎', bg: 'bg-sky-500/10 dark:bg-sky-400/15', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20' },
+  zhaopin: { label: '智联招聘', bg: 'bg-cyan-500/10 dark:bg-cyan-400/15', text: 'text-cyan-600 dark:text-cyan-400', border: 'border-cyan-500/20' },
+  heimao: { label: '黑猫投诉', bg: 'bg-red-600/10 dark:bg-red-500/15', text: 'text-red-700 dark:text-red-400', border: 'border-red-600/20' },
+  deepseek: { label: 'DeepSeek', bg: 'bg-purple-500/10 dark:bg-purple-400/15', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/20' },
+  kimi: { label: 'Kimi', bg: 'bg-sky-500/10 dark:bg-sky-400/15', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20' },
+  doubao: { label: '豆包', bg: 'bg-blue-600/10 dark:bg-blue-400/15', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-600/20' },
+}
+
+function renderPlatformBadge(platformKey: string, fallbackLabel?: string) {
+  const config = PLATFORM_CONFIGS[platformKey]
+  if (config) {
+    return (
+      <span className={`inline-flex items-center rounded-full border ${config.border} ${config.bg} ${config.text} px-2.5 py-0.5 text-[11px] font-medium transition-colors`}>
+        {config.label}
+      </span>
+    )
+  }
+  return (
+    <Badge variant="outline" className="rounded-full px-2.5 text-[11px]">
+      {fallbackLabel || platformKey}
+    </Badge>
+  )
 }
 
 const attributeLabels: Record<string, string> = {
@@ -113,81 +184,338 @@ function StatCard({ label, value, hint, icon: Icon }: {
   icon: typeof FileSearch
 }) {
   return (
-    <div className="glass-panel float-panel rounded-lg p-4 flex items-start justify-between gap-3">
+    <div className="glass-panel float-panel rounded-xl border border-cyber-border-subtle p-4 flex items-start justify-between gap-3 transition-colors duration-150 hover:border-cyber-border-subtle/80">
       <div>
-        <p className="text-xs text-cyber-text-muted font-mono">{label}</p>
-        <p className="mt-1 text-2xl font-semibold text-cyber-text-primary">{formatNumber(value)}</p>
-        <p className="mt-1 text-[11px] text-cyber-text-muted">{hint}</p>
+        <p className="text-[11px] font-medium uppercase tracking-wider text-cyber-text-muted">{label}</p>
+        <p className="mt-1.5 font-mono text-2xl font-bold tracking-tight text-cyber-text-primary">{formatNumber(value)}</p>
+        <p className="mt-1 text-[11px] text-cyber-text-muted/80">{hint}</p>
       </div>
-      <div className="rounded-md border border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 p-2 text-cyber-neon-cyan">
-        <Icon className="h-4 w-4" />
+      <div className="rounded-lg border border-cyber-border-subtle/80 bg-cyber-bg-tertiary/70 p-2.5 text-cyber-text-muted transition-colors">
+        <Icon className="h-4 w-4 text-cyber-text-muted" />
       </div>
     </div>
   )
 }
 
+function CommentsSection({ document }: { document: CanonicalDocument }) {
+  const sourceItemId = document.sourceItemId
+  const documentId = document.documentId
+
+  const { data: parentData, isLoading: parentLoading } = useQuery({
+    queryKey: ['analytics-comments-parent', sourceItemId],
+    queryFn: async () => (await dataApi.getAnalyticsDocuments({ parent_source_item_id: sourceItemId, page_size: 200 })).data,
+    enabled: Boolean(sourceItemId),
+  })
+
+  const { data: queryData, isLoading: queryLoading } = useQuery({
+    queryKey: ['analytics-comments-query', sourceItemId],
+    queryFn: async () => (await dataApi.getAnalyticsDocuments({ query: sourceItemId, page_size: 200 })).data,
+    enabled: Boolean(sourceItemId),
+  })
+
+  const { data: docIdData, isLoading: docIdLoading } = useQuery({
+    queryKey: ['analytics-comments-docid', documentId],
+    queryFn: async () => (await dataApi.getAnalyticsDocuments({ query: documentId, page_size: 200 })).data,
+    enabled: Boolean(documentId),
+  })
+
+  const comments = useMemo(() => {
+    const list = [
+      ...(parentData?.items || []),
+      ...(queryData?.items || []),
+      ...(docIdData?.items || []),
+    ]
+    const map = new Map<string, CanonicalDocument>()
+    for (const item of list) {
+      if (item.kind === 'comment' && item.documentId !== documentId) {
+        map.set(item.documentId, item)
+      }
+    }
+    return Array.from(map.values())
+  }, [parentData, queryData, docIdData, documentId])
+
+  const isLoading = parentLoading || queryLoading || docIdLoading
+
+  if (isLoading) {
+    return (
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-cyber-text-muted flex items-center gap-1.5">
+          <MessageSquare className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+          关联评论区
+        </h3>
+        <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-4 text-xs text-cyber-text-muted animate-pulse">
+          正在检索该主帖关联评论...
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-cyber-text-muted flex items-center gap-1.5">
+          <MessageSquare className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+          关联评论区 ({comments.length})
+        </h3>
+      </div>
+      {comments.length > 0 ? (
+        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+          {comments.map((comment) => (
+            <div key={comment.documentId} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/30 p-3 text-xs space-y-1 hover:border-cyber-neon-cyan/30 transition-colors">
+              <div className="flex items-center justify-between text-[11px] text-cyber-text-muted">
+                <span className="font-medium text-cyber-text-primary flex items-center gap-1">
+                  <User className="h-3 w-3 text-cyber-neon-cyan/70" />
+                  {comment.subject.name || comment.subject.id || '匿名用户'}
+                </span>
+                <span>{formatDate(comment.publishedAt)}</span>
+              </div>
+              <p className="text-cyber-text-secondary leading-relaxed font-sans whitespace-pre-wrap break-words">
+                {comment.markdown || comment.summary || '—'}
+              </p>
+              {Object.keys(comment.metrics).length > 0 && (
+                <div className="flex items-center gap-3 pt-1 text-[10px] text-cyber-text-muted font-mono">
+                  {typeof comment.metrics.likes === 'number' && <span>👍 {formatNumber(comment.metrics.likes)}</span>}
+                  {typeof comment.metrics.replies === 'number' && <span>💬 {formatNumber(comment.metrics.replies)}</span>}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-cyber-border-subtle/80 bg-cyber-bg-secondary/20 p-4 text-center text-xs text-cyber-text-muted/70">
+          当前数据集中未包含该主帖的衍生评论
+        </div>
+      )}
+    </section>
+  )
+}
 
 function DocumentDrawer({ document, platformLabel, onOpenChange }: {
   document: CanonicalDocument | null
   platformLabel: string
   onOpenChange: (open: boolean) => void
 }) {
+  const [drawerWidth, setDrawerWidth] = useState(560)
+  const [isResizing, setIsResizing] = useState(false)
+  const [techDetailsOpen, setTechDetailsOpen] = useState(false)
+
+  const startResizing = (mouseDownEvent: React.MouseEvent) => {
+    mouseDownEvent.preventDefault()
+    setIsResizing(true)
+    const startX = mouseDownEvent.clientX
+    const startWidth = drawerWidth
+
+    const onMouseMove = (mouseMoveEvent: MouseEvent) => {
+      const deltaX = startX - mouseMoveEvent.clientX
+      const newWidth = Math.max(360, Math.min(startWidth + deltaX, window.innerWidth * 0.85))
+      setDrawerWidth(newWidth)
+    }
+
+    const onMouseUp = () => {
+      setIsResizing(false)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
+
   const visibleAttributes = document
     ? Object.fromEntries(Object.entries(document.attributes).filter(([key]) => key !== 'reasoningContent'))
     : {}
   const cover = document ? previewAsset(document) : undefined
+
+  // 判断摘要是否与正文内容大面积重复
+  const isSummaryIdentical = useMemo(() => {
+    if (!document?.summary || !document?.markdown) return false
+    const s = document.summary.trim()
+    const m = document.markdown.trim()
+    if (s === m) return true
+    return s.length > 20 && m.startsWith(s.slice(0, Math.min(40, s.length)))
+  }, [document])
+
   return (
     <Dialog open={Boolean(document)} onOpenChange={onOpenChange}>
-      <DialogContent className="left-auto right-0 top-0 flex h-dvh w-[min(720px,94vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 p-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right">
-        <DialogHeader className="shrink-0 border-b border-cyber-border-subtle p-5 pr-12">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline">{platformLabel}</Badge>
-            <Badge variant="secondary">{kindLabels[document?.kind || ''] || document?.kind}</Badge>
-            {document?.keyword ? <Badge variant="outline">{document.keyword}</Badge> : null}
-          </div>
-          <DialogTitle className="pt-2 text-left text-lg leading-snug text-cyber-text-primary">{document?.title || '无标题文档'}</DialogTitle>
-          <DialogDescription className="text-left">{document?.summary || '无摘要'}</DialogDescription>
-        </DialogHeader>
+      <DialogContent
+        style={{ width: `min(${drawerWidth}px, 88vw)` }}
+        className={`left-auto right-0 top-0 flex h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-cyber-border-subtle bg-cyber-bg-panel/95 p-0 shadow-2xl backdrop-blur-md data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right ${isResizing ? 'select-none' : ''}`}
+      >
+        <div
+          onMouseDown={startResizing}
+          className="group absolute left-0 top-0 bottom-0 z-50 w-2 cursor-col-resize hover:bg-cyber-neon-cyan/40"
+          title="拖动调整抽屉宽度"
+        >
+          <div className="h-full w-0.5 mx-auto bg-transparent transition-colors group-hover:bg-cyber-neon-cyan" />
+        </div>
         {document ? (
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
-            {cover ? <img src={cover.url} alt={document.title || '文档封面'} referrerPolicy="no-referrer" className="max-h-72 w-full rounded-md border border-cyber-border-subtle bg-cyber-bg-secondary object-contain" /> : null}
-            <section className="grid gap-3 sm:grid-cols-2">
-              <Detail label="Document ID" value={document.documentId} mono />
-              <Detail label="来源内容 ID" value={document.sourceItemId} mono />
-              <Detail label="主体" value={document.subject.name || document.subject.id} />
-              <Detail label="主体类型" value={subjectTypeLabels[document.subject.type] || document.subject.type} />
-              <Detail label="发布时间" value={formatDate(document.publishedAt)} />
-              <Detail label="采集时间" value={formatDate(document.fetchedAt)} />
-              <Detail label="父级来源 ID" value={document.parentSourceItemId} mono />
-              <Detail label="原始平台" value={document.originalPlatform} />
-            </section>
+          <>
+            {/* 顶栏 Header */}
+            <div className="flex h-12 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-5 pr-12">
+              <div className="flex items-center gap-2">
+                {renderPlatformBadge(document.platform, platformLabel)}
+                <Badge variant="secondary" className="rounded-full px-2.5 text-[11px] font-normal">
+                  {kindLabels[document.kind] || document.kind}
+                </Badge>
+                {document.keyword ? (
+                  <span className="rounded-full bg-cyber-bg-tertiary/70 px-2.5 py-0.5 font-mono text-[11px] text-cyber-text-secondary">
+                    #{document.keyword}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex items-center gap-2">
+                {document.sourceUrl && (
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" asChild>
+                    <a href={document.sourceUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                      打开原帖
+                    </a>
+                  </Button>
+                )}
+              </div>
+            </div>
 
-            {Object.keys(document.metrics).length ? <RecordSection title="指标" record={document.metrics} labels={metricLabels} numeric /> : null}
-            {Object.keys(visibleAttributes).length ? <RecordSection title="扩展属性" record={visibleAttributes} labels={attributeLabels} /> : null}
+            {/* 内容区 */}
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+              {/* 大标题 & 作者/时间属性 */}
+              <div className="space-y-3">
+                <h2 className="text-xl font-bold leading-snug tracking-tight text-cyber-text-primary">
+                  {document.title || '无标题文档'}
+                </h2>
+                
+                <div className="flex flex-wrap items-center gap-4 border-b border-cyber-border-subtle/60 pb-3 text-xs text-cyber-text-muted">
+                  <div className="flex items-center gap-1.5 font-medium text-cyber-text-secondary">
+                    <User className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                    <span>{document.subject.name || document.subject.id || '未知作者'}</span>
+                    <span className="text-[10px] text-cyber-text-muted">
+                      ({subjectTypeLabels[document.subject.type] || document.subject.type})
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>发布于 {formatDate(document.publishedAt)}</span>
+                  </div>
+                </div>
 
-            <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">正文</h3>
-              <div className="whitespace-pre-wrap break-words rounded-md border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-4 text-sm leading-7 text-cyber-text-primary">{document.markdown || '—'}</div>
-            </section>
+                {/* 仅当摘要不与正文大面积重复时显示 */}
+                {document.summary && !isSummaryIdentical ? (
+                  <div className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 p-3 text-xs leading-relaxed text-cyber-text-secondary">
+                    <p className="mb-1 font-semibold text-cyber-neon-cyan">摘要提炼</p>
+                    {document.summary}
+                  </div>
+                ) : null}
+              </div>
 
-            {document.assets.length ? (
+              {/* 封面图 */}
+              {cover ? (
+                <div className="overflow-hidden rounded-xl border border-cyber-border-subtle bg-black/5 shadow-md">
+                  <img
+                    src={cover.url}
+                    alt={document.title || '文档封面'}
+                    referrerPolicy="no-referrer"
+                    className="max-h-80 w-full object-contain"
+                  />
+                </div>
+              ) : null}
+
+              {/* 数据指标卡片 */}
+              {Object.keys(document.metrics).length ? (
+                <RecordSection title="数据指标" record={document.metrics} labels={metricLabels} numeric />
+              ) : null}
+
+              {/* 业务扩展属性 */}
+              {Object.keys(visibleAttributes).length ? (
+                <RecordSection title="业务属性" record={visibleAttributes} labels={attributeLabels} />
+              ) : null}
+
+              {/* 正文内容 */}
               <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">媒体资源</h3>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {document.assets.map((asset) => <a key={asset.assetId} href={asset.url} target="_blank" rel="noreferrer" className="truncate rounded border border-cyber-border-subtle p-3 text-xs text-cyber-neon-cyan hover:bg-cyber-neon-cyan/5">{assetRoleLabels[asset.role]} · {asset.kind} · {asset.url}</a>)}
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">
+                  正文内容
+                </h3>
+                <div className="whitespace-pre-wrap break-words rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-4.5 font-sans text-sm leading-7 text-cyber-text-primary shadow-inner">
+                  {document.markdown || '—'}
                 </div>
               </section>
-            ) : null}
 
-            {document.citations.length ? (
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">引用</h3>
-                <div className="space-y-2">{document.citations.map((citation) => <a key={citation.url} href={citation.url} target="_blank" rel="noreferrer" className="block rounded border border-cyber-border-subtle p-3 text-xs text-cyber-neon-cyan hover:bg-cyber-neon-cyan/5">{citation.title || citation.source || citation.url}</a>)}</div>
-              </section>
-            ) : null}
+              {/* 引用 */}
+              {document.citations.length ? (
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">
+                    引用出处 ({document.citations.length})
+                  </h3>
+                  <div className="space-y-2">
+                    {document.citations.map((citation) => (
+                      <a
+                        key={citation.url}
+                        href={citation.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/30 p-2.5 text-xs text-cyber-neon-cyan transition-colors hover:border-cyber-neon-cyan/40 hover:bg-cyber-neon-cyan/5"
+                      >
+                        {citation.title || citation.source || citation.url}
+                      </a>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
 
-            {document.sourceUrl ? <Button asChild variant="outline"><a href={document.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink />打开来源</a></Button> : null}
-          </div>
+              {/* 关联评论区 */}
+              <CommentsSection document={document} />
+
+              {/* 高级技术元数据折叠区 (IDs & Raw Assets) */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setTechDetailsOpen(!techDetailsOpen)}
+                  className="flex w-full items-center justify-between rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/30 px-3 py-2 text-xs text-cyber-text-muted hover:bg-cyber-bg-secondary/60 hover:text-cyber-text-primary transition-colors"
+                >
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Code className="h-3.5 w-3.5" />
+                    高级技术属性 (ID & 原始资源)
+                  </span>
+                  {techDetailsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+
+                {techDetailsOpen && (
+                  <div className="mt-3 space-y-4 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-4">
+                    <section className="grid gap-2 sm:grid-cols-2">
+                      <Detail label="Document ID" value={document.documentId} mono />
+                      <Detail label="来源内容 ID" value={document.sourceItemId} mono />
+                      <Detail label="采集时间" value={formatDate(document.fetchedAt)} />
+                      {document.parentSourceItemId && (
+                        <Detail label="父级来源 ID" value={document.parentSourceItemId} mono />
+                      )}
+                      {document.originalPlatform && (
+                        <Detail label="原始平台" value={document.originalPlatform} />
+                      )}
+                    </section>
+
+                    {document.assets.length ? (
+                      <div>
+                        <p className="mb-1.5 text-[11px] font-medium text-cyber-text-muted">
+                          底层资源 URL 数组 ({document.assets.length})
+                        </p>
+                        <div className="grid gap-1.5 sm:grid-cols-2">
+                          {document.assets.map((asset) => (
+                            <a
+                              key={asset.assetId}
+                              href={asset.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate rounded border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-2 font-mono text-[10px] text-cyber-neon-cyan hover:underline"
+                            >
+                              {assetRoleLabels[asset.role]} · {asset.kind}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         ) : null}
       </DialogContent>
     </Dialog>
@@ -195,19 +523,37 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
 }
 
 function Detail({ label, value, mono = false }: { label: string; value: unknown; mono?: boolean }) {
-  return <div className="min-w-0 rounded border border-cyber-border-subtle p-3"><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{label}</p><p className={`mt-1 break-words text-xs text-cyber-text-secondary ${mono ? 'font-mono' : ''}`}>{displayValue(value, 300)}</p></div>
+  return (
+    <div className="min-w-0 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-3">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-cyber-text-muted">{label}</p>
+      <p className={`mt-1 truncate text-xs text-cyber-text-secondary ${mono ? 'font-mono text-[11px]' : ''}`} title={String(value)}>
+        {displayValue(value, 300)}
+      </p>
+    </div>
+  )
 }
 
-function RecordSection({ title, record, labels, numeric = false }: {
+function RecordSection({ title, record, labels, numeric = false, cols }: {
   title: string
   record: Record<string, unknown>
   labels: Record<string, string>
   numeric?: boolean
+  cols?: number
 }) {
-  return <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">{title}</h3><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(record).map(([key, value]) => <Detail key={key} label={labels[key] || key} value={numeric && typeof value === 'number' ? formatNumber(value) : value} />)}</div></section>
+  const gridColsClass = (cols === 4 || numeric) ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3'
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">{title}</h3>
+      <div className={`grid gap-2 ${gridColsClass}`}>
+        {Object.entries(record).map(([key, value]) => (
+          <Detail key={key} label={labels[key] || key} value={numeric && typeof value === 'number' ? formatNumber(value) : value} />
+        ))}
+      </div>
+    </section>
+  )
 }
 
-export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: string }) {
+export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope?: string; onBack?: () => void }) {
   const queryClient = useQueryClient()
   const statuses = useCrawlerStore((state) => state.statuses)
   const crawlerStatus = Object.values(statuses).some((status) => status === 'running') ? 'running' : 'idle'
@@ -215,7 +561,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   const initializedDynamicColumns = useRef(false)
   const [scope, setScope] = useState(initialScope)
   const [platform, setPlatform] = useState('all')
-  const [kind, setKind] = useState('all')
+  const [kind, setKind] = useState('main_only')
   const [keyword, setKeyword] = useState('all')
   const [subjectType, setSubjectType] = useState('all')
   const [queryInput, setQueryInput] = useState('')
@@ -231,6 +577,7 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
   const [isResizing, setIsResizing] = useState(false)
   const [mobileScopeOpen, setMobileScopeOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
+  const [exportDialogOpen, setExportDialogOpen] = useState(false)
 
   const startResizing = (mouseDownEvent: React.MouseEvent) => {
     mouseDownEvent.preventDefault()
@@ -327,13 +674,77 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
 
   const renderScopeTree = (mobile = false) => (
     <div className="space-y-2">
-      <button type="button" onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }} className={`w-full rounded border p-3 text-left ${scope === 'all' ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10' : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/60'}`}><span className="block text-xs font-medium">全部任务</span><span className="text-[10px] text-cyber-text-muted">每个文档展示最新采集快照</span></button>
-      {tasks.map((task) => (
-        <div key={task.thread_id} className="rounded border border-cyber-border-subtle p-2">
-          <div className="group flex items-center gap-1"><button type="button" onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setMobileScopeOpen(false) }} className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-xs hover:bg-cyber-bg-tertiary">{task.task_title || task.thread_id}</button><div className="opacity-0 transition-opacity group-hover:opacity-100"><DeleteConfirmDialog title="删除整个任务及其采集数据？" description="该操作会物理删除任务下所有执行、文档来源和日志。" onConfirm={() => deleteScope('task', task.thread_id)} trigger={<Button variant="ghost" size="icon" className="h-7 w-7 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>} /></div></div>
-          <div className="ml-2 space-y-1 border-l border-cyber-border-subtle pl-2">{task.rounds.map((round) => <div key={round.plan_id}><div className="group flex items-center gap-1"><button type="button" onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }} className="min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[11px] text-cyber-text-secondary hover:bg-cyber-bg-tertiary">{round.round_title || round.plan_id}</button><div className="opacity-0 transition-opacity group-hover:opacity-100"><DeleteConfirmDialog title="删除该采集轮次？" description="该轮次下的执行和文档来源将被物理删除。" onConfirm={() => deleteScope('round', round.plan_id)} trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>} /></div></div><div className="ml-2">{round.runs.map((run) => <button key={run.run_id} type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setMobileScopeOpen(false) }} className={`flex w-full items-center justify-between rounded px-2 py-1 text-[10px] ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary'}`}><span>{run.platform_label}</span><span>{formatRunTime(run.started_at)}</span></button>)}</div></div>)}</div>
-        </div>
-      ))}
+      <button
+        type="button"
+        onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }}
+        className={`w-full rounded-lg border p-3 text-left transition-all ${scope === 'all' ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 shadow-sm' : 'border-cyber-border-subtle bg-cyber-bg-panel/40 hover:bg-cyber-bg-tertiary/60'}`}
+      >
+        <span className="block text-xs font-semibold text-cyber-text-primary">全部任务</span>
+        <span className="mt-0.5 block text-[10px] text-cyber-text-muted">每个文档展示最新采集快照</span>
+      </button>
+      {tasks.map((task) => {
+        const isTaskSelected = scope === `thread:${task.thread_id}`
+        return (
+          <div key={task.thread_id} className={`rounded-lg border p-2 transition-all ${isTaskSelected ? 'border-cyber-neon-cyan/40 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle bg-cyber-bg-panel/20'}`}>
+            <div className="group flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setMobileScopeOpen(false) }}
+                className={`min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors ${isTaskSelected ? 'text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70'}`}
+              >
+                {task.task_title || task.thread_id}
+              </button>
+              <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                <DeleteConfirmDialog
+                  title="删除整个任务及其采集数据？"
+                  description="该操作会物理删除任务下所有执行、文档来源和日志。"
+                  onConfirm={() => deleteScope('task', task.thread_id)}
+                  trigger={<Button variant="ghost" size="icon" className="h-7 w-7 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
+                />
+              </div>
+            </div>
+            <div className="ml-2 space-y-1 border-l border-cyber-border-subtle pl-2">
+              {task.rounds.map((round) => {
+                const isRoundSelected = scope === `plan:${round.plan_id}`
+                return (
+                  <div key={round.plan_id}>
+                    <div className="group flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }}
+                        className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[11px] transition-colors ${isRoundSelected ? 'font-medium text-cyber-text-primary bg-cyber-neon-cyan/10' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary'}`}
+                      >
+                        {round.round_title || round.plan_id}
+                      </button>
+                      <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                        <DeleteConfirmDialog
+                          title="删除该采集轮次？"
+                          description="该轮次下的执行和文档来源将被物理删除。"
+                          onConfirm={() => deleteScope('round', round.plan_id)}
+                          trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
+                        />
+                      </div>
+                    </div>
+                    <div className="ml-2">
+                      {round.runs.map((run) => (
+                        <button
+                          key={run.run_id}
+                          type="button"
+                          onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setMobileScopeOpen(false) }}
+                          className={`flex w-full items-center justify-between rounded px-2 py-1 text-[10px] transition-colors ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary'}`}
+                        >
+                          <span>{run.platform_label}</span>
+                          <span>{formatRunTime(run.started_at)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 
@@ -370,45 +781,88 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
       const preview = previewAsset(document)
       return <div className="flex max-w-[420px] items-start gap-3">{preview ? <img src={preview.url} alt="" referrerPolicy="no-referrer" className="h-14 w-20 shrink-0 rounded border border-cyber-border-subtle bg-cyber-bg-secondary object-cover" /> : null}<div className="min-w-0"><p className="truncate font-medium text-cyber-text-primary">{document.title || '无标题'}</p><p className="mt-1 line-clamp-2 text-[11px] text-cyber-text-muted">{document.summary || document.markdown || '—'}</p></div></div>
     }
-    if (key === 'platform') return <Badge variant="outline">{platformLabels.get(document.platform) || document.platform}</Badge>
-    if (key === 'kind') return kindLabels[document.kind] || document.kind
-    if (key === 'subject') return <div><p className="text-cyber-text-secondary">{document.subject.name || document.subject.id || '—'}</p><p className="text-[10px] text-cyber-text-muted">{subjectTypeLabels[document.subject.type] || document.subject.type}</p></div>
-    if (key === 'keyword') return document.keyword || '—'
-    if (key === 'publishedAt') return <span className="whitespace-nowrap">{formatDate(document.publishedAt)}</span>
-    if (key.startsWith('metric:')) { const value = document.metrics[key.slice(7)]; return typeof value === 'number' ? <span className="font-mono">{formatNumber(value)}</span> : '—' }
-    if (key.startsWith('attribute:')) return displayValue(document.attributes[key.slice(10)])
-    return '—'
+    if (key === 'platform') return renderPlatformBadge(document.platform, platformLabels.get(document.platform))
+    if (key === 'kind') return <Badge variant="secondary" className="rounded-md text-[11px] font-normal">{kindLabels[document.kind] || document.kind}</Badge>
+    if (key === 'subject') return <div><p className="font-medium text-cyber-text-primary">{document.subject.name || document.subject.id || '—'}</p><p className="text-[10px] text-cyber-text-muted">{subjectTypeLabels[document.subject.type] || document.subject.type}</p></div>
+    if (key === 'keyword') return <span className="rounded bg-cyber-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[11px] text-cyber-text-secondary">{document.keyword || '—'}</span>
+    if (key === 'publishedAt') return <span className="whitespace-nowrap font-mono text-[11px] text-cyber-text-muted">{formatDate(document.publishedAt)}</span>
+    if (key.startsWith('metric:')) {
+      const value = document.metrics[key.slice(7)]
+      return typeof value === 'number' ? (
+        <span className="font-mono text-xs font-semibold text-cyber-text-primary">{formatNumber(value)}</span>
+      ) : (
+        <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span>
+      )
+    }
+    if (key.startsWith('attribute:')) {
+      const val = displayValue(document.attributes[key.slice(10)])
+      return val === '—' ? <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span> : val
+    }
+    return <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span>
   }
 
   const exportUrl = dataApi.getAnalyticsExportUrl({ ...filters, sort_by: sortBy, sort_order: sortOrder, format: exportFormat })
 
   return (
-    <div className="flex h-full min-h-0 bg-cyber-bg-primary">
-      <aside
-        style={{ width: sidebarCollapsed ? 56 : sidebarWidth }}
-        className={`relative hidden shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/45 md:flex ${isResizing ? 'select-none' : 'transition-[width] duration-200'}`}
-      >
-        <div className="flex items-center justify-between border-b border-cyber-border-subtle p-3"><span className={`text-xs font-semibold ${sidebarCollapsed ? 'hidden' : ''}`}>任务范围</span><Button variant="ghost" size="icon" onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button></div>
-        {!sidebarCollapsed ? <div className="min-h-0 flex-1 overflow-y-auto p-3">{renderScopeTree()}</div> : null}
-        {!sidebarCollapsed && (
-          <div
-            onMouseDown={startResizing}
-            className="group absolute -right-1 top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-cyber-neon-cyan/30"
-            title="拖动调整侧栏宽度"
-          >
-            <div className="h-full w-0.5 mx-auto bg-transparent transition-colors group-hover:bg-cyber-neon-cyan" />
+    <div className="flex h-full min-h-0 flex-col bg-cyber-bg-primary">
+      {onBack && (
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 pl-[74px] pr-4 backdrop-blur app-drag">
+          <div className="flex items-center gap-1.5 app-no-drag">
+            <Button size="icon" variant="ghost" className="h-8 w-8 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? "展开任务范围侧栏" : "收起任务范围侧栏"}>
+              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs text-cyber-text-secondary hover:text-cyber-text-primary" onClick={onBack}>
+              <ArrowLeft className="h-4 w-4" />返回任务
+            </Button>
+            <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
+            <span className="text-sm font-medium text-cyber-text-primary">数据透视工作台</span>
+            <span className="hidden text-xs text-cyber-text-muted sm:inline">· {scopeTitle}</span>
           </div>
-        )}
-      </aside>
 
-      <main className="min-w-0 flex-1 overflow-auto p-4">
-        <div className="mx-auto max-w-[1800px] space-y-4">
-          <header className="flex flex-wrap items-start justify-between gap-3">
-            <div><h1 className="flex items-center gap-2 text-lg font-semibold"><BarChart3 className="h-5 w-5 text-cyber-neon-cyan" />数据结果工作台</h1><p className="mt-1 text-xs text-cyber-text-muted">跨平台的标准字段、动态指标与扩展属性</p><p className="mt-1 text-[11px] text-cyber-text-secondary">当前范围：{scopeTitle}</p></div>
-            <div className="flex items-center gap-2"><Button variant="outline" size="sm" className="md:hidden" onClick={() => setMobileScopeOpen(true)}><History />任务范围</Button><Select value={exportFormat} onValueChange={(value) => setExportFormat(value as ExportFormat)}><SelectTrigger className="h-9 w-28 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="csv">CSV</SelectItem><SelectItem value="json">JSON</SelectItem><SelectItem value="markdown">Markdown</SelectItem></SelectContent></Select><Button variant="outline" size="sm" asChild><a href={exportUrl}><Download />统一导出</a></Button></div>
-          </header>
+          <div className="flex items-center gap-2 app-no-drag">
+            <Button variant="outline" size="sm" className="h-8 text-xs md:hidden" onClick={() => setMobileScopeOpen(true)}>
+              <History className="h-3.5 w-3.5" />任务范围
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => setExportDialogOpen(true)}
+              className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/30 hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/50 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>统一下载</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><StatCard label="文档总数" value={summary?.totals.document_count || 0} hint="包含正文与评论" icon={FileSearch} /><StatCard label="主体数" value={summary?.totals.subject_count || 0} hint="按主体 ID / 名称去重" icon={Users} /><StatCard label="正文" value={summary?.totals.content_count || 0} hint="非评论文档" icon={BarChart3} /><StatCard label="评论" value={summary?.totals.comment_count || 0} hint="保留父级关系" icon={BarChart3} /></div>
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <aside
+          style={{ width: sidebarWidth }}
+          className={`relative shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/45 ${sidebarCollapsed ? 'hidden' : 'hidden md:flex'} ${isResizing ? 'select-none' : 'transition-[width] duration-200'}`}
+        >
+          <div className="flex h-9 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/30 px-3">
+            <span className="text-xs font-medium text-cyber-text-muted">任务范围</span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3">{renderScopeTree()}</div>
+          {!sidebarCollapsed && (
+            <div
+              onMouseDown={startResizing}
+              className="group absolute -right-1 top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-cyber-neon-cyan/30"
+              title="拖动调整侧栏宽度"
+            >
+              <div className="h-full w-0.5 mx-auto bg-transparent transition-colors group-hover:bg-cyber-neon-cyan" />
+            </div>
+          )}
+        </aside>
+
+        <main className="min-w-0 flex-1 overflow-auto p-4">
+          <div className="mx-auto max-w-[1800px] space-y-4">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard label="文档总数" value={summary?.totals.document_count || 0} hint="包含正文与评论" icon={FileSearch} />
+              <StatCard label="主体数" value={summary?.totals.subject_count || 0} hint="按主体 ID / 名称去重" icon={Users} />
+              <StatCard label="正文" value={summary?.totals.content_count || 0} hint="非评论文档" icon={FileText} />
+              <StatCard label="评论" value={summary?.totals.comment_count || 0} hint="保留父级关系" icon={MessageSquare} />
+            </div>
 
           <section className="glass-panel rounded-lg p-4">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -418,8 +872,12 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
                   <SelectContent><SelectItem value="all">全部平台</SelectItem>{summary?.filters.platforms.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                 </Select>
                 <Select value={kind} onValueChange={setKind}>
-                  <SelectTrigger className="h-8 w-28 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="类型" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部类型</SelectItem>{summary?.filters.kinds.map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}</SelectContent>
+                  <SelectTrigger className="h-8 w-44 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle font-medium"><SelectValue placeholder="类型" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="main_only">全部正文/主帖 (排除评论)</SelectItem>
+                    <SelectItem value="all">全部类型 (包含评论)</SelectItem>
+                    {summary?.filters.kinds.map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}
+                  </SelectContent>
                 </Select>
                 <Select value={keyword} onValueChange={setKeyword}>
                   <SelectTrigger className="h-8 w-32 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="关键词" /></SelectTrigger>
@@ -484,9 +942,86 @@ export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: strin
           </section>
         </div>
       </main>
+    </div>
 
       <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}><DialogContent className="max-h-[80vh] overflow-y-auto"><DialogHeader><DialogTitle>动态列设置</DialogTitle><DialogDescription>固定字段与当前结果中实际出现的指标、属性。缺失值保持为空。</DialogDescription></DialogHeader><div className="space-y-4">{['通用字段', '指标', '扩展属性'].map((group) => { const columns = [...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })), ...dynamicColumns].filter((column) => column.group === group); return columns.length ? <section key={group}><h3 className="mb-2 text-xs font-semibold text-cyber-text-muted">{group}</h3><div className="grid gap-2 sm:grid-cols-2">{columns.map((column) => <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded border border-cyber-border-subtle p-2 text-xs"><Checkbox checked={visibleColumns.has(column.key)} onCheckedChange={(checked) => toggleColumn(column.key, checked)} />{column.label}</label>)}</div></section> : null })}</div></DialogContent></Dialog>
       <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}><DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none"><DialogHeader><DialogTitle>任务范围</DialogTitle><DialogDescription>选择任务、采集轮次或单次执行</DialogDescription></DialogHeader>{renderScopeTree(true)}</DialogContent></Dialog>
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent className="sm:max-w-[440px] border-cyber-border-subtle bg-cyber-bg-panel/95 backdrop-blur-md p-5">
+          <DialogHeader className="pb-1">
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-cyber-text-primary">
+              <Download className="h-4 w-4 text-cyber-neon-cyan" />
+              数据导出下载
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-2.5 py-1">
+            <div className="grid gap-2">
+              {EXPORT_FORMAT_OPTIONS.map((item) => {
+                const isSelected = exportFormat === item.id
+                const Icon = item.icon
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setExportFormat(item.id as ExportFormat)}
+                    className={`group flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all ${
+                      isSelected
+                        ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10 shadow-sm'
+                        : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 hover:border-cyber-border-subtle/80 hover:bg-cyber-bg-secondary/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`rounded-lg p-2 transition-colors ${
+                          isSelected ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan' : 'bg-cyber-bg-tertiary/70 text-cyber-text-muted'
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-cyber-text-primary">{item.title}</span>
+                          <span className="font-mono text-[10px] text-cyber-text-muted">{item.ext}</span>
+                        </div>
+                        <p className="text-[11px] text-cyber-text-muted">{item.hint}</p>
+                      </div>
+                    </div>
+
+                    {isSelected && (
+                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-cyber-neon-cyan text-black">
+                        <Check className="h-3 w-3 stroke-[3]" />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-cyber-text-muted px-1 pt-1">
+              <span>当前范围：{platform === 'all' ? '全部平台' : platformLabels.get(platform) || platform} · {kind === 'main_only' ? '仅正文' : '包含评论'}</span>
+              <span className="font-mono font-medium text-cyber-text-secondary">{summary?.totals.document_count || 0} 条数据</span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-cyber-border-subtle/40">
+            <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(false)} className="h-8 text-xs">
+              取消
+            </Button>
+            <Button size="sm" className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan text-black font-semibold hover:bg-cyber-neon-cyan/90 shadow-sm" asChild>
+              <a
+                href={exportUrl}
+                onClick={() => {
+                  setExportDialogOpen(false)
+                  toast.success(`开始导出下载 (${exportFormat.toUpperCase()})`)
+                }}
+              >
+                <Download className="h-3.5 w-3.5" />
+                下载 {exportFormat.toUpperCase()}
+              </a>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <DocumentDrawer document={selectedDocument} platformLabel={selectedDocument ? platformLabels.get(selectedDocument.platform) || selectedDocument.platform : ''} onOpenChange={(open) => { if (!open) setSelectedDocument(null) }} />
     </div>
   )

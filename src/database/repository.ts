@@ -22,6 +22,7 @@ export interface AnalyticsDocumentQuery {
   kind?: string | null;
   keyword?: string | null;
   subject_type?: string | null;
+  parent_source_item_id?: string | null;
   query?: string | null;
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
@@ -177,11 +178,22 @@ export class AnalyticsRepository {
     const documentValues: any[] = [];
     const jsonText = (path: string) => `json_extract(canonical_json, '${path}')`;
     if (presentFilter(params.platform)) { documentWhere.push(`${jsonText('$.platform')}=?`); documentValues.push(params.platform); }
-    if (presentFilter(params.kind)) { documentWhere.push(`${jsonText('$.kind')}=?`); documentValues.push(params.kind); }
+    if (presentFilter(params.kind)) {
+      if (params.kind === 'main_only' || params.kind === 'exclude_comments') {
+        documentWhere.push(`${jsonText('$.kind')} != 'comment'`);
+      } else {
+        documentWhere.push(`${jsonText('$.kind')}=?`);
+        documentValues.push(params.kind);
+      }
+    }
     if (presentFilter(params.keyword)) { documentWhere.push(`${jsonText('$.keyword')}=?`); documentValues.push(params.keyword); }
     if (presentFilter(params.subject_type)) {
       documentWhere.push(`${jsonText('$.subject.type')}=?`);
       documentValues.push(params.subject_type);
+    }
+    if (presentFilter(params.parent_source_item_id)) {
+      documentWhere.push(`(${jsonText('$.parentSourceItemId')}=? OR parent_source_item_id=?)`);
+      documentValues.push(params.parent_source_item_id, params.parent_source_item_id);
     }
     if (params.query?.trim()) {
       const term = `%${params.query.trim().toLocaleLowerCase()}%`;
@@ -190,7 +202,9 @@ export class AnalyticsRepository {
         COALESCE(${jsonText('$.summary')}, '') || ' ' ||
         COALESCE(${jsonText('$.markdown')}, '') || ' ' ||
         COALESCE(${jsonText('$.subject.name')}, '') || ' ' ||
-        COALESCE(${jsonText('$.sourceItemId')}, '')
+        COALESCE(${jsonText('$.sourceItemId')}, '') || ' ' ||
+        COALESCE(${jsonText('$.parentSourceItemId')}, '') || ' ' ||
+        COALESCE(parent_source_item_id, '')
       ) LIKE ?`);
       documentValues.push(term);
     }
