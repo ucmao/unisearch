@@ -427,6 +427,7 @@ export const dataApi = {
     subject_type?: string
     query?: string
     sort_by?: string
+    sort_order?: 'asc' | 'desc'
     format?: 'csv' | 'json' | 'markdown'
   }) => {
     const search = new URLSearchParams()
