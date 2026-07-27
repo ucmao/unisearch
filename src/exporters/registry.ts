@@ -6,27 +6,37 @@ import type { CanonicalDocument as Document } from '../core/documents/canonical'
 import type { Exporter, ExportResult } from '../core/exporters/types';
 import { getDb, getDatabasePath } from '../database/connection';
 import { AnalysisService } from '../analyzers/registry';
+import { knowledgeProjector } from '../knowledge/knowledge-projector';
 
 function safeName(value: string): string {
   return value.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim().slice(0, 80) || '未命名';
 }
 
 function frontmatter(document: Document): string {
+  const projection = knowledgeProjector.project(document);
+  const metadata = projection.metadata;
   const quote = (value: string) => JSON.stringify(value);
   return [
     '---',
-    `title: ${quote(document.title)}`,
-    `source: ${quote(document.platform)}`,
-    `url: ${quote(document.sourceUrl || '')}`,
-    `subject: ${quote(document.subject.name || '')}`,
-    `subject_type: ${quote(document.subject.type)}`,
-    `document_id: ${quote(document.documentId)}`,
+    `schema_version: ${metadata.schemaVersion}`,
+    `projector_version: ${quote(metadata.projectorVersion)}`,
+    `title: ${quote(metadata.title)}`,
+    `summary: ${quote(metadata.summary)}`,
+    `source: ${quote(metadata.platform)}`,
+    `kind: ${quote(metadata.kind)}`,
+    `url: ${quote(metadata.sourceUrl || '')}`,
+    `keyword: ${quote(metadata.keyword || '')}`,
+    `subject: ${quote(metadata.subject.name || metadata.subject.id || '')}`,
+    `subject_type: ${quote(metadata.subject.type)}`,
+    `document_id: ${quote(metadata.documentId)}`,
+    `metrics: ${JSON.stringify(metadata.metrics)}`,
+    `attributes: ${JSON.stringify(metadata.attributes)}`,
     '---',
   ].join('\n');
 }
 
 function markdown(document: Document): string {
-  return `${frontmatter(document)}\n\n# ${document.title || '未命名资料'}\n\n${document.markdown}\n`;
+  return `${frontmatter(document)}\n\n${knowledgeProjector.project(document).content}\n`;
 }
 
 export class ExporterRegistry {
@@ -150,24 +160,23 @@ exporterRegistry.register({
 
 exporterRegistry.register({
   id: 'dify',
-  version: '1.0.0',
+  version: '2.0.0',
   name: 'Dify / RAG 知识库',
   async export(documents, context): Promise<ExportResult> {
     const bundle = path.join(context.outputDirectory, 'Dify');
     fs.mkdirSync(bundle, { recursive: true });
-    const lines = documents.map((document) => JSON.stringify({
-      content: document.markdown,
-      metadata: {
-        title: document.title,
-        source: document.platform,
-        url: document.sourceUrl || '',
-        subject: document.subject.name || '',
-        subject_type: document.subject.type,
-        document_id: document.documentId,
-      },
+    const chunks = documents.flatMap((document) => knowledgeProjector.chunks(document));
+    const lines = chunks.map((chunk) => JSON.stringify({
+      id: chunk.chunkId,
+      content: chunk.content,
+      metadata: chunk.metadata,
     }));
     fs.writeFileSync(path.join(bundle, 'chunks.jsonl'), lines.join('\n'), 'utf8');
-    return { outputPath: bundle, itemCount: documents.length, metadata: { format: 'dify-jsonl' } };
+    return {
+      outputPath: bundle,
+      itemCount: chunks.length,
+      metadata: { format: 'dify-jsonl', schemaVersion: 2, documentCount: documents.length },
+    };
   },
 });
 

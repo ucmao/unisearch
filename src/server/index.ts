@@ -27,6 +27,7 @@ import { ragService } from '../knowledge/rag-service';
 import { analyzerRegistry, analysisService } from '../analyzers/registry';
 import { exporterRegistry, exportService } from '../exporters/registry';
 import { zipDirectoryToBuffer } from '../exporters/zip';
+import { renderCanonicalExport, type CanonicalExportFormat } from '../exporters/canonical-export';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 const activeAgentMessageRequests = new Map<string, AbortController>();
@@ -416,23 +417,52 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
-  fastify.post('/api/knowledge/index/rebuild', async (request) => {
-    const body = (request.body || {}) as { workflow_id?: string };
-    return knowledgeIndex.rebuild(body.workflow_id);
-  });
-
   fastify.get('/api/knowledge/search', async (request) => {
-    const query = request.query as { q?: string; workflow_id?: string; limit?: string };
+    const query = request.query as {
+      q?: string;
+      workflow_id?: string;
+      thread_id?: string;
+      platform?: string;
+      kind?: string;
+      subject_type?: string;
+      keyword?: string;
+      limit?: string;
+    };
     return {
-      items: knowledgeIndex.search(String(query.q || ''), Number(query.limit) || 8, query.workflow_id),
+      items: knowledgeIndex.search(String(query.q || ''), {
+        workflowId: query.workflow_id,
+        threadId: query.thread_id,
+        platform: query.platform,
+        kind: query.kind,
+        subjectType: query.subject_type,
+        keyword: query.keyword,
+        limit: Number(query.limit) || 8,
+      }),
     };
   });
 
   fastify.post('/api/knowledge/rag', async (request, reply) => {
-    const body = (request.body || {}) as { question?: string; workflow_id?: string; limit?: number };
+    const body = (request.body || {}) as {
+      question?: string;
+      workflow_id?: string;
+      thread_id?: string;
+      platform?: string;
+      kind?: string;
+      subject_type?: string;
+      keyword?: string;
+      limit?: number;
+    };
     if (!body.question?.trim()) return reply.status(400).send({ detail: 'question is required' });
     try {
-      return await ragService.answer(body.question.trim(), { workflowId: body.workflow_id, limit: body.limit });
+      return await ragService.answer(body.question.trim(), {
+        workflowId: body.workflow_id,
+        threadId: body.thread_id,
+        platform: body.platform,
+        kind: body.kind,
+        subjectType: body.subject_type,
+        keyword: body.keyword,
+        limit: body.limit,
+      });
     } catch (error: any) {
       return reply.status(400).send({ detail: error.message });
     }
@@ -822,7 +852,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
-  // Export CSV file stream
+  // Unified Canonical Document export
   fastify.get('/api/data/analytics/export', async (request, reply) => {
     const query = request.query as {
       run_id?: string;
@@ -834,6 +864,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       subject_type?: string;
       query?: string;
       sort_by?: string;
+      format?: CanonicalExportFormat;
     };
 
     const res = analyticsRepository.queryDocuments({
@@ -851,75 +882,23 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       page_size: 1000000,
     });
 
-    const columns = [
-      { key: 'documentId', header: '文档ID' },
-      { key: 'platform', header: '平台' },
-      { key: 'originalPlatform', header: '原始平台' },
-      { key: 'kind', header: '类型' },
-      { key: 'keyword', header: '关键词' },
-      { key: 'sourceItemId', header: '来源内容ID' },
-      { key: 'title', header: '标题' },
-      { key: 'summary', header: '摘要' },
-      { key: 'subjectId', header: '主体ID' },
-      { key: 'subjectName', header: '主体名称' },
-      { key: 'subjectType', header: '主体类型' },
-      { key: 'publishedAt', header: '发布时间' },
-      { key: 'sourceUrl', header: '内容链接' },
-      { key: 'metrics', header: '指标JSON' },
-      { key: 'attributes', header: '属性JSON' },
-    ];
-
-    // Build CSV string with UTF-8 BOM
-    let csvContent = '\ufeff';
-    csvContent += columns.map((c) => `"${c.header.replace(/"/g, '""')}"`).join(',') + '\n';
-    
-    for (const item of res.items) {
-      const row = columns.map((col) => {
-        const values: Record<string, unknown> = {
-          ...item,
-          subjectId: item.subject.id,
-          subjectName: item.subject.name,
-          subjectType: item.subject.type,
-          metrics: item.metrics,
-          attributes: item.attributes,
-        };
-        let val = values[col.key];
-        if (val && typeof val === 'object') val = JSON.stringify(val);
-        const text = val === null || val === undefined ? '' : String(val);
-        // Escape quotes
-        return `"${text.replace(/"/g, '""')}"`;
-      });
-      csvContent += row.join(',') + '\n';
-    }
-
-    const filename = `UniSearch结果_${new Date().toISOString().slice(0,10).replace(/-/g, '')}_${Date.now()}.csv`;
+    const format: CanonicalExportFormat = ['csv', 'json', 'markdown'].includes(query.format || '')
+      ? query.format!
+      : 'csv';
+    const rendered = renderCanonicalExport(format, res.items);
+    const filename = `UniSearch_Canonical_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_${Date.now()}.${rendered.extension}`;
 
     return reply
-      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Type', rendered.contentType)
       .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
-      .send(Buffer.from(csvContent, 'utf-8'));
+      .send(Buffer.from(rendered.content, 'utf-8'));
   });
 
-  // --- Knowledge Base & RAG Endpoints ---
-  fastify.post('/api/knowledge/ask', async (request, reply) => {
-    const body = request.body as { question?: string; workflowId?: string; threadId?: string; limit?: number };
-    if (!body?.question) return reply.status(400).send({ detail: 'question is required' });
-    try {
-      const result = await ragService.answer(body.question, {
-        workflowId: body.workflowId,
-        threadId: body.threadId,
-        limit: body.limit,
-      });
-      return result;
-    } catch (err: any) {
-      return reply.status(500).send({ detail: err.message });
-    }
-  });
-
+  // --- Knowledge Base endpoints ---
   fastify.get('/api/knowledge/documents', async (request, reply) => {
-    const query = request.query as { workflowId?: string; threadId?: string };
+    const query = request.query as { workflow_id?: string; thread_id?: string };
     try {
-      const documents = analysisService.documents(query.workflowId, query.threadId);
+      const documents = analysisService.documents(query.workflow_id, query.thread_id);
       return { status: 'ok', count: documents.length, documents };
     } catch (err: any) {
       return reply.status(500).send({ detail: err.message });
@@ -927,9 +906,9 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.post('/api/knowledge/rebuild', async (request, reply) => {
-    const body = request.body as { workflowId?: string; threadId?: string };
+    const body = (request.body || {}) as { workflow_id?: string; thread_id?: string };
     try {
-      const result = knowledgeIndex.rebuild(body);
+      const result = knowledgeIndex.rebuild({ workflowId: body.workflow_id, threadId: body.thread_id });
       return { status: 'ok', ...result };
     } catch (err: any) {
       return reply.status(500).send({ detail: err.message });

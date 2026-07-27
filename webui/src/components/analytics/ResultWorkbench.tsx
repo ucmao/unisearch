@@ -4,57 +4,62 @@ import axios from 'axios'
 import { toast } from 'sonner'
 import {
   BarChart3,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Columns3,
   Download,
   ExternalLink,
   FileSearch,
-  Heart,
   History,
-  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  Share2,
-  Star,
   Trash2,
   Users,
 } from 'lucide-react'
-import { dataApi, type KeywordAnalytics, type NormalizedContent } from '@/lib/api'
+import { dataApi, type AnalyticsGroup, type CanonicalDocument } from '@/lib/api'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-type MetricKey = 'engagement' | 'likes' | 'saves' | 'comments' | 'shares'
+type ExportFormat = 'csv' | 'json' | 'markdown'
 
-const metricLabels: Record<MetricKey, string> = {
-  engagement: '总互动',
-  likes: '点赞',
-  saves: '收藏',
-  comments: '评论',
-  shares: '转发',
+const BASE_COLUMNS = [
+  ['title', '标题 / 摘要'],
+  ['platform', '平台'],
+  ['kind', '类型'],
+  ['subject', '主体'],
+  ['keyword', '关键词'],
+  ['publishedAt', '发布时间'],
+] as const
+
+const DEFAULT_COLUMNS = new Set(BASE_COLUMNS.map(([key]) => key))
+
+const kindLabels: Record<string, string> = {
+  post: '帖子', article: '文章', video: '视频', image: '图片', comment: '评论',
+  profile: '账号', search_result: '搜索结果', ai_answer: 'AI 回答', job: '招聘', complaint: '投诉',
 }
 
-const sortOptions = [
-  ['engagement', '总互动'],
-  ['likes', '点赞'],
-  ['saves', '收藏'],
-  ['comments', '评论'],
-  ['shares', '转发'],
-  ['views', '播放量'],
-  ['published_at', '发布时间'],
-] as const
+const subjectTypeLabels: Record<string, string> = {
+  creator: '创作者', publisher: '发布方', company: '公司', merchant: '商家',
+  ai_platform: 'AI 平台', forum: '社区', unknown: '未知主体',
+}
+
+const metricLabels: Record<string, string> = {
+  likes: '点赞', saves: '收藏', comments: '评论', shares: '分享', views: '浏览/播放',
+  replies: '回复', voteups: '赞同', coins: '投币', danmaku: '弹幕',
+}
+
+const attributeLabels: Record<string, string> = {
+  salary: '薪资', city: '城市', experience: '经验', education: '学历', status: '状态',
+  amount: '金额', request: '诉求', domain: '域名', forumName: '社区', questionId: '问题 ID',
+  mediaType: '媒体类型', tags: '标签', reasoningContent: '推理内容',
+}
 
 function formatNumber(value: number) {
   if (value >= 100_000_000) return `${(value / 100_000_000).toFixed(1)}亿`
@@ -62,11 +67,16 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value)
 }
 
-function formatDate(timestamp: number) {
-  if (!timestamp) return '未知'
+function formatDate(value?: string | number) {
+  if (value === undefined || value === null || value === '') return '—'
+  const numeric = typeof value === 'number' ? value : Number(value)
+  const date = Number.isFinite(numeric)
+    ? new Date(numeric > 10_000_000_000 ? numeric : numeric * 1000)
+    : new Date(String(value))
+  if (Number.isNaN(date.getTime())) return String(value)
   return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date(timestamp * 1000))
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(date)
 }
 
 function formatRunTime(value: string | null) {
@@ -76,12 +86,11 @@ function formatRunTime(value: string | null) {
   }).format(new Date(value))
 }
 
-const runStatusLabel = {
-  running: '采集中',
-  completed: '已完成',
-  failed: '失败',
-  stopped: '已停止',
-} as const
+function displayValue(value: unknown, maxLength = 80): string {
+  if (value === undefined || value === null || value === '') return '—'
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
+}
 
 function StatCard({ label, value, hint, icon: Icon }: {
   label: string
@@ -103,37 +112,22 @@ function StatCard({ label, value, hint, icon: Icon }: {
   )
 }
 
-function KeywordBars({ rows, metric, selected, onSelect }: {
-  rows: KeywordAnalytics[]
-  metric: MetricKey
-  selected: string
+function MetricBars({ rows, metricKey, onSelect }: {
+  rows: AnalyticsGroup[]
+  metricKey: string
   onSelect: (keyword: string) => void
 }) {
-  const maximum = Math.max(1, ...rows.map((row) => row[metric]))
+  const values = rows.map((row) => row.metrics[metricKey] || 0)
+  const maximum = Math.max(1, ...values)
   return (
     <div className="space-y-2">
       {rows.slice(0, 10).map((row) => {
-        const active = selected === row.keyword
+        const value = row.metrics[metricKey] || 0
         return (
-          <button
-            type="button"
-            key={row.keyword}
-            onClick={() => onSelect(active ? 'all' : row.keyword)}
-            className={`w-full grid grid-cols-[minmax(90px,140px)_1fr_72px] items-center gap-3 rounded-md px-2 py-2 text-left transition-colors ${
-              active ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'
-            }`}
-          >
-            <span className="min-w-0">
-              <span className="block truncate text-xs font-medium text-cyber-text-primary">{row.keyword}</span>
-              <span className="block text-[10px] text-cyber-text-muted">{row.content_count} 篇</span>
-            </span>
-            <span className="h-5 overflow-hidden rounded-sm bg-cyber-bg-tertiary">
-              <span
-                className="block h-full bg-cyber-neon-cyan/70 transition-all duration-300"
-                style={{ width: `${Math.max(2, row[metric] / maximum * 100)}%` }}
-              />
-            </span>
-            <span className="text-right text-xs font-mono text-cyber-text-secondary">{formatNumber(row[metric])}</span>
+          <button key={row.keyword} type="button" onClick={() => onSelect(row.keyword || 'all')} className="grid w-full grid-cols-[120px_1fr_72px] items-center gap-3 rounded px-2 py-2 text-left hover:bg-cyber-bg-tertiary/70">
+            <span className="truncate text-xs text-cyber-text-primary">{row.keyword || '未标记'}</span>
+            <span className="h-4 overflow-hidden rounded-sm bg-cyber-bg-tertiary"><span className="block h-full bg-cyber-neon-cyan/70" style={{ width: `${Math.max(2, value / maximum * 100)}%` }} /></span>
+            <span className="text-right font-mono text-xs text-cyber-text-secondary">{formatNumber(value)}</span>
           </button>
         )
       })}
@@ -141,114 +135,64 @@ function KeywordBars({ rows, metric, selected, onSelect }: {
   )
 }
 
-function ContentCommentsDialog({ content, runId, planId, threadId, onOpenChange }: {
-  content: NormalizedContent | null
-  runId?: string
-  planId?: string
-  threadId?: string
+function DocumentDrawer({ document, platformLabel, onOpenChange }: {
+  document: CanonicalDocument | null
+  platformLabel: string
   onOpenChange: (open: boolean) => void
 }) {
-  const [page, setPage] = useState(1)
-  const commentsQuery = useQuery({
-    queryKey: ['analytics-comment-threads', runId, planId, threadId, content?.platform, content?.content_id, page],
-    enabled: Boolean(content),
-    queryFn: async () => (await dataApi.getAnalyticsCommentThreads({
-      run_id: runId,
-      plan_id: planId,
-      thread_id: threadId,
-      platform: content!.platform,
-      content_id: content!.content_id,
-      page,
-      page_size: 20,
-    })).data,
-  })
-
-  useEffect(() => setPage(1), [content?.platform, content?.content_id])
-  const threads = commentsQuery.data
-
+  const visibleAttributes = document
+    ? Object.fromEntries(Object.entries(document.attributes).filter(([key]) => key !== 'reasoningContent'))
+    : {}
   return (
-    <Dialog open={Boolean(content)} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-4xl flex-col gap-3 overflow-hidden p-5">
-        <DialogHeader className="pr-8">
-          <DialogTitle className="truncate text-base">视频评论</DialogTitle>
-          <DialogDescription className="truncate" title={content?.title}>
-            {content?.title || content?.content_id || '当前视频'}
-          </DialogDescription>
+    <Dialog open={Boolean(document)} onOpenChange={onOpenChange}>
+      <DialogContent className="left-auto right-0 top-0 flex h-dvh w-[min(720px,94vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 p-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right">
+        <DialogHeader className="shrink-0 border-b border-cyber-border-subtle p-5 pr-12">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">{platformLabel}</Badge>
+            <Badge variant="secondary">{kindLabels[document?.kind || ''] || document?.kind}</Badge>
+            {document?.keyword ? <Badge variant="outline">{document.keyword}</Badge> : null}
+          </div>
+          <DialogTitle className="pt-2 text-left text-lg leading-snug text-cyber-text-primary">{document?.title || '无标题文档'}</DialogTitle>
+          <DialogDescription className="text-left">{document?.summary || '无摘要'}</DialogDescription>
         </DialogHeader>
-
-        <div className="flex items-center justify-between border-y border-cyber-border-subtle py-2 text-xs text-cyber-text-muted">
-          <span>已采集 {threads?.total ?? 0} 条评论 · {threads?.root_total ?? 0} 条一级评论</span>
-          <span className="font-mono">{content?.platform_label} / {content?.content_id}</span>
-        </div>
-
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-          {commentsQuery.isLoading ? (
-            <div className="py-16 text-center text-xs text-cyber-text-muted">正在加载评论…</div>
-          ) : null}
-          {threads?.items.map((thread) => (
-            <article key={thread.comment_id} className="rounded-md border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-cyber-text-secondary">{thread.creator_name || thread.creator_id || '未知用户'}</span>
-                    <Badge variant="outline" className="text-[10px]">一级评论</Badge>
-                    <span className="text-[10px] text-cyber-text-muted">{formatDate(thread.published_at)}</span>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap break-words text-sm text-cyber-text-primary">{thread.content || '—'}</p>
-                </div>
-                <span className="shrink-0 text-[11px] text-cyber-text-muted">赞 {formatNumber(thread.likes)}</span>
-              </div>
-
-              {thread.replies.length ? (
-                <div className="ml-3 mt-3 space-y-2 border-l-2 border-cyber-neon-cyan/20 pl-3 sm:ml-8">
-                  {thread.replies.map((reply) => (
-                    <div key={reply.comment_id} className="rounded bg-cyber-bg-tertiary/60 px-3 py-2">
-                      <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                        <span className="font-medium text-cyber-text-secondary">{reply.creator_name || reply.creator_id || '未知用户'}</span>
-                        <Badge variant="outline" className="text-[9px]">二级回复</Badge>
-                        <span className="text-cyber-text-muted">{formatDate(reply.published_at)}</span>
-                        <span className="ml-auto text-cyber-text-muted">赞 {formatNumber(reply.likes)}</span>
-                      </div>
-                      <p className="mt-1.5 whitespace-pre-wrap break-words text-xs text-cyber-text-primary">{reply.content || '—'}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </article>
-          ))}
-          {threads?.orphan_replies.length ? (
-            <section className="rounded-md border border-cyber-neon-yellow/30 bg-cyber-neon-yellow/5 p-3">
-              <p className="mb-2 text-xs text-cyber-text-muted">未采集到对应一级评论的二级回复</p>
-              <div className="space-y-2">
-                {threads.orphan_replies.map((reply) => (
-                  <div key={reply.comment_id} className="rounded bg-cyber-bg-tertiary/60 px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                      <span className="font-medium text-cyber-text-secondary">{reply.creator_name || reply.creator_id || '未知用户'}</span>
-                      <Badge variant="outline" className="text-[9px]">二级回复</Badge>
-                      <span className="text-cyber-text-muted">{formatDate(reply.published_at)}</span>
-                    </div>
-                    <p className="mt-1.5 whitespace-pre-wrap break-words text-xs text-cyber-text-primary">{reply.content || '—'}</p>
-                  </div>
-                ))}
-              </div>
+        {document ? (
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-5">
+            <section className="grid gap-3 sm:grid-cols-2">
+              <Detail label="Document ID" value={document.documentId} mono />
+              <Detail label="来源内容 ID" value={document.sourceItemId} mono />
+              <Detail label="主体" value={document.subject.name || document.subject.id} />
+              <Detail label="主体类型" value={subjectTypeLabels[document.subject.type] || document.subject.type} />
+              <Detail label="发布时间" value={formatDate(document.publishedAt)} />
+              <Detail label="采集时间" value={formatDate(document.fetchedAt)} />
+              <Detail label="父级来源 ID" value={document.parentSourceItemId} mono />
+              <Detail label="原始平台" value={document.originalPlatform} />
             </section>
-          ) : null}
-          {!commentsQuery.isLoading && !threads?.items.length ? (
-            <div className="py-16 text-center text-xs text-cyber-text-muted">这条视频暂无已采集评论</div>
-          ) : null}
-        </div>
 
-        {(threads?.pages ?? 0) > 1 ? (
-          <div className="flex items-center justify-between border-t border-cyber-border-subtle pt-3 text-xs text-cyber-text-muted">
-            <span>一级评论第 {threads?.page ?? 1} / {threads?.pages ?? 1} 页</span>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>
-                <ChevronLeft />上一页
-              </Button>
-              <Button variant="outline" size="sm" disabled={!threads || page >= threads.pages} onClick={() => setPage((value) => value + 1)}>
-                下一页<ChevronRight />
-              </Button>
-            </div>
+            {Object.keys(document.metrics).length ? <RecordSection title="指标" record={document.metrics} labels={metricLabels} numeric /> : null}
+            {Object.keys(visibleAttributes).length ? <RecordSection title="扩展属性" record={visibleAttributes} labels={attributeLabels} /> : null}
+
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">正文</h3>
+              <div className="whitespace-pre-wrap break-words rounded-md border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-4 text-sm leading-7 text-cyber-text-primary">{document.markdown || '—'}</div>
+            </section>
+
+            {document.assets.length ? (
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">媒体资源</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {document.assets.map((asset) => <a key={asset.assetId} href={asset.url} target="_blank" rel="noreferrer" className="truncate rounded border border-cyber-border-subtle p-3 text-xs text-cyber-neon-cyan hover:bg-cyber-neon-cyan/5">{asset.kind} · {asset.url}</a>)}
+                </div>
+              </section>
+            ) : null}
+
+            {document.citations.length ? (
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">引用</h3>
+                <div className="space-y-2">{document.citations.map((citation) => <a key={citation.url} href={citation.url} target="_blank" rel="noreferrer" className="block rounded border border-cyber-border-subtle p-3 text-xs text-cyber-neon-cyan hover:bg-cyber-neon-cyan/5">{citation.title || citation.source || citation.url}</a>)}</div>
+              </section>
+            ) : null}
+
+            {document.sourceUrl ? <Button asChild variant="outline"><a href={document.sourceUrl} target="_blank" rel="noreferrer"><ExternalLink />打开来源</a></Button> : null}
           </div>
         ) : null}
       </DialogContent>
@@ -256,686 +200,184 @@ function ContentCommentsDialog({ content, runId, planId, threadId, onOpenChange 
   )
 }
 
+function Detail({ label, value, mono = false }: { label: string; value: unknown; mono?: boolean }) {
+  return <div className="min-w-0 rounded border border-cyber-border-subtle p-3"><p className="text-[10px] uppercase tracking-wider text-cyber-text-muted">{label}</p><p className={`mt-1 break-words text-xs text-cyber-text-secondary ${mono ? 'font-mono' : ''}`}>{displayValue(value, 300)}</p></div>
+}
+
+function RecordSection({ title, record, labels, numeric = false }: {
+  title: string
+  record: Record<string, unknown>
+  labels: Record<string, string>
+  numeric?: boolean
+}) {
+  return <section><h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">{title}</h3><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{Object.entries(record).map(([key, value]) => <Detail key={key} label={labels[key] || key} value={numeric && typeof value === 'number' ? formatNumber(value) : value} />)}</div></section>
+}
+
 export function ResultWorkbench({ initialScope = 'all' }: { initialScope?: string }) {
   const queryClient = useQueryClient()
   const statuses = useCrawlerStore((state) => state.statuses)
-  const crawlerStatus = Object.values(statuses).some((s) => s === 'running')
-    ? 'running'
-    : Object.values(statuses).some((s) => s === 'stopping')
-    ? 'stopping'
-    : Object.values(statuses).some((s) => s === 'error')
-    ? 'error'
-    : 'idle'
+  const crawlerStatus = Object.values(statuses).some((status) => status === 'running') ? 'running' : 'idle'
   const previousCrawlerStatus = useRef(crawlerStatus)
+  const initializedDynamicColumns = useRef(false)
   const [scope, setScope] = useState(initialScope)
   const [platform, setPlatform] = useState('all')
+  const [kind, setKind] = useState('all')
   const [keyword, setKeyword] = useState('all')
-  const [metric, setMetric] = useState<MetricKey>('engagement')
+  const [subjectType, setSubjectType] = useState('all')
   const [queryInput, setQueryInput] = useState('')
   const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState('engagement')
+  const [sortBy, setSortBy] = useState('fetched_at')
   const [page, setPage] = useState(1)
-  const [commentLevel, setCommentLevel] = useState('all')
-  const [commentQueryInput, setCommentQueryInput] = useState('')
-  const [commentQuery, setCommentQuery] = useState('')
-  const [commentPage, setCommentPage] = useState(1)
-  const [isRunHistoryOpen, setIsRunHistoryOpen] = useState(false)
-  const [isTaskSidebarCollapsed, setIsTaskSidebarCollapsed] = useState(false)
-  const [taskQuery, setTaskQuery] = useState('')
-  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
-  const [expandedRounds, setExpandedRounds] = useState<Set<string>>(new Set())
-  const [selectedCommentContent, setSelectedCommentContent] = useState<NormalizedContent | null>(null)
+  const [selectedDocument, setSelectedDocument] = useState<CanonicalDocument | null>(null)
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_COLUMNS))
+  const [columnDialogOpen, setColumnDialogOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileScopeOpen, setMobileScopeOpen] = useState(false)
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
 
   const tasksQuery = useQuery({
     queryKey: ['analytics-tasks'],
     queryFn: async () => (await dataApi.getAnalyticsTasks()).data,
-    refetchInterval: crawlerStatus === 'running' || crawlerStatus === 'stopping' ? 3_000 : false,
+    refetchInterval: crawlerStatus === 'running' ? 3000 : false,
   })
-
-  const tasks = tasksQuery.data?.items ?? []
-
-  useEffect(() => {
-    setScope(initialScope)
-  }, [initialScope])
-
-  useEffect(() => {
-    if (scope.startsWith('thread:')) {
-      const threadId = scope.slice(7)
-      setExpandedTasks((current) => new Set(current).add(threadId))
-    } else if (scope.startsWith('plan:')) {
-      const planId = scope.slice(5)
-      setExpandedRounds((current) => new Set(current).add(planId))
-      const task = tasks.find((t) => t.rounds.some((r) => r.plan_id === planId))
-      if (task) {
-        setExpandedTasks((current) => new Set(current).add(task.thread_id))
-      }
-    } else if (scope.startsWith('run:')) {
-      const runId = scope.slice(4)
-      const task = tasks.find((t) => t.rounds.some((r) => r.runs.some((run) => run.run_id === runId)))
-      if (task) {
-        setExpandedTasks((current) => new Set(current).add(task.thread_id))
-        const round = task.rounds.find((r) => r.runs.some((run) => run.run_id === runId))
-        if (round) {
-          setExpandedRounds((current) => new Set(current).add(round.plan_id))
-        }
-      }
-    }
-  }, [scope, tasks])
-
+  const tasks = tasksQuery.data?.items || []
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
-  const selectedPlanId = scope.startsWith('plan:') ? scope.slice(5) : undefined
+  const selectedWorkflowId = scope.startsWith('plan:') ? scope.slice(5) : undefined
   const selectedThreadId = scope.startsWith('thread:') ? scope.slice(7) : undefined
+  const filters = { run_id: selectedRunId, workflow_id: selectedWorkflowId, thread_id: selectedThreadId, platform, kind, keyword, subject_type: subjectType, query }
 
   const summaryQuery = useQuery({
-    queryKey: ['analytics-summary', scope, platform, keyword],
-    queryFn: async () => (await dataApi.getAnalyticsSummary(platform, keyword, selectedRunId, selectedPlanId, selectedThreadId)).data,
+    queryKey: ['analytics-summary', filters],
+    queryFn: async () => (await dataApi.getAnalyticsSummary(filters)).data,
   })
-  const contentsQuery = useQuery({
-    queryKey: ['analytics-contents', scope, platform, keyword, query, sortBy, page],
-    queryFn: async () => (await dataApi.getAnalyticsContents({
-      run_id: selectedRunId, plan_id: selectedPlanId, thread_id: selectedThreadId, platform, keyword, query, sort_by: sortBy, sort_order: 'desc', page, page_size: 20,
-    })).data,
+  const documentsQuery = useQuery({
+    queryKey: ['analytics-documents', filters, sortBy, page],
+    queryFn: async () => (await dataApi.getAnalyticsDocuments({ ...filters, sort_by: sortBy, sort_order: 'desc', page, page_size: 20 })).data,
   })
-  const commentsQuery = useQuery({
-    queryKey: ['analytics-comments', scope, platform, commentLevel, commentQuery, commentPage],
-    queryFn: async () => (await dataApi.getAnalyticsComments({
-      run_id: selectedRunId,
-      plan_id: selectedPlanId,
-      thread_id: selectedThreadId,
-      platform,
-      level: commentLevel === 'all' ? undefined : Number(commentLevel),
-      query: commentQuery,
-      page: commentPage,
-      page_size: 20,
-    })).data,
-  })
+  const summary = summaryQuery.data
+  const documents = documentsQuery.data
+  const platformLabels = useMemo(() => new Map(summary?.filters.platforms || []), [summary])
 
-  useEffect(() => {
-    setKeyword('all')
-    setPage(1)
-    setCommentPage(1)
-  }, [platform])
+  const dynamicColumns = useMemo(() => [
+    ...(summary?.filters.metric_keys || []).map((key) => ({ key: `metric:${key}`, label: metricLabels[key] || key, group: '指标' })),
+    ...(summary?.filters.attribute_keys || [])
+      .filter((key) => key !== 'reasoningContent')
+      .map((key) => ({ key: `attribute:${key}`, label: attributeLabels[key] || key, group: '扩展属性' })),
+  ], [summary])
 
+  useEffect(() => setScope(initialScope), [initialScope])
+  useEffect(() => { setPage(1); setSelectedDocument(null) }, [scope, platform, kind, keyword, subjectType, query, sortBy])
   useEffect(() => {
-    setPlatform('all')
-    setKeyword('all')
-    setPage(1)
-    setCommentPage(1)
-  }, [scope])
-
+    if (initializedDynamicColumns.current || !dynamicColumns.length) return
+    initializedDynamicColumns.current = true
+    setVisibleColumns((current) => new Set([...current, ...dynamicColumns.slice(0, 6).map((column) => column.key)]))
+  }, [dynamicColumns])
   useEffect(() => {
-    const wasActive = previousCrawlerStatus.current === 'running' || previousCrawlerStatus.current === 'stopping'
-    if (wasActive && (crawlerStatus === 'idle' || crawlerStatus === 'error')) {
+    const wasRunning = previousCrawlerStatus.current === 'running'
+    if (wasRunning && crawlerStatus === 'idle') {
       queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
-      queryClient.invalidateQueries({ queryKey: ['analytics-contents'] })
-      queryClient.invalidateQueries({ queryKey: ['analytics-comments'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
     }
     previousCrawlerStatus.current = crawlerStatus
   }, [crawlerStatus, queryClient])
 
-  const summary = summaryQuery.data
-  const contents = contentsQuery.data
-  const comments = commentsQuery.data
-  const keywordRows = useMemo(() => summary?.by_keyword ?? [], [summary])
-  const rounds = useMemo(() => tasks.flatMap((task) => task.rounds), [tasks])
-  const runs = useMemo(() => rounds.flatMap((round) => round.runs), [rounds])
-  const filteredTasks = useMemo(() => {
-    const normalizedQuery = taskQuery.trim().toLocaleLowerCase()
-    if (!normalizedQuery) return tasks
-    return tasks.filter((task) =>
-      task.task_title.toLocaleLowerCase().includes(normalizedQuery)
-      || task.rounds.some((round) => round.round_title.toLocaleLowerCase().includes(normalizedQuery)
-        || round.runs.some((run) => `${run.task_name} ${run.platform} ${run.platform_label || ''} ${run.keywords}`.toLocaleLowerCase().includes(normalizedQuery)))
-    )
-  }, [tasks, taskQuery])
-  const selectedRun = runs.find((run) => run.run_id === selectedRunId)
-  const selectedRound = rounds.find((round) => round.plan_id === selectedPlanId)
-  const selectedTask = tasks.find((task) => task.thread_id === selectedThreadId)
-  const scopeTitle = scope === 'all'
-    ? '全部任务的最新数据'
-    : selectedTask?.task_title || selectedRound?.round_title || selectedRun?.task_name || '所选任务'
-
-
-  const deleteRun = async (selectedRunId: string) => {
-    try {
-      await dataApi.deleteAnalyticsRun(selectedRunId)
-      if (scope === `run:${selectedRunId}`) setScope('all')
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
-      ])
-      toast.success('执行记录及对应的平台采集数据已彻底物理删除')
-    } catch (error) {
-      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
-      toast.error(detail || '任务记录删除失败')
-      throw error
-    }
-  }
-
-  const deleteTask = async (threadId: string) => {
-    try {
-      await dataApi.deleteAnalyticsTask(threadId)
-      if (scope === `thread:${threadId}` || tasks.find((task) => task.thread_id === threadId)?.rounds.some((round) => scope === `plan:${round.plan_id}` || round.runs.some((run) => scope === `run:${run.run_id}`))) setScope('all')
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
-      ])
-      toast.success('AI 任务及对应的平台采集数据已彻底物理删除')
-    } catch (error) {
-      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
-      toast.error(detail || '任务删除失败')
-      throw error
-    }
-  }
-
-  const deleteRound = async (planId: string) => {
-    try {
-      await dataApi.deleteAnalyticsRound(planId)
-      if (scope === `plan:${planId}` || rounds.find((round) => round.plan_id === planId)?.runs.some((run) => scope === `run:${run.run_id}`)) setScope('all')
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-summary'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-contents'] }),
-        queryClient.invalidateQueries({ queryKey: ['analytics-comments'] }),
-      ])
-      toast.success('采集轮次及对应的平台采集数据已彻底物理删除')
-    } catch (error) {
-      const detail = axios.isAxiosError(error) ? error.response?.data?.detail : null
-      toast.error(detail || '采集轮次移除失败')
-      throw error
-    }
-  }
-
-  const exportUrl = dataApi.getAnalyticsExportUrl({
-    run_id: selectedRunId, plan_id: selectedPlanId, thread_id: selectedThreadId, platform, keyword, query, sort_by: sortBy,
+  const toggleColumn = (key: string, checked: boolean) => setVisibleColumns((current) => {
+    const next = new Set(current)
+    if (checked) next.add(key); else next.delete(key)
+    return next
   })
 
-  const renderTaskGroups = (mobile = false) => filteredTasks.map((task) => {
-    const taskRuns = task.rounds.flatMap((round) => round.runs)
-    const isExpanded = expandedTasks.has(task.thread_id)
-    const isSelected = scope === `thread:${task.thread_id}`
-    const isRunning = taskRuns.some((run) => run.status === 'running')
-    const itemCount = taskRuns.reduce((total, run) => total + run.item_count, 0)
-    const latestRun = taskRuns[0]
-    return (
-      <div key={task.thread_id} className="overflow-hidden rounded-md border border-cyber-border-subtle">
-        <div className={`group relative transition-colors ${isSelected ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/70'}`}>
-          <button
-            type="button"
-            onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setIsRunHistoryOpen(false) }}
-            className={`w-full text-left ${mobile ? 'p-3 pl-9 pr-12' : 'p-2.5 pl-8 pr-9'}`}
-          >
-            <span className="block truncate text-xs font-semibold text-cyber-text-primary" title={task.task_title}>{task.task_title}</span>
-            <span className={`mt-1 flex items-center justify-between gap-2 text-cyber-text-muted ${mobile ? 'text-[11px]' : 'text-[10px]'}`}>
-              <span>{task.rounds.length} 轮 · {taskRuns.length} 个执行 · {formatRunTime(latestRun?.started_at ?? null)}</span>
-              <span>{itemCount} 条</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setExpandedTasks((current) => {
-              const next = new Set(current)
-              if (next.has(task.thread_id)) next.delete(task.thread_id)
-              else next.add(task.thread_id)
-              return next
-            })}
-            className="absolute left-1.5 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
-            aria-label={isExpanded ? `收起任务 ${task.task_title}` : `展开任务 ${task.task_title}`}
-          >
-            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          </button>
-          {!isRunning ? (
-            <DeleteConfirmDialog
-              title="确定彻底物理删除该 AI 任务及采集数据？"
-              description={`将彻底物理删除“${task.task_title}”下 ${task.rounds.length} 轮采集、${taskRuns.length} 个执行的所有平台原始数据及文档记录。`}
-              onConfirm={() => deleteTask(task.thread_id)}
-              trigger={<Button variant="ghost" size="icon" aria-label={`删除任务 ${task.task_title}`} className={`absolute right-1 top-1 h-7 w-7 text-cyber-text-muted hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink ${mobile ? '' : 'opacity-0 focus:opacity-100 group-hover:opacity-100'}`}><Trash2 /></Button>}
-            />
-          ) : null}
+  const deleteScope = async (type: 'task' | 'round' | 'run', id: string) => {
+    try {
+      if (type === 'task') await dataApi.deleteAnalyticsTask(id)
+      else if (type === 'round') await dataApi.deleteAnalyticsRound(id)
+      else await dataApi.deleteAnalyticsRun(id)
+      if (scope.endsWith(id)) setScope('all')
+      await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
+      await queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
+      await queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
+      toast.success('已删除所选数据')
+    } catch (error) {
+      toast.error(axios.isAxiosError(error) ? error.response?.data?.detail || error.message : '删除失败')
+    }
+  }
+
+  const scopeTitle = selectedRunId
+    ? `执行 ${selectedRunId.slice(0, 8)}`
+    : selectedWorkflowId ? '当前采集轮次' : selectedThreadId ? '当前 AI 任务' : '全部任务的最新文档'
+
+  const renderScopeTree = (mobile = false) => (
+    <div className="space-y-2">
+      <button type="button" onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }} className={`w-full rounded border p-3 text-left ${scope === 'all' ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10' : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/60'}`}><span className="block text-xs font-medium">全部任务</span><span className="text-[10px] text-cyber-text-muted">每个文档展示最新采集快照</span></button>
+      {tasks.map((task) => (
+        <div key={task.thread_id} className="rounded border border-cyber-border-subtle p-2">
+          <div className="flex items-center gap-1"><button type="button" onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setMobileScopeOpen(false) }} className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-xs hover:bg-cyber-bg-tertiary">{task.task_title || task.thread_id}</button><DeleteConfirmDialog title="删除整个任务及其采集数据？" description="该操作会物理删除任务下所有执行、文档来源和日志。" onConfirm={() => deleteScope('task', task.thread_id)} trigger={<Button variant="ghost" size="icon" className="h-7 w-7"><Trash2 className="h-3 w-3" /></Button>} /></div>
+          <div className="ml-2 space-y-1 border-l border-cyber-border-subtle pl-2">{task.rounds.map((round) => <div key={round.plan_id}><div className="flex items-center gap-1"><button type="button" onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }} className="min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[11px] text-cyber-text-secondary hover:bg-cyber-bg-tertiary">{round.round_title || round.plan_id}</button><DeleteConfirmDialog title="删除该采集轮次？" description="该轮次下的执行和文档来源将被物理删除。" onConfirm={() => deleteScope('round', round.plan_id)} trigger={<Button variant="ghost" size="icon" className="h-6 w-6"><Trash2 className="h-3 w-3" /></Button>} /></div><div className="ml-2">{round.runs.map((run) => <button key={run.run_id} type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setMobileScopeOpen(false) }} className={`flex w-full items-center justify-between rounded px-2 py-1 text-[10px] ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary'}`}><span>{run.platform_label}</span><span>{formatRunTime(run.started_at)}</span></button>)}</div></div>)}</div>
         </div>
-        {isExpanded ? (
-          <div className="space-y-1 border-t border-cyber-border-subtle bg-cyber-bg-secondary/35 p-1.5">
-            {task.rounds.map((round, roundIndex) => {
-              const roundExpanded = expandedRounds.has(round.plan_id)
-              const roundRunning = round.runs.some((run) => run.status === 'running')
-              const roundItems = round.runs.reduce((sum, run) => sum + run.item_count, 0)
-              return <div key={round.plan_id} className="overflow-hidden rounded border border-cyber-border-subtle/70">
-                <div className={`group/round relative ${scope === `plan:${round.plan_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/60'}`}>
-                  <button type="button" onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-2 pl-8 pr-9 text-left">
-                    <span className="block truncate text-[11px] font-medium text-cyber-text-secondary" title={round.round_title}>第 {task.rounds.length - roundIndex} 轮 · {round.round_title}</span>
-                    <span className="mt-1 flex justify-between text-[9px] text-cyber-text-muted"><span>{round.runs.length} 个平台执行</span><span>{roundItems} 条</span></span>
-                  </button>
-                  <button type="button" onClick={() => setExpandedRounds((current) => { const next = new Set(current); if (next.has(round.plan_id)) next.delete(round.plan_id); else next.add(round.plan_id); return next })} className="absolute left-1 top-2 flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted" aria-label={roundExpanded ? `收起采集轮次 ${round.round_title}` : `展开采集轮次 ${round.round_title}`}>
-                    {roundExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                  </button>
-                  {!roundRunning ? <DeleteConfirmDialog title="彻底删除该采集轮次及所有数据？" description={`将彻底物理删除本轮 ${round.runs.length} 个平台执行的所有原始数据、日志与关联记录。`} onConfirm={() => deleteRound(round.plan_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除采集轮次 ${round.round_title}`} className="absolute right-0.5 top-1 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/round:opacity-100"><Trash2 /></Button>} /> : null}
-                </div>
-                {roundExpanded ? <div className="border-t border-cyber-border-subtle/70 px-1 py-1">
-                  {round.runs.map((run) => <div key={run.run_id} className={`group/run relative rounded ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/10' : 'hover:bg-cyber-bg-tertiary/60'}`}>
-                    <button type="button" onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setIsRunHistoryOpen(false) }} className="w-full py-1.5 pl-6 pr-9 text-left">
-                      <span className="flex items-center justify-between gap-2"><span className="truncate text-[10px] text-cyber-text-secondary">{run.platform_label || run.platform}</span><Badge variant="outline" className="text-[8px]">{runStatusLabel[run.status] ?? run.status}</Badge></span>
-                      <span className="mt-0.5 flex justify-between text-[9px] text-cyber-text-muted"><span>{formatRunTime(run.started_at)}</span><span>{run.item_count} 条</span></span>
-                    </button>
-                    <span className="absolute left-2 top-2.5 h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan/50" />
-                    {run.status !== 'running' ? <DeleteConfirmDialog title="彻底删除该平台执行记录及采集数据？" description={`将彻底物理删除“${run.task_name}”在 ${run.platform_label || run.platform} 平台本次执行采集的所有数据与记录。`} onConfirm={() => deleteRun(run.run_id)} trigger={<Button variant="ghost" size="icon" aria-label={`删除执行 ${run.task_name}`} className="absolute right-0.5 top-0.5 h-7 w-7 text-cyber-text-muted opacity-0 hover:text-cyber-neon-pink focus:opacity-100 group-hover/run:opacity-100"><Trash2 /></Button>} /> : null}
-                  </div>)}
-                </div> : null}
-              </div>
-            })}
-          </div>
-        ) : null}
-      </div>
-    )
-  })
+      ))}
+    </div>
+  )
+
+  const selectedColumns = [
+    ...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })),
+    ...dynamicColumns,
+  ].filter((column) => visibleColumns.has(column.key))
+
+  const cell = (document: CanonicalDocument, key: string) => {
+    if (key === 'title') return <div className="max-w-[360px]"><p className="truncate font-medium text-cyber-text-primary">{document.title || '无标题'}</p><p className="mt-1 line-clamp-2 text-[11px] text-cyber-text-muted">{document.summary || document.markdown || '—'}</p></div>
+    if (key === 'platform') return <Badge variant="outline">{platformLabels.get(document.platform) || document.platform}</Badge>
+    if (key === 'kind') return kindLabels[document.kind] || document.kind
+    if (key === 'subject') return <div><p className="text-cyber-text-secondary">{document.subject.name || document.subject.id || '—'}</p><p className="text-[10px] text-cyber-text-muted">{subjectTypeLabels[document.subject.type] || document.subject.type}</p></div>
+    if (key === 'keyword') return document.keyword || '—'
+    if (key === 'publishedAt') return <span className="whitespace-nowrap">{formatDate(document.publishedAt)}</span>
+    if (key.startsWith('metric:')) { const value = document.metrics[key.slice(7)]; return typeof value === 'number' ? <span className="font-mono">{formatNumber(value)}</span> : '—' }
+    if (key.startsWith('attribute:')) return displayValue(document.attributes[key.slice(10)])
+    return '—'
+  }
+
+  const exportUrl = dataApi.getAnalyticsExportUrl({ ...filters, sort_by: sortBy, format: exportFormat })
+  const chartMetric = summary?.filters.metric_keys[0]
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden animate-slide-up">
-      <aside
-        className={`glass-panel relative z-[5] hidden min-h-0 shrink-0 flex-col border-r border-cyber-border-subtle transition-[width] duration-200 min-[1440px]:flex ${
-          isTaskSidebarCollapsed ? 'w-16' : 'w-[260px]'
-        }`}
-        aria-label="任务范围"
-      >
-        <div className={`flex h-14 shrink-0 items-center border-b border-cyber-border-subtle ${isTaskSidebarCollapsed ? 'justify-center px-2' : 'justify-between px-3'}`}>
-          {!isTaskSidebarCollapsed ? (
-            <div className="flex min-w-0 items-center gap-2">
-              <History className="h-4 w-4 shrink-0 text-cyber-neon-cyan" />
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-cyber-text-primary">任务范围</h2>
-                <p className="text-[10px] text-cyber-text-muted">{tasksQuery.data?.total ?? 0} 个 AI 任务 · {tasksQuery.data?.round_total ?? 0} 轮 · {tasksQuery.data?.run_total ?? 0} 个执行</p>
-              </div>
-            </div>
-          ) : null}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => setIsTaskSidebarCollapsed((value) => !value)}
-            aria-label={isTaskSidebarCollapsed ? '展开任务侧栏' : '收起任务侧栏'}
-            title={isTaskSidebarCollapsed ? '展开任务侧栏' : '收起任务侧栏'}
-          >
-            {isTaskSidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-          </Button>
-        </div>
-
-        {isTaskSidebarCollapsed ? (
-          <div className="flex flex-1 flex-col items-center gap-2 px-2 py-3">
-            <button
-              type="button"
-              onClick={() => setIsTaskSidebarCollapsed(false)}
-              className="flex h-10 w-10 items-center justify-center rounded-md border border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 text-cyber-neon-cyan"
-              title={`当前范围：${scopeTitle}`}
-              aria-label="展开并查看当前任务范围"
-            >
-              <History className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="shrink-0 space-y-2 border-b border-cyber-border-subtle p-3">
-              <div className="relative">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cyber-text-muted" />
-                <Input
-                  value={taskQuery}
-                  onChange={(event) => setTaskQuery(event.target.value)}
-                  placeholder="搜索任务"
-                  className="h-8 pl-8 text-xs"
-                />
-              </div>
-            <div
-              className={`group relative rounded-md border transition-colors ${
-                scope === 'all'
-                  ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10'
-                  : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/70'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => setScope('all')}
-                className="w-full p-2.5 text-left"
-              >
-                <span className="block text-xs font-medium text-cyber-text-primary">全部任务</span>
-                <span className="mt-0.5 block text-[10px] text-cyber-text-muted">展示各任务中的最新数据</span>
-              </button>
-            </div>
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              {renderTaskGroups()}
-              {!tasksQuery.isLoading && !filteredTasks.length ? (
-                <div className="py-8 text-center text-xs text-cyber-text-muted">
-                  {taskQuery.trim() ? '没有匹配的任务' : '暂无任务记录'}
-                </div>
-              ) : null}
-            </div>
-          </>
-        )}
+    <div className="flex h-full min-h-0 bg-cyber-bg-primary">
+      <aside className={`hidden shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/45 md:flex ${sidebarCollapsed ? 'w-14' : 'w-72'}`}>
+        <div className="flex items-center justify-between border-b border-cyber-border-subtle p-3"><span className={`text-xs font-semibold ${sidebarCollapsed ? 'hidden' : ''}`}>任务范围</span><Button variant="ghost" size="icon" onClick={() => setSidebarCollapsed((value) => !value)}>{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</Button></div>
+        {!sidebarCollapsed ? <div className="min-h-0 flex-1 overflow-y-auto p-3">{renderScopeTree()}</div> : null}
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-auto px-4 pb-5">
-      <div className="mx-auto max-w-[1600px] space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-lg font-semibold text-cyber-text-primary">
-              <BarChart3 className="h-5 w-5 text-cyber-neon-cyan" />
-              采集结果看板
-            </h1>
-            <p className="mt-1 text-xs text-cyber-text-muted">跨文件统一内容字段，按平台和来源关键词对比采集结果</p>
-            <p className="mt-1 truncate text-[11px] text-cyber-text-secondary" title={selectedRun?.task_name}>
-              当前范围：{scopeTitle}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="min-[1440px]:hidden"
-              onClick={() => setIsRunHistoryOpen(true)}
-            >
-              <History />任务范围
-            </Button>
-            <Button variant="outline" size="sm" asChild>
-              <a href={exportUrl}><Download />导出 CSV</a>
-            </Button>
-          </div>
-        </div>
+      <main className="min-w-0 flex-1 overflow-auto p-4">
+        <div className="mx-auto max-w-[1800px] space-y-4">
+          <header className="flex flex-wrap items-start justify-between gap-3">
+            <div><h1 className="flex items-center gap-2 text-lg font-semibold"><BarChart3 className="h-5 w-5 text-cyber-neon-cyan" />Canonical Document 工作台</h1><p className="mt-1 text-xs text-cyber-text-muted">跨 Connector 的通用字段、动态指标与扩展属性</p><p className="mt-1 text-[11px] text-cyber-text-secondary">当前范围：{scopeTitle}</p></div>
+            <div className="flex items-center gap-2"><Button variant="outline" size="sm" className="md:hidden" onClick={() => setMobileScopeOpen(true)}><History />任务范围</Button><Select value={exportFormat} onValueChange={(value) => setExportFormat(value as ExportFormat)}><SelectTrigger className="h-9 w-28 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="csv">CSV</SelectItem><SelectItem value="json">JSON</SelectItem><SelectItem value="markdown">Markdown</SelectItem></SelectContent></Select><Button variant="outline" size="sm" asChild><a href={exportUrl}><Download />统一导出</a></Button></div>
+          </header>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="内容总数" value={summary?.totals.content_count ?? 0} hint="当前筛选范围" icon={FileSearch} />
-          <StatCard label="创作者" value={summary?.totals.creator_count ?? 0} hint="按用户 ID 去重" icon={Users} />
-          <StatCard label="累计互动" value={summary?.totals.engagement ?? 0} hint="赞、藏、评、转合计" icon={Heart} />
-          <StatCard label="关键词" value={summary?.by_keyword.length ?? 0} hint="有采集结果的关键词" icon={BarChart3} />
-        </div>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><StatCard label="文档总数" value={summary?.totals.document_count || 0} hint="包含正文与评论" icon={FileSearch} /><StatCard label="主体数" value={summary?.totals.subject_count || 0} hint="按主体 ID / 名称去重" icon={Users} /><StatCard label="正文" value={summary?.totals.content_count || 0} hint="非评论文档" icon={BarChart3} /><StatCard label="评论" value={summary?.totals.comment_count || 0} hint="保留父级关系" icon={BarChart3} /></div>
 
-        <div className="grid gap-4 2xl:grid-cols-[minmax(420px,0.9fr)_minmax(0,1.6fr)]">
-          <section className="glass-panel float-panel rounded-lg p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-sm font-semibold text-cyber-text-primary">关键词横向对比</h2>
-                <p className="text-[11px] text-cyber-text-muted">点击关键词可联动筛选内容库</p>
-              </div>
-              <Select value={metric} onValueChange={(value) => setMetric(value as MetricKey)}>
-                <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(metricLabels).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {keywordRows.length ? (
-              <KeywordBars rows={keywordRows} metric={metric} selected={keyword} onSelect={(value) => { setKeyword(value); setPage(1) }} />
-            ) : (
-              <div className="py-12 text-center text-xs text-cyber-text-muted">暂无可对比数据</div>
-            )}
-          </section>
+          {chartMetric && summary?.by_keyword.length ? <section className="glass-panel rounded-lg p-4"><div className="mb-3 flex items-center justify-between"><div><h2 className="text-sm font-semibold">关键词对比</h2><p className="text-[11px] text-cyber-text-muted">按 {metricLabels[chartMetric] || chartMetric} 聚合；缺失指标不按 0 补齐</p></div></div><MetricBars rows={summary.by_keyword} metricKey={chartMetric} onSelect={setKeyword} /></section> : null}
 
-          <section className="glass-panel float-panel min-w-0 rounded-lg p-4">
-            <div className="mb-3 flex flex-wrap items-end gap-3">
-              <label className="min-w-[140px] flex-1 space-y-1 text-[11px] text-cyber-text-muted">
-                平台
-                <Select value={platform} onValueChange={setPlatform}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部平台</SelectItem>
-                    {summary?.filters.platforms.map(([value, label]) => (
-                      <SelectItem value={value} key={value}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="min-w-[160px] flex-1 space-y-1 text-[11px] text-cyber-text-muted">
-                来源关键词
-                <Select value={keyword} onValueChange={(value) => { setKeyword(value); setPage(1) }}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部关键词</SelectItem>
-                    {summary?.filters.keywords.map((value) => <SelectItem value={value} key={value}>{value}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </label>
-              <label className="min-w-[140px] flex-1 space-y-1 text-[11px] text-cyber-text-muted">
-                排序
-                <Select value={sortBy} onValueChange={(value) => { setSortBy(value); setPage(1) }}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {sortOptions.map(([value, label]) => <SelectItem value={value} key={value}>{label}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </label>
-              <form
-                className="relative min-w-[220px] flex-[1.4]"
-                onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()); setPage(1) }}
-              >
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyber-text-muted" />
-                <Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索标题、账号或内容 ID" className="pl-9" />
-              </form>
+          <section className="glass-panel rounded-lg p-4">
+            <div className="mb-3 grid gap-3 xl:grid-cols-[repeat(4,minmax(130px,1fr))_minmax(220px,1.5fr)_auto]">
+              <Select value={platform} onValueChange={setPlatform}><SelectTrigger><SelectValue placeholder="平台" /></SelectTrigger><SelectContent><SelectItem value="all">全部平台</SelectItem>{summary?.filters.platforms.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select>
+              <Select value={kind} onValueChange={setKind}><SelectTrigger><SelectValue placeholder="类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部类型</SelectItem>{summary?.filters.kinds.map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}</SelectContent></Select>
+              <Select value={keyword} onValueChange={setKeyword}><SelectTrigger><SelectValue placeholder="关键词" /></SelectTrigger><SelectContent><SelectItem value="all">全部关键词</SelectItem>{summary?.filters.keywords.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+              <Select value={subjectType} onValueChange={setSubjectType}><SelectTrigger><SelectValue placeholder="主体类型" /></SelectTrigger><SelectContent><SelectItem value="all">全部主体</SelectItem>{summary?.filters.subject_types.map((value) => <SelectItem key={value} value={value}>{subjectTypeLabels[value] || value}</SelectItem>)}</SelectContent></Select>
+              <form className="relative" onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()) }}><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyber-text-muted" /><Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索标题、摘要、正文、主体或来源 ID" className="pl-9" /></form>
+              <Button variant="outline" onClick={() => setColumnDialogOpen(true)}><Columns3 />列设置</Button>
             </div>
 
-            <div className="overflow-x-auto rounded-md border border-cyber-border-subtle">
-              <table className="w-full min-w-[980px] border-collapse text-xs">
-                <thead className="bg-cyber-bg-tertiary/80 text-cyber-text-muted">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">内容</th>
-                    <th className="px-3 py-2 text-left font-medium">平台 / 关键词</th>
-                    <th className="px-3 py-2 text-right font-medium">点赞</th>
-                    <th className="px-3 py-2 text-right font-medium">收藏</th>
-                    <th className="px-3 py-2 text-right font-medium">评论</th>
-                    <th className="px-3 py-2 text-right font-medium">转发</th>
-                    <th className="px-3 py-2 text-right font-medium">发布时间</th>
-                    <th className="px-3 py-2 text-center font-medium">原帖</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contents?.items.map((item) => (
-                    <tr key={`${item.platform}-${item.content_id}-${item.keyword}`} className="border-t border-cyber-border-subtle hover:bg-cyber-neon-cyan/5">
-                      <td className="max-w-[360px] px-3 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-11 w-16 flex-shrink-0 overflow-hidden rounded bg-cyber-bg-tertiary">
-                            {item.cover_url ? <img src={item.cover_url} alt="" className="h-full w-full object-cover" loading="lazy" /> : null}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-cyber-text-primary" title={item.title}>{item.title || '无标题'}</p>
-                            <p className="mt-1 truncate text-[11px] text-cyber-text-muted" title={item.creator_id}>
-                              {item.creator_name || item.creator_id || '未知账号'}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <Badge variant="outline" className="mr-1 text-[10px]">{item.platform_label}</Badge>
-                        <span className="whitespace-nowrap text-[11px] text-cyber-text-secondary">{item.keyword}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono"><Heart className="mr-1 inline h-3 w-3 text-cyber-neon-pink" />{formatNumber(item.likes)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono"><Star className="mr-1 inline h-3 w-3 text-cyber-neon-yellow" />{formatNumber(item.saves)}</td>
-                      <td className="px-3 py-2.5 text-right font-mono">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedCommentContent(item)}
-                          className="inline-flex items-center rounded px-1.5 py-1 text-cyber-neon-cyan transition-colors hover:bg-cyber-neon-cyan/10 hover:underline"
-                          title="查看这条视频的全部一、二级评论"
-                          aria-label={`查看 ${item.title || item.content_id} 的全部评论`}
-                        >
-                          <MessageCircle className="mr-1 h-3 w-3" />{formatNumber(item.comments)}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2.5 text-right font-mono"><Share2 className="mr-1 inline h-3 w-3 text-cyber-neon-green" />{formatNumber(item.shares)}</td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-cyber-text-muted">{formatDate(item.published_at)}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        {item.content_url ? (
-                          <a href={item.content_url} target="_blank" rel="noreferrer" className="inline-flex text-cyber-neon-cyan hover:opacity-75" aria-label="打开原帖">
-                            <ExternalLink className="h-4 w-4" />
-                          </a>
-                        ) : <span className="text-cyber-text-muted">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!contentsQuery.isLoading && !contents?.items.length ? (
-                <div className="py-14 text-center text-xs text-cyber-text-muted">没有符合当前条件的内容</div>
-              ) : null}
-            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2"><span className="text-[11px] text-cyber-text-muted">排序：</span><Select value={sortBy} onValueChange={setSortBy}><SelectTrigger className="h-8 w-40 text-xs"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="fetched_at">最近采集</SelectItem><SelectItem value="published_at">发布时间</SelectItem><SelectItem value="rank">结果排名</SelectItem>{summary?.filters.metric_keys.map((key) => <SelectItem key={key} value={`metrics.${key}`}>{metricLabels[key] || key}</SelectItem>)}</SelectContent></Select></div>
 
-            <div className="mt-3 flex items-center justify-between text-xs text-cyber-text-muted">
-              <span>共 {contents?.total ?? 0} 条 · 第 {contents?.page ?? 1} / {Math.max(contents?.pages ?? 1, 1)} 页</span>
-              <div className="flex gap-1">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
-                  <ChevronLeft />上一页
-                </Button>
-                <Button variant="outline" size="sm" disabled={!contents || page >= contents.pages} onClick={() => setPage((value) => value + 1)}>
-                  下一页<ChevronRight />
-                </Button>
-              </div>
-            </div>
+            <div className="overflow-x-auto rounded border border-cyber-border-subtle"><table className="w-full min-w-[960px] border-collapse text-xs"><thead className="bg-cyber-bg-tertiary/80 text-cyber-text-muted"><tr>{selectedColumns.map((column) => <th key={column.key} className="whitespace-nowrap px-3 py-2 text-left font-medium">{column.label}</th>)}<th className="px-3 py-2 text-center font-medium">来源</th></tr></thead><tbody>{documents?.items.map((document) => <tr key={`${document.documentId}:${document.provenance.runId || 'latest'}`} onClick={() => setSelectedDocument(document)} className="cursor-pointer border-t border-cyber-border-subtle hover:bg-cyber-neon-cyan/5">{selectedColumns.map((column) => <td key={column.key} className="max-w-[280px] px-3 py-2.5 align-top text-cyber-text-secondary">{cell(document, column.key)}</td>)}<td className="px-3 py-2.5 text-center">{document.sourceUrl ? <a href={document.sourceUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex text-cyber-neon-cyan"><ExternalLink className="h-4 w-4" /></a> : '—'}</td></tr>)}</tbody></table>{!documentsQuery.isLoading && !documents?.items.length ? <div className="py-16 text-center text-xs text-cyber-text-muted">没有符合当前条件的 Canonical Document</div> : null}</div>
+            <div className="mt-3 flex items-center justify-between text-xs text-cyber-text-muted"><span>共 {documents?.total || 0} 条 · 第 {documents?.page || 1} / {Math.max(documents?.pages || 1, 1)} 页</span><div className="flex gap-1"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft />上一页</Button><Button variant="outline" size="sm" disabled={!documents || page >= documents.pages} onClick={() => setPage((value) => value + 1)}>下一页<ChevronRight /></Button></div></div>
           </section>
         </div>
-
-        <section className="glass-panel float-panel rounded-lg p-4">
-          <div className="mb-3 flex flex-wrap items-end gap-3">
-            <div className="mr-auto">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-cyber-text-primary">
-                <MessageCircle className="h-4 w-4 text-cyber-neon-cyan" />采集评论
-              </h2>
-              <p className="mt-1 text-[11px] text-cyber-text-muted">直接读取 SQLite，保留一级评论、二级回复及父评论关系</p>
-            </div>
-            <Select value={commentLevel} onValueChange={(value) => { setCommentLevel(value); setCommentPage(1) }}>
-              <SelectTrigger className="h-9 w-32 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">全部层级</SelectItem>
-                <SelectItem value="1">一级评论</SelectItem>
-                <SelectItem value="2">二级回复</SelectItem>
-              </SelectContent>
-            </Select>
-            <form
-              className="relative min-w-[260px]"
-              onSubmit={(event) => { event.preventDefault(); setCommentQuery(commentQueryInput.trim()); setCommentPage(1) }}
-            >
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-cyber-text-muted" />
-              <Input
-                value={commentQueryInput}
-                onChange={(event) => setCommentQueryInput(event.target.value)}
-                placeholder="搜索评论、评论者或作品 ID"
-                className="pl-9"
-              />
-            </form>
-          </div>
-
-          <div className="overflow-x-auto rounded-md border border-cyber-border-subtle">
-            <table className="w-full min-w-[980px] border-collapse text-xs">
-              <thead className="bg-cyber-bg-tertiary/80 text-cyber-text-muted">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium">层级</th>
-                  <th className="px-3 py-2 text-left font-medium">评论内容</th>
-                  <th className="px-3 py-2 text-left font-medium">评论者</th>
-                  <th className="px-3 py-2 text-left font-medium">平台 / 作品 ID</th>
-                  <th className="px-3 py-2 text-left font-medium">父评论 ID</th>
-                  <th className="px-3 py-2 text-right font-medium">点赞</th>
-                  <th className="px-3 py-2 text-right font-medium">时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comments?.items.map((item) => (
-                  <tr key={`${item.platform}-${item.comment_id}`} className="border-t border-cyber-border-subtle hover:bg-cyber-neon-cyan/5">
-                    <td className="whitespace-nowrap px-3 py-2.5">
-                      <Badge variant="outline" className="text-[10px]">{item.level === 1 ? '一级评论' : '二级回复'}</Badge>
-                    </td>
-                    <td className="max-w-[420px] px-3 py-2.5 text-cyber-text-primary">
-                      <p className="line-clamp-2" title={item.content}>{item.content || '—'}</p>
-                    </td>
-                    <td className="max-w-[180px] px-3 py-2.5">
-                      <p className="truncate text-cyber-text-secondary" title={item.creator_id}>{item.creator_name || item.creator_id || '未知用户'}</p>
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <Badge variant="outline" className="mr-1 text-[10px]">{item.platform_label}</Badge>
-                      <span className="font-mono text-[11px] text-cyber-text-muted">{item.content_id}</span>
-                    </td>
-                    <td className="max-w-[160px] truncate px-3 py-2.5 font-mono text-[11px] text-cyber-text-muted" title={item.parent_comment_id}>
-                      {item.parent_comment_id || '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono">{formatNumber(item.likes)}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-right text-cyber-text-muted">{formatDate(item.published_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {!commentsQuery.isLoading && !comments?.items.length ? (
-              <div className="py-12 text-center text-xs text-cyber-text-muted">暂无已采集评论</div>
-            ) : null}
-          </div>
-
-          <div className="mt-3 flex items-center justify-between text-xs text-cyber-text-muted">
-            <span>共 {comments?.total ?? 0} 条 · 第 {comments?.page ?? 1} / {Math.max(comments?.pages ?? 1, 1)} 页</span>
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" disabled={commentPage <= 1} onClick={() => setCommentPage((value) => Math.max(1, value - 1))}>
-                <ChevronLeft />上一页
-              </Button>
-              <Button variant="outline" size="sm" disabled={!comments || commentPage >= comments.pages} onClick={() => setCommentPage((value) => value + 1)}>
-                下一页<ChevronRight />
-              </Button>
-            </div>
-          </div>
-        </section>
-        <Dialog open={isRunHistoryOpen} onOpenChange={setIsRunHistoryOpen}>
-          <DialogContent className="left-0 top-0 flex h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-3 overflow-hidden rounded-none border-y-0 border-l-0 border-r border-cyber-border-subtle p-4 data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left">
-            <DialogHeader className="pr-8">
-              <DialogTitle className="flex items-center gap-2 text-base"><History className="h-4 w-4" />任务范围</DialogTitle>
-              <DialogDescription>选择任务查看该次采集结果</DialogDescription>
-            </DialogHeader>
-
-            <div className="relative shrink-0">
-              <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cyber-text-muted" />
-              <Input
-                value={taskQuery}
-                onChange={(event) => setTaskQuery(event.target.value)}
-                placeholder="搜索任务"
-                className="h-9 pl-8 text-xs"
-              />
-            </div>
-
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-              <div
-                className={`group relative rounded-md border transition-colors ${
-                  scope === 'all'
-                    ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10'
-                    : 'border-cyber-border-subtle hover:bg-cyber-bg-tertiary/70'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => { setScope('all'); setIsRunHistoryOpen(false) }}
-                  className="w-full p-3 text-left"
-                >
-                  <span className="block text-xs font-medium text-cyber-text-primary">全部任务</span>
-                  <span className="mt-1 block text-[11px] text-cyber-text-muted">每条内容展示所有任务中的最新数据</span>
-                </button>
-              </div>
-
-              {renderTaskGroups(true)}
-
-              {!tasksQuery.isLoading && !filteredTasks.length ? (
-                <div className="py-8 text-center text-xs text-cyber-text-muted">
-                  {taskQuery.trim() ? '没有匹配的任务' : '暂无任务记录'}
-                </div>
-              ) : null}
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        <ContentCommentsDialog
-          content={selectedCommentContent}
-          runId={selectedRunId}
-          planId={selectedPlanId}
-          threadId={selectedThreadId}
-          onOpenChange={(open) => { if (!open) setSelectedCommentContent(null) }}
-        />
-      </div>
       </main>
+
+      <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}><DialogContent className="max-h-[80vh] overflow-y-auto"><DialogHeader><DialogTitle>动态列设置</DialogTitle><DialogDescription>固定字段与当前结果中实际出现的指标、属性。缺失值保持为空。</DialogDescription></DialogHeader><div className="space-y-4">{['通用字段', '指标', '扩展属性'].map((group) => { const columns = [...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })), ...dynamicColumns].filter((column) => column.group === group); return columns.length ? <section key={group}><h3 className="mb-2 text-xs font-semibold text-cyber-text-muted">{group}</h3><div className="grid gap-2 sm:grid-cols-2">{columns.map((column) => <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded border border-cyber-border-subtle p-2 text-xs"><Checkbox checked={visibleColumns.has(column.key)} onCheckedChange={(checked) => toggleColumn(column.key, checked)} />{column.label}</label>)}</div></section> : null })}</div></DialogContent></Dialog>
+      <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}><DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none"><DialogHeader><DialogTitle>任务范围</DialogTitle><DialogDescription>选择任务、采集轮次或单次执行</DialogDescription></DialogHeader>{renderScopeTree(true)}</DialogContent></Dialog>
+      <DocumentDrawer document={selectedDocument} platformLabel={selectedDocument ? platformLabels.get(selectedDocument.platform) || selectedDocument.platform : ''} onOpenChange={(open) => { if (!open) setSelectedDocument(null) }} />
     </div>
   )
 }
