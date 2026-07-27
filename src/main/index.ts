@@ -518,7 +518,7 @@ app.on('ready', async () => {
   try {
     const iconPath = getAppIconPath();
     if (process.platform === 'darwin' && iconPath) {
-      app.dock.setIcon(iconPath);
+      app.dock?.setIcon(iconPath);
     }
 
     apiPort = await getFreePort(8080);

@@ -15,7 +15,7 @@
     "@fastify/static": "^7.0.4",
     "@fastify/websocket": "^10.0.1",
     "axios": "^1.7.9",
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^13.0.1",
     "cheerio": "^1.2.0",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
@@ -27,7 +27,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.14.9",
-    "electron": "^31.0.0",
+    "electron": "^42.7.1",
     "electron-builder": "^24.13.3",
     "tsup": "^8.1.0",
     "tsx": "^4.16.0",
