@@ -210,8 +210,7 @@ export function SettingsDialog({
       queryClient.invalidateQueries({ queryKey: ['storage-summary'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
-      queryClient.invalidateQueries({ queryKey: ['analytics-contents'] })
-      queryClient.invalidateQueries({ queryKey: ['analytics-comments'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
       toast.success(`已清理 ${data.deleted} 个看板执行记录`)
     },
     onError: (error) => toast.error(getError(error)),

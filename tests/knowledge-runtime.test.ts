@@ -6,8 +6,10 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import { initSchema } from '../src/database/schema';
 import { buildRawItem } from '../src/connectors/output/connector-output';
+import { mapRawItemToCanonicalDocument } from '../src/connectors/mappers/canonical-document-mapper';
 import { DocumentEngine } from '../src/document/document-engine';
 import { KnowledgeIndex, localEmbedding } from '../src/knowledge/knowledge-index';
+import { KNOWLEDGE_PROJECTOR_VERSION, knowledgeProjector } from '../src/knowledge/knowledge-projector';
 import { AnalysisService } from '../src/analyzers/registry';
 import { exporterRegistry } from '../src/exporters/registry';
 import { listProcessorCapabilities } from '../src/processor/capabilities';
@@ -37,9 +39,13 @@ test('knowledge index chunks Documents and supports hybrid retrieval', async () 
     const document = await seed(db);
     const index = new KnowledgeIndex(() => db);
     assert.deepEqual(index.rebuild(), { documents: 1, chunks: 1 });
-    const results = index.search('Workflow Connector', 5);
+    const results = index.search('Workflow Connector', { limit: 5 });
     assert.equal(results[0].documentId, document.documentId);
     assert.match(results[0].content, /Document Engine/);
+    assert.equal(results[0].metadata.projectorVersion, KNOWLEDGE_PROJECTOR_VERSION);
+    assert.equal(results[0].metadata.platform, 'bing');
+    assert.equal(results[0].metadata.totalChunks, 1);
+    assert.equal(typeof results[0].metadata.characterStart, 'number');
     assert.equal(localEmbedding('测试').length, 256);
     assert.deepEqual(localEmbedding('测试'), localEmbedding('测试'));
   } finally {
@@ -72,6 +78,8 @@ test('RAG returns ranked citations and an honest fallback without a model key', 
     const result = await new RagService(index, model).answer('UniSearch 如何调度能力？');
     assert.ok(result.sources.length > 0);
     assert.equal(result.sources[0].id, 'S1');
+    assert.equal(result.sources[0].kind, 'search_result');
+    assert.ok(result.sources[0].chunkId);
     assert.match(result.answer, /\[S1\]/);
   } finally {
     db.close();
@@ -100,11 +108,29 @@ test('All registered knowledge exporters create portable artifacts', async () =>
     assert.match(readFileSync(outputPaths.get('markdown')!, 'utf8'), /document_id:/);
     assert.match(readFileSync(path.join(outputPaths.get('ima')!, 'manifest.json'), 'utf8'), /sources/);
     assert.match(readFileSync(path.join(outputPaths.get('notion')!, 'database.csv'), 'utf8'), /DocumentID/);
-    assert.match(readFileSync(path.join(outputPaths.get('dify')!, 'chunks.jsonl'), 'utf8'), /metadata/);
+    const dify = JSON.parse(readFileSync(path.join(outputPaths.get('dify')!, 'chunks.jsonl'), 'utf8'));
+    assert.equal(dify.metadata.projectorVersion, KNOWLEDGE_PROJECTOR_VERSION);
+    assert.equal(dify.metadata.documentId, document.documentId);
+    assert.equal(dify.metadata.ordinal, 0);
   } finally {
     db.close();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('Knowledge Projector indexes final answers but excludes model reasoning traces', () => {
+  const document = mapRawItemToCanonicalDocument(buildRawItem('emitQwenResult', {
+    content_id: 'qa-projector-1',
+    question: '统一知识库如何工作？',
+    answer: 'Canonical Document 先投影，再分块进入检索。',
+    reasoning_content: '不应进入知识库的内部推理草稿',
+    citations: [{ title: '知识库设计', url: 'https://example.com/knowledge' }],
+  }));
+  const projection = knowledgeProjector.project(document);
+  assert.match(projection.content, /Canonical Document/);
+  assert.doesNotMatch(projection.content, /内部推理草稿/);
+  assert.equal('reasoningContent' in projection.metadata.attributes, false);
+  assert.equal(projection.metadata.citations[0].url, 'https://example.com/knowledge');
 });
 
 test('Processor capability catalog reports external binary availability honestly', () => {

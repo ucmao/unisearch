@@ -56,101 +56,101 @@ export interface LogEntry {
   thread_id?: string
 }
 
-export interface AnalyticsTotals {
-  content_count: number
-  creator_count: number
-  likes: number
-  saves: number
-  comments: number
-  shares: number
-  views: number
-  engagement: number
+export interface CanonicalSubject {
+  id?: string
+  name?: string
+  type: 'creator' | 'publisher' | 'company' | 'merchant' | 'ai_platform' | 'forum' | 'unknown'
 }
 
-export interface KeywordAnalytics extends AnalyticsTotals {
-  keyword: string
+export interface CanonicalAsset {
+  assetId: string
+  documentId: string
+  kind: 'image' | 'video' | 'audio' | 'file' | 'unknown'
+  url: string
+  mimeType?: string
+  localPath?: string
+  metadata: Record<string, unknown>
 }
 
-export interface PlatformAnalytics extends AnalyticsTotals {
+export interface CanonicalCitation {
+  title?: string
+  url: string
+  source?: string
+}
+
+export interface CanonicalDocument {
+  schemaVersion: 2
+  documentId: string
+  canonicalKey: string
+  kind: string
   platform: string
-  platform_label: string
+  originalPlatform?: string
+  sourceItemId?: string
+  parentSourceItemId?: string
+  sourceUrl?: string
+  keyword?: string
+  rank?: number
+  title: string
+  summary: string
+  markdown: string
+  subject: CanonicalSubject
+  publishedAt?: string | number
+  sourceUpdatedAt?: string | number
+  fetchedAt: string
+  language: string
+  metrics: Record<string, number | null>
+  attributes: Record<string, unknown>
+  citations: CanonicalCitation[]
+  assets: CanonicalAsset[]
+  provenance: {
+    source: string
+    sourceItemId?: string
+    sourceUrl?: string
+    rawItemId: string
+    runId?: string
+    fetchedAt: string
+  }
+  contentHash: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AnalyticsAggregate {
+  document_count: number
+  content_count: number
+  comment_count: number
+  subject_count: number
+  metrics: Record<string, number>
+  metric_coverage: Record<string, number>
+}
+
+export interface AnalyticsGroup extends AnalyticsAggregate {
+  platform?: string
+  platform_label?: string
+  kind?: string
+  keyword?: string
+  subject_type?: string
 }
 
 export interface AnalyticsSummary {
-  totals: AnalyticsTotals
-  by_keyword: KeywordAnalytics[]
-  by_platform: PlatformAnalytics[]
+  totals: AnalyticsAggregate
+  by_platform: AnalyticsGroup[]
+  by_kind: AnalyticsGroup[]
+  by_keyword: AnalyticsGroup[]
+  by_subject_type: AnalyticsGroup[]
   filters: {
     platforms: [string, string][]
+    kinds: string[]
     keywords: string[]
+    subject_types: string[]
+    metric_keys: string[]
+    attribute_keys: string[]
   }
 }
 
-export interface NormalizedContent {
-  run_id?: string
-  platform: string
-  platform_label: string
-  content_id: string
-  content_type: string
-  keyword: string
-  title: string
-  description: string
-  creator_id: string
-  creator_name: string
-  cover_url: string
-  content_url: string
-  published_at: number
-  likes: number
-  saves: number
-  comments: number
-  shares: number
-  views: number
-  engagement: number
-  source_file: string
-  source_metadata?: string
-}
-
-export interface AnalyticsContentsResponse {
-  items: NormalizedContent[]
+export interface AnalyticsDocumentsResponse {
+  items: CanonicalDocument[]
   total: number
-  page: number
-  page_size: number
-  pages: number
-}
-
-export interface NormalizedComment {
-  platform: string
-  platform_label: string
-  content_id: string
-  comment_id: string
-  parent_comment_id: string
-  level: 1 | 2
-  content: string
-  creator_id: string
-  creator_name: string
-  published_at: number
-  likes: number
-  sub_comment_count: number
-}
-
-export interface AnalyticsCommentsResponse {
-  items: NormalizedComment[]
-  total: number
-  page: number
-  page_size: number
-  pages: number
-}
-
-export interface CommentThread extends NormalizedComment {
-  replies: NormalizedComment[]
-}
-
-export interface AnalyticsCommentThreadsResponse {
-  items: CommentThread[]
-  total: number
-  root_total: number
-  orphan_reply_count: number
-  orphan_replies: NormalizedComment[]
   page: number
   page_size: number
   pages: number
@@ -374,72 +374,30 @@ export const crawlerApi = {
 }
 
 export const dataApi = {
-  getAnalyticsSummary: (platform?: string, keyword?: string, runId?: string, planId?: string, threadId?: string) =>
-    api.get<AnalyticsSummary>('/data/analytics/summary', {
-      params: {
-        platform: platform && platform !== 'all' ? platform : undefined,
-        keyword: keyword && keyword !== 'all' ? keyword : undefined,
-        run_id: runId && runId !== 'all' ? runId : undefined,
-        plan_id: planId && planId !== 'all' ? planId : undefined,
-        thread_id: threadId && threadId !== 'all' ? threadId : undefined,
-      },
-    }),
-  getAnalyticsContents: (params: {
+  getAnalyticsSummary: (params: {
     platform?: string
+    kind?: string
     keyword?: string
+    subject_type?: string
+    query?: string
+    run_id?: string
+    workflow_id?: string
+    thread_id?: string
+  }) => api.get<AnalyticsSummary>('/data/analytics/summary', { params: cleanAnalyticsParams(params) }),
+  getAnalyticsDocuments: (params: {
+    platform?: string
+    kind?: string
+    keyword?: string
+    subject_type?: string
     query?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
     page?: number
     page_size?: number
     run_id?: string
-    plan_id?: string
+    workflow_id?: string
     thread_id?: string
-  }) => api.get<AnalyticsContentsResponse>('/data/analytics/contents', {
-    params: {
-      ...params,
-      platform: params.platform && params.platform !== 'all' ? params.platform : undefined,
-      keyword: params.keyword && params.keyword !== 'all' ? params.keyword : undefined,
-      run_id: params.run_id && params.run_id !== 'all' ? params.run_id : undefined,
-      plan_id: params.plan_id && params.plan_id !== 'all' ? params.plan_id : undefined,
-      thread_id: params.thread_id && params.thread_id !== 'all' ? params.thread_id : undefined,
-    },
-  }),
-  getAnalyticsComments: (params: {
-    run_id?: string
-    plan_id?: string
-    thread_id?: string
-    platform?: string
-    content_id?: string
-    level?: number
-    query?: string
-    page?: number
-    page_size?: number
-  }) => api.get<AnalyticsCommentsResponse>('/data/analytics/comments', {
-    params: {
-      ...params,
-      platform: params.platform && params.platform !== 'all' ? params.platform : undefined,
-      run_id: params.run_id && params.run_id !== 'all' ? params.run_id : undefined,
-      plan_id: params.plan_id && params.plan_id !== 'all' ? params.plan_id : undefined,
-      thread_id: params.thread_id && params.thread_id !== 'all' ? params.thread_id : undefined,
-    },
-  }),
-  getAnalyticsCommentThreads: (params: {
-    run_id?: string
-    plan_id?: string
-    thread_id?: string
-    platform: string
-    content_id: string
-    page?: number
-    page_size?: number
-  }) => api.get<AnalyticsCommentThreadsResponse>('/data/analytics/comments/threads', {
-    params: {
-      ...params,
-      run_id: params.run_id && params.run_id !== 'all' ? params.run_id : undefined,
-      plan_id: params.plan_id && params.plan_id !== 'all' ? params.plan_id : undefined,
-      thread_id: params.thread_id && params.thread_id !== 'all' ? params.thread_id : undefined,
-    },
-  }),
+  }) => api.get<AnalyticsDocumentsResponse>('/data/analytics/documents', { params: cleanAnalyticsParams(params) }),
   getAnalyticsRuns: (page = 1, pageSize = 20) =>
     api.get<AnalyticsRunsResponse>('/data/analytics/runs', { params: { page, page_size: pageSize } }),
   getAnalyticsTasks: () => api.get<AnalyticsTasksResponse>('/data/analytics/tasks'),
@@ -460,12 +418,15 @@ export const dataApi = {
     api.post<{ status: string; deleted: number }>('/data/storage/cleanup', { mode }),
   getAnalyticsExportUrl: (params: {
     run_id?: string
-    plan_id?: string
+    workflow_id?: string
     thread_id?: string
     platform?: string
+    kind?: string
     keyword?: string
+    subject_type?: string
     query?: string
     sort_by?: string
+    format?: 'csv' | 'json' | 'markdown'
   }) => {
     const search = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {
@@ -473,6 +434,13 @@ export const dataApi = {
     })
     return `/api/data/analytics/export?${search.toString()}`
   },
+}
+
+function cleanAnalyticsParams<T extends Record<string, unknown>>(params: T): T {
+  return Object.fromEntries(Object.entries(params).map(([key, value]) => [
+    key,
+    value === 'all' || value === '' ? undefined : value,
+  ])) as T
 }
 
 export const configApi = {

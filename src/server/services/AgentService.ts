@@ -609,7 +609,7 @@ export class AgentService {
           );
           ensureMessageNotAborted(signal);
           if (!rag.sources.length) {
-            knowledgeIndex.rebuild(latest.plan_id);
+            knowledgeIndex.rebuild({ workflowId: latest.plan_id });
             rag = await ragService.answer(content, { workflowId: latest.plan_id, limit: 10 });
             ensureMessageNotAborted(signal);
           }

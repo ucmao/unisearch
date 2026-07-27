@@ -377,7 +377,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     queryKey: ['thread-documents', selectedId],
     queryFn: async () => {
       if (!selectedId) return []
-      const res = await fetch(`/api/knowledge/documents?threadId=${encodeURIComponent(selectedId)}`)
+      const res = await fetch(`/api/knowledge/documents?thread_id=${encodeURIComponent(selectedId)}`)
       const data = await res.json()
       return data.documents || []
     },

@@ -30,7 +30,7 @@ export class WorkflowRuntime {
     workflowEngine.registerHandler('processor.documents.finalize', (input, context) =>
       this.finalizeDocuments(input, context));
     workflowEngine.registerHandler('analyzer.knowledge.index', (_input, context) =>
-      Promise.resolve(knowledgeIndex.rebuild(context.workflowId)));
+      Promise.resolve(knowledgeIndex.rebuild({ workflowId: context.workflowId })));
     workflowEngine.registerHandler('analyzer.extractive.summary', (input, context) =>
       analysisService.run('extractive.summary', context.workflowId, input));
     for (const exporter of exporterRegistry.list()) {
