@@ -960,7 +960,13 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   // Serve static files (React frontend)
-  const webuiDir = path.resolve(process.cwd(), 'api/webui');
+  let appPath = process.cwd();
+  try {
+    const electron = require('electron');
+    const app = electron.app || electron.remote?.app;
+    if (app) appPath = app.getAppPath();
+  } catch {}
+  const webuiDir = path.resolve(appPath, 'api/webui');
   if (fs.existsSync(webuiDir)) {
     console.log(`[Fastify] Serving static files from: ${webuiDir}`);
 
