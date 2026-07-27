@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3';
 import { getDb } from '../../database/connection';
 import { AnalyticsRepository } from '../../database/repository';
 import { exporterRegistry } from '../../exporters/registry';
+import { platformLabel } from '../../connectors/registry';
 
 export type AgentRole = 'user' | 'assistant' | 'system';
 
@@ -681,16 +682,20 @@ export class AgentRepository {
 
   getPlanContents(workflowId: string, limit = 100, platforms: string[] = []): any[] {
     const analytics = new AnalyticsRepository(this.databaseProvider);
-    const result = analytics.queryContents({ plan_id: workflowId, page: 1, page_size: limit });
+    const result = analytics.queryDocuments({ workflow_id: workflowId, page: 1, page_size: limit });
     return platforms.length ? result.items.filter((item) => platforms.includes(item.platform)) : result.items;
   }
 
   getPlanStats(workflowId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {
     const rows = new AnalyticsRepository(this.databaseProvider)
-      .queryContents({ plan_id: workflowId, page: 1, page_size: 1000000 }).items;
+      .queryDocuments({ workflow_id: workflowId, page: 1, page_size: 1000000 }).items;
     const counts = new Map<string, { platform: string; platform_label: string; count: number }>();
     for (const row of rows) {
-      const current = counts.get(row.platform) || { platform: row.platform, platform_label: row.platform_label, count: 0 };
+      const current = counts.get(row.platform) || {
+        platform: row.platform,
+        platform_label: platformLabel(row.platform),
+        count: 0,
+      };
       current.count++;
       counts.set(row.platform, current);
     }
@@ -699,7 +704,7 @@ export class AgentRepository {
 
   getPlanExportContents(workflowId: string): any[] {
     return new AnalyticsRepository(this.databaseProvider)
-      .queryContents({ plan_id: workflowId, page: 1, page_size: 1000000 }).items;
+      .queryDocuments({ workflow_id: workflowId, page: 1, page_size: 1000000 }).items;
   }
 }
 

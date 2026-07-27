@@ -1,5 +1,6 @@
 import type { DocumentProcessor, ProcessorContext, ProcessorResult } from './types';
-import type { Artifact, Document } from '../documents/types';
+import type { Artifact } from '../documents/types';
+import type { CanonicalDocument as Document } from '../documents/canonical';
 
 export class ProcessorRegistry {
   private readonly processors = new Map<string, DocumentProcessor>();

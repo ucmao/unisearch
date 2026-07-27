@@ -1,4 +1,5 @@
-import type { Artifact, Document } from '../documents/types';
+import type { Artifact } from '../documents/types';
+import type { CanonicalDocument as Document } from '../documents/canonical';
 
 export type ProcessorResourceClass = 'io' | 'cpu' | 'gpu';
 

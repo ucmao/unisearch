@@ -1,4 +1,4 @@
-import type { Document } from '../documents/types';
+import type { CanonicalDocument as Document } from '../documents/canonical';
 
 export interface AnalysisReport {
   title: string;
@@ -12,4 +12,3 @@ export interface Analyzer {
   name: string;
   analyze(documents: Document[], options?: Record<string, unknown>): Promise<AnalysisReport>;
 }
-

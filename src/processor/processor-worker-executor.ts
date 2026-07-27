@@ -2,7 +2,8 @@ import { fork, type ChildProcess } from 'child_process';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { Document, Artifact } from '../core/documents/types';
+import type { Artifact } from '../core/documents/types';
+import type { CanonicalDocument as Document } from '../core/documents/canonical';
 import type { ProcessorResourceClass } from '../core/processors/types';
 import {
   processorWorkerRequestSchema,

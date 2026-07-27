@@ -19,6 +19,15 @@ test('new database contains only Document and Workflow architecture tables', () 
     for (const removed of ['content_records', 'agent_plans', 'agent_plan_steps', 'xhs_note', 'douyin_aweme']) {
       assert.equal(tables.has(removed), false, `${removed} should not exist`);
     }
+    const documentColumns = new Set((db.pragma('table_info(documents)') as Array<{ name: string }>).map((column) => column.name));
+    for (const column of [
+      'platform', 'original_platform', 'source_item_id', 'parent_source_item_id',
+      'keyword', 'rank', 'summary', 'subject_id', 'subject_name', 'subject_type',
+      'source_updated_at', 'fetched_at', 'metrics_json', 'attributes_json', 'citations_json',
+    ]) assert.ok(documentColumns.has(column), `${column} should exist`);
+    for (const removedColumn of ['author', 'metadata_json']) {
+      assert.equal(documentColumns.has(removedColumn), false, `${removedColumn} should not exist`);
+    }
     assert.equal(Number(db.pragma('user_version', { simple: true })), DATABASE_SCHEMA_VERSION);
   } finally {
     db.close();

@@ -33,4 +33,14 @@ Canonical Document v2 是 Connector 与后续数据库批次之间唯一的标�
 2. `summary` 使用确定性规则生成，采集阶段不调用模型。
 3. 需要筛选、排序或统计的值必须进入固定字段、`metrics` 或 `attributes`，不能只拼接到正文。
 4. 媒体和引用分别进入 `assets`、`citations`，不使用逗号分隔字符串作为标准形态。
-5. 当前 v1 持久化 Document 保持运行；数据库批次将一次性切换到 v2，不提供双写或旧库迁移。
+5. 数据库已一次性切换到 v2；不存在 v1 双写、旧字段回读或旧库迁移。
+
+## v2 持久化边界
+
+- `documents` 保存当前 Canonical Document，固定字段独立成列，扩展字段分别保存为 `metrics_json`、`attributes_json` 和 `citations_json`。
+- `document_versions` 保存完整的 Canonical Document 快照；业务内容未变化时，重复采集不会制造新版本。
+- `document_sources` 保存每次采集证据并绑定当时的版本，因此历史执行不会被后续指标覆盖。
+- `raw_payload_json` 只用于溯源与诊断，Document Engine、Analytics API、UI 和知识库不得从中推断标准字段。
+- schema version 不匹配时直接删除旧 schema 并重建，不执行迁移。
+
+Analytics API 使用 `/api/data/analytics/documents` 和 `/api/data/analytics/summary`。查询、过滤、排序和聚合只依赖 Canonical Document；指标排序使用 `metrics.<key>`，缺失指标保持缺失。

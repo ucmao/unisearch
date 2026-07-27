@@ -178,7 +178,7 @@ export class KnowledgeIndex {
     const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, boundedLimit);
     const get = this.db.prepare(`
       SELECT c.*, d.source_url,
-        COALESCE((SELECT source FROM document_sources WHERE document_id=d.document_id ORDER BY fetched_at DESC LIMIT 1), 'unknown') AS source
+        COALESCE((SELECT platform FROM document_sources WHERE document_id=d.document_id ORDER BY fetched_at DESC LIMIT 1), 'unknown') AS source
       FROM document_chunks c JOIN documents d ON d.document_id=c.document_id WHERE c.chunk_id=?
     `);
     return ranked.flatMap(([chunkId, score]) => {

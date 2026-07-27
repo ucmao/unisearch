@@ -52,7 +52,7 @@ test('finishRun counts primary content and comments separately', async () => {
     // A single blended total is what made the dashboard disagree with itself.
     assert.equal(row.item_count, 3);
     assert.equal(row.comment_count, 7);
-    assert.equal(repo.queryContents({ run_id: 'run-a', page_size: 100 }).total, row.item_count);
+    assert.equal(repo.summary({ run_id: 'run-a' }).totals.content_count, row.item_count);
   } finally {
     db.close();
   }
