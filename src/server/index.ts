@@ -747,6 +747,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       kind?: string;
       keyword?: string;
       subject_type?: string;
+      parent_source_item_id?: string;
       query?: string;
       sort_by?: string;
       sort_order?: 'asc' | 'desc';
@@ -761,6 +762,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       kind: query.kind,
       keyword: query.keyword,
       subject_type: query.subject_type,
+      parent_source_item_id: query.parent_source_item_id,
       query: query.query,
       sort_by: query.sort_by,
       sort_order: query.sort_order,
