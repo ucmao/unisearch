@@ -6,6 +6,7 @@ import { spawn, ChildProcess } from 'child_process';
 import axios from 'axios';
 import { Browser, BrowserContext, Page } from 'playwright';
 import { activeConfig } from './config';
+import { getBrowserDataDir } from './runtimePaths';
 
 /**
  * The `playwright` module namespace itself, as obtained from `require('playwright')`.
@@ -220,8 +221,7 @@ export class CDPBrowserManager {
       let userDataDir: string | null = null;
       if (activeConfig.SAVE_LOGIN_STATE) {
         userDataDir = path.join(
-          process.cwd(),
-          'browser_data',
+          getBrowserDataDir(),
           `cdp_${activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM)}`
         );
         fs.mkdirSync(userDataDir, { recursive: true });

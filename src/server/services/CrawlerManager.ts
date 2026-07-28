@@ -37,6 +37,9 @@ export class CrawlerTask {
   private logId = 0;
   private lastEventSequence = -1;
   private lastErrorMessage: string | null = null;
+  private lastErrorCode: string | null = null;
+  private lastFailureRetryable = false;
+  private consecutiveRetryableFailures = 0;
   public shouldLoop: boolean;
   private loopTimeout: NodeJS.Timeout | null = null;
 
@@ -138,8 +141,10 @@ export class CrawlerTask {
     this.startedAt = new Date().toISOString();
     this.lastEventSequence = -1;
     this.lastErrorMessage = null;
+    this.lastErrorCode = null;
+    this.lastFailureRetryable = false;
 
-    const isPackaged = process.env.NODE_ENV === 'production' || require('electron').app?.isPackaged;
+    const isPackaged = Boolean(require('electron').app?.isPackaged);
     let workerPath = '';
     
     if (isPackaged) {
@@ -166,6 +171,9 @@ export class CrawlerTask {
           UNISEARCH_RUN_ID: runId,
           NODE_ENV: process.env.NODE_ENV,
           UNISEARCH_USER_DATA_DIR: dbDir,
+          UNISEARCH_RESOURCES_DIR: isPackaged ? process.resourcesPath : process.cwd(),
+          UNISEARCH_CDP_PORT: process.env.UNISEARCH_CDP_PORT,
+          UNISEARCH_PACKAGED: isPackaged ? '1' : '0',
         },
       });
 
@@ -227,6 +235,8 @@ export class CrawlerTask {
               this.addLog(`[${event.code}] ${event.message}`, 'warning', manager);
             } else if (event.type === 'failed') {
               this.lastErrorMessage = `[${event.code}] ${event.message}`;
+              this.lastErrorCode = event.code;
+              this.lastFailureRetryable = event.retryable;
               this.addLog(this.lastErrorMessage, 'error', manager);
             }
           } catch (error: any) {
@@ -282,13 +292,39 @@ export class CrawlerTask {
           : '';
         const { itemCount } = await this.finalizeRun(runStatus, exitCode, manager, errorMessage);
 
-        if (this.status !== 'stopping' && this.shouldLoop) {
+        if (runStatus === 'completed') this.consecutiveRetryableFailures = 0;
+        if (runStatus === 'failed' && this.lastFailureRetryable) this.consecutiveRetryableFailures++;
+
+        const retryLimitReached = this.consecutiveRetryableFailures >= 5;
+        const mayContinueLoop = runStatus === 'completed'
+          || (runStatus === 'failed' && this.lastFailureRetryable && !retryLimitReached);
+
+        if (this.status !== 'stopping' && this.shouldLoop && mayContinueLoop) {
           this.status = 'idle';
-          this.addLog(`平台 ${this.platform} 循环中。5秒后执行下次抓取...`, 'info', manager);
+          const retryDelaySeconds = runStatus === 'failed'
+            ? Math.min(60, 5 * (2 ** Math.max(0, this.consecutiveRetryableFailures - 1)))
+            : 5;
+          this.addLog(
+            runStatus === 'failed'
+              ? `平台 ${this.platform} 遇到可重试错误，${retryDelaySeconds}秒后重试 (${this.consecutiveRetryableFailures}/5)...`
+              : `平台 ${this.platform} 循环中。5秒后执行下次抓取...`,
+            runStatus === 'failed' ? 'warning' : 'info',
+            manager,
+          );
           this.loopTimeout = setTimeout(() => {
             this.startProcess(manager);
-          }, 5000);
+          }, retryDelaySeconds * 1000);
         } else {
+          if (runStatus === 'failed' && this.shouldLoop) {
+            this.shouldLoop = false;
+            this.addLog(
+              retryLimitReached
+                ? `平台 ${this.platform} 连续失败已达上限，自动停止循环`
+                : `平台 ${this.platform} 遇到不可重试错误${this.lastErrorCode ? ` (${this.lastErrorCode})` : ''}，自动停止循环`,
+              'error',
+              manager,
+            );
+          }
           this.status = 'idle';
           manager.emit('crawler_finished', {
             platform: this.platform,
@@ -334,7 +370,7 @@ export class CrawlerTask {
       }
     }
 
-    this.status = 'idle';
+    if (!this.process) this.status = 'idle';
   }
 }
 

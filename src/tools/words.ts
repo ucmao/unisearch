@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { activeConfig } from './config';
+import { resolveRuntimeResource } from './runtimePaths';
 
 let _segment: any = null;
 
@@ -14,7 +15,8 @@ function getSegmenter() {
 }
 
 export function loadStopWords(filePath: string): Set<string> {
-  const resolvedPath = path.resolve(process.cwd(), filePath);
+  const normalizedPath = filePath.replace(/^[.][\\/]/, '');
+  const resolvedPath = path.isAbsolute(filePath) ? filePath : resolveRuntimeResource(normalizedPath);
   if (fs.existsSync(resolvedPath)) {
     try {
       const content = fs.readFileSync(resolvedPath, 'utf-8');

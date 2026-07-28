@@ -139,6 +139,13 @@ npm run electron:build
 
 打包命令会依次构建后端和 WebUI，并通过 `electron-builder` 生成安装包。
 
+打包后建议检查 Worker、Playwright 和只读资源是否完整。Windows 默认目录通常是
+`dist/win-unpacked`：
+
+```shell
+npm run verify:package -- dist/win-unpacked
+```
+
 ---
 
 # 免责声明

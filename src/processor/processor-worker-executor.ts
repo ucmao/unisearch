@@ -15,7 +15,7 @@ import { documentProcessorRegistry } from '../document/processor-registry';
 import { getDatabasePath } from '../database/connection';
 
 function workerPath(): string {
-  const packaged = process.env.NODE_ENV === 'production' || require('electron').app?.isPackaged;
+  const packaged = Boolean(require('electron').app?.isPackaged);
   if (packaged) {
     const unpacked = path.join(process.resourcesPath, 'app.asar.unpacked/dist/processor/worker.js');
     if (fs.existsSync(unpacked)) return unpacked;
@@ -59,6 +59,7 @@ export class ProcessorWorkerExecutor {
             ...process.env,
             NODE_ENV: process.env.NODE_ENV,
             UNISEARCH_PROCESSOR_STORAGE_DIR: path.join(path.dirname(getDatabasePath()), 'processor-assets'),
+            UNISEARCH_RESOURCES_DIR: process.env.UNISEARCH_RESOURCES_DIR || process.cwd(),
           },
         });
         this.children.set(jobId, child);

@@ -33,6 +33,15 @@ export function classifyConnectorError(error: unknown): ConnectorRuntimeError {
   // free-text message, so anything that also occurs in ordinary page copy (a bare
   // "验证" or "登录") must require a qualifier — otherwise a message that merely
   // quotes the page gets filed under the wrong code.
+  if (/Cannot find module|MODULE_NOT_FOUND|找不到模块/i.test(message)) {
+    return new ConnectorRuntimeError('UNSUPPORTED_CAPABILITY', message, false, { cause: error });
+  }
+  if (/Unsupported connector|invalid (?:input|configuration)|无效(?:输入|配置)/i.test(message)) {
+    return new ConnectorRuntimeError('INVALID_INPUT', message, false, { cause: error });
+  }
+  if (/SQLITE_|database (?:is|disk)|数据库/i.test(message)) {
+    return new ConnectorRuntimeError('STORAGE_ERROR', message, false, { cause: error });
+  }
   if (/captcha|图形验证|安全验证|滑块|verification (?:required|failed)/i.test(message)) {
     return new ConnectorRuntimeError('MANUAL_VERIFICATION_REQUIRED', message, false, { cause: error });
   }

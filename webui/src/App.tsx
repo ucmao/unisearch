@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Toaster } from 'sonner'
 import { checkEnvironmentInBackground } from '@/components/env/EnvironmentCheck'
-import { ResultWorkbench } from '@/components/analytics/ResultWorkbench'
 import { AgentWorkspace } from '@/components/agent/AgentWorkspace'
 import { CrawlerAuthNotice } from '@/components/crawler/CrawlerAuthNotice'
+
+const ResultWorkbench = lazy(async () => {
+  const module = await import('@/components/analytics/ResultWorkbench')
+  return { default: module.ResultWorkbench }
+})
 
 function App() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
@@ -16,10 +20,12 @@ function App() {
   return (
     <div className="relative h-screen overflow-hidden cyber-grid">
       {resultsContext ? (
-        <ResultWorkbench
-          initialScope={`thread:${resultsContext.threadId}`}
-          onBack={() => setResultsContext(null)}
-        />
+        <Suspense fallback={<div className="h-full bg-cyber-bg" />}>
+          <ResultWorkbench
+            initialScope={`thread:${resultsContext.threadId}`}
+            onBack={() => setResultsContext(null)}
+          />
+        </Suspense>
       ) : (
         <AgentWorkspace
           selectedId={selectedThreadId}
