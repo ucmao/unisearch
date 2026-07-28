@@ -229,6 +229,8 @@ test('Skill registry validates and exposes the built-in research Skill', () => {
   ]);
   assert.deepEqual(skillRegistry.get('marketing-content-research').defaults?.platforms, ['xhs', 'douyin']);
   assert.deepEqual(skillRegistry.get('hr-salary-benchmark').defaults?.platforms, ['zhaopin']);
+  assert.ok(businessSkills.every((skill) => skill.execution.autoStartWhenExplicitlyInvoked));
+  assert.ok(businessSkills.every((skill) => skill.execution.autoAnalyzeOnCompletion));
 });
 
 test('Workflow Engine executes registered local handlers and persists retry attempts', async () => {

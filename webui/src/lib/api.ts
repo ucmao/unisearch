@@ -316,6 +316,8 @@ export interface AgentPlan {
   }
   created_at: string
   updated_at: string
+  started_at?: string | null
+  finished_at?: string | null
   round_number?: number
 }
 

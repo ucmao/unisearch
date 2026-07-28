@@ -27,6 +27,13 @@ export const skillDefinitionSchema = z.object({
     analysis: z.array(z.string()).default([]),
     outputs: z.array(z.string()).default(['csv']),
   }).strict().optional(),
+  execution: z.object({
+    autoStartWhenExplicitlyInvoked: z.boolean().default(false),
+    autoAnalyzeOnCompletion: z.boolean().default(false),
+  }).strict().default({
+    autoStartWhenExplicitlyInvoked: false,
+    autoAnalyzeOnCompletion: false,
+  }),
   analysisInstructions: z.string().default(''),
   limitations: z.array(z.string()).default([]),
 }).strict();

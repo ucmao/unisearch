@@ -521,6 +521,7 @@ export class AgentRepository {
   }
 
   private insertConnectorSteps(workflowId: string, plan: ResearchPlan, now: string): void {
+    const skill = skillRegistry.find(plan.skillId) || skillRegistry.get('multi-source-research');
     const insert = this.db.prepare(`
       INSERT INTO workflow_steps (
         step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -573,6 +574,17 @@ export class AgentRepository {
           '["index-documents"]', 'success', ?, 'queued', 2, 300000, ?, ?)
       `).run(id(), workflowId, JSON.stringify({ goals: plan.analysis }), now, now);
       previousStep = 'analyze-results';
+    }
+    if (skill.execution.autoAnalyzeOnCompletion) {
+      this.db.prepare(`
+        INSERT INTO workflow_steps (
+          step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+          dependency_policy, input_json, status, max_attempts, timeout_ms,
+          created_at, updated_at
+        ) VALUES (?, ?, 'business-analysis', 'analyzer', 'analyzer.business.insight',
+          ?, 'success', '{}', 'queued', 1, 300000, ?, ?)
+      `).run(id(), workflowId, JSON.stringify([previousStep]), now, now);
+      previousStep = 'business-analysis';
     }
     const supportedExporters = new Set(exporterRegistry.list().map((e) => e.id));
     for (const exporter of (plan.outputs || []).filter((output) => supportedExporters.has(output))) {

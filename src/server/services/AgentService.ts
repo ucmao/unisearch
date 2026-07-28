@@ -30,6 +30,10 @@ function skillPlanningContext(skill: SkillDefinition | null): string {
   });
 }
 
+export function shouldAutoStartSkill(skill: SkillDefinition | null, explicitlyInvoked: boolean): boolean {
+  return Boolean(explicitlyInvoked && skill?.mentionable && skill.execution.autoStartWhenExplicitlyInvoked);
+}
+
 export function normalizePlan(
   input: any,
   userText: string,
@@ -361,6 +365,7 @@ export class AgentService {
       || skillRegistry.find(inheritedSkillId)
       || (latest?.status === 'awaiting_confirmation' ? skillRegistry.find(latest?.plan?.skillId) : null)
       || null;
+    const explicitlyInvokedSkill = Boolean(explicitlySelectedSkill || inheritedSkillId);
     const inheritedConnectors = awaitingClarification && Array.isArray(lastUserMessage?.metadata?.mentioned_connectors)
       ? lastUserMessage.metadata.mentioned_connectors.map(String)
       : [];
@@ -845,7 +850,10 @@ export class AgentService {
     const capabilityLabel = plan.platforms
       .map((platform) => getConnectorManifest(platform)?.capabilities.find((capability) => capability.id === (plan.capability || 'keyword_search'))?.label)
       .find(Boolean) || '关键词搜索';
-    const lead = decision.action === 'revise_plan'
+    const autoStart = shouldAutoStartSkill(planSkill, explicitlyInvokedSkill);
+    const lead = autoStart
+      ? '已按该 Skill 的默认快速方案创建任务并开始采集。'
+      : decision.action === 'revise_plan'
       ? '已按你的补充更新采集范围。'
       : '已识别并创建待确认的采集计划。';
     const messageKind = 'plan';
@@ -908,10 +916,15 @@ export class AgentService {
     }
 
     const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n分析维度：${plan.analysis.join('、') || '按用户后续问题分析'}\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。`, {
+    if (autoStart) this.executePlan(created.plan_id);
+    const nextStep = autoStart
+      ? '\n\n采集结束后会自动生成业务分析报告；如遇登录或验证，请在内置采集浏览器中完成操作。'
+      : '\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。';
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n分析维度：${plan.analysis.join('、') || '按用户后续问题分析'}${nextStep}`, {
       plan_id: created.plan_id,
       skill_id: planSkill?.id,
-      action: decision.action,
+      action: autoStart ? 'execute' : decision.action,
+      auto_started: autoStart,
     });
     if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
@@ -999,12 +1012,21 @@ export class AgentService {
       if (!result.becameTerminal) continue;
       const final = agentRepository.getPlan(result.workflow.workflow_id);
       if (!final) continue;
-      const completed = final.steps.filter((step: any) => step.status === 'completed').length;
+      const connectorSteps = final.steps.filter((step: any) => step.kind === 'connector');
+      const completed = connectorSteps.filter((step: any) => step.status === 'completed').length;
       const status = final.status;
       const totalItems = final.stats?.content_count ?? 0;
+      const autoAnalyzed = result.workflow.steps.some((step: any) =>
+        step.step_key === 'business-analysis'
+          && step.status === 'completed'
+          && !step.output?.failed
+          && !step.output?.skipped,
+      );
       const text = status === 'completed'
-        ? `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
-        : `采集已结束：${completed} 个平台成功，${final.steps.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
+        ? autoAnalyzed
+          ? `采集与自动分析完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。业务分析报告已生成，也可前往结果看板查看和导出。`
+          : `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
+        : `采集已结束：${completed} 个平台成功，${connectorSteps.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
       agentRepository.addMessage(final.thread_id, 'assistant', 'status', text, { plan_id: final.plan_id, status });
     }
     if (needsProcessorRetry) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { skillRegistry } from '../src/skills/registry';
-import { normalizePlan } from '../src/server/services/AgentService';
+import { normalizePlan, shouldAutoStartSkill } from '../src/server/services/AgentService';
 
 test('a business Skill applies deterministic platform and analysis defaults', () => {
   const skill = skillRegistry.get('marketing-content-research');
@@ -30,4 +30,11 @@ test('an explicitly mentioned Connector overrides a Skill default platform set',
 
   assert.deepEqual(plan.platforms, ['zhihu']);
   assert.equal(plan.skillId, 'sales-course-intelligence');
+});
+
+test('business Skills only auto-start when the user explicitly invokes them', () => {
+  const skill = skillRegistry.get('sales-course-intelligence');
+  assert.equal(shouldAutoStartSkill(skill, true), true);
+  assert.equal(shouldAutoStartSkill(skill, false), false);
+  assert.equal(shouldAutoStartSkill(skillRegistry.get('multi-source-research'), true), false);
 });
