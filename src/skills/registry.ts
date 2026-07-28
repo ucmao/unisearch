@@ -58,7 +58,7 @@ skillRegistry.register({
   id: 'sales-course-intelligence',
   version: '1.0.0',
   name: '销售课程竞争情报',
-  description: '围绕 SAP 与 AIGC 培训业务采集公开竞品内容，分析课程、价格证据、营销钩子、客户顾虑并生成销售应答参考。',
+  description: '围绕各类教育培训业务采集公开竞品内容，分析课程、价格证据、营销钩子、客户顾虑并生成销售应答参考。',
   category: 'business',
   icon: 'briefcase-business',
   mentionable: true,

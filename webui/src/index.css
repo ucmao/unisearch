@@ -12,32 +12,32 @@
     --card-foreground: 220 20% 15%;
     --popover: 0 0% 100%;
     --popover-foreground: 220 20% 15%;
-    --primary: 187 80% 42%;
+    --primary: 225 75% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 330 75% 55%;
+    --secondary: 352 71% 60%;
     --secondary-foreground: 0 0% 100%;
     --muted: 210 20% 95%;
     --muted-foreground: 215 15% 45%;
-    --accent: 187 80% 42%;
+    --accent: 225 75% 55%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 330 75% 55%;
+    --destructive: 352 71% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 214 20% 88%;
     --input: 214 20% 88%;
-    --ring: 187 80% 42%;
+    --ring: 225 75% 55%;
     --radius: 0.375rem;
 
-    /* Cyberpunk color system - Clean Light with Cyan accent */
+    /* Cyberpunk color system - Clean Light with Royal Blue accent */
     --cyber-bg-primary: 248 250 252;
     --cyber-bg-secondary: 241 245 249;
     --cyber-bg-tertiary: 226 232 240;
     --cyber-bg-panel: 255 255 255;
     --cyber-bg-elevated: 248 250 252;
 
-    --cyber-neon-cyan: 6 182 212;
-    --cyber-neon-cyan-dim: 8 145 178;
-    --cyber-neon-pink: 236 72 153;
-    --cyber-neon-pink-dim: 219 39 119;
+    --cyber-neon-cyan: 55 98 227;
+    --cyber-neon-cyan-dim: 37 72 175;
+    --cyber-neon-pink: 225 79 98;
+    --cyber-neon-pink-dim: 190 55 75;
     --cyber-neon-green: 34 197 94;
     --cyber-neon-green-dim: 22 163 74;
     --cyber-neon-orange: 249 115 22;
@@ -50,7 +50,7 @@
 
     --cyber-border-default: 203 213 225;
     --cyber-border-subtle: 226 232 240;
-    --cyber-border-glow: 6 182 212;
+    --cyber-border-glow: 55 98 227;
 
     /* Glass effect */
     --glass-bg: 255 255 255 / 0.85;
@@ -72,31 +72,31 @@
     --card-foreground: 210 20% 93%;
     --popover: 213 18% 13%;
     --popover-foreground: 210 20% 93%;
-    --primary: 180 100% 50%;
-    --primary-foreground: 233 67% 4%;
-    --secondary: 330 100% 50%;
+    --primary: 225 75% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 352 71% 60%;
     --secondary-foreground: 0 0% 100%;
     --muted: 215 14% 17%;
     --muted-foreground: 215 16% 57%;
-    --accent: 180 100% 50%;
-    --accent-foreground: 233 67% 4%;
-    --destructive: 330 100% 50%;
+    --accent: 225 75% 55%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 352 71% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 215 14% 25%;
     --input: 215 14% 25%;
-    --ring: 180 100% 50%;
+    --ring: 225 75% 55%;
 
-    /* Cyberpunk color system - Dark variants (original neon) */
+    /* Cyberpunk color system - Dark variants */
     --cyber-bg-primary: 10 10 15;
     --cyber-bg-secondary: 13 17 23;
     --cyber-bg-tertiary: 22 27 34;
     --cyber-bg-panel: 28 33 40;
     --cyber-bg-elevated: 33 38 45;
 
-    --cyber-neon-cyan: 0 255 255;
-    --cyber-neon-cyan-dim: 37 177 191;
-    --cyber-neon-pink: 255 0 128;
-    --cyber-neon-pink-dim: 222 40 59;
+    --cyber-neon-cyan: 55 98 227;
+    --cyber-neon-cyan-dim: 37 72 175;
+    --cyber-neon-pink: 225 79 98;
+    --cyber-neon-pink-dim: 190 55 75;
     --cyber-neon-green: 0 255 65;
     --cyber-neon-green-dim: 57 255 20;
     --cyber-neon-orange: 255 152 0;
@@ -109,7 +109,7 @@
 
     --cyber-border-default: 48 54 61;
     --cyber-border-subtle: 33 38 45;
-    --cyber-border-glow: 0 255 255;
+    --cyber-border-glow: 55 98 227;
 
     /* Glass effect */
     --glass-bg: 22 27 34 / 0.7;
@@ -257,8 +257,8 @@
 
 .agent-composer:focus-within {
   box-shadow:
-    0 12px 34px rgb(var(--cyber-text-primary) / 0.1),
-    0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.08);
+    0 10px 30px rgb(var(--cyber-text-primary) / 0.08),
+    0 2px 6px rgb(var(--cyber-text-primary) / 0.04);
 }
 
 .dark .agent-composer {
@@ -269,11 +269,18 @@
 
 .dark .agent-composer:focus-within {
   box-shadow:
-    0 14px 38px rgba(0, 0, 0, 0.38),
-    0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.1);
+    0 12px 34px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
-/* Petdex sprite: 1536x1872, arranged as an 8x9 grid of 192x208 frames. */
+.codex-pet-container {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
 .codex-pet {
   display: block;
   width: 96px;
@@ -289,31 +296,61 @@
   background-size: 768px 936px;
   image-rendering: pixelated;
   cursor: pointer;
-  filter: drop-shadow(0 12px 18px rgb(var(--cyber-neon-purple) / 0.16));
+  filter: drop-shadow(0 8px 12px rgba(100, 116, 139, 0.12));
   animation: codex-pet-idle 0.9s steps(1, end) infinite;
   transition: filter 160ms ease, transform 160ms ease;
+  position: relative;
+  z-index: 10;
 }
 
 .codex-pet:hover,
 .codex-pet:focus-visible {
   animation: codex-pet-cool 0.65s steps(1, end) infinite;
-  filter: drop-shadow(0 14px 20px rgb(var(--cyber-neon-purple) / 0.28));
+  filter: drop-shadow(0 10px 14px rgba(100, 116, 139, 0.18));
   outline: none;
   transform: translateY(-2px);
 }
 
 .codex-pet:focus-visible {
   border-radius: 18px;
-  box-shadow: 0 0 0 3px rgb(var(--cyber-neon-cyan) / 0.28);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.25);
 }
 
 .codex-pet.codex-pet--celebrate,
 .codex-pet.codex-pet--celebrate:hover,
 .codex-pet.codex-pet--celebrate:focus-visible {
   animation: codex-pet-celebrate 0.8s steps(1, end) both;
-  filter: drop-shadow(0 16px 22px rgb(var(--cyber-neon-cyan) / 0.3));
-  transform: translateY(-3px) scale(1.04);
+  filter: drop-shadow(0 12px 16px rgba(100, 116, 139, 0.2));
+  transform: translateY(-6px) scale(1.04);
 }
+
+/* Ground shadow under jumping pet (subtle neutral gray) */
+.codex-pet-shadow {
+  width: 68px;
+  height: 14px;
+  background: radial-gradient(ellipse at center, rgba(100, 116, 139, 0.16) 0%, rgba(100, 116, 139, 0) 75%);
+  border-radius: 50%;
+  margin-top: -10px;
+  transition: transform 200ms ease, opacity 200ms ease, filter 200ms ease;
+  pointer-events: none;
+}
+
+.dark .codex-pet-shadow {
+  background: radial-gradient(ellipse at center, rgba(148, 163, 184, 0.12) 0%, rgba(148, 163, 184, 0) 75%);
+}
+
+.codex-pet:hover ~ .codex-pet-shadow,
+.codex-pet:focus-visible ~ .codex-pet-shadow {
+  transform: scale(0.9);
+  opacity: 0.7;
+}
+
+.codex-pet--celebrate ~ .codex-pet-shadow {
+  transform: scale(0.65);
+  opacity: 0.4;
+  filter: blur(1px);
+}
+
 
 @keyframes codex-pet-idle {
   0%, 16.66% { background-position: 0 0; }

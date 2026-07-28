@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileText, Globe,
-  Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search, Send,
+  AlertTriangle, ArrowRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileText, Globe,
+  Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
@@ -22,8 +22,8 @@ import { PlatformExportIcons, type PlatformConfig } from './PlatformExportIcons'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
-import { useMentionCommands, extractMentionedConnectorIds, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
-import { usePlatformLabels, usePlatformMentionEntities, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
+import { useMentionCommands, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
+import { usePlatformLabels, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
 
 const AI_PLATFORMS = new Set([
   'deepseek', 'doubao', 'kimi', 'nami', 'qwen', 'wenxin', 'yuanbao',
@@ -164,6 +164,51 @@ function ChatCrawlingStatusBanner({
   )
 }
 
+function renderMentionText(text: string) {
+  if (!text) return null
+  const regex = /(@[\u4e00-\u9fa5\w-]+|\/[\w-]+)/g
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    const matchText = match[0]
+    const matchIndex = match.index
+
+    if (matchIndex > lastIndex) {
+      parts.push(text.slice(lastIndex, matchIndex))
+    }
+
+    if (matchText.startsWith('@')) {
+      parts.push(
+        <span
+          key={`${matchIndex}-${matchText}`}
+          className="font-semibold text-sky-500"
+        >
+          {matchText}
+        </span>
+      )
+    } else if (matchText.startsWith('/')) {
+      parts.push(
+        <span
+          key={`${matchIndex}-${matchText}`}
+          className="font-semibold text-purple-400"
+        >
+          {matchText}
+        </span>
+      )
+    }
+
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
+}
+
 function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
@@ -247,7 +292,7 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
           />
         ) : null}
         {isUser
-          ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{cleanContent}</div>
+          ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{renderMentionText(cleanContent)}</div>
           : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
@@ -284,25 +329,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   useLogWebSocket()
   const [input, setInput] = useState('')
 
-  const handleExecuteCommand = (cmd: string) => {
-    if (cmd === 'clear') {
-      setInput('')
-    } else if (cmd === 'export') {
-      toast.info('可以通过结果看板或任务大盘导出数据')
-    } else if (cmd === 'crawl') {
-      toast.info('请输入目标关键词并发送消息')
-    }
-  }
-
   const platformLabels = usePlatformLabels()
-  const connectorEntities = usePlatformMentionEntities()
   const skillEntities = useSkillMentionEntities()
-  const mentionEntities = useMemo(() => [...skillEntities, ...connectorEntities], [skillEntities, connectorEntities])
   const mentionCommands = useMentionCommands({
     value: input,
     onChange: setInput,
-    onExecuteCommand: handleExecuteCommand,
-    mentionEntities,
+    mentionEntities: skillEntities,
   })
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
@@ -440,6 +472,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
+  const composerBackdropRef = useRef<HTMLDivElement>(null)
   const petReactionTimerRef = useRef<number | null>(null)
   const petReactionFrameRef = useRef<number | null>(null)
   const sendAbortControllerRef = useRef<AbortController | null>(null)
@@ -448,8 +481,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
       sendAbortControllerRef.current = controller
-      const mentionedConnectors = extractMentionedConnectorIds(content, mentionEntities)
-      const mentionedSkills = extractMentionedSkillIds(content, mentionEntities)
+      const mentionedSkills = extractMentionedSkillIds(content, skillEntities)
       const streamingMessageId = `streaming-${id}`
       let streamedContent = ''
       let renderedContent = ''
@@ -483,7 +515,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         return await agentApi.sendMessageStream(id, content, {
           attachment_ids: attachmentIds,
           task_references: references,
-          ...(mentionedConnectors.length ? { mentioned_connectors: mentionedConnectors } : {}),
           ...(mentionedSkills.length ? { mentioned_skills: mentionedSkills } : {}),
         }, (delta) => {
           streamedContent += delta
@@ -1012,13 +1043,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     event.stopPropagation();
                     setThreadMenuId((current) => current === thread.thread_id ? null : thread.thread_id);
                   }}
-                  className={`absolute right-1.5 top-2 z-40 flex h-6 w-6 items-center justify-center rounded-md transition-colors ${
-                    threadMenuId === thread.thread_id
-                      ? 'bg-white/70 text-cyber-text-primary opacity-100 shadow-sm ring-1 ring-black/5 dark:bg-white/15'
-                      : thread.pinned_at
+                  className={`absolute right-1.5 top-2 z-40 flex h-6 w-6 items-center justify-center rounded-md transition-colors ${threadMenuId === thread.thread_id
+                    ? 'bg-white/70 text-cyber-text-primary opacity-100 shadow-sm ring-1 ring-black/5 dark:bg-white/15'
+                    : thread.pinned_at
                       ? 'opacity-100 text-cyber-neon-cyan hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10'
                       : 'opacity-0 hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10 focus:opacity-100 group-hover:opacity-100'
-                  }`}
+                    }`}
                   aria-label={`管理 ${thread.title}`}
                   aria-haspopup="menu"
                   aria-expanded={threadMenuId === thread.thread_id}
@@ -1046,13 +1076,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   <DeleteConfirmDialog
                     trigger={<button type="button" role="menuitem" disabled={remove.isPending} onClick={() => setThreadMenuId(null)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />删除</button>}
                     title="删除这个任务？"
-                    description="将彻底删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
+                    description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
                     confirmLabel="删除任务"
                     onConfirm={() => remove.mutateAsync({ id: thread.thread_id, withData: deleteAnalyticsData })}
                   >
                     <label className="flex items-center gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
                       <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                      <span className="font-medium text-cyber-text-primary">同时彻底物理清理该任务所采集的全部平台数据与看板记录</span>
+                      <span className="font-medium text-cyber-text-primary">同时彻底删除该任务的全部采集数据及看板记录</span>
                     </label>
                   </DeleteConfirmDialog>
                 </div>
@@ -1083,11 +1113,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-4 sm:pr-6 app-drag ${threadsCollapsed ? 'pl-[74px]' : 'pl-4 sm:pl-6'}`}>
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 app-drag ${threadsCollapsed ? 'pl-[74px]' : 'pl-4 sm:pl-6'}`}>
           <div className="flex items-center gap-1.5 min-w-0">
             {threadsCollapsed && (
-              <div className="flex items-center gap-1 app-no-drag">
-                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">
+              <div className="flex items-center gap-1.5 app-no-drag">
+                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">
                   <PanelLeftOpen className="h-4 w-4" />
                 </Button>
                 <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
@@ -1100,34 +1130,34 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {(isCollecting || browserWindowQuery.data?.can_open) && <Button
               size="icon"
               variant="ghost"
-              className={`h-9 w-9 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary text-cyber-neon-cyan' : ''}`}
+              className={`h-8 w-8 rounded-xl transition-all ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={() => toggleBrowserWindow.mutate()}
               disabled={toggleBrowserWindow.isPending}
               title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
               aria-label={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
               aria-pressed={browserWindowQuery.data?.visible}
             >
-              {toggleBrowserWindow.isPending ? <Loader2 className="animate-spin" /> : <Globe />}
+              {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
             </Button>}
-            <Button className="md:hidden" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="animate-spin" /> : <MessageSquarePlus />}</Button>
+            <Button className="md:hidden h-8 w-8 rounded-xl" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}</Button>
             {selectedId && <Button
               size="icon"
               variant="ghost"
-              className={`h-9 w-9 ${terminalOpen ? 'bg-cyber-bg-tertiary text-cyber-neon-cyan' : ''}`}
+              className={`h-8 w-8 rounded-xl transition-all ${terminalOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={() => setTerminalOpen((open) => !open)}
               title={terminalOpen ? '隐藏终端' : '显示终端'}
               aria-label={terminalOpen ? '隐藏终端' : '显示终端'}
               aria-pressed={terminalOpen}
-            ><PanelBottom /></Button>}
+            ><PanelBottom className="h-4 w-4" /></Button>}
             {selectedId && <Button
               size="icon"
               variant="ghost"
-              className={`h-9 w-9 ${rightSidebarOpen ? 'bg-cyber-bg-tertiary text-cyber-neon-cyan' : ''}`}
+              className={`h-8 w-8 rounded-xl transition-all ${rightSidebarOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={toggleRightSidebar}
               title={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
               aria-label={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
               aria-pressed={rightSidebarOpen}
-            ><PanelRight /></Button>}
+            ><PanelRight className="h-4 w-4" /></Button>}
           </div>
         </div>
 
@@ -1168,13 +1198,16 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
                 <div className="flex -translate-y-2 flex-col items-center text-center">
-                  <button
-                    type="button"
-                    className={`codex-pet ${petCelebrating ? 'codex-pet--celebrate' : ''}`}
-                    onClick={celebratePet}
-                    aria-label="和 UniSearch 宠物助手互动"
-                    title="摸摸我"
-                  />
+                  <div className="codex-pet-container">
+                    <button
+                      type="button"
+                      className={`codex-pet ${petCelebrating ? 'codex-pet--celebrate' : ''}`}
+                      onClick={celebratePet}
+                      aria-label="和 UniSearch 宠物助手互动"
+                      title="摸摸我"
+                    />
+                    <div className="codex-pet-shadow" />
+                  </div>
                   <h2 className="mt-6 text-2xl font-semibold tracking-tight text-cyber-text-primary sm:text-3xl">今天想研究什么？</h2>
                   <p className="mt-2 text-sm text-cyber-text-muted">可以直接聊天，也可以描述想采集和分析的内容</p>
                   {runningThreads.length ? <button
@@ -1190,414 +1223,446 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             </div>
 
             <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
-          <div className="mx-auto max-w-4xl">
-              <div
-                className="agent-composer relative rounded-2xl border border-cyber-border-default bg-cyber-bg-panel transition-colors focus-within:border-cyber-neon-cyan/50"
-                onDragEnter={handleDragEnter}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                {isDragOver ? (
-                  <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-cyber-neon-cyan bg-cyber-bg-panel/95 backdrop-blur transition-all pointer-events-none">
-                    <Paperclip className="h-7 w-7 animate-bounce text-cyber-neon-cyan" />
-                    <p className="text-sm font-medium text-cyber-neon-cyan">松开鼠标即可上传文件 / 图片</p>
-                    <p className="text-[11px] text-cyber-text-muted">支持图片 (PNG/JPG/WebP/GIF) 与文本/表格 (TXT/MD/CSV/JSON/XLSX，≤ 8MB)</p>
-                  </div>
-                ) : null}
-                {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
-                  {attachments.map((attachment) => {
-                    const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
-                    const imgUrl = attachment.preview_url || (selectedId ? agentApi.getAttachmentFileUrl(selectedId, attachment.attachment_id) : '')
-                    if (isImage && imgUrl) {
-                      return (
-                        <div key={attachment.attachment_id} className="relative flex max-w-64 items-center gap-2 rounded-xl border border-cyber-border-default bg-cyber-bg-secondary/80 p-1.5 transition-colors hover:border-cyber-neon-cyan/50">
-                          <img
-                            src={imgUrl}
-                            alt={attachment.file_name}
-                            className="h-10 w-10 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
-                            onClick={() => setPreviewImageUrl(imgUrl)}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-medium text-cyber-text-primary">{attachment.file_name}</p>
-                            <p className="text-[9px] text-cyber-text-muted">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
+              <div className="mx-auto max-w-3xl">
+                <div
+                  className="agent-composer relative rounded-3xl border border-cyber-border-default bg-cyber-bg-panel transition-colors"
+                  onDragEnter={handleDragEnter}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  {isDragOver ? (
+                    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-1.5 rounded-3xl border-2 border-dashed border-cyber-neon-cyan bg-cyber-bg-panel/95 backdrop-blur transition-all pointer-events-none">
+                      <Paperclip className="h-7 w-7 animate-bounce text-cyber-neon-cyan" />
+                      <p className="text-sm font-medium text-cyber-neon-cyan">松开鼠标即可上传文件 / 图片</p>
+                      <p className="text-[11px] text-cyber-text-muted">支持图片 (PNG/JPG/WebP/GIF) 与文本/表格 (TXT/MD/CSV/JSON/XLSX，≤ 8MB)</p>
+                    </div>
+                  ) : null}
+                  {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
+                    {attachments.map((attachment) => {
+                      const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
+                      const imgUrl = attachment.preview_url || (selectedId ? agentApi.getAttachmentFileUrl(selectedId, attachment.attachment_id) : '')
+                      if (isImage && imgUrl) {
+                        return (
+                          <div key={attachment.attachment_id} className="relative flex max-w-64 items-center gap-2 rounded-xl border border-cyber-border-default bg-cyber-bg-secondary/80 p-1.5 transition-colors hover:border-cyber-neon-cyan/50">
+                            <img
+                              src={imgUrl}
+                              alt={attachment.file_name}
+                              className="h-10 w-10 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
+                              onClick={() => setPreviewImageUrl(imgUrl)}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium text-cyber-text-primary">{attachment.file_name}</p>
+                              <p className="text-[9px] text-cyber-text-muted">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
+                            </div>
+                            <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-1 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                              <X className="h-3.5 w-3.5 text-cyber-text-muted" />
+                            </button>
                           </div>
-                          <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-1 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
-                            <X className="h-3.5 w-3.5 text-cyber-text-muted" />
-                          </button>
-                        </div>
+                        )
+                      }
+                      return (
+                        <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
+                          {attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0 text-cyber-neon-green" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted" />}
+                          <span className="truncate">{attachment.file_name}</span>
+                          <span className="text-[9px] text-cyber-text-muted">({(attachment.size_bytes / 1024).toFixed(0)}KB)</span>
+                          <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
+                        </span>
                       )
-                    }
-                    return (
-                      <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
-                        {attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0 text-cyber-neon-green" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted" />}
-                        <span className="truncate">{attachment.file_name}</span>
-                        <span className="text-[9px] text-cyber-text-muted">({(attachment.size_bytes / 1024).toFixed(0)}KB)</span>
-                        <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
-                      </span>
-                    )
-                  })}
-                  {taskReferences.map((reference) => <span key={reference.plan_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
-                    <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => platformLabels[platform] || platform).join('/')}` : ''}</span>
-                    <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
-                  </span>)}
-                </div> : null}
-                <CommandPopover
-                  isOpen={mentionCommands.isOpen}
-                  triggerType={mentionCommands.triggerType}
-                  items={mentionCommands.items}
-                  selectedIndex={mentionCommands.selectedIndex}
-                  onSelect={(item) => {
-                    if (composerInputRef.current) {
-                      mentionCommands.selectItem(item, composerInputRef.current.selectionStart)
-                      composerInputRef.current.focus()
-                    }
-                  }}
-                  onMouseEnterItem={(index) => mentionCommands.setSelectedIndex(index)}
-                  onClose={mentionCommands.closePopover}
-                  anchorRef={composerInputRef}
-                />
-                <textarea
-                  ref={composerInputRef}
-                  value={input}
-                  onChange={(e) => {
-                    mentionCommands.handleInputChange(e.target.value, e.target.selectionStart)
-                  }}
-                  onKeyDown={(e) => {
-                    const isHandled = mentionCommands.handleKeyDown(e, e.currentTarget.selectionStart)
-                    if (isHandled) return
-                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault()
-                      submit()
-                    }
-                  }}
-                  onPaste={handlePaste}
-                  placeholder={!selectedId ? '输入问题，或使用 @ 呼出 Connector、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Connector 平台，或使用 / 呼出快捷指令…'}
-                  className="min-h-[76px] w-full resize-none bg-transparent px-4 py-3 pb-12 pr-14 text-sm outline-none placeholder:text-cyber-text-muted"
-                />
-                <div ref={addMenuRef} className="absolute bottom-3 left-3">
-                  <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
-                    {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
-                  </Button>
-                  {addMenuOpen ? <div className="absolute bottom-11 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
-                    <button type="button" onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
-                      <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">图片、文本、CSV、XLSX</span></span>
-                    </button>
-                    <button type="button" onClick={() => { setAddMenuOpen(false); setTaskPickerOpen(true) }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
-                      <Database className="h-4 w-4" /><span><span className="block font-medium">引用采集结果</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">选择已有任务或平台</span></span>
-                    </button>
+                    })}
+                    {taskReferences.map((reference) => <span key={reference.plan_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
+                      <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => platformLabels[platform] || platform).join('/')}` : ''}</span>
+                      <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
+                    </span>)}
                   </div> : null}
-                  <input ref={fileInputRef} type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.tsv,.xlsx" onChange={(event) => {
-                    if (event.target.files && event.target.files.length > 0) {
-                      handleFilesToUpload(event.target.files)
-                    }
-                    event.target.value = ''
-                  }} />
-                </div>
-                {(() => {
-                  // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
-                  // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
-                  const mode = send.isPending ? 'stop-message'
-                    : (isPlanRunning && !input.trim()) ? 'stop-plan'
-                      : 'send'
-                  const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
-                  const busy = mode === 'stop-message' ? isStoppingMessage : mode === 'stop-plan' ? stopPlan.isPending : create.isPending
-                  return (
-                    <Button
-                      size="icon"
-                      className={`absolute bottom-3 right-3 h-9 w-9 rounded-full ${mode === 'stop-plan' ? 'bg-cyber-neon-pink/90 text-white hover:bg-cyber-neon-pink' : ''}`}
-                      onClick={() => {
-                        if (mode === 'stop-message') stopGenerating()
-                        else if (mode === 'stop-plan') { if (activePlan) stopPlan.mutate(activePlan.plan_id) }
-                        else submit()
-                      }}
-                      disabled={mode === 'send' ? (!input.trim() || create.isPending) : busy}
-                      aria-label={label}
-                      title={label}
+                  <CommandPopover
+                    isOpen={mentionCommands.isOpen}
+                    triggerType={mentionCommands.triggerType}
+                    items={mentionCommands.items}
+                    selectedIndex={mentionCommands.selectedIndex}
+                    onSelect={(item) => {
+                      if (composerInputRef.current) {
+                        mentionCommands.selectItem(item, composerInputRef.current.selectionStart)
+                        composerInputRef.current.focus()
+                      }
+                    }}
+                    onMouseEnterItem={(index) => mentionCommands.setSelectedIndex(index)}
+                    onClose={mentionCommands.closePopover}
+                    anchorRef={composerInputRef}
+                  />
+                  <div className="relative w-full">
+                    <div
+                      ref={composerBackdropRef}
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 min-h-[60px] w-full overflow-hidden whitespace-pre-wrap break-words px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans text-cyber-text-primary"
                     >
-                      {busy ? <Loader2 className="animate-spin" />
-                        : mode === 'send' ? <Send /> : <Square className="h-4 w-4 fill-current" />}
+                      {renderMentionText(input)}
+                      {input.endsWith('\n') ? '\u200b' : null}
+                    </div>
+                    <textarea
+                      ref={composerInputRef}
+                      value={input}
+                      onScroll={(e) => {
+                        if (composerBackdropRef.current) {
+                          composerBackdropRef.current.scrollTop = e.currentTarget.scrollTop
+                        }
+                      }}
+                      onChange={(e) => {
+                        mentionCommands.handleInputChange(e.target.value, e.target.selectionStart)
+                      }}
+                      onKeyDown={(e) => {
+                        const isHandled = mentionCommands.handleKeyDown(e, e.currentTarget.selectionStart)
+                        if (isHandled) return
+                        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                          e.preventDefault()
+                          submit()
+                        }
+                      }}
+                      onPaste={handlePaste}
+                      placeholder={!selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
+                      className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
+                      spellCheck={false}
+                    />
+                  </div>
+                  <div ref={addMenuRef} className="absolute bottom-2.5 left-3">
+                    <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
+                      {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus className="h-4.5 w-4.5" />}
                     </Button>
-                  )
-                })()}
+                    {addMenuOpen ? <div className="absolute bottom-11 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
+                      <button type="button" onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
+                        <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">图片、文本、CSV、XLSX</span></span>
+                      </button>
+                      <button type="button" onClick={() => { setAddMenuOpen(false); setTaskPickerOpen(true) }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
+                        <Database className="h-4 w-4" /><span><span className="block font-medium">引用采集结果</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">选择已有任务或平台</span></span>
+                      </button>
+                    </div> : null}
+                    <input ref={fileInputRef} type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.tsv,.xlsx" onChange={(event) => {
+                      if (event.target.files && event.target.files.length > 0) {
+                        handleFilesToUpload(event.target.files)
+                      }
+                      event.target.value = ''
+                    }} />
+                  </div>
+                  {(() => {
+                    // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
+                    // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
+                    const mode = send.isPending ? 'stop-message'
+                      : (isPlanRunning && !input.trim()) ? 'stop-plan'
+                        : 'send'
+                    const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
+                    const busy = mode === 'stop-message' ? isStoppingMessage : mode === 'stop-plan' ? stopPlan.isPending : create.isPending
+                    const isDisabled = mode === 'send' && (!input.trim() || create.isPending)
+
+                    const isStopMode = mode === 'stop-message' || mode === 'stop-plan'
+                    const buttonStyles = isStopMode
+                      ? 'bg-slate-200/90 hover:bg-slate-300 dark:bg-slate-700/80 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
+                      : !isDisabled
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-slate-200/70 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+
+                    return (
+                      <button
+                        type="button"
+                        className={`absolute bottom-2.5 right-3 flex h-9 w-9 items-center justify-center rounded-full transition-all duration-150 focus:outline-none ${buttonStyles}`}
+                        onClick={() => {
+                          if (mode === 'stop-message') stopGenerating()
+                          else if (mode === 'stop-plan') { if (activePlan) stopPlan.mutate(activePlan.plan_id) }
+                          else submit()
+                        }}
+                        disabled={isDisabled || busy}
+                        aria-label={label}
+                        title={label}
+                      >
+                        {busy ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                        ) : isStopMode ? (
+                          <Square className="h-3.5 w-3.5 fill-rose-500 text-rose-500 rounded-[1px]" />
+                        ) : (
+                          <ArrowRight className="h-4 w-4 stroke-[1.5]" />
+                        )}
+                      </button>
+                    )
+                  })()}
+                </div>
               </div>
-          </div>
             </div>
           </main>
 
-          {rightSidebarOpen && selectedId && <aside className={`relative shrink-0 overflow-y-auto border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 p-4 transition-all duration-300 ${rightSidebarPulsing ? 'ring-2 ring-inset ring-cyber-neon-cyan/80 bg-cyber-neon-cyan/10 shadow-[0_0_25px_rgba(0,240,255,0.25)]' : ''}`} style={{ width: rightSidebarWidth }}>
-        <div
-          className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
-          onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
-            const bounds = workspaceRef.current?.getBoundingClientRect()
-            if (bounds) updateRightSidebarWidth(bounds.right - moveEvent.clientX)
-          })}
-          aria-label="调整右侧边栏宽度"
-        />
-        <div className="flex items-center justify-between">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
-          {activePlan ? <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[activePlan.status] || activePlan.status}</Badge> : null}
-        </div>
+          {rightSidebarOpen && selectedId && <aside className={`relative shrink-0 flex flex-col border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 ${rightSidebarPulsing ? 'ring-2 ring-inset ring-cyber-neon-cyan/80 bg-cyber-neon-cyan/10 shadow-[0_0_25px_rgba(0,240,255,0.25)]' : ''}`} style={{ width: rightSidebarWidth }}>
+            <div
+              className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
+              onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
+                const bounds = workspaceRef.current?.getBoundingClientRect()
+                if (bounds) updateRightSidebarWidth(bounds.right - moveEvent.clientX)
+              })}
+              aria-label="调整右侧边栏宽度"
+            />
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
+                {activePlan ? <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[activePlan.status] || activePlan.status}</Badge> : null}
+              </div>
 
-        {(() => {
-          const allPlans = threadQuery.data?.plans || (activePlan ? [activePlan] : [])
+              {(() => {
+                const allPlans = threadQuery.data?.plans || (activePlan ? [activePlan] : [])
 
-          // 计算全会话累计抓取总量
-          const sessionTotalItems = allPlans.reduce((sum, plan) => {
-            const count = plan.stats?.content_count ?? plan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
-            return sum + count
-          }, 0)
+                // 计算全会话累计抓取总量
+                const sessionTotalItems = allPlans.reduce((sum, plan) => {
+                  const count = plan.stats?.content_count ?? plan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0)
+                  return sum + count
+                }, 0)
 
-          const isPending = activePlan?.status === 'awaiting_confirmation'
-          const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
-          // 正常退出但 0 条的平台同样计入可重试，否则它会被算作“已完成”而失去补救入口
-          const emptyStepCount = activePlan
-            ? activePlan.steps.filter((s) => s.status === 'completed' && !(s.item_count || 0)).length
-            : 0
-          const canRetry = activePlan
-            ? ['failed', 'partially_completed', 'stopped'].includes(activePlan.status)
-              || (activePlan.status === 'completed' && emptyStepCount > 0)
-            : false
+                const isPending = activePlan?.status === 'awaiting_confirmation'
+                const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
+                // 正常退出但 0 条的平台同样计入可重试，否则它会被算作“已完成”而失去补救入口
+                const emptyStepCount = activePlan
+                  ? activePlan.steps.filter((s) => s.status === 'completed' && !(s.item_count || 0)).length
+                  : 0
+                const canRetry = activePlan
+                  ? ['failed', 'partially_completed', 'stopped'].includes(activePlan.status)
+                  || (activePlan.status === 'completed' && emptyStepCount > 0)
+                  : false
 
-          // 汇总各平台累计抓取数据分布
-          const platformSummaryMap = new Map<string, {
-            platform: string
-            count: number
-            commentCount: number
-            status: string
-            isAI: boolean
-            error_message?: string
-          }>()
+                // 汇总各平台累计抓取数据分布
+                const platformSummaryMap = new Map<string, {
+                  platform: string
+                  count: number
+                  commentCount: number
+                  status: string
+                  isAI: boolean
+                  error_message?: string
+                }>()
 
-          allPlans.forEach((plan) => {
-            plan.steps.forEach((step) => {
-              const existing = platformSummaryMap.get(step.platform)
-              const isAI = AI_PLATFORMS.has(step.platform)
-              const count = step.item_count || 0
-              const commentCount = step.comment_count || 0
-              if (!existing) {
-                platformSummaryMap.set(step.platform, {
-                  platform: step.platform,
-                  count,
-                  commentCount,
-                  status: step.status,
-                  isAI,
-                  error_message: step.error_message || undefined,
+                allPlans.forEach((plan) => {
+                  plan.steps.forEach((step) => {
+                    const existing = platformSummaryMap.get(step.platform)
+                    const isAI = AI_PLATFORMS.has(step.platform)
+                    const count = step.item_count || 0
+                    const commentCount = step.comment_count || 0
+                    if (!existing) {
+                      platformSummaryMap.set(step.platform, {
+                        platform: step.platform,
+                        count,
+                        commentCount,
+                        status: step.status,
+                        isAI,
+                        error_message: step.error_message || undefined,
+                      })
+                    } else {
+                      existing.count += count
+                      existing.commentCount += commentCount
+                      if (step.status === 'running' || existing.status === 'running') {
+                        existing.status = 'running'
+                      } else if (step.status === 'completed') {
+                        existing.status = 'completed'
+                      }
+                      if (step.error_message) {
+                        existing.error_message = step.error_message
+                      }
+                    }
+                  })
                 })
-              } else {
-                existing.count += count
-                existing.commentCount += commentCount
-                if (step.status === 'running' || existing.status === 'running') {
-                  existing.status = 'running'
-                } else if (step.status === 'completed') {
-                  existing.status = 'completed'
+
+                const platformSummaryList = Array.from(platformSummaryMap.values())
+
+                const handleApplyPrompt = (promptText: string) => {
+                  setInput(promptText)
+                  setTimeout(() => composerInputRef.current?.focus(), 50)
                 }
-                if (step.error_message) {
-                  existing.error_message = step.error_message
+
+                const latestFinishedPlanId = [...allPlans].reverse().find((p) => ['completed', 'partially_completed'].includes(p.status))?.plan_id || activePlan?.plan_id
+
+                const handleOpenResults = () => {
+                  if (selectedId && (sessionTotalItems > 0 || latestFinishedPlanId)) {
+                    onOpenResults({ threadId: selectedId, planId: latestFinishedPlanId || activePlan?.plan_id || '' })
+                  }
                 }
-              }
-            })
-          })
 
-          const platformSummaryList = Array.from(platformSummaryMap.values())
-
-          const handleApplyPrompt = (promptText: string) => {
-            setInput(promptText)
-            setTimeout(() => composerInputRef.current?.focus(), 50)
-          }
-
-          const latestFinishedPlanId = [...allPlans].reverse().find((p) => ['completed', 'partially_completed'].includes(p.status))?.plan_id || activePlan?.plan_id
-
-          const handleOpenResults = () => {
-            if (selectedId && (sessionTotalItems > 0 || latestFinishedPlanId)) {
-              onOpenResults({ threadId: selectedId, planId: latestFinishedPlanId || activePlan?.plan_id || '' })
-            }
-          }
-
-          return (
-            <div className="mt-4 space-y-5 text-xs">
-              {/* 区域 A：当前任务状态 / 控制卡片 */}
-              {activePlan && isPending ? (
-                <div className="rounded-xl border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-3.5 shadow-sm ring-1 ring-cyber-neon-cyan/30">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
-                      <Sparkles className="h-3.5 w-3.5" /> 待确认采集任务
-                    </span>
-                  </div>
-                  <div className="mt-2.5 space-y-1.5 text-xs">
-                    {activePlan.plan.keywords.length > 0 ? (
-                      <p className="truncate font-medium text-cyber-text-primary" title={activePlan.plan.keywords.join(' / ')}>
-                        关键词：<span className="text-cyber-neon-cyan">{activePlan.plan.keywords.join(' / ')}</span>
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap items-center gap-1 text-[10px] text-cyber-text-muted">
-                      <span>平台：{activePlan.plan.platforms.map((p) => platformLabels[p] || p).join('、')}</span>
-                    </div>
-                  </div>
-                  <Button
-                    className="mt-3 w-full h-8.5 text-xs gap-1.5 bg-cyber-neon-cyan text-black hover:bg-cyber-neon-cyan/90 font-medium"
-                    onClick={() => execute.mutate(activePlan.plan_id)}
-                    disabled={execute.isPending}
-                  >
-                    {execute.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-black" />}
-                    确认并开始采集
-                  </Button>
-                </div>
-              ) : activePlan && isRunning ? (
-                <div className="rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/80 p-3.5 shadow-sm">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued' ? '采集任务排队中...' : '正在执行采集任务...'}
-                    </span>
-                  </div>
-                  {activePlan.plan.keywords.length ? (
-                    <p className="mt-2 truncate text-[10px] text-cyber-text-muted">
-                      关键词：{activePlan.plan.keywords.join(' / ')}
-                    </p>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {/* 区域 B：全会话已采集数据总量 */}
-              <button
-                type="button"
-                onClick={handleOpenResults}
-                disabled={sessionTotalItems <= 0}
-                aria-label={sessionTotalItems > 0 ? `查看已采集的 ${sessionTotalItems} 条数据` : undefined}
-                className={`w-full rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 text-left shadow-sm transition-colors ${sessionTotalItems > 0 ? 'cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70' : 'cursor-default'}`}
-              >
-                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                  <span>全会话已采集总量</span>
-                  <span className="flex items-center gap-0.5 font-mono">
-                    {sessionTotalItems > 0 ? <ChevronRight className="h-3 w-3" /> : null}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-baseline gap-2">
-                  <span className={`text-3xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
-                    {sessionTotalItems.toLocaleString()}
-                  </span>
-                  <span className="text-xs text-cyber-text-secondary">条内容</span>
-                </div>
-              </button>
-
-              {/* 全会话分平台采集分布 */}
-              <div>
-                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted mb-1.5">
-                  <span>数据分布与状态</span>
-                  {sessionTotalItems > 0 ? <span>已接入平台</span> : null}
-                </div>
-                <div className="divide-y divide-cyber-border-subtle/60">
-                  {platformSummaryList.length > 0 ? (
-                    platformSummaryList.map((item) => {
-                      const count = item.count
-                      const unit = item.isAI ? '份' : '条'
-                      const isZeroSuccess = item.status === 'completed' && count === 0
-
-                      return (
-                        <div key={item.platform} className="py-2.5 text-xs">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span className="truncate font-medium text-cyber-text-primary">
-                                {platformLabels[item.platform] || item.platform}
-                              </span>
-                              {item.isAI ? (
-                                <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
-                                  AI
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
-                                {count > 0 ? `${count} ${unit}` : item.status === 'completed' ? `0 ${unit}` : ''}
-                                {item.commentCount > 0 ? <span className="ml-1 text-[10px] font-normal text-cyber-text-muted">+{item.commentCount} 评论</span> : null}
-                              </span>
-                              {isZeroSuccess ? (
-                                <span title="该平台未采集到数据或可能被风控受限">
-                                  <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                                </span>
-                              ) : (
-                                <StepIcon status={item.status} />
-                              )}
-                            </div>
-                          </div>
-                          {item.error_message ? <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={item.error_message}>{item.error_message}</p> : null}
+                return (
+                  <div className="mt-4 space-y-5 text-xs">
+                    {/* 区域 A：当前任务状态 / 控制卡片 */}
+                    {activePlan && isPending ? (
+                      <div className="rounded-xl border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-3.5 shadow-sm ring-1 ring-cyber-neon-cyan/30">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
+                            <Sparkles className="h-3.5 w-3.5" /> 待确认采集任务
+                          </span>
                         </div>
-                      )
-                    })
-                  ) : (
-                    <div className="py-3 text-center text-[11px] text-cyber-text-muted">
-                      尚未发起采集任务
+                        <div className="mt-2.5 space-y-1.5 text-xs">
+                          {activePlan.plan.keywords.length > 0 ? (
+                            <p className="truncate font-medium text-cyber-text-primary" title={activePlan.plan.keywords.join(' / ')}>
+                              关键词：<span className="text-cyber-neon-cyan">{activePlan.plan.keywords.join(' / ')}</span>
+                            </p>
+                          ) : null}
+                          <div className="flex flex-wrap items-center gap-1 text-[10px] text-cyber-text-muted">
+                            <span>平台：{activePlan.plan.platforms.map((p) => platformLabels[p] || p).join('、')}</span>
+                          </div>
+                        </div>
+                        <Button
+                          className="mt-3 w-full h-8.5 text-xs gap-1.5 bg-cyber-neon-cyan text-black hover:bg-cyber-neon-cyan/90 font-medium"
+                          onClick={() => execute.mutate(activePlan.plan_id)}
+                          disabled={execute.isPending}
+                        >
+                          {execute.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-black" />}
+                          确认并开始采集
+                        </Button>
+                      </div>
+                    ) : activePlan && isRunning ? (
+                      <div className="rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/80 p-3.5 shadow-sm">
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued' ? '采集任务排队中...' : '正在执行采集任务...'}
+                          </span>
+                        </div>
+                        {activePlan.plan.keywords.length ? (
+                          <p className="mt-2 truncate text-[10px] text-cyber-text-muted">
+                            关键词：{activePlan.plan.keywords.join(' / ')}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {/* 区域 B：全会话已采集数据总量 */}
+                    <button
+                      type="button"
+                      onClick={handleOpenResults}
+                      disabled={sessionTotalItems <= 0}
+                      aria-label={sessionTotalItems > 0 ? `查看已采集的 ${sessionTotalItems} 条数据` : undefined}
+                      className={`w-full rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 text-left shadow-sm transition-colors ${sessionTotalItems > 0 ? 'cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70' : 'cursor-default'}`}
+                    >
+                      <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                        <span>全会话已采集总量</span>
+                        <span className="flex items-center gap-0.5 font-mono">
+                          {sessionTotalItems > 0 ? <ChevronRight className="h-3 w-3" /> : null}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-baseline gap-2">
+                        <span className={`text-3xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
+                          {sessionTotalItems.toLocaleString()}
+                        </span>
+                        <span className="text-xs text-cyber-text-secondary">条内容</span>
+                      </div>
+                    </button>
+
+                    {/* 全会话分平台采集分布 */}
+                    <div>
+                      <div className="flex items-center justify-between text-[10px] text-cyber-text-muted mb-1.5">
+                        <span>数据分布与状态</span>
+                        {sessionTotalItems > 0 ? <span>已接入平台</span> : null}
+                      </div>
+                      <div className="divide-y divide-cyber-border-subtle/60">
+                        {platformSummaryList.length > 0 ? (
+                          platformSummaryList.map((item) => {
+                            const count = item.count
+                            const unit = item.isAI ? '份' : '条'
+                            const isZeroSuccess = item.status === 'completed' && count === 0
+
+                            return (
+                              <div key={item.platform} className="py-2.5 text-xs">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="truncate font-medium text-cyber-text-primary">
+                                      {platformLabels[item.platform] || item.platform}
+                                    </span>
+                                    {item.isAI ? (
+                                      <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
+                                        AI
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
+                                      {count > 0 ? `${count} ${unit}` : item.status === 'completed' ? `0 ${unit}` : ''}
+                                      {item.commentCount > 0 ? <span className="ml-1 text-[10px] font-normal text-cyber-text-muted">+{item.commentCount} 评论</span> : null}
+                                    </span>
+                                    {isZeroSuccess ? (
+                                      <span title="该平台未采集到数据或可能被风控受限">
+                                        <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                                      </span>
+                                    ) : (
+                                      <StepIcon status={item.status} />
+                                    )}
+                                  </div>
+                                </div>
+                                {item.error_message ? <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={item.error_message}>{item.error_message}</p> : null}
+                              </div>
+                            )
+                          })
+                        ) : (
+                          <div className="py-3 text-center text-[11px] text-cyber-text-muted">
+                            尚未发起采集任务
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
 
-              {/* 动作区 */}
-              <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
-                {sessionTotalItems > 0 ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" className="h-9 min-w-0 gap-1.5 px-2 text-xs" onClick={handleOpenResults}>
-                      <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
-                      <span className="truncate">结果看板</span>
-                    </Button>
-                    {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
-                  </div>
-                ) : null}
-                {isRunning && sessionTotalItems > 0 ? (
-                  <Button
-                    variant="outline"
-                    className="h-9 w-full gap-1.5 text-xs"
-                    onClick={() => handleApplyPrompt('先分析目前已采集的结果')}
-                  >
-                    <Sparkles className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                    分析当前结果（阶段性）
-                  </Button>
-                ) : null}
-                {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : activePlan.status === 'stopped' ? '继续采集未完成平台' : '重试失败/无结果平台'}</Button> : null}
-              </div>
+                    {/* 动作区 */}
+                    <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
+                      {sessionTotalItems > 0 ? (
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button variant="outline" className="h-9 min-w-0 gap-1.5 px-2 text-xs" onClick={handleOpenResults}>
+                            <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
+                            <span className="truncate">结果看板</span>
+                          </Button>
+                          {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
+                        </div>
+                      ) : null}
+                      {isRunning && sessionTotalItems > 0 ? (
+                        <Button
+                          variant="outline"
+                          className="h-9 w-full gap-1.5 text-xs"
+                          onClick={() => handleApplyPrompt('先分析目前已采集的结果')}
+                        >
+                          <Sparkles className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                          分析当前结果（阶段性）
+                        </Button>
+                      ) : null}
+                      {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : activePlan.status === 'stopped' ? '继续采集未完成平台' : '重试失败/无结果平台'}</Button> : null}
+                    </div>
 
-              {/* 知识资产与一键导出 (8 平台图标栏) */}
-              <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
-                <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                  <span>知识资产导出</span>
-                  <span className="font-mono text-cyber-neon-cyan" title={`正文 ${knowledgeCounts.articles} 篇，评论 ${knowledgeCounts.comments} 条`}>
-                    {knowledgeCounts.articles} 篇已归档
-                    {knowledgeCounts.comments > 0 ? <span className="ml-1 text-cyber-text-muted">+{knowledgeCounts.comments} 评论</span> : null}
-                  </span>
-                </div>
-                <PlatformExportIcons
-                  onSelectPlatform={(platform) => setExportConfirmPlatform(platform)}
-                />
-              </div>
+                    {/* 知识资产与一键导出 (8 平台图标栏) */}
+                    <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
+                      <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                        <span>知识资产导出</span>
+                        <span className="font-mono text-cyber-neon-cyan" title={`正文 ${knowledgeCounts.articles} 篇，评论 ${knowledgeCounts.comments} 条`}>
+                          {knowledgeCounts.articles} 篇已归档
+                          {knowledgeCounts.comments > 0 ? <span className="ml-1 text-cyber-text-muted">+{knowledgeCounts.comments} 评论</span> : null}
+                        </span>
+                      </div>
+                      <PlatformExportIcons
+                        onSelectPlatform={(platform) => setExportConfirmPlatform(platform)}
+                      />
+                    </div>
 
-              {/* AI 快捷提问建议 */}
-              {sessionTotalItems > 0 && !isRunning ? (
-                <div className="pt-2 border-t border-cyber-border-subtle">
-                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-cyber-text-muted mb-2">
-                    <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
-                    <span>继续分析</span>
+                    {/* AI 快捷提问建议 */}
+                    {sessionTotalItems > 0 && !isRunning ? (
+                      <div className="pt-2 border-t border-cyber-border-subtle">
+                        <div className="flex items-center gap-1.5 text-[10px] font-medium text-cyber-text-muted mb-2">
+                          <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
+                          <span>继续分析</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                          {[
+                            { label: '跨平台对比', prompt: '分析各平台采集到的数据热度与讨论差异' },
+                            { label: '用户评价总结', prompt: '总结抓取数据中用户的主要诉求和评论观点' },
+                            { label: '高频热词提取', prompt: '提取已采集数据中频繁出现的高频词与热门话题' },
+                          ].map(({ label, prompt }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => handleApplyPrompt(prompt)}
+                              className="group inline-flex items-center gap-0.5 text-[11px] text-cyber-text-secondary transition-colors hover:text-cyber-neon-cyan"
+                            >
+                              {label}<ChevronRight className="h-3 w-3 opacity-50 transition-transform group-hover:translate-x-0.5" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-x-3 gap-y-1.5">
-                    {[
-                      { label: '跨平台对比', prompt: '分析各平台采集到的数据热度与讨论差异' },
-                      { label: '用户评价总结', prompt: '总结抓取数据中用户的主要诉求和评论观点' },
-                      { label: '高频热词提取', prompt: '提取已采集数据中频繁出现的高频词与热门话题' },
-                    ].map(({ label, prompt }) => (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => handleApplyPrompt(prompt)}
-                        className="group inline-flex items-center gap-0.5 text-[11px] text-cyber-text-secondary transition-colors hover:text-cyber-neon-cyan"
-                      >
-                        {label}<ChevronRight className="h-3 w-3 opacity-50 transition-transform group-hover:translate-x-0.5" />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+                )
+              })()}
             </div>
-          )
-        })()}
           </aside>}
         </div>
         {terminalOpen && selectedId && (

@@ -103,25 +103,11 @@ export function CommandPopover({
   if (!isOpen || !items.length) return null
 
   return (
-    <div className="absolute bottom-full left-0 z-50 mb-2 w-80 max-h-72 overflow-hidden rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/95 backdrop-blur-md shadow-[0_8px_30px_rgb(0,0,0,0.5)] transition-all animate-in fade-in slide-in-from-bottom-2">
-      <div className="flex items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-tertiary/40 px-3 py-1.5 text-[10px] font-medium text-cyber-text-muted">
-        <span className="flex items-center gap-1.5">
-          {triggerType === '@' ? (
-            <>
-              <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
-              <span>选择业务 Skill 或 Connector ({items.length})</span>
-            </>
-          ) : (
-            <>
-              <Terminal className="h-3 w-3 text-cyber-neon-cyan" />
-              <span>快捷指令 ({items.length})</span>
-            </>
-          )}
-        </span>
-        <span className="font-mono text-[9px]">↑↓ 导航 · Enter 确认</span>
+    <div className="absolute bottom-full left-0 right-0 z-50 mb-2 w-full max-h-80 overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-700/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-xl transition-all animate-in fade-in slide-in-from-bottom-2 p-1.5">
+      <div className="px-3 pt-1.5 pb-1 text-xs font-normal text-slate-400 dark:text-slate-500 select-none">
+        {triggerType === '@' ? '技能' : '快捷指令'}
       </div>
-
-      <div ref={containerRef} className="max-h-60 overflow-y-auto p-1 space-y-0.5 scrollbar-thin">
+      <div ref={containerRef} className="max-h-64 overflow-y-auto space-y-0.5 scrollbar-thin">
         {items.map((item, index) => {
           const isSelected = index === selectedIndex
           const IconComponent = ENTITY_ICONS[item.key] || CATEGORY_ICONS[item.category] || Sparkles
@@ -132,45 +118,30 @@ export function CommandPopover({
               type="button"
               onClick={() => onSelect(item)}
               onMouseEnter={() => onMouseEnterItem(index)}
-              className={`flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-all ${
+              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors ${
                 isSelected
-                  ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/30 shadow-sm'
-                  : 'text-cyber-text-primary hover:bg-cyber-bg-tertiary/60'
+                  ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 font-medium'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40'
               }`}
             >
               <div
-                className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border ${
+                className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border transition-colors ${
                   isSelected
-                    ? 'border-cyber-neon-cyan/40 bg-cyber-neon-cyan/20 text-cyber-neon-cyan'
-                    : 'border-cyber-border-subtle bg-cyber-bg-secondary text-cyber-text-muted'
+                    ? 'border-slate-300 dark:border-slate-600 bg-slate-200/80 dark:bg-slate-700 text-slate-800 dark:text-slate-100'
+                    : 'border-slate-200/70 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500'
                 }`}
               >
                 <IconComponent className="h-3.5 w-3.5" />
               </div>
 
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="truncate text-xs font-medium">{item.name}</span>
-                  <span
-                    className={`rounded px-1.5 py-0.2 text-[9px] font-normal ${
-                      item.category === 'skill'
-                        ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
-                        : item.category === 'social'
-                        ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                        : item.category === 'ai_qa'
-                        ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
-                        : item.category === 'search'
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                    }`}
-                  >
-                    {item.categoryLabel}
-                  </span>
-                </div>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <span className={`shrink-0 text-xs ${isSelected ? 'font-semibold text-slate-900 dark:text-slate-100' : 'font-medium text-slate-700 dark:text-slate-300'}`}>
+                  {item.name}
+                </span>
                 {item.description ? (
-                  <p className="mt-0.5 truncate text-[10px] text-cyber-text-muted leading-tight">
+                  <span className="truncate text-xs text-slate-400 dark:text-slate-500 font-normal">
                     {item.description}
-                  </p>
+                  </span>
                 ) : null}
               </div>
             </button>
