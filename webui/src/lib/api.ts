@@ -222,6 +222,25 @@ export interface Platform {
   capabilities?: string[]
 }
 
+export interface SkillDefinition {
+  id: string
+  version: string
+  name: string
+  description: string
+  category: 'core' | 'business'
+  icon: string
+  mentionable: boolean
+  inputs: Array<{ key: string; required: boolean; description: string }>
+  defaults?: {
+    platforms: string[]
+    capability: string
+    collectionDepth: 'quick' | 'standard' | 'deep'
+    analysis: string[]
+    outputs: string[]
+  }
+  limitations: string[]
+}
+
 export interface ConfigOption {
   value: string
   label: string
@@ -457,6 +476,7 @@ export const configApi = {
 }
 
 export const agentApi = {
+  listSkills: () => api.get<{ items: SkillDefinition[] }>('/skills'),
   listThreads: () => api.get<{ items: AgentThreadSummary[] }>('/agent/threads'),
   listReferenceableTasks: () => api.get<{ items: AgentTaskReference[] }>('/agent/referenceable-tasks'),
   createThread: (title?: string, addWelcomeMessage = true) =>
@@ -475,12 +495,14 @@ export const agentApi = {
     attachment_ids?: string[]
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
     mentioned_connectors?: string[]
+    mentioned_skills?: string[]
   } = {}, signal?: AbortSignal) =>
     api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000, signal }),
   sendMessageStream: async (threadId: string, content: string, context: {
     attachment_ids?: string[]
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
     mentioned_connectors?: string[]
+    mentioned_skills?: string[]
   } = {}, onDelta?: (delta: string) => void, signal?: AbortSignal): Promise<{ data: AgentThread }> => {
     const response = await fetch(`/api/agent/threads/${encodeURIComponent(threadId)}/messages/stream`, {
       method: 'POST',

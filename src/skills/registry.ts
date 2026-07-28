@@ -15,6 +15,10 @@ export class SkillRegistry {
     return skill;
   }
 
+  find(id: string | null | undefined): SkillDefinition | null {
+    return id ? this.skills.get(id) || null : null;
+  }
+
   list(): SkillDefinition[] {
     return [...this.skills.values()];
   }
@@ -40,6 +44,115 @@ skillRegistry.register({
     exporters: ['markdown', 'json', 'obsidian', 'ima'],
     outputs: ['documents'],
   },
+});
+
+const BUSINESS_WORKFLOW = {
+  connectorCapabilities: ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
+  itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+  analyzers: ['knowledge.index', 'extractive.summary'],
+  exporters: ['markdown', 'json', 'obsidian', 'ima'],
+  outputs: ['documents'],
+};
+
+skillRegistry.register({
+  id: 'sales-course-intelligence',
+  version: '1.0.0',
+  name: '销售课程竞争情报',
+  description: '围绕 SAP 与 AIGC 培训业务采集公开竞品内容，分析课程、价格证据、营销钩子、客户顾虑并生成销售应答参考。',
+  category: 'business',
+  icon: 'briefcase-business',
+  mentionable: true,
+  inputs: [
+    { key: 'subject', required: true, description: '课程线、我方品牌、竞品或赛道关键词' },
+    { key: 'cities', required: false, description: '目标城市' },
+    { key: 'focus', required: false, description: '价格、转行、学习难度或就业等重点场景' },
+  ],
+  workflow: BUSINESS_WORKFLOW,
+  defaults: {
+    platforms: ['xhs', 'douyin', 'zhihu', 'baidu', 'bing'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: ['课程与价格证据', '教学方式与服务', '营销钩子', '客户顾虑', '竞品差异与销售应答建议'],
+    outputs: ['csv'],
+  },
+  analysisInstructions: '按销售课程竞争情报口径分析。区分 SAP 与 AIGC 赛道；价格、周期、校区和服务承诺必须有来源，冲突信息并列展示。提取营销钩子与客户顾虑，并把销售建议标记为建议。不得把未采集到写成不存在，不得把宣传案例写成普遍就业结果。',
+  limitations: ['不查询内部成交数据。', '不承诺就业、收入或竞品未公开信息。', '不自动联系客户或写入 CRM。'],
+});
+
+skillRegistry.register({
+  id: 'marketing-content-research',
+  version: '1.0.0',
+  name: '新媒体内容调研',
+  description: '采集小红书与抖音的公开作品和评论，用于对标账号、关键词赛道、互动表现及用户诉求分析。',
+  category: 'business',
+  icon: 'chart-no-axes-combined',
+  mentionable: true,
+  inputs: [
+    { key: 'subject', required: true, description: '关键词，或对标账号名称、主页链接与账号 ID' },
+    { key: 'timeRange', required: false, description: '观察时间范围' },
+    { key: 'focus', required: false, description: '主题、爆款表达、互动或评论诉求等重点' },
+  ],
+  workflow: BUSINESS_WORKFLOW,
+  defaults: {
+    platforms: ['xhs', 'douyin'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: ['内容主题与表达方式', '平台内互动表现', '代表性内容', '评论诉求与问题', '内容机会'],
+    outputs: ['csv'],
+  },
+  analysisInstructions: '按新媒体内容调研口径分析。按平台分别说明样本量和指标覆盖，不直接比较不同平台的绝对互动数。缺失指标不得补零；高赞评论需给出点赞或排序依据，否则称为代表性评论。区分数据发现与内容建议，不承诺全部作品、全部搜索结果或全部评论。',
+  limitations: ['只处理当前登录态可见的公开内容。', '不将互动量等同于成交量。', '第一阶段以高频词和主题排行替代视觉词云。'],
+});
+
+skillRegistry.register({
+  id: 'brand-geo-risk-monitor',
+  version: '1.0.0',
+  name: '品牌GEO与投诉风险监测',
+  description: '对比品牌在多个 AI 问答平台中的呈现，并结合黑猫投诉公开信息识别负面主题与待核验风险。',
+  category: 'business',
+  icon: 'shield-alert',
+  mentionable: true,
+  inputs: [
+    { key: 'subject', required: true, description: '品牌正式名称、别名及监测问题或关键词' },
+    { key: 'riskTerms', required: false, description: '退款、宣传、服务、合同等风险词' },
+    { key: 'competitors', required: false, description: '对比品牌' },
+  ],
+  workflow: BUSINESS_WORKFLOW,
+  defaults: {
+    platforms: ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: ['品牌可见性与回答一致性', '信息准确性线索', '负面主题与风险等级', '引用来源', '公开投诉动态'],
+    outputs: ['csv'],
+  },
+  analysisInstructions: '按品牌 GEO 与投诉风险口径分析。AI 回答和投诉单分别统计并说明样本量；AI 回答只代表特定时间和提问下的结果。风险评级必须给出理由和来源，只作为内部优先级，不构成事实或法律定性。投诉指控使用“用户称”“投诉内容显示”等审慎表述，未核验事实必须标记待核验。',
+  limitations: ['当前仅有黑猫投诉专用 Connector。', '不承诺 12315、监管或劳动部门直连。', '不自动对外回应、联系投诉人或执行处置。'],
+});
+
+skillRegistry.register({
+  id: 'hr-salary-benchmark',
+  version: '1.0.0',
+  name: '招聘岗位薪酬调研',
+  description: '基于智联招聘公开岗位数据分析薪资、城市、经验、学历和岗位要求，为招聘定价提供可追溯参考。',
+  category: 'business',
+  icon: 'badge-chinese-yuan',
+  mentionable: true,
+  inputs: [
+    { key: 'subject', required: true, description: '标准岗位名称与常见别名' },
+    { key: 'cities', required: true, description: '目标城市或地区' },
+    { key: 'level', required: false, description: '岗位级别、经验或学历范围' },
+    { key: 'internalRange', required: false, description: '我方拟定薪资区间' },
+  ],
+  workflow: BUSINESS_WORKFLOW,
+  defaults: {
+    platforms: ['zhaopin'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: ['样本质量与薪资口径', '薪资分布', '城市与经验差异', '岗位要求', '招聘定价参考'],
+    outputs: ['csv'],
+  },
+  analysisInstructions: '按招聘岗位薪酬调研口径分析。保留薪资原文；只有单位和周期明确时才标准化。面议、单位缺失和异常值不纳入区间统计但保留说明。所有统计展示有效样本量与时间范围，不混合不同城市、级别和口径；公开招聘薪资只是市场参考，不是实际在职薪资。',
+  limitations: ['当前主要招聘数据源为智联招聘。', '不声称已接入 BOSS 直聘或猎聘。', '不生成权威 PR 值、候选人供需比或个人薪酬结论。'],
 });
 
 skillRegistry.register({

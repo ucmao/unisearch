@@ -219,6 +219,16 @@ test('Skill registry validates and exposes the built-in research Skill', () => {
   const skill = skillRegistry.get('multi-source-research');
   assert.equal(skill.version, '1.0.0');
   assert.deepEqual(skill.workflow.itemProcessors, ['metadata.normalize', 'document.clean_markdown']);
+
+  const businessSkills = skillRegistry.list().filter((item) => item.category === 'business' && item.mentionable);
+  assert.deepEqual(businessSkills.map((item) => item.id), [
+    'sales-course-intelligence',
+    'marketing-content-research',
+    'brand-geo-risk-monitor',
+    'hr-salary-benchmark',
+  ]);
+  assert.deepEqual(skillRegistry.get('marketing-content-research').defaults?.platforms, ['xhs', 'douyin']);
+  assert.deepEqual(skillRegistry.get('hr-salary-benchmark').defaults?.platforms, ['zhaopin']);
 });
 
 test('Workflow Engine executes registered local handlers and persists retry attempts', async () => {

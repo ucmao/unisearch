@@ -4,10 +4,12 @@ import { getDb } from '../../database/connection';
 import { AnalyticsRepository } from '../../database/repository';
 import { exporterRegistry } from '../../exporters/registry';
 import { platformLabel } from '../../connectors/registry';
+import { skillRegistry } from '../../skills/registry';
 
 export type AgentRole = 'user' | 'assistant' | 'system';
 
 export interface ResearchPlan {
+  skillId?: string;
   goal: string;
   platforms: string[];
   keywords: string[];
@@ -496,6 +498,8 @@ export class AgentRepository {
   createPlan(threadId: string, plan: ResearchPlan) {
     const workflowId = id();
     const now = new Date().toISOString();
+    const skill = skillRegistry.find(plan.skillId) || skillRegistry.get('multi-source-research');
+    const persistedPlan = { ...plan, skillId: skill.id };
     const tx = this.db.transaction(() => {
       const existing = this.db.prepare(`
         SELECT * FROM workflow_runs
@@ -508,9 +512,9 @@ export class AgentRepository {
         INSERT INTO workflow_runs (
           workflow_id, thread_id, skill_id, skill_version, goal, status,
           input_json, output_json, created_at, updated_at
-        ) VALUES (?, ?, 'multi-source-research', '1.0.0', ?, 'awaiting_confirmation', ?, '{}', ?, ?)
-      `).run(workflowId, threadId, plan.goal, JSON.stringify(plan), now, now);
-      this.insertConnectorSteps(workflowId, plan, now);
+        ) VALUES (?, ?, ?, ?, ?, 'awaiting_confirmation', ?, '{}', ?, ?)
+      `).run(workflowId, threadId, skill.id, skill.version, persistedPlan.goal, JSON.stringify(persistedPlan), now, now);
+      this.insertConnectorSteps(workflowId, persistedPlan, now);
       return this.getPlan(workflowId);
     });
     return tx();
@@ -592,15 +596,17 @@ export class AgentRepository {
 
   updatePendingPlan(workflowId: string, plan: ResearchPlan) {
     const now = new Date().toISOString();
+    const skill = skillRegistry.find(plan.skillId) || skillRegistry.get('multi-source-research');
+    const persistedPlan = { ...plan, skillId: skill.id };
     const tx = this.db.transaction(() => {
       const result = this.db.prepare(`
-        UPDATE workflow_runs SET goal=?, input_json=?, updated_at=?
+        UPDATE workflow_runs SET skill_id=?, skill_version=?, goal=?, input_json=?, updated_at=?
         WHERE workflow_id=? AND status='awaiting_confirmation'
-      `).run(plan.goal, JSON.stringify(plan), now, workflowId);
+      `).run(skill.id, skill.version, persistedPlan.goal, JSON.stringify(persistedPlan), now, workflowId);
       if (result.changes === 0) throw new Error('只有等待确认的计划可以修改');
 
       this.db.prepare('DELETE FROM workflow_steps WHERE workflow_id=?').run(workflowId);
-      this.insertConnectorSteps(workflowId, plan, now);
+      this.insertConnectorSteps(workflowId, persistedPlan, now);
       return this.getPlan(workflowId);
     });
     return tx();
@@ -640,10 +646,12 @@ export class AgentRepository {
       run_id: parseJson<any>(step.output_json, {}).runId || null,
     }));
     const stats = this.getPlanStats(row.workflow_id);
+    const plan = parseJson<ResearchPlan>(row.input_json, {} as ResearchPlan);
+    if (!plan.skillId) plan.skillId = row.skill_id || 'multi-source-research';
     return {
       ...row,
       plan_id: row.workflow_id,
-      plan: parseJson<ResearchPlan>(row.input_json, {} as ResearchPlan),
+      plan,
       steps,
       stats,
     };

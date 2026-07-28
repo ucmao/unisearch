@@ -18,6 +18,8 @@ export interface IntentContext {
   hasPreviousPlanKeywords?: boolean;
   /** Connector ids the user explicitly picked from the "@" mention menu (see useMentionCommands). */
   mentionedConnectors?: string[];
+  /** Business Skill ids the user explicitly picked from the "@" mention menu. */
+  mentionedSkills?: string[];
 }
 
 const GREETING = /^(?:hi|hello|hey|ni\s*hao|你好(?:呀|啊)?|您好|嗨|哈喽|在吗|早上好|早安|下午好|晚上好|晚安)[!！,.，。?？~～\s]*$/i;
@@ -214,6 +216,13 @@ export function isDirectParseRequest(
 export function localIntentDecision(text: string, context: IntentContext = {}): AgentDecision {
   const value = text.trim();
   const status = context.planStatus || null;
+
+  if (context.mentionedSkills?.length) {
+    if (!hasResearchSubject(value)) {
+      return { action: 'clarify', reply: '已选择业务 Skill。请再告诉我这次要研究的具体品牌、产品、岗位或关键词。', missingFields: ['subject'] };
+    }
+    return { action: status === 'awaiting_confirmation' ? 'revise_plan' : 'create_plan', reply: '' };
+  }
 
   if (isDirectParseRequest(value, context.previousAssistantText, context.mentionedConnectors)) {
     return { action: 'direct_parse', reply: '' };

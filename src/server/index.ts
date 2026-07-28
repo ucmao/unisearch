@@ -343,18 +343,19 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.post('/api/agent/threads/:thread_id/messages', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
-    const { content, attachment_ids, task_references, mentioned_connectors } = request.body as {
+    const { content, attachment_ids, task_references, mentioned_connectors, mentioned_skills } = request.body as {
       content?: string;
       attachment_ids?: string[];
       task_references?: Array<{ plan_id: string; platforms?: string[] }>;
       mentioned_connectors?: string[];
+      mentioned_skills?: string[];
     };
     if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
     const previous = activeAgentMessageRequests.get(thread_id);
     if (previous) return reply.status(409).send({ detail: '该任务已有消息正在处理中' });
     const controller = new AbortController();
     activeAgentMessageRequests.set(thread_id, controller);
-    try { return await agentService.sendMessage(thread_id, content.trim(), { attachment_ids, task_references, mentioned_connectors }, controller.signal); }
+    try { return await agentService.sendMessage(thread_id, content.trim(), { attachment_ids, task_references, mentioned_connectors, mentioned_skills }, controller.signal); }
     catch (error: any) {
       if (controller.signal.aborted) return reply.status(409).send({ detail: '已停止生成' });
       return reply.status(400).send({ detail: error.message });
@@ -365,11 +366,12 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.post('/api/agent/threads/:thread_id/messages/stream', async (request, reply) => {
     const { thread_id } = request.params as { thread_id: string };
-    const { content, attachment_ids, task_references, mentioned_connectors } = request.body as {
+    const { content, attachment_ids, task_references, mentioned_connectors, mentioned_skills } = request.body as {
       content?: string;
       attachment_ids?: string[];
       task_references?: Array<{ plan_id: string; platforms?: string[] }>;
       mentioned_connectors?: string[];
+      mentioned_skills?: string[];
     };
     if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
     if (activeAgentMessageRequests.has(thread_id)) {
@@ -392,7 +394,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       const thread = await agentService.sendMessage(
         thread_id,
         content.trim(),
-        { attachment_ids, task_references, mentioned_connectors },
+        { attachment_ids, task_references, mentioned_connectors, mentioned_skills },
         controller.signal,
         (delta) => write({ type: 'delta', delta }),
       );

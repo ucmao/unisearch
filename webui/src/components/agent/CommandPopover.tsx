@@ -19,6 +19,7 @@ const CATEGORY_ICONS: Record<string, any> = {
   job_complaint: Briefcase,
   ai_qa: Brain,
   utility: Link2,
+  skill: Sparkles,
   action: Terminal,
 }
 
@@ -108,7 +109,7 @@ export function CommandPopover({
           {triggerType === '@' ? (
             <>
               <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
-              <span>选择 Connector 目标平台 ({items.length})</span>
+              <span>选择业务 Skill 或 Connector ({items.length})</span>
             </>
           ) : (
             <>
@@ -152,7 +153,9 @@ export function CommandPopover({
                   <span className="truncate text-xs font-medium">{item.name}</span>
                   <span
                     className={`rounded px-1.5 py-0.2 text-[9px] font-normal ${
-                      item.category === 'social'
+                      item.category === 'skill'
+                        ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+                        : item.category === 'social'
                         ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
                         : item.category === 'ai_qa'
                         ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'

@@ -1,11 +1,18 @@
 import { connectorCatalogForAI, listConnectorManifests } from '../../connectors/registry';
+import { skillRegistry } from '../../skills/registry';
 
 const connectorNames = listConnectorManifests().map((connector) => `${connector.name}（${connector.id}）`).join('、');
+const businessSkills = skillRegistry.list()
+  .filter((skill) => skill.category === 'business' && skill.mentionable)
+  .map((skill) => `${skill.name}（${skill.id}）`)
+  .join('、');
 
 export const UNISEARCH_PRODUCT_MANUAL = `
 【UniSearch 产品说明书】
 - 定位：本地运行的跨平台公开内容采集、任务管理和结果分析工具，同时提供通用文本 AI 对话。
 - 当前已注册并可执行的 Connector：${connectorNames}。
+- 当前可由用户在输入框通过 @ 调用的业务 Skill：${businessSkills}。Skill 是经过校验的业务调研模板，会提供默认平台、分析维度和证据边界；用户显式选择 Connector 时以用户选择为准。
+- 调用 Skill 仍然必须先生成真实待确认计划，向用户展示 Skill、平台、关键词、范围和分析维度；用户确认后才能执行，不得因为选择了 Skill 就跳过确认。
 - 未接入微信/公众号、头条、新闻网站、淘宝、京东、Reddit、Twitter/X、YouTube、TikTok、Instagram 等平台。不得声称可以直接采集未接入的平台；可以说明需要未来新增适配器。
 - Connector 能力、输入参数、输出字段与限制如下；必须遵守能力边界，不能把未声明能力当成已经实现：
 ${connectorCatalogForAI()}

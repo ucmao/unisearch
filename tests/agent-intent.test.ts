@@ -49,6 +49,25 @@ test('concrete collection requests create a plan decision', () => {
   }
 });
 
+test('an explicitly mentioned business Skill supplies the workflow context', () => {
+  const selected = localIntentDecision('@新媒体内容调研 分析新能源车内容趋势', {
+    mentionedSkills: ['marketing-content-research'],
+  });
+  assert.equal(selected.action, 'create_plan');
+
+  const missingSubject = localIntentDecision('@新媒体内容调研', {
+    mentionedSkills: ['marketing-content-research'],
+  });
+  assert.equal(missingSubject.action, 'clarify');
+  assert.deepEqual(missingSubject.missingFields, ['subject']);
+
+  const replacement = localIntentDecision('@招聘岗位薪酬调研 上海产品经理', {
+    mentionedSkills: ['hr-salary-benchmark'],
+    planStatus: 'awaiting_confirmation',
+  });
+  assert.equal(replacement.action, 'revise_plan');
+});
+
 test('fallback keywords contain the subject rather than the whole request', () => {
   assert.deepEqual(inferResearchKeywords('在小红书搜扫地机器人'), ['扫地机器人']);
   assert.deepEqual(inferResearchKeywords('收集关于新能源汽车的评论'), ['新能源汽车']);
