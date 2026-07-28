@@ -1,5 +1,7 @@
 import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { usePlatforms } from './useCrawler'
+import { agentApi } from '@/lib/api'
 import type { MentionCategory, MentionEntity } from './useMentionCommands'
 
 /**
@@ -78,6 +80,26 @@ export function usePlatformMentionEntities(): MentionEntity[] {
     })
     return entities.sort((a, b) => GROUP_ORDER.indexOf(a.category) - GROUP_ORDER.indexOf(b.category))
   }, [data])
+}
+
+/** @ 菜单用的可调用业务 Skill。 */
+export function useSkillMentionEntities(): MentionEntity[] {
+  const { data } = useQuery({
+    queryKey: ['skills'],
+    queryFn: async () => (await agentApi.listSkills()).data.items,
+    staleTime: Infinity,
+  })
+  return useMemo(() => (data || [])
+    .filter((skill) => skill.category === 'business' && skill.mentionable)
+    .map((skill) => ({
+      id: skill.id,
+      key: skill.id,
+      name: skill.name,
+      category: 'skill' as MentionCategory,
+      categoryLabel: '业务 Skill',
+      icon: skill.icon,
+      description: skill.description,
+    })), [data])
 }
 
 export function platformLabel(labels: Record<string, string>, id: string): string {

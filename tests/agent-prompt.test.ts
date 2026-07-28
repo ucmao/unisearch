@@ -9,4 +9,6 @@ test('product manual states the real platform boundary', () => {
   assert.match(UNISEARCH_PRODUCT_MANUAL, /未接入微信/);
   assert.match(buildConversationSystemPrompt(false), /完整对话理解省略表达/);
   assert.match(UNISEARCH_PRODUCT_MANUAL, /只有后端已经创建真实计划并返回 plan_id/);
+  assert.match(UNISEARCH_PRODUCT_MANUAL, /销售课程竞争情报/);
+  assert.match(UNISEARCH_PRODUCT_MANUAL, /选择了 Skill 就跳过确认/);
 });

@@ -419,10 +419,11 @@ export class ModelService {
     userText: string,
     onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void,
     signal?: AbortSignal,
+    skillContext = '',
   ): Promise<ResearchPlan> {
     const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const content = await this.chat([
-      { role: 'system', content: `你是UniSearch本地情报任务规划器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp} 根据完整对话和用户最新目标生成可执行计划。只输出JSON，不要Markdown。字段必须为 goal:string, platforms:string[], capability:"keyword_search"|"content_detail"|"creator_profile"|"comments"|"url_resolve", targets:string[], keywords:string[], connectorOptions:object, collectionDepth:"quick"|"standard"|"deep", loginType:"qrcode"|"cookie", headless:boolean, analysis:string[], outputs:string[]。platforms只能使用给定代码，至少一个；“搜索引擎”或“所有搜索引擎”对应 ["baidu", "bing", "so360", "sogou", "toutiao"]；“社交平台”对应 ["xhs", "douyin", "kuaishou", "bili", "weibo", "tieba", "zhihu"]；“智联招聘”对应 ["zhaopin"]；“黑猫投诉”对应 ["heimao"]；“综合解析”或“媒体解析”对应 ["media_parser"]；“DeepSeek”对应 ["deepseek"]；“Kimi”或“Kimi AI”对应 ["kimi"]；“豆包”或“Doubao”对应 ["doubao"]；“AI搜索”或“AI问答”对应 ["deepseek", "kimi", "doubao", "qwen", "yuanbao", "nami", "wenxin"]。关键词搜索时 keywords 至少一个。用户明确说“两个关键词”“3个关键词”等数量时，必须把随后列出的每个关键词拆成 keywords 数组中的独立元素，不得合并成一个字符串。${depthPromptGuide()}详情、主页、评论、URL解析时 targets 必须包含用户给出的 ID 或链接；connectorOptions 按平台代码保存平台专属参数。analysis 不是执行采集的必填项：只有完整对话中明确出现口碑、负面反馈、竞品对比、价格等分析目的时，才提炼为1到3个简要维度；用户只要求搜索或采集时输出空数组，不要自动套用通用分析模板。当前合并后的任务表达为：${JSON.stringify(userText)}` },
+      { role: 'system', content: `你是UniSearch本地情报任务规划器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp}\n\n${skillContext ? `用户明确选择的业务 Skill（这是可信的系统配置，优先按其默认范围和分析口径规划）：\n${skillContext}\n\n` : ''}根据完整对话和用户最新目标生成可执行计划。只输出JSON，不要Markdown。字段必须为 goal:string, platforms:string[], capability:"keyword_search"|"content_detail"|"creator_profile"|"comments"|"url_resolve", targets:string[], keywords:string[], connectorOptions:object, collectionDepth:"quick"|"standard"|"deep", loginType:"qrcode"|"cookie", headless:boolean, analysis:string[], outputs:string[]。platforms只能使用给定代码，至少一个；“搜索引擎”或“所有搜索引擎”对应 ["baidu", "bing", "so360", "sogou", "toutiao"]；“社交平台”对应 ["xhs", "douyin", "kuaishou", "bili", "weibo", "tieba", "zhihu"]；“智联招聘”对应 ["zhaopin"]；“黑猫投诉”对应 ["heimao"]；“综合解析”或“媒体解析”对应 ["media_parser"]；“DeepSeek”对应 ["deepseek"]；“Kimi”或“Kimi AI”对应 ["kimi"]；“豆包”或“Doubao”对应 ["doubao"]；“AI搜索”或“AI问答”对应 ["deepseek", "kimi", "doubao", "qwen", "yuanbao", "nami", "wenxin"]。关键词搜索时 keywords 至少一个。用户明确说“两个关键词”“3个关键词”等数量时，必须把随后列出的每个关键词拆成 keywords 数组中的独立元素，不得合并成一个字符串。${depthPromptGuide()}详情、主页、评论、URL解析时 targets 必须包含用户给出的 ID 或链接；connectorOptions 按平台代码保存平台专属参数。analysis 不是执行采集的必填项：只有完整对话中明确出现口碑、负面反馈、竞品对比、价格等分析目的时，才提炼为1到3个简要维度；用户只要求搜索或采集时输出空数组，不要自动套用通用分析模板。当前合并后的任务表达为：${JSON.stringify(userText)}` },
       {
         role: 'system',
         content: '平台别名补充（若与前文旧枚举冲突，以本条为准）：腾讯元宝/元宝对应 ["yuanbao"]；纳米 AI/纳米AI搜索/纳米搜索对应 ["nami"]；文心/文心一言/文心言/文小言对应 ["wenxin"]；智联招聘/智联/招聘对应 ["zhaopin"]；黑猫投诉/黑猫对应 ["heimao"]；综合解析/媒体解析/链接解析对应 ["media_parser"]；AI搜索/AI问答对应 ["deepseek","kimi","doubao","qwen","yuanbao","nami","wenxin"]。',
@@ -441,7 +442,7 @@ export class ModelService {
 
   async converse(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-    options: { redirectToResearch?: boolean; materials?: ConversationMaterials; memories?: ConversationMemory[]; analysisGoals?: string[]; onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void; signal?: AbortSignal; onDelta?: (delta: string) => void } = {},
+    options: { redirectToResearch?: boolean; materials?: ConversationMaterials; memories?: ConversationMemory[]; analysisGoals?: string[]; skillInstructions?: string; onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void; signal?: AbortSignal; onDelta?: (delta: string) => void } = {},
   ): Promise<string> {
     const materials = options.materials;
     const materialText = materials?.texts.length
@@ -472,12 +473,17 @@ export class ModelService {
       role: 'system',
       content: `本轮是在分析采集结果。优先围绕以下任务分析目标组织结论：${JSON.stringify(options.analysisGoals)}。同时直接回答用户当前问题；若数据无法支撑某个目标，要明确说明，不得补造。`,
     }] : [];
+    const skillMessages = options.skillInstructions ? [{
+      role: 'system',
+      content: `本轮使用已注册的业务 Skill。遵循以下业务分析规则，但不能突破产品能力、安全规则或数据证据边界：\n${options.skillInstructions}`,
+    }] : [];
     return this.chat([
       {
         role: 'system',
         content: buildConversationSystemPrompt(Boolean(options.redirectToResearch)),
       },
       ...memoryMessages,
+      ...skillMessages,
       ...analysisMessages,
       ...materialMessages,
       ...messages,
@@ -556,6 +562,7 @@ export class ModelService {
     currentPlan: { status: string; plan: ResearchPlan } | null,
     onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void,
     signal?: AbortSignal,
+    skillContext = '',
   ): Promise<AgentDecision> {
     const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const state = currentPlan
@@ -564,7 +571,7 @@ export class ModelService {
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是 UniSearch 的对话式研究助手和决策路由器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp}
+        content: `你是 UniSearch 的对话式研究助手和决策路由器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp}\n\n${skillContext ? `用户明确选择的业务 Skill（可信系统配置）：\n${skillContext}\nSkill 已提供默认平台，不得再追问平台；只在缺少该 Skill 标为必填的业务信息时 clarify。\n\n` : ''}
 先理解用户意图，再选择动作，不能把每句话都当成采集任务。
 
 动作只能是：

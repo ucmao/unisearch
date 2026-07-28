@@ -22,8 +22,8 @@ import { PlatformExportIcons, type PlatformConfig } from './PlatformExportIcons'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
-import { useMentionCommands, extractMentionedConnectorIds } from '@/hooks/useMentionCommands'
-import { usePlatformLabels, usePlatformMentionEntities } from '@/hooks/usePlatformCatalog'
+import { useMentionCommands, extractMentionedConnectorIds, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
+import { usePlatformLabels, usePlatformMentionEntities, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
 
 const AI_PLATFORMS = new Set([
   'deepseek', 'doubao', 'kimi', 'nami', 'qwen', 'wenxin', 'yuanbao',
@@ -296,11 +296,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
   const platformLabels = usePlatformLabels()
   const connectorEntities = usePlatformMentionEntities()
+  const skillEntities = useSkillMentionEntities()
+  const mentionEntities = useMemo(() => [...skillEntities, ...connectorEntities], [skillEntities, connectorEntities])
   const mentionCommands = useMentionCommands({
     value: input,
     onChange: setInput,
     onExecuteCommand: handleExecuteCommand,
-    connectorEntities,
+    mentionEntities,
   })
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
@@ -446,7 +448,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
       sendAbortControllerRef.current = controller
-      const mentionedConnectors = extractMentionedConnectorIds(content, connectorEntities)
+      const mentionedConnectors = extractMentionedConnectorIds(content, mentionEntities)
+      const mentionedSkills = extractMentionedSkillIds(content, mentionEntities)
       const streamingMessageId = `streaming-${id}`
       let streamedContent = ''
       let renderedContent = ''
@@ -481,6 +484,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           attachment_ids: attachmentIds,
           task_references: references,
           ...(mentionedConnectors.length ? { mentioned_connectors: mentionedConnectors } : {}),
+          ...(mentionedSkills.length ? { mentioned_skills: mentionedSkills } : {}),
         }, (delta) => {
           streamedContent += delta
           if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)

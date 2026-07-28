@@ -12,11 +12,32 @@ import { workflowRuntime } from '../../workflow/workflow-runtime';
 import { ragService } from '../../knowledge/rag-service';
 import { knowledgeIndex } from '../../knowledge/knowledge-index';
 import { exportService } from '../../exporters/registry';
+import { skillRegistry } from '../../skills/registry';
+import type { SkillDefinition } from '../../core/skills/types';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
 
-function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan, preserveFallbackDepth = false): ResearchPlan {
+function skillPlanningContext(skill: SkillDefinition | null): string {
+  if (!skill) return '';
+  return JSON.stringify({
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    requiredInputs: skill.inputs.filter((input) => input.required),
+    defaults: skill.defaults,
+    limitations: skill.limitations,
+  });
+}
+
+export function normalizePlan(
+  input: any,
+  userText: string,
+  fallbackPlan?: ResearchPlan,
+  preserveFallbackDepth = false,
+  skill: SkillDefinition | null = null,
+  mentionedConnectors: string[] = [],
+): ResearchPlan {
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
@@ -74,23 +95,38 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
       ? fallbackPlan.collectionDepth
       : 'quick';
 
-  const selectedPlatforms = platforms.length ? platforms : inferredPlatforms;
+  const explicitlyMentionedPlatforms = Array.from(new Set(mentionedConnectors.filter((platform) => SUPPORTED.includes(platform))));
+  const requestedPlatforms = explicitlyMentionedPlatforms.length ? explicitlyMentionedPlatforms : inferredPlatforms;
+  const selectedPlatforms = requestedPlatforms.length
+    ? requestedPlatforms
+    : skill?.defaults?.platforms?.length
+      ? skill.defaults.platforms.filter((platform) => SUPPORTED.includes(platform))
+      : platforms;
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
   const loginType = requiresAuth ? 'qrcode' : 'none';
+  const suppliedGoals = Array.isArray(input?.analysis) ? input.analysis : [];
+  const analysis = skill?.defaults
+    ? normalizeAnalysisGoals([...skill.defaults.analysis, ...suppliedGoals], goal)
+    : normalizeAnalysisGoals(input?.analysis, goal);
 
   return {
+    skillId: skill?.id || fallbackPlan?.skillId || 'multi-source-research',
     goal,
     platforms: selectedPlatforms,
     keywords,
     capability,
     targets,
     connectorOptions: input?.connectorOptions && typeof input.connectorOptions === 'object' ? input.connectorOptions : {},
-    collectionDepth,
+    collectionDepth: hasExplicitCollectionDepth(userText) || preserveFallbackDepth
+      ? collectionDepth
+      : skill?.defaults?.collectionDepth || collectionDepth,
     loginType,
     headless: Boolean(input?.headless),
-    analysis: normalizeAnalysisGoals(input?.analysis, goal),
+    analysis,
     analysisSource,
-    outputs: Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['csv'],
+    outputs: skill?.defaults?.outputs?.length
+      ? skill.defaults.outputs
+      : Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['csv'],
   };
 }
 
@@ -266,6 +302,7 @@ export class AgentService {
       attachment_ids?: string[];
       task_references?: Array<{ plan_id: string; platforms?: string[] }>;
       mentioned_connectors?: string[];
+      mentioned_skills?: string[];
     } = {},
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
@@ -284,12 +321,22 @@ export class AgentService {
         .filter((platform) => SUPPORTED.includes(platform) && available.has(platform));
       return { plan_id: plan.plan_id, goal: plan.goal, platforms };
     });
+    const mentionedConnectors = Array.from(new Set((context.mentioned_connectors || []).map(String)))
+      .filter((connector) => SUPPORTED.includes(connector));
+    const mentionedSkillIds = Array.from(new Set((context.mentioned_skills || []).map(String)));
+    if (mentionedSkillIds.length > 1) throw new Error('每次只能调用一个业务 Skill');
+    const explicitlySelectedSkill = skillRegistry.find(mentionedSkillIds[0]);
+    if (mentionedSkillIds.length && (!explicitlySelectedSkill || !explicitlySelectedSkill.mentionable)) {
+      throw new Error('选择的业务 Skill 不存在或不能直接调用');
+    }
     const messageMetadata = {
       attachments: attachments.map((attachment) => ({
         attachment_id: attachment.attachment_id, file_name: attachment.file_name,
         mime_type: attachment.mime_type, kind: attachment.kind, size_bytes: attachment.size_bytes,
       })),
       task_references: taskReferences,
+      mentioned_connectors: mentionedConnectors,
+      mentioned_skills: explicitlySelectedSkill ? [explicitlySelectedSkill.id] : [],
     };
     agentRepository.addMessage(threadId, 'user', 'text', content, messageMetadata);
     const previousMeaningfulMessage = thread.messages.some((message: any) =>
@@ -307,6 +354,17 @@ export class AgentService {
     const previousUserMessage = awaitingClarification
       ? lastUserMessage
       : null;
+    const inheritedSkillId = awaitingClarification
+      ? String(lastUserMessage?.metadata?.mentioned_skills?.[0] || '')
+      : '';
+    const activeSkill = explicitlySelectedSkill
+      || skillRegistry.find(inheritedSkillId)
+      || (latest?.status === 'awaiting_confirmation' ? skillRegistry.find(latest?.plan?.skillId) : null)
+      || null;
+    const inheritedConnectors = awaitingClarification && Array.isArray(lastUserMessage?.metadata?.mentioned_connectors)
+      ? lastUserMessage.metadata.mentioned_connectors.map(String)
+      : [];
+    const activeMentionedConnectors = mentionedConnectors.length ? mentionedConnectors : inheritedConnectors;
     const planningText = previousUserMessage ? `${previousUserMessage.content}\n用户补充：${content}` : content;
     const localDecision = localIntentDecision(content, {
       planStatus: latest?.status,
@@ -314,7 +372,8 @@ export class AgentService {
       previousUserText: lastUserMessage?.content,
       previousAssistantText: lastAssistantMessage?.content,
       hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
-      mentionedConnectors: context.mentioned_connectors,
+      mentionedConnectors: activeMentionedConnectors,
+      mentionedSkills: explicitlySelectedSkill || inheritedSkillId ? [activeSkill?.id || ''].filter(Boolean) : [],
     });
 
     if (localDecision.action === 'direct_parse') {
@@ -395,16 +454,26 @@ export class AgentService {
       const updatedThread = agentRepository.getThread(threadId);
       const messages = conversationMessages(updatedThread);
       try {
-        decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry, signal);
+        decision = await modelService.decide(
+          messages,
+          latest ? { status: latest.status, plan: latest.plan } : null,
+          onRetry,
+          signal,
+          skillPlanningContext(activeSkill),
+        );
         ensureMessageNotAborted(signal);
-        if (localDecision.action === 'create_plan' && ['chat', 'clarify', 'status', 'analyze', 'export'].includes(decision.action)) {
+        if (
+          localDecision.action === 'create_plan'
+          && ['chat', 'clarify', 'status', 'analyze', 'export'].includes(decision.action)
+          && !(activeSkill && decision.action === 'clarify' && !/平台/.test(decision.reply))
+        ) {
           // localDecision already confirmed both a subject and a platform are
           // present in this text (that's the only way it reaches create_plan),
           // so a model reply that instead reads it as a status/analyze/export
           // query is a misroute, not a legitimate alternative reading. Without
           // this, the model can silently discard an otherwise-complete
           // collection request and answer as if no plan exists.
-          const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+          const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
           ensureMessageNotAborted(signal);
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
@@ -436,7 +505,7 @@ export class AgentService {
         ensureMessageNotAborted(signal);
         if (localDecision.action === 'create_plan') {
           try {
-            const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+            const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
             ensureMessageNotAborted(signal);
             decision = { action: 'create_plan', reply: '', plan: generated };
           } catch (planError: any) {
@@ -519,9 +588,9 @@ export class AgentService {
           try {
             const updatedThread = agentRepository.getThread(threadId);
             const messages = conversationMessages(updatedThread);
-            const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+            const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
             ensureMessageNotAborted(signal);
-            const plan = normalizePlan(generated, planningText, latest?.plan);
+            const plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
             if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0))) {
               const created = agentRepository.createPlan(threadId, plan);
               this.executePlan(created.plan_id);
@@ -611,6 +680,10 @@ export class AgentService {
       const rows = agentRepository.getPlanContents(latest.plan_id, 100);
       if (rows.length) {
         try {
+          const analysisSkill = skillRegistry.find(latest.plan.skillId);
+          const skillRule = analysisSkill?.analysisInstructions
+            ? `\n业务 Skill：${analysisSkill.name}\n业务分析规则：${analysisSkill.analysisInstructions}`
+            : '';
           const isPartialAnalysis = ['queued', 'running'].includes(latest.status);
           const partialLead = isPartialAnalysis
             ? `> 阶段性分析：任务仍在采集中，以下结论基于当前已入库的 ${rows.length} 条内容，最终结果可能变化。\n\n`
@@ -618,14 +691,14 @@ export class AgentService {
           if (partialLead) onDelta?.(partialLead);
           if (isPartialAnalysis) knowledgeIndex.rebuild({ workflowId: latest.plan_id });
           let rag = await ragService.answer(
-            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}${isPartialAnalysis ? `\n当前任务尚未完成，只能基于已入库的 ${rows.length} 条内容做阶段性分析。` : ''}`,
+            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}${skillRule}${isPartialAnalysis ? `\n当前任务尚未完成，只能基于已入库的 ${rows.length} 条内容做阶段性分析。` : ''}`,
             { workflowId: latest.plan_id, limit: 10 },
             onDelta,
           );
           ensureMessageNotAborted(signal);
           if (!rag.sources.length) {
             knowledgeIndex.rebuild({ workflowId: latest.plan_id });
-            rag = await ragService.answer(content, { workflowId: latest.plan_id, limit: 10 }, onDelta);
+            rag = await ragService.answer(`${content}${skillRule}`, { workflowId: latest.plan_id, limit: 10 }, onDelta);
             ensureMessageNotAborted(signal);
           }
           agentRepository.addMessage(threadId, 'assistant', 'analysis', `${partialLead}${rag.answer}`, {
@@ -646,7 +719,12 @@ export class AgentService {
       if (referencedMaterials.texts.length || referencedMaterials.images.length) {
         try {
           const messages = conversationMessages(updatedThread);
-          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal, onDelta });
+          const answer = await modelService.converse(messages, {
+            materials: referencedMaterials,
+            analysisGoals: latest.plan.analysis,
+            skillInstructions: skillRegistry.find(latest.plan.skillId)?.analysisInstructions,
+            onRetry, signal, onDelta,
+          });
           ensureMessageNotAborted(signal);
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
         } catch (error: any) {
@@ -691,16 +769,16 @@ export class AgentService {
         };
       }
       const candidate = mergePlan(latest.plan, patch);
-      plan = normalizePlan(candidate, planningText, latest?.plan, true);
+      plan = normalizePlan(candidate, planningText, latest?.plan, true, activeSkill, activeMentionedConnectors);
     } else if (decision.action === 'create_plan') {
-      if (decision.plan) plan = normalizePlan(decision.plan, planningText, latest?.plan);
+      if (decision.plan) plan = normalizePlan(decision.plan, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
       else {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
         try {
-          const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
+          const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
           ensureMessageNotAborted(signal);
-          plan = normalizePlan(generated, planningText, latest?.plan);
+          plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
         }
         catch (error: any) {
           ensureMessageNotAborted(signal);
@@ -708,7 +786,7 @@ export class AgentService {
           plan = normalizePlan({
             platforms: inferResearchPlatforms(planningText),
             keywords: fallbackKeywords,
-          }, planningText, latest?.plan);
+          }, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
         }
       }
     } else {
@@ -730,7 +808,12 @@ export class AgentService {
         if (referencedMaterials.texts.length || referencedMaterials.images.length) {
           try {
             const messages = conversationMessages(updatedThread);
-            const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal, onDelta });
+            const answer = await modelService.converse(messages, {
+              materials: referencedMaterials,
+              analysisGoals: latest.plan.analysis,
+              skillInstructions: skillRegistry.find(latest.plan.skillId)?.analysisInstructions,
+              onRetry, signal, onDelta,
+            });
             ensureMessageNotAborted(signal);
             agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
             return agentRepository.getThread(threadId);
@@ -757,6 +840,7 @@ export class AgentService {
     const created = decision.action === 'revise_plan' && latest
       ? agentRepository.updatePendingPlan(latest.plan_id, plan)
       : agentRepository.createPlan(threadId, plan);
+    const planSkill = skillRegistry.find(plan.skillId);
     const platformNames = plan.platforms.map((p) => LABELS[p]).join('、');
     const capabilityLabel = plan.platforms
       .map((platform) => getConnectorManifest(platform)?.capabilities.find((capability) => capability.id === (plan.capability || 'keyword_search'))?.label)
@@ -823,7 +907,12 @@ export class AgentService {
       if (parts.length) diffLine = `\n（相比上一轮，${parts.join('，')}；如果不需要可以直接告诉我去掉）`;
     }
 
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。`, { plan_id: created.plan_id, action: decision.action });
+    const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n分析维度：${plan.analysis.join('、') || '按用户后续问题分析'}\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。`, {
+      plan_id: created.plan_id,
+      skill_id: planSkill?.id,
+      action: decision.action,
+    });
     if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
   }

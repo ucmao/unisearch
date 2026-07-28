@@ -18,13 +18,21 @@ export interface MentionEntity {
 // 选中时插入的是纯文本 "@名称 "，发送时并无结构化字段，因此按名称在文本中
 // 反向匹配；要求 @ 前是句首或空白，避免误吃到句子中间的普通文字。
 // entities 由 usePlatformMentionEntities() 提供（后端下发），这里不再自带平台表。
-export function extractMentionedConnectorIds(text: string, entities: MentionEntity[]): string[] {
+function extractMentionedIds(text: string, entities: MentionEntity[]): string[] {
   const found = new Set<string>()
   for (const entity of entities) {
     const pattern = new RegExp(`(^|\\s)@${entity.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=\\s|$)`)
     if (pattern.test(text)) found.add(entity.id)
   }
   return Array.from(found)
+}
+
+export function extractMentionedConnectorIds(text: string, entities: MentionEntity[]): string[] {
+  return extractMentionedIds(text, entities.filter((entity) => entity.category !== 'skill'))
+}
+
+export function extractMentionedSkillIds(text: string, entities: MentionEntity[]): string[] {
+  return extractMentionedIds(text, entities.filter((entity) => entity.category === 'skill'))
 }
 
 export const SLASH_COMMANDS: MentionEntity[] = [
@@ -37,11 +45,11 @@ export interface UseMentionCommandsOptions {
   value: string
   onChange: (newValue: string) => void
   onExecuteCommand?: (cmd: string) => void
-  /** @ 菜单的平台条目，来自 usePlatformMentionEntities()。 */
-  connectorEntities: MentionEntity[]
+  /** @ 菜单条目，可同时包含业务 Skill 与 Connector。 */
+  mentionEntities: MentionEntity[]
 }
 
-export function useMentionCommands({ value, onChange, onExecuteCommand, connectorEntities }: UseMentionCommandsOptions) {
+export function useMentionCommands({ value, onChange, onExecuteCommand, mentionEntities }: UseMentionCommandsOptions) {
   const [isOpen, setIsOpen] = useState(false)
   const [triggerType, setTriggerType] = useState<'@' | '/' | null>(null)
   const [filterText, setFilterText] = useState('')
@@ -50,13 +58,13 @@ export function useMentionCommands({ value, onChange, onExecuteCommand, connecto
   // 过滤后的实体列表
   const filteredEntities = useCallback(() => {
     if (!triggerType) return []
-    const rawList = triggerType === '@' ? connectorEntities : SLASH_COMMANDS
+    const rawList = triggerType === '@' ? mentionEntities : SLASH_COMMANDS
     if (!filterText.trim()) return rawList
     const query = filterText.toLowerCase()
     return rawList.filter(
       (item) => item.name.toLowerCase().includes(query) || item.key.toLowerCase().includes(query) || item.description?.toLowerCase().includes(query)
     )
-  }, [triggerType, filterText, connectorEntities])
+  }, [triggerType, filterText, mentionEntities])
 
   const items = filteredEntities()
 

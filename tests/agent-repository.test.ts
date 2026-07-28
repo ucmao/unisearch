@@ -40,6 +40,23 @@ test('creating a plan twice reuses the current active round', () => {
   }
 });
 
+test('a business Skill id and version are persisted with its plan', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('市场调研');
+    const created = repo.createPlan(thread.thread_id, plan({
+      skillId: 'marketing-content-research',
+      platforms: ['xhs', 'douyin'],
+    }));
+
+    assert.equal(created.skill_id, 'marketing-content-research');
+    assert.equal(created.skill_version, '1.0.0');
+    assert.equal(created.plan.skillId, 'marketing-content-research');
+  } finally {
+    db.close();
+  }
+});
+
 test('a completed round allows a new collection round in the same task', () => {
   const { db, repository: repo } = repository();
   try {
