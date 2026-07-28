@@ -468,8 +468,10 @@ function createWindow(port: number): void {
     width: 1200,
     height: 800,
     icon: getAppIconPath(),
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: { x: 14, y: 14 },
+    ...(process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset' as const,
+      trafficLightPosition: { x: 14, y: 14 },
+    } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

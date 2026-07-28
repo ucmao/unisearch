@@ -32,6 +32,23 @@ async function resolveRealUrl(encryptedUrl: string): Promise<string> {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  limit: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(values[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 // 1. Baidu Search Crawler (SystemHttpClient + Multi-Page Pagination)
 export class BaiduCrawler extends AbstractCrawler {
   public async search(): Promise<void> {
@@ -66,7 +83,10 @@ export class BaiduCrawler extends AbstractCrawler {
             break;
           }
 
-          let pageCount = 0;
+          const drafts: Array<{
+            title: string; encryptedUrl: string; snippet: string; publisher: string;
+            publishTime: string; images: string[]; rank: number;
+          }> = [];
           for (let i = 0; i < containers.length; i++) {
             if (totalRank >= maxItems) break;
 
@@ -78,8 +98,6 @@ export class BaiduCrawler extends AbstractCrawler {
             if (!title || !encryptedUrl) continue;
 
             totalRank++;
-            pageCount++;
-            const realUrl = await resolveRealUrl(encryptedUrl);
 
             let snippet = cleanText(
               $item.find('.c-abstract, .content-right, .c-span-last, .c-font-normal, [class*="content-"]').first().text() ||
@@ -98,24 +116,40 @@ export class BaiduCrawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await connectorOutput.emitSearchEngineResult({
-              search_engine: 'baidu',
+            drafts.push({
               title,
-              url: encryptedUrl,
-              real_url: realUrl,
+              encryptedUrl,
               snippet,
               publisher,
-              publish_time: timeMatch ? timeMatch[1] : '',
+              publishTime: timeMatch ? timeMatch[1] : '',
               images,
-              search_rank: totalRank,
+              rank: totalRank,
+            });
+          }
+
+          const resolvedDrafts = await mapWithConcurrency(drafts, 4, async (draft) => ({
+            ...draft,
+            realUrl: await resolveRealUrl(draft.encryptedUrl),
+          }));
+          for (const draft of resolvedDrafts) {
+            await connectorOutput.emitSearchEngineResult({
+              search_engine: 'baidu',
+              title: draft.title,
+              url: draft.encryptedUrl,
+              real_url: draft.realUrl,
+              snippet: draft.snippet,
+              publisher: draft.publisher,
+              publish_time: draft.publishTime,
+              images: draft.images,
+              search_rank: draft.rank,
               source_keyword: keyword,
             });
 
-            console.log(`[BAIDU] [P${page} #${totalRank}/${maxItems}] ${title} -> ${realUrl}`);
+            console.log(`[BAIDU] [P${page} #${draft.rank}/${maxItems}] ${draft.title} -> ${draft.realUrl}`);
           }
 
-          if (pageCount === 0) break;
-          await sleep(1000);
+          if (drafts.length === 0) break;
+          if (totalRank < maxItems) await sleep(500);
         } catch (err: any) {
           console.error(`[BAIDU] Search failed on page ${page} for "${keyword}": ${err.message}`);
           break;
@@ -358,7 +392,10 @@ export class So360Crawler extends AbstractCrawler {
             break;
           }
 
-          let pageCount = 0;
+          const drafts: Array<{
+            title: string; encryptedUrl: string; snippet: string; publisher: string;
+            publishTime: string; images: string[]; rank: number;
+          }> = [];
           for (let i = 0; i < containers.length; i++) {
             if (totalRank >= maxItems) break;
 
@@ -370,8 +407,6 @@ export class So360Crawler extends AbstractCrawler {
             if (!title || !encryptedUrl) continue;
 
             totalRank++;
-            pageCount++;
-            const realUrl = await resolveRealUrl(encryptedUrl);
 
             let snippet = cleanText(
               $item.find('.res-desc, .res-rich, p.res-desc').first().text()
@@ -389,24 +424,40 @@ export class So360Crawler extends AbstractCrawler {
               if (src && src.startsWith('http')) images.push(src);
             });
 
-            await connectorOutput.emitSearchEngineResult({
-              search_engine: 'so360',
+            drafts.push({
               title,
-              url: encryptedUrl,
-              real_url: realUrl,
+              encryptedUrl,
               snippet,
               publisher,
-              publish_time: timeMatch ? timeMatch[1] : '',
+              publishTime: timeMatch ? timeMatch[1] : '',
               images,
-              search_rank: totalRank,
+              rank: totalRank,
+            });
+          }
+
+          const resolvedDrafts = await mapWithConcurrency(drafts, 4, async (draft) => ({
+            ...draft,
+            realUrl: await resolveRealUrl(draft.encryptedUrl),
+          }));
+          for (const draft of resolvedDrafts) {
+            await connectorOutput.emitSearchEngineResult({
+              search_engine: 'so360',
+              title: draft.title,
+              url: draft.encryptedUrl,
+              real_url: draft.realUrl,
+              snippet: draft.snippet,
+              publisher: draft.publisher,
+              publish_time: draft.publishTime,
+              images: draft.images,
+              search_rank: draft.rank,
               source_keyword: keyword,
             });
 
-            console.log(`[360] [P${page} #${totalRank}/${maxItems}] ${title} -> ${realUrl}`);
+            console.log(`[360] [P${page} #${draft.rank}/${maxItems}] ${draft.title} -> ${draft.realUrl}`);
           }
 
-          if (pageCount === 0) break;
-          await sleep(1000);
+          if (drafts.length === 0) break;
+          if (totalRank < maxItems) await sleep(500);
         } catch (err: any) {
           console.error(`[360] Search failed on page ${page} for "${keyword}": ${err.message}`);
           break;
@@ -833,11 +884,13 @@ export class SogouCrawler extends AbstractCrawler {
           break;
         }
 
-        for (const item of pageItems) {
-          if (totalRank >= maxItems) break;
+        const currentPageItems = pageItems.slice(0, Math.max(0, maxItems - totalRank));
+        const resolvedItems = await mapWithConcurrency(currentPageItems, 4, async (item) => ({
+          item,
+          realUrl: await resolveRealUrl(item.url),
+        }));
+        for (const { item, realUrl } of resolvedItems) {
           totalRank++;
-
-          const realUrl = await resolveRealUrl(item.url);
           await connectorOutput.emitSearchEngineResult({
             search_engine: 'sogou',
             title: item.title,
@@ -854,7 +907,7 @@ export class SogouCrawler extends AbstractCrawler {
           console.log(`[SOGOU] [P${page} #${totalRank}/${maxItems}] ${item.title} -> ${realUrl}`);
         }
 
-        await sleep(1200);
+        if (totalRank < maxItems) await sleep(600);
       }
     }
   }

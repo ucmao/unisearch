@@ -43,7 +43,11 @@ export class RagService {
     private readonly model = modelService,
   ) {}
 
-  async answer(question: string, options: KnowledgeSearchOptions = {}): Promise<RagAnswer> {
+  async answer(
+    question: string,
+    options: KnowledgeSearchOptions = {},
+    onDelta?: (delta: string) => void,
+  ): Promise<RagAnswer> {
     const results = this.index.search(question, { ...options, limit: options.limit || 8 });
     const sources = results.map((result, index) => ({
       id: `S${index + 1}`,
@@ -94,7 +98,7 @@ export class RagService {
         role: 'user',
         content: `${question}\n\n请只根据提供的知识库资料回答。每个关键事实后使用 [S1]、[S2] 格式标注来源；资料不足时明确说明，不要补造。`,
       },
-    ], { materials });
+    ], { materials, onDelta });
 
     return { answer: rawAnswer.trim(), sources };
   }

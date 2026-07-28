@@ -363,6 +363,51 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
+  fastify.post('/api/agent/threads/:thread_id/messages/stream', async (request, reply) => {
+    const { thread_id } = request.params as { thread_id: string };
+    const { content, attachment_ids, task_references, mentioned_connectors } = request.body as {
+      content?: string;
+      attachment_ids?: string[];
+      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+      mentioned_connectors?: string[];
+    };
+    if (!content?.trim()) return reply.status(400).send({ detail: 'Message is required' });
+    if (activeAgentMessageRequests.has(thread_id)) {
+      return reply.status(409).send({ detail: '该任务已有消息正在处理中' });
+    }
+
+    const controller = new AbortController();
+    activeAgentMessageRequests.set(thread_id, controller);
+    reply.hijack();
+    reply.raw.statusCode = 200;
+    reply.raw.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.flushHeaders?.();
+    const write = (event: Record<string, unknown>) => {
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+    };
+
+    try {
+      const thread = await agentService.sendMessage(
+        thread_id,
+        content.trim(),
+        { attachment_ids, task_references, mentioned_connectors },
+        controller.signal,
+        (delta) => write({ type: 'delta', delta }),
+      );
+      write({ type: 'complete', thread });
+    } catch (error: any) {
+      write({
+        type: controller.signal.aborted ? 'stopped' : 'error',
+        detail: controller.signal.aborted ? '已停止生成' : (error.message || 'AI 消息处理失败'),
+      });
+    } finally {
+      if (activeAgentMessageRequests.get(thread_id) === controller) activeAgentMessageRequests.delete(thread_id);
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end();
+    }
+  });
+
   fastify.post('/api/agent/threads/:thread_id/messages/stop', async (request) => {
     const { thread_id } = request.params as any;
     const controller = activeAgentMessageRequests.get(thread_id);

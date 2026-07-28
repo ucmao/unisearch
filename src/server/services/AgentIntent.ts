@@ -148,6 +148,11 @@ export function inferResearchPlatforms(text: string): string[] {
   return [];
 }
 
+export function hasExplicitCollectionDepth(text: string): boolean {
+  return /(?:快速|简单|即时|秒级|随便|大概|前几条|抓几条|只要列表|不要评论|不采评论|不集评论|不加评论|前[一二两三1-3]\s*页|[1-3]\s*页|前[1-3]0\s*条|标准|常规|前[四五4-5]\s*页|5\s*页|50\s*条|深挖|尽量多|全量|全面|完整采集|深度采集|深入采集|详细采集|范围.{0,4}(?:深度|详细|深入|完整)|前[六七八九十6-9]|10\s*页|100\s*条)/i.test(text)
+    || /^(?:范围\s*(?:改成|改为|用|：|:)?\s*)?深度[。！!？?\s]*$/i.test(text.trim());
+}
+
 export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep' | 'custom' {
   if (/(?:快速|简单|即时|秒级|随便|大概|前几条|抓几条|只要列表|不要评论|不采评论|不集评论|不加评论|前[一二两三1-3]\s*页|[1-3]\s*页|前[1-3]0\s*条)/i.test(text)) {
     return 'quick';
@@ -161,7 +166,8 @@ export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep
   if (/(?:标准|常规|前[四五4-5]\s*页|5\s*页|50\s*条)/i.test(text)) {
     return 'standard';
   }
-  return 'standard';
+  // 未指定采集量时优先快速返回首批可用结果；用户明确要求常规、完整或深挖时再扩大范围。
+  return 'quick';
 }
 
 const DIRECT_PARSE_KEYWORDS = /(?:去水印|解析|提取视频|无水印|视频链接|解水印|直链)/i;
@@ -239,6 +245,7 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
   if (['queued', 'running'].includes(String(status)) && STOP.test(value)) return { action: 'stop', reply: '好的，我正在停止当前采集任务。' };
   if (STATUS_QUERY.test(value)) return { action: 'status', reply: '' };
   if (EXPORT.test(value)) return { action: 'export', reply: '' };
+  if (['queued', 'running'].includes(String(status)) && ANALYZE.test(value)) return { action: 'analyze', reply: '' };
   if (['completed', 'partially_completed'].includes(String(status)) && (ANALYZE.test(value) || /^(?:都要|全都要|正面|负面|趋势|舆情|都可以|没问题|好的?)$/i.test(value))) return { action: 'analyze', reply: '' };
   if (status === 'awaiting_confirmation' && (REVISE.test(value) || isAnalysisRevisionRequest(value))) return { action: 'revise_plan', reply: '' };
 
@@ -261,7 +268,7 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
     if (!inferResearchPlatforms(value).length) {
       return {
         action: 'clarify',
-        reply: '明白了。你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。如果没有采集量偏好，我会先按标准深度执行，你也可以在确认计划时改成快速或深度。',
+        reply: '明白了。你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。如果没有采集量偏好，我会先按快速模式返回首批结果，你也可以在确认计划时改成标准或深度。',
         missingFields: ['platforms'],
       };
     }

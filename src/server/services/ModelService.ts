@@ -39,6 +39,19 @@ export function stripModelReasoning(content: string): string {
     .trim();
 }
 
+function visibleStreamingContent(content: string): string {
+  return content
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/<think>[\s\S]*$/gi, '')
+    .trimStart();
+}
+
+function streamedTextPart(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((part: any) => typeof part?.text === 'string' ? part.text : '').join('');
+}
+
 export function parseModelJson<T>(content: string): T {
   const cleaned = stripModelReasoning(content)
     .replace(/```(?:json)?\s*/gi, '')
@@ -162,7 +175,10 @@ export class ModelService {
     const config = this.readConfig();
     const provider = requestedProvider || config.activeProvider;
     const stored = config.profiles[provider];
-    const apiKey = stored.apiKey || this.decrypt(provider, stored.apiKeyEncrypted) || this.apiKeyMemory[provider] || '';
+    const apiKeyConfigured = Boolean(stored.apiKey || stored.apiKeyEncrypted || this.apiKeyMemory[provider]);
+    const apiKey = includeSecret
+      ? stored.apiKey || this.decrypt(provider, stored.apiKeyEncrypted) || this.apiKeyMemory[provider] || ''
+      : '';
     return {
       provider,
       baseUrl: stored.baseUrl,
@@ -170,7 +186,7 @@ export class ModelService {
       temperature: stored.temperature,
       timeoutMs: stored.timeoutMs,
       ...(includeSecret ? { apiKey } : {}),
-      apiKeyConfigured: Boolean(apiKey || stored.apiKey || stored.apiKeyEncrypted || this.apiKeyMemory[provider]),
+      apiKeyConfigured,
       connectionVerified: Boolean(stored.connectionVerifiedAt),
       lastError: this.lastErrors[provider] || '',
     };
@@ -180,7 +196,7 @@ export class ModelService {
     const config = this.readConfig();
     return {
       activeProvider: config.activeProvider,
-      profiles: MODEL_PROVIDERS.map((provider) => this.getProfile(true, provider)),
+      profiles: MODEL_PROVIDERS.map((provider) => this.getProfile(false, provider)),
     };
   }
 
@@ -234,7 +250,7 @@ export class ModelService {
     config.profiles[provider] = next;
     if (connectionChanged) this.lastErrors[provider] = '';
     this.writeConfig(config);
-    return this.getProfile(true);
+    return this.getProfile(false);
   }
 
   private markConnectionVerified(provider: ModelProvider) {
@@ -257,6 +273,7 @@ export class ModelService {
     healthCritical = true,
     onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void,
     signal?: AbortSignal,
+    onDelta?: (delta: string) => void,
   ): Promise<string> {
     const profile = this.getProfile(true);
     if (!profile.apiKey) {
@@ -268,18 +285,56 @@ export class ModelService {
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       signal?.throwIfAborted();
+      let streamedVisible = false;
       try {
         const response = await axios.post(`${profile.baseUrl}/chat/completions`, {
           model: profile.model,
           messages,
           temperature: profile.temperature,
           max_tokens: maxTokens,
-          stream: false,
+          stream: Boolean(onDelta),
         }, {
           timeout: profile.timeoutMs,
           signal,
+          ...(onDelta ? { responseType: 'stream' as const } : {}),
           headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
         });
+        if (onDelta) {
+          let buffer = '';
+          let rawContent = '';
+          let emittedContent = '';
+          for await (const chunk of response.data as AsyncIterable<Buffer | string>) {
+            signal?.throwIfAborted();
+            buffer += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+            const lines = buffer.split(/\r?\n/);
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              const value = line.trim();
+              if (!value.startsWith('data:')) continue;
+              const payload = value.slice(5).trim();
+              if (!payload || payload === '[DONE]') continue;
+              let event: any;
+              try { event = JSON.parse(payload); } catch { continue; }
+              rawContent += streamedTextPart(event?.choices?.[0]?.delta?.content);
+              const visible = visibleStreamingContent(rawContent);
+              if (visible.length > emittedContent.length && visible.startsWith(emittedContent)) {
+                const delta = visible.slice(emittedContent.length);
+                emittedContent = visible;
+                streamedVisible = true;
+                try { onDelta(delta); } catch {}
+              }
+            }
+          }
+          const visible = stripModelReasoning(rawContent);
+          if (visible) {
+            if (visible.length > emittedContent.length && visible.startsWith(emittedContent)) {
+              try { onDelta(visible.slice(emittedContent.length)); } catch {}
+            }
+            this.lastErrors[profile.provider] = '';
+            return visible;
+          }
+          throw new Error('模型没有返回文本内容');
+        }
         const content = response.data?.choices?.[0]?.message?.content;
         if (typeof content === 'string') {
           const visible = stripModelReasoning(content);
@@ -301,7 +356,7 @@ export class ModelService {
         const message = this.publicError(error);
         lastErrorMsg = message;
 
-        if (isRetryableModelError(error) && attempt < maxRetries) {
+        if (isRetryableModelError(error) && !streamedVisible && attempt < maxRetries) {
           const status = error?.response?.status;
           // Retry delay exponential backoff starting from 5 seconds: 5s, 10s, 20s
           let delayMs = 5000 * Math.pow(2, attempt);
@@ -327,6 +382,7 @@ export class ModelService {
               reject(signal.reason || new DOMException('The operation was aborted', 'AbortError'));
             }, { once: true });
           });
+          continue;
         }
 
         if (healthCritical) {
@@ -385,7 +441,7 @@ export class ModelService {
 
   async converse(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-    options: { redirectToResearch?: boolean; materials?: ConversationMaterials; memories?: ConversationMemory[]; analysisGoals?: string[]; onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void; signal?: AbortSignal } = {},
+    options: { redirectToResearch?: boolean; materials?: ConversationMaterials; memories?: ConversationMemory[]; analysisGoals?: string[]; onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void; signal?: AbortSignal; onDelta?: (delta: string) => void } = {},
   ): Promise<string> {
     const materials = options.materials;
     const materialText = materials?.texts.length
@@ -425,7 +481,7 @@ export class ModelService {
       ...analysisMessages,
       ...materialMessages,
       ...messages,
-    ], 3000, true, options.onRetry, options.signal);
+    ], 3000, true, options.onRetry, options.signal, options.onDelta);
   }
 
   async generateThreadTitle(messages: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<string> {

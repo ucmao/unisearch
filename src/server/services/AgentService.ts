@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
-import { inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { hasExplicitCollectionDepth, inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
@@ -16,7 +16,7 @@ import { exportService } from '../../exporters/registry';
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
 
-function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan): ResearchPlan {
+function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan, preserveFallbackDepth = false): ResearchPlan {
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
@@ -65,9 +65,14 @@ function normalizePlan(input: any, userText: string, fallbackPlan?: ResearchPlan
     ? input.analysisSource
     : suppliedAnalysis ? 'ai' : 'fallback';
 
-  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = ['quick', 'standard', 'deep', 'custom'].includes(String(input?.collectionDepth))
-    ? input.collectionDepth
-    : inferCollectionDepth(userText);
+  // Do not let the planner silently enlarge a new run. The user's own words are
+  // authoritative; absent an explicit scope, every new plan starts at quick.
+  // A revision that only changes another field keeps the pending plan's depth.
+  const collectionDepth: 'quick' | 'standard' | 'deep' | 'custom' = hasExplicitCollectionDepth(userText)
+    ? inferCollectionDepth(userText)
+    : preserveFallbackDepth && fallbackPlan?.collectionDepth
+      ? fallbackPlan.collectionDepth
+      : 'quick';
 
   const selectedPlatforms = platforms.length ? platforms : inferredPlatforms;
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
@@ -123,6 +128,16 @@ function ensureMessageNotAborted(signal?: AbortSignal) {
   signal?.throwIfAborted();
 }
 
+function conversationMessages(thread: any): Array<{ role: 'user' | 'assistant'; content: string }> {
+  return (thread.messages || [])
+    .filter((message: any) => ['user', 'assistant'].includes(message.role))
+    .slice(-20)
+    .map((message: any) => ({
+      role: message.role as 'user' | 'assistant',
+      content: String(message.content).slice(0, 8_000),
+    }));
+}
+
 export class AgentService {
   private workflowTick: Promise<void> | null = null;
   private memoryCaptureQueue: Promise<void> = Promise.resolve();
@@ -157,7 +172,7 @@ export class AgentService {
 
     const texts: ConversationMaterials['texts'] = [];
     const images: ConversationMaterials['images'] = [];
-    let remainingChars = 90_000;
+    let remainingChars = 32_000;
     for (const attachment of agentRepository.getAttachments(thread.thread_id, [...attachmentIds])) {
       if (attachment.kind === 'image' && attachment.storage_path) {
         try {
@@ -253,6 +268,7 @@ export class AgentService {
       mentioned_connectors?: string[];
     } = {},
     signal?: AbortSignal,
+    onDelta?: (delta: string) => void,
   ) {
     ensureMessageNotAborted(signal);
     const thread = agentRepository.getThread(threadId);
@@ -347,18 +363,16 @@ export class AgentService {
     }
 
     let decision: AgentDecision;
-    if (localDecision.action === 'model_info') {
+    if (['model_info', 'execute', 'stop', 'status', 'analyze', 'export'].includes(localDecision.action)) {
       decision = localDecision;
     } else if (localDecision.action === 'chat' && ((attachments.length > 0 || taskReferences.length > 0) || isSimpleConversation(content))) {
       try {
         const updatedThread = agentRepository.getThread(threadId);
-        const messages = updatedThread.messages
-          .filter((message: any) => ['user', 'assistant'].includes(message.role))
-          .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+        const messages = conversationMessages(updatedThread);
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
         const materials = this.collectMaterials(updatedThread);
         const memories = this.recallMemories();
-        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal })).trim();
+        const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal, onDelta })).trim();
         ensureMessageNotAborted(signal);
         if (!reply) throw new Error('模型没有返回文本内容');
         agentRepository.addMessage(threadId, 'assistant', 'text', reply, {
@@ -379,9 +393,7 @@ export class AgentService {
       }
     } else {
       const updatedThread = agentRepository.getThread(threadId);
-      const messages = updatedThread.messages
-        .filter((message: any) => ['user', 'assistant'].includes(message.role))
-        .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+      const messages = conversationMessages(updatedThread);
       try {
         decision = await modelService.decide(messages, latest ? { status: latest.status, plan: latest.plan } : null, onRetry, signal);
         ensureMessageNotAborted(signal);
@@ -470,9 +482,7 @@ export class AgentService {
 
     if (decision.action === 'chat' || decision.action === 'clarify') {
       const updatedThread = agentRepository.getThread(threadId);
-      const messages = updatedThread.messages
-        .filter((message: any) => ['user', 'assistant'].includes(message.role))
-        .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+      const messages = conversationMessages(updatedThread);
       const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
       const materials = this.collectMaterials(updatedThread);
       const memories = this.recallMemories();
@@ -480,7 +490,7 @@ export class AgentService {
       let reply = decision.reply.trim();
       if (decision.action === 'chat') {
         try {
-          const converseReply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal })).trim();
+          const converseReply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal, onDelta })).trim();
           if (converseReply) reply = converseReply;
         } catch {}
       }
@@ -508,9 +518,7 @@ export class AgentService {
         if (inferredPlatforms.length > 0 && inferredKeywords.length > 0) {
           try {
             const updatedThread = agentRepository.getThread(threadId);
-            const messages = updatedThread.messages
-              .filter((message: any) => ['user', 'assistant'].includes(message.role))
-              .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+            const messages = conversationMessages(updatedThread);
             const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
             ensureMessageNotAborted(signal);
             const plan = normalizePlan(generated, planningText, latest?.plan);
@@ -591,8 +599,8 @@ export class AgentService {
       return agentRepository.getThread(threadId);
     }
 
-    if (decision.action === 'analyze' || (latest && ['completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
-      if (!latest || !['completed', 'partially_completed'].includes(latest.status)) {
+    if (decision.action === 'analyze' || (latest && ['queued', 'running', 'completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
+      if (!latest || !['queued', 'running', 'completed', 'partially_completed'].includes(latest.status)) {
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有已完成的采集结果可以分析。', { action: 'chat' });
         return agentRepository.getThread(threadId);
       }
@@ -603,19 +611,28 @@ export class AgentService {
       const rows = agentRepository.getPlanContents(latest.plan_id, 100);
       if (rows.length) {
         try {
+          const isPartialAnalysis = ['queued', 'running'].includes(latest.status);
+          const partialLead = isPartialAnalysis
+            ? `> 阶段性分析：任务仍在采集中，以下结论基于当前已入库的 ${rows.length} 条内容，最终结果可能变化。\n\n`
+            : '';
+          if (partialLead) onDelta?.(partialLead);
+          if (isPartialAnalysis) knowledgeIndex.rebuild({ workflowId: latest.plan_id });
           let rag = await ragService.answer(
-            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}`,
+            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}${isPartialAnalysis ? `\n当前任务尚未完成，只能基于已入库的 ${rows.length} 条内容做阶段性分析。` : ''}`,
             { workflowId: latest.plan_id, limit: 10 },
+            onDelta,
           );
           ensureMessageNotAborted(signal);
           if (!rag.sources.length) {
             knowledgeIndex.rebuild({ workflowId: latest.plan_id });
-            rag = await ragService.answer(content, { workflowId: latest.plan_id, limit: 10 });
+            rag = await ragService.answer(content, { workflowId: latest.plan_id, limit: 10 }, onDelta);
             ensureMessageNotAborted(signal);
           }
-          agentRepository.addMessage(threadId, 'assistant', 'analysis', rag.answer, {
+          agentRepository.addMessage(threadId, 'assistant', 'analysis', `${partialLead}${rag.answer}`, {
             retrieval: 'hybrid_rag',
             sources: rag.sources,
+            partial: isPartialAnalysis,
+            analyzed_record_count: rows.length,
           });
         } catch (error: any) {
           ensureMessageNotAborted(signal);
@@ -628,10 +645,8 @@ export class AgentService {
       const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
       if (referencedMaterials.texts.length || referencedMaterials.images.length) {
         try {
-          const messages = updatedThread.messages
-            .filter((message: any) => ['user', 'assistant'].includes(message.role))
-            .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal });
+          const messages = conversationMessages(updatedThread);
+          const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal, onDelta });
           ensureMessageNotAborted(signal);
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
         } catch (error: any) {
@@ -676,14 +691,12 @@ export class AgentService {
         };
       }
       const candidate = mergePlan(latest.plan, patch);
-      plan = normalizePlan(candidate, latest.goal, latest?.plan);
+      plan = normalizePlan(candidate, planningText, latest?.plan, true);
     } else if (decision.action === 'create_plan') {
       if (decision.plan) plan = normalizePlan(decision.plan, planningText, latest?.plan);
       else {
         const updatedThread = agentRepository.getThread(threadId);
-        const messages = updatedThread.messages
-          .filter((message: any) => ['user', 'assistant'].includes(message.role))
-          .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
+        const messages = conversationMessages(updatedThread);
         try {
           const generated = await modelService.createPlan(messages, planningText, onRetry, signal);
           ensureMessageNotAborted(signal);
@@ -716,10 +729,8 @@ export class AgentService {
         const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
         if (referencedMaterials.texts.length || referencedMaterials.images.length) {
           try {
-            const messages = updatedThread.messages
-              .filter((message: any) => ['user', 'assistant'].includes(message.role))
-              .map((message: any) => ({ role: message.role as 'user' | 'assistant', content: String(message.content) }));
-            const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal });
+            const messages = conversationMessages(updatedThread);
+            const answer = await modelService.converse(messages, { materials: referencedMaterials, analysisGoals: latest.plan.analysis, onRetry, signal, onDelta });
             ensureMessageNotAborted(signal);
             agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
             return agentRepository.getThread(threadId);
@@ -766,7 +777,7 @@ export class AgentService {
 
     let scopeLine = '';
     if (!isOnlyAiQA) {
-      const depth = plan.collectionDepth || 'standard';
+      const depth = plan.collectionDepth || 'quick';
       // Explicit per-platform overrides are the only thing left that can deviate from
       // the depth preset, so they are what's worth spelling out to the user.
       const overrides = Object.values(plan.connectorOptions || {});
@@ -789,8 +800,10 @@ export class AgentService {
             .find((item) => item.id === (plan.capability || 'keyword_search')))
           .filter((item: any): item is NonNullable<typeof item> => Boolean(item));
         const detail = describeDepthForCapabilities(capabilities, depth);
-        depthSummary = DEPTH_LABELS[depth as DepthLevel] || '标准';
-        if (detail) depthSummary += `（${detail}）`;
+        const label = DEPTH_LABELS[depth as DepthLevel] || '快速';
+        depthSummary = depth === 'quick' && !hasExplicitCollectionDepth(planningText)
+          ? `${label}（默认推荐${detail ? `；${detail}` : ''}）`
+          : `${label}${detail ? `（${detail}）` : ''}`;
       }
       scopeLine = `\n范围：${depthSummary}`;
     }

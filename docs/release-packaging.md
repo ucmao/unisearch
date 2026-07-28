@@ -22,7 +22,7 @@ npm ci
 npm run electron:build:win:release
 ```
 
-Windows 发布构建生成 x64 NSIS 安装包，并强制要求签名成功。建议通过 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD` 注入证书，或者使用构建机证书存储和 electron-builder 的证书配置。
+普通 `npm run electron:build` 会关闭 Windows EXE 的资源编辑与签名，以绕过 electron-builder 24.13.3 的 `winCodeSign` 符号链接权限问题。Windows 正式发布命令会显式恢复资源编辑并强制要求签名成功，因此必须先解决构建机的 `winCodeSign` 权限并配置 Authenticode 证书。建议通过 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD` 注入证书，或者使用构建机证书存储和 electron-builder 的证书配置。
 
 ## 安装包检查
 

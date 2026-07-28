@@ -130,6 +130,10 @@ test('completed task analysis stays on the local analysis path', () => {
   }
 });
 
+test('running tasks allow partial analysis of already collected results', () => {
+  assert.equal(localIntentDecision('先分析目前采到的结果', { planStatus: 'running' }).action, 'analyze');
+});
+
 test('capability and model questions never become collection plans', () => {
   for (const message of ['你支持什么平台', '你支持采集什么平台', '支持哪些平台？']) {
     const decision = localIntentDecision(message);
@@ -165,4 +169,13 @@ test('search engine alias and page range expressions are parsed correctly', () =
   assert.equal(inferCollectionDepth('改为前3页'), 'quick');
   assert.equal(inferCollectionDepth('改成前5页'), 'standard');
   assert.equal(inferCollectionDepth('改为前10页'), 'deep');
+});
+
+test('unspecified collection depth defaults to quick first results', () => {
+  const { hasExplicitCollectionDepth, inferCollectionDepth } = require('../src/server/services/AgentIntent');
+  assert.equal(inferCollectionDepth('采集小红书上的新品反馈'), 'quick');
+  assert.equal(hasExplicitCollectionDepth('采集小红书上的新品反馈'), false);
+  assert.equal(hasExplicitCollectionDepth('调研新品舆情并做深入分析'), false);
+  assert.equal(hasExplicitCollectionDepth('尽量全面采集小红书上的新品反馈'), true);
+  assert.equal(inferCollectionDepth('按常规范围采集'), 'standard');
 });

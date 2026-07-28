@@ -40,6 +40,8 @@ export class CrawlerTask {
   private lastErrorCode: string | null = null;
   private lastFailureRetryable = false;
   private consecutiveRetryableFailures = 0;
+  private liveItemCount = 0;
+  private firstItemAt: number | null = null;
   public shouldLoop: boolean;
   private loopTimeout: NodeJS.Timeout | null = null;
 
@@ -143,6 +145,8 @@ export class CrawlerTask {
     this.lastErrorMessage = null;
     this.lastErrorCode = null;
     this.lastFailureRetryable = false;
+    this.liveItemCount = 0;
+    this.firstItemAt = null;
 
     const isPackaged = Boolean(require('electron').app?.isPackaged);
     let workerPath = '';
@@ -229,7 +233,21 @@ export class CrawlerTask {
             if (event.runId !== this.currentRunId || event.sequence <= this.lastEventSequence) return;
             this.lastEventSequence = event.sequence;
             manager.emit('connector_event', event);
-            if (event.type === 'progress' && event.message) {
+            if (event.type === 'item') {
+              this.liveItemCount++;
+              if (this.currentRunId && (this.liveItemCount === 1 || this.liveItemCount % 5 === 0)) {
+                analyticsRepository.refreshRunCounts(this.currentRunId);
+              }
+              if (this.liveItemCount === 1) {
+                this.firstItemAt = Date.now();
+                const firstItemSeconds = this.startedAt
+                  ? ((this.firstItemAt - new Date(this.startedAt).getTime()) / 1000).toFixed(1)
+                  : '0.0';
+                this.addLog(`首条数据已入库（${firstItemSeconds}秒），可以立即打开结果看板查看`, 'success', manager);
+              } else if (this.liveItemCount % 10 === 0) {
+                this.addLog(`已实时入库 ${this.liveItemCount} 条原始结果，任务仍在继续`, 'info', manager);
+              }
+            } else if (event.type === 'progress' && event.message) {
               this.addLog(event.message, 'info', manager);
             } else if (event.type === 'warning') {
               this.addLog(`[${event.code}] ${event.message}`, 'warning', manager);
