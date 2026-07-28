@@ -10,6 +10,14 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   clean: true,
+  noExternal: [
+    'axios',
+    'cheerio',
+    'dotenv',
+    'exceljs',
+    'segmentit',
+    'zod',
+  ],
   external: [
     'better-sqlite3',
     'playwright',
