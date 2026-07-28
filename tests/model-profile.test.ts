@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import axios from 'axios';
 import { isRetryableModelError, ModelService } from '../src/server/services/ModelService';
 
 test('model retries only transient failures', () => {
@@ -121,6 +122,39 @@ test('model conversation respects an aborted request signal', async () => {
       (error: any) => error?.name === 'AbortError',
     );
   } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('model conversation streams visible deltas and hides reasoning blocks', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-stream-'));
+  const configPath = path.join(directory, 'model-profile.json');
+  const originalPost = axios.post;
+
+  try {
+    const service = new ModelService(configPath);
+    service.saveProfile({ provider: 'custom', baseUrl: 'https://stream.example', model: 'stream-model', apiKey: 'secret' });
+    let requestedStream = false;
+    (axios as any).post = async (_url: string, body: any) => {
+      requestedStream = body.stream;
+      return {
+        data: (async function* () {
+          yield Buffer.from('data: {"choices":[{"delta":{"content":"<think>内部"}}]}\n\n');
+          yield Buffer.from('data: {"choices":[{"delta":{"content":"推理</think>你"}}]}\n\n');
+          yield Buffer.from('data: {"choices":[{"delta":{"content":"好"}}]}\n\ndata: [DONE]\n\n');
+        })(),
+      };
+    };
+    const deltas: string[] = [];
+    const answer = await service.converse([{ role: 'user', content: '打招呼' }], {
+      onDelta: (delta) => deltas.push(delta),
+    });
+
+    assert.equal(requestedStream, true);
+    assert.equal(answer, '你好');
+    assert.equal(deltas.join(''), '你好');
+  } finally {
+    (axios as any).post = originalPost;
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });

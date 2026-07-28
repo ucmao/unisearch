@@ -603,7 +603,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const tasksQuery = useQuery({
     queryKey: ['analytics-tasks'],
     queryFn: async () => (await dataApi.getAnalyticsTasks()).data,
-    refetchInterval: crawlerStatus === 'running' ? 3000 : false,
+    refetchInterval: crawlerStatus === 'running' ? 1500 : false,
   })
   const tasks = tasksQuery.data?.items || []
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
@@ -614,10 +614,12 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const summaryQuery = useQuery({
     queryKey: ['analytics-summary', filters],
     queryFn: async () => (await dataApi.getAnalyticsSummary(filters)).data,
+    refetchInterval: crawlerStatus === 'running' ? 1500 : false,
   })
   const documentsQuery = useQuery({
     queryKey: ['analytics-documents', filters, sortBy, sortOrder, page],
     queryFn: async () => (await dataApi.getAnalyticsDocuments({ ...filters, sort_by: sortBy, sort_order: sortOrder, page, page_size: 20 })).data,
+    refetchInterval: crawlerStatus === 'running' ? 1500 : false,
   })
   const summary = summaryQuery.data
   const documents = documentsQuery.data

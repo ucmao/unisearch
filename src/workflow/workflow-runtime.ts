@@ -122,7 +122,7 @@ export class WorkflowRuntime {
         agentRepository.updateStep(step.step_id, 'failed', null, `${manifest?.name || step.platform} 不支持能力 ${capabilityId}`);
         continue;
       }
-      const depth = plan.collectionDepth || 'standard';
+      const depth = plan.collectionDepth || 'quick';
       const preset = resolveDepthPreset(capability, depth);
       const maxItemsDefault = capability.inputFields.find((field) => field.key === 'max_items')?.default;
       // The 'comments' capability exists solely to fetch comments, so it forces them on

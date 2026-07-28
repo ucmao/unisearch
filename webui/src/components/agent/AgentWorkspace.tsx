@@ -443,15 +443,51 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const sendAbortControllerRef = useRef<AbortController | null>(null)
   const [isStoppingMessage, setIsStoppingMessage] = useState(false)
   const send = useMutation({
-    mutationFn: ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
+    mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
       sendAbortControllerRef.current = controller
       const mentionedConnectors = extractMentionedConnectorIds(content, connectorEntities)
-      return agentApi.sendMessage(id, content, {
-        attachment_ids: attachmentIds,
-        task_references: references,
-        ...(mentionedConnectors.length ? { mentioned_connectors: mentionedConnectors } : {}),
-      }, controller.signal)
+      const streamingMessageId = `streaming-${id}`
+      let streamedContent = ''
+      let renderedContent = ''
+      let renderFrame: number | null = null
+      const renderDelta = () => {
+        renderFrame = null
+        if (renderedContent === streamedContent) return
+        renderedContent = streamedContent
+        client.setQueryData<AgentThread>(['agent-thread', id], (current) => {
+          if (!current) return current
+          const streamedMessage: AgentMessage = {
+            message_id: streamingMessageId,
+            thread_id: id,
+            role: 'assistant',
+            kind: 'text',
+            content: renderedContent,
+            metadata: { streaming: true },
+            created_at: new Date().toISOString(),
+          }
+          const existingIndex = current.messages.findIndex((item) => item.message_id === streamingMessageId)
+          return {
+            ...current,
+            messages: existingIndex >= 0
+              ? current.messages.map((item, index) => index === existingIndex ? streamedMessage : item)
+              : [...current.messages, streamedMessage],
+          }
+        })
+        bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      }
+      try {
+        return await agentApi.sendMessageStream(id, content, {
+          attachment_ids: attachmentIds,
+          task_references: references,
+          ...(mentionedConnectors.length ? { mentioned_connectors: mentionedConnectors } : {}),
+        }, (delta) => {
+          streamedContent += delta
+          if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+        }, controller.signal)
+      } finally {
+        if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
+      }
     },
     onMutate: async ({ id, message }) => {
       await client.cancelQueries({ queryKey: ['agent-thread', id] })
@@ -468,7 +504,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-model-profile'] })
     },
     onError: (error, { id }) => {
-      if ((error as any)?.code !== 'ERR_CANCELED') toast.error(getError(error))
+      if ((error as any)?.code !== 'ERR_CANCELED' && (error as any)?.name !== 'AbortError') toast.error(getError(error))
       client.invalidateQueries({ queryKey: ['agent-thread', id] })
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
@@ -826,7 +862,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   // says nothing about it. The composer button needs this to offer a real abort.
   const isPlanRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
-  const isThinking = send.isPending && send.variables?.id === selectedId
+  const hasStreamingAnswer = Boolean(threadQuery.data?.messages.some((message) => message.metadata?.streaming))
+  const isThinking = send.isPending && send.variables?.id === selectedId && !hasStreamingAnswer
   const toggleThreads = () => {
     setThreadsCollapsed((current) => {
       localStorage.setItem('unisearch-threads-collapsed', String(!current))
@@ -1501,6 +1538,16 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     </Button>
                     {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
                   </div>
+                ) : null}
+                {isRunning && sessionTotalItems > 0 ? (
+                  <Button
+                    variant="outline"
+                    className="h-9 w-full gap-1.5 text-xs"
+                    onClick={() => handleApplyPrompt('先分析目前已采集的结果')}
+                  >
+                    <Sparkles className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                    分析当前结果（阶段性）
+                  </Button>
                 ) : null}
                 {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : activePlan.status === 'stopped' ? '继续采集未完成平台' : '重试失败/无结果平台'}</Button> : null}
               </div>

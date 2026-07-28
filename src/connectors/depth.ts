@@ -169,6 +169,6 @@ export function depthPromptGuide(): string {
   return [
     '采集深度只输出 collectionDepth 一个字段，具体条数、评论开关、起始页一律由后端按各连接器自身的上限推导，不要自行输出条数或页数。',
     ...lines.map((line) => `- ${line}`),
-    '判断规则：用户说“随便看看/先摸个底/快一点”用 quick；未特别说明用 standard；说“深挖/尽量多/全面”用 deep。评论一旦采集就连带回复，用户提“要看评论回复”不构成选 deep 的理由。用户如果明确给出条数或起始页，写入 connectorOptions[平台代码] 的 max_items / start_page，不要借此改动 collectionDepth。',
+    '判断规则：未特别说明，或用户说“随便看看/先摸个底/快一点”时用 quick，以便尽快返回首批结果；明确说“标准/常规”用 standard；说“深挖/尽量多/全面”用 deep。评论一旦采集就连带回复，用户提“要看评论回复”不构成选 deep 的理由。用户如果明确给出条数或起始页，写入 connectorOptions[平台代码] 的 max_items / start_page，不要借此改动 collectionDepth。',
   ].join('\n');
 }
