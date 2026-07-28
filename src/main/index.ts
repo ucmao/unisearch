@@ -313,10 +313,7 @@ export function createCrawlerView(platform: string): BrowserView {
   view.webContents.setUserAgent(CRAWLER_USER_AGENT);
   crawlerViews.set(platform, view);
   crawlerTabStates.set(platform, 'running');
-  view.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://') || url.startsWith('https://')) void shell.openExternal(url);
-    return { action: 'deny' };
-  });
+  view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   refreshCrawlerHubTabs();
   return view;
 }
