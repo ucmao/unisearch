@@ -6,12 +6,13 @@ import { BrowserLauncher, PlaywrightModule } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
 import { CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
 import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
+import { getBrowserDataDir, resolveRuntimeResource } from '../../tools/runtimePaths';
 
 const configuredCrawlerContexts = new WeakSet<BrowserContext>();
 
 async function configureCrawlerPage(browserContext: BrowserContext, page: Page): Promise<Page> {
   if (!configuredCrawlerContexts.has(browserContext)) {
-    const stealthPath = path.join(process.cwd(), 'libs', 'stealth.min.js');
+    const stealthPath = resolveRuntimeResource('libs', 'stealth.min.js');
     if (fs.existsSync(stealthPath) && typeof (browserContext as any).addInitScript === 'function') {
       await browserContext.addInitScript({ path: stealthPath }).catch((error: any) => {
         console.warn(`[BaseCrawler] Failed to install shared stealth script: ${error.message}`);
@@ -83,10 +84,13 @@ export async function connectToElectronChromium(playwright: PlaywrightModule): P
     }
   }
 
-  console.log(`[BaseCrawler] Electron CDP port ${cdpPort} unavailable. Fallback to persistent browser context.`);
+  if (process.env.UNISEARCH_PACKAGED === '1') {
+    throw new Error(`UniSearch 内置 Chromium 未能在端口 ${cdpPort} 启动。请完全退出并重启应用；正式安装包不依赖外部 Chrome 或 Edge。`);
+  }
+
+  console.log(`[BaseCrawler] Electron CDP port ${cdpPort} unavailable. Fallback to development browser context.`);
   const userDataDir = path.join(
-    process.cwd(),
-    'browser_data',
+    getBrowserDataDir(),
     activeConfig.USER_DATA_DIR ? activeConfig.USER_DATA_DIR.replace('%s', activeConfig.PLATFORM || 'default') : 'default'
   );
   const launchOptions = createHeadlessLaunchOptions();

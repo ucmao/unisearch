@@ -2,12 +2,20 @@ import { app, BrowserView, BrowserWindow, dialog, shell, ipcMain } from 'electro
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
+import { randomInt } from 'crypto';
 import { startServer, stopServer } from '../server';
 import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../tools/browserIdentity';
 import { platformLabel } from '../connectors/registry';
 
 app.setName('UniSearch');
 process.title = 'UniSearch';
+
+const isPackagedSmokeTest = process.env.UNISEARCH_SMOKE_TEST === '1';
+const smokeUserDataDir = process.env.UNISEARCH_SMOKE_USER_DATA_DIR?.trim();
+if (isPackagedSmokeTest && smokeUserDataDir) {
+  fs.mkdirSync(smokeUserDataDir, { recursive: true });
+  app.setPath('userData', smokeUserDataDir);
+}
 
 // Broken pipes to child processes (a crawler worker killed by stop/skip, a
 // closed IPC channel) are expected teardown noise, not a reason to kill the
@@ -40,7 +48,11 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Enable CDP remote debugging on Electron's built-in Chromium
-const cdpDebugPort = Number(process.env.UNISEARCH_CDP_PORT || 9222);
+const configuredCdpPort = Number(process.env.UNISEARCH_CDP_PORT);
+const cdpDebugPort = Number.isInteger(configuredCdpPort) && configuredCdpPort >= 1024 && configuredCdpPort <= 65535
+  ? configuredCdpPort
+  : randomInt(40000, 50000);
+process.env.UNISEARCH_CDP_PORT = String(cdpDebugPort);
 app.commandLine.appendSwitch('remote-debugging-port', String(cdpDebugPort));
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 app.commandLine.appendSwitch('remote-allow-origins', '*');
@@ -63,7 +75,7 @@ let apiPort = 8080;
 
 function getAppIconPath(): string | undefined {
   const iconFilename = process.platform === 'darwin' ? 'icon.png' : 'icon-windows.png';
-  const iconPath = path.join(app.getAppPath(), 'build', iconFilename);
+  const iconPath = path.join(app.isPackaged ? process.resourcesPath : app.getAppPath(), 'build', iconFilename);
   return fs.existsSync(iconPath) ? iconPath : undefined;
 }
 
@@ -518,6 +530,7 @@ app.on('before-quit', () => {
 
 app.on('ready', async () => {
   try {
+    process.env.UNISEARCH_RESOURCES_DIR = app.isPackaged ? process.resourcesPath : app.getAppPath();
     const iconPath = getAppIconPath();
     if (process.platform === 'darwin' && iconPath) {
       app.dock?.setIcon(iconPath);
@@ -538,6 +551,20 @@ app.on('ready', async () => {
       toggleCrawlerWindow,
     });
     console.log('[Electron] Fastify server started successfully. Launching UI.');
+
+    if (isPackagedSmokeTest) {
+      const healthResponse = await fetch(`http://127.0.0.1:${apiPort}/api/health`);
+      const environmentResponse = await fetch(`http://127.0.0.1:${apiPort}/api/env/check`);
+      const health = await healthResponse.json() as { status?: string };
+      const environment = await environmentResponse.json() as { success?: boolean; output?: string };
+      if (!healthResponse.ok || health.status !== 'ok' || !environmentResponse.ok || !environment.success) {
+        throw new Error(`安装后冒烟检查失败: health=${JSON.stringify(health)} env=${JSON.stringify(environment)}`);
+      }
+      console.log(`[UniSearch Smoke] PASS ${environment.output || ''}`.trim());
+      await stopServer();
+      app.quit();
+      return;
+    }
 
     createWindow(apiPort);
   } catch (err) {

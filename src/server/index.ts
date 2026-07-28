@@ -160,12 +160,44 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   // Env check
   fastify.get('/api/env/check', async () => {
     try {
-      // Basic check to see if node_modules contains playwright
-      const hasPlaywright = fs.existsSync(path.join(process.cwd(), 'node_modules/playwright'));
+      const resolveModule = (moduleName: string): boolean => {
+        try {
+          require.resolve(moduleName);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const isPackaged = Boolean(require('electron').app?.isPackaged);
+      const crawlerWorker = isPackaged
+        ? path.join(process.resourcesPath, 'app.asar.unpacked/dist/crawler/worker.js')
+        : path.join(process.cwd(), 'dist/crawler/worker.js');
+      let electronChromium = !isPackaged;
+      if (isPackaged) {
+        const cdpPort = Number(process.env.UNISEARCH_CDP_PORT);
+        if (Number.isInteger(cdpPort) && cdpPort > 0) {
+          try {
+            const response = await fetch(`http://127.0.0.1:${cdpPort}/json/version`, {
+              signal: AbortSignal.timeout(2000),
+            });
+            electronChromium = response.ok;
+          } catch {
+            electronChromium = false;
+          }
+        }
+      }
+      const checks = {
+        playwright: resolveModule('playwright'),
+        playwrightCore: resolveModule('playwright-core'),
+        crawlerWorker: fs.existsSync(crawlerWorker),
+        electronChromium,
+      };
+      const ready = Object.values(checks).every(Boolean);
       return {
-        success: true,
-        message: 'UniSearch environment configured correctly',
-        output: `Node.js ${process.version}; playwright ready: ${hasPlaywright}`,
+        success: ready,
+        message: ready ? 'UniSearch environment configured correctly' : 'UniSearch runtime is incomplete',
+        output: `Node.js ${process.version}; playwright: ${checks.playwright}; playwright-core: ${checks.playwrightCore}; crawler worker: ${checks.crawlerWorker}; built-in Chromium: ${checks.electronChromium}`,
+        checks,
       };
     } catch (err: any) {
       return {

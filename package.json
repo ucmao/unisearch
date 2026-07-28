@@ -2,13 +2,19 @@
   "name": "unisearch-desktop",
   "productName": "UniSearch",
   "version": "1.0.0",
+  "description": "跨平台智能搜索与研究桌面应用",
+  "author": "cheng wang",
   "main": "dist/main/index.js",
   "scripts": {
     "test:agent": "node tests/run-agent-tests.mjs",
     "webui:build": "cd webui && npm run build",
     "build:backend": "tsup",
     "electron:dev": "npm run build:backend && electron .",
-    "electron:build": "npm run build:backend && npm run webui:build && electron-builder"
+    "electron:build": "npm run build:backend && npm run webui:build && electron-builder",
+    "electron:build:mac:release": "node scripts/check-release-platform.mjs darwin && node scripts/check-macos-notarization-env.mjs && npm run build:backend && npm run webui:build && electron-builder --mac --arm64 --config.mac.notarize=true --config.forceCodeSigning=true",
+    "electron:build:win:release": "node scripts/check-release-platform.mjs win32 && npm run build:backend && npm run webui:build && electron-builder --win --x64 --config.forceCodeSigning=true",
+    "verify:package": "node scripts/verify-packaged-runtime.mjs",
+    "smoke:package": "node scripts/smoke-packaged-app.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
@@ -20,7 +26,7 @@
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
     "fastify": "^4.28.1",
-    "playwright": "^1.45.0",
+    "playwright": "1.61.1",
     "segmentit": "^2.0.3",
     "zod": "^3.23.8"
   },
@@ -39,23 +45,47 @@
     "files": [
       "dist/**/*",
       "api/webui/**/*",
-      "resources/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "libs",
+        "to": "libs",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "resources",
+        "to": "resources",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/icon.png",
+        "to": "build/icon.png"
+      },
+      {
+        "from": "build/icon-windows.png",
+        "to": "build/icon-windows.png"
+      }
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
+      "node_modules/playwright/**/*",
+      "node_modules/playwright-core/**/*",
       "dist/crawler/worker.js",
       "dist/processor/worker.js"
     ],
     "mac": {
       "icon": "build/icon.icns",
       "target": "dmg",
-      "category": "public.app-category.utilities"
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "notarize": false
     },
     "win": {
       "icon": "build/icon.ico",
       "target": "nsis",
-      "signAndEditExecutable": false
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     }
   }
 }
