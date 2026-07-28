@@ -9,6 +9,8 @@ import { workflowEngine, type WorkflowStepHandlerContext } from './workflow-engi
 import { knowledgeIndex } from '../knowledge/knowledge-index';
 import { analysisService } from '../analyzers/registry';
 import { exportService, exporterRegistry } from '../exporters/registry';
+import { ragService } from '../knowledge/rag-service';
+import { skillRegistry } from '../skills/registry';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -33,9 +35,64 @@ export class WorkflowRuntime {
       Promise.resolve(knowledgeIndex.rebuild({ workflowId: context.workflowId })));
     workflowEngine.registerHandler('analyzer.extractive.summary', (input, context) =>
       analysisService.run('extractive.summary', context.workflowId, input));
+    workflowEngine.registerHandler('analyzer.business.insight', (_input, context) =>
+      this.createBusinessAnalysis(context));
     for (const exporter of exporterRegistry.list()) {
       workflowEngine.registerHandler(`exporter.${exporter.id}`, (_input, context) =>
         exportService.run(exporter.id, context.workflowId));
+    }
+  }
+
+  private async createBusinessAnalysis(
+    context: WorkflowStepHandlerContext,
+  ): Promise<Record<string, unknown>> {
+    const workflow = agentRepository.getPlan(context.workflowId);
+    if (!workflow) throw new Error('Workflow 不存在');
+    const skill = skillRegistry.find(workflow.plan.skillId);
+    if (!skill?.execution.autoAnalyzeOnCompletion) return { skipped: true, reason: 'Skill 未启用自动分析' };
+
+    const existing = agentRepository.getThread(workflow.thread_id)?.messages?.some((message: any) =>
+      message.metadata?.action === 'auto_skill_analysis' && message.metadata?.plan_id === workflow.plan_id,
+    );
+    if (existing) return { skipped: true, reason: '自动分析已生成' };
+
+    const rows = agentRepository.getPlanContents(workflow.plan_id, 100);
+    if (!rows.length) return { skipped: true, reason: '没有可分析的数据', recordCount: 0 };
+
+    try {
+      const goals = (workflow.plan.analysis || []).join('、') || workflow.goal;
+      let result = await ragService.answer(
+        `请生成本次“${skill.name}”的最终业务分析报告。\n原任务：${workflow.goal}\n分析目标：${goals}\n业务分析规则：${skill.analysisInstructions}\n请先说明样本量和数据边界，再给出有来源支撑的发现、风险或机会，以及明确标记为建议的行动项。`,
+        { workflowId: workflow.plan_id, limit: 12 },
+      );
+      context.signal.throwIfAborted();
+      if (!result.sources.length) {
+        knowledgeIndex.rebuild({ workflowId: workflow.plan_id });
+        result = await ragService.answer(
+          `请根据已采集资料生成“${skill.name}”报告，围绕以下目标分析：${goals}。业务规则：${skill.analysisInstructions}`,
+          { workflowId: workflow.plan_id, limit: 12 },
+        );
+        context.signal.throwIfAborted();
+      }
+      agentRepository.addMessage(workflow.thread_id, 'assistant', 'analysis', result.answer, {
+        action: 'auto_skill_analysis',
+        plan_id: workflow.plan_id,
+        skill_id: skill.id,
+        retrieval: 'hybrid_rag',
+        sources: result.sources,
+        analyzed_record_count: rows.length,
+      });
+      return { recordCount: rows.length, sourceCount: result.sources.length };
+    } catch (error: any) {
+      context.signal.throwIfAborted();
+      agentRepository.addMessage(
+        workflow.thread_id,
+        'assistant',
+        'status',
+        `采集数据已保存，但“${skill.name}”自动分析失败：${error.message || '未知错误'}。你可以稍后直接说“分析这些结果”重试。`,
+        { action: 'auto_skill_analysis_error', plan_id: workflow.plan_id, skill_id: skill.id },
+      );
+      return { failed: true, error: error.message || '未知错误', recordCount: rows.length };
     }
   }
 

@@ -51,6 +51,36 @@ function timeAgo(value: string) {
   return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(value))
 }
 
+function formatElapsed(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+function PlanElapsedTime({ plan, className = '' }: { plan: AgentPlan; className?: string }) {
+  const [now, setNow] = useState(() => Date.now())
+  const isActive = ['queued', 'running'].includes(plan.status)
+
+  useEffect(() => {
+    if (!isActive) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isActive, plan.plan_id])
+
+  const baseTime = plan.status === 'queued'
+    ? plan.started_at || plan.updated_at || plan.created_at
+    : plan.started_at || plan.created_at
+  const startedAt = new Date(baseTime).getTime()
+  const elapsed = Number.isFinite(startedAt) ? formatElapsed(now - startedAt) : '0s'
+
+  return <span className={`whitespace-nowrap font-mono tabular-nums ${className}`}>已处理 {elapsed}</span>
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -125,6 +155,7 @@ function ChatCrawlingStatusBanner({
   const totalSteps = activePlan.steps.length
   const completedSteps = activePlan.steps.filter((s) => s.status === 'completed').length
   const contentCount = activePlan.stats?.content_count ?? 0
+  const isPostProcessing = activePlan.status === 'running' && totalSteps > 0 && completedSteps === totalSteps
 
   const handleClick = () => {
     if (!rightSidebarOpen) {
@@ -147,7 +178,10 @@ function ChatCrawlingStatusBanner({
           title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
         >
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>正在采集数据，已入库 {contentCount} 条（平台 {completedSteps}/{totalSteps}）</span>
+          <span>{isPostProcessing ? '正在整理并分析采集结果' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+          <span className="text-cyber-border-default">·</span>
+          <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
+          <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
         </button>
         <button
           type="button"
@@ -1414,6 +1448,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
                 const isPending = activePlan?.status === 'awaiting_confirmation'
                 const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
+                const activeConnectorsCompleted = activePlan
+                  ? activePlan.steps.length > 0 && activePlan.steps.every((step) => step.status === 'completed')
+                  : false
                 // 正常退出但 0 条的平台同样计入可重试，否则它会被算作“已完成”而失去补救入口
                 const emptyStepCount = activePlan
                   ? activePlan.steps.filter((s) => s.status === 'completed' && !(s.item_count || 0)).length
@@ -1511,8 +1548,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       <div className="rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/80 p-3.5 shadow-sm">
                         <div className="flex items-center justify-between text-[10px]">
                           <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued' ? '采集任务排队中...' : '正在执行采集任务...'}
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued'
+                              ? '采集任务排队中...'
+                              : activeConnectorsCompleted
+                                ? '正在整理并分析采集结果...'
+                                : '正在执行采集任务...'}
                           </span>
+                          <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
                         </div>
                         {activePlan.plan.keywords.length ? (
                           <p className="mt-2 truncate text-[10px] text-cyber-text-muted">

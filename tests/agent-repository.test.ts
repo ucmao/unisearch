@@ -52,6 +52,14 @@ test('a business Skill id and version are persisted with its plan', () => {
     assert.equal(created.skill_id, 'marketing-content-research');
     assert.equal(created.skill_version, '1.0.0');
     assert.equal(created.plan.skillId, 'marketing-content-research');
+    const businessAnalysis = db.prepare(
+      "SELECT * FROM workflow_steps WHERE workflow_id=? AND step_key='business-analysis'",
+    ).get(created.plan_id) as any;
+    assert.ok(businessAnalysis);
+    assert.equal(
+      JSON.parse(businessAnalysis.depends_on_json)[0],
+      'analyze-results',
+    );
   } finally {
     db.close();
   }
