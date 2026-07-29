@@ -17,6 +17,7 @@ import {
   Briefcase,
   Newspaper,
   Flame,
+  FileSearch,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ const ICON_MAP: { [key: string]: any } = {
   'newspaper': Newspaper,
   'briefcase': Briefcase,
   'flame': Flame,
+  'file-search': FileSearch,
 }
 
 

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom"
+      xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/"
+      xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <title>ArXiv Query: search_query=all:agent</title>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <entry>
+    <id>http://arxiv.org/abs/2607.12345v2</id>
+    <updated>2026-07-28T12:00:00Z</updated>
+    <published>2026-07-27T08:30:00Z</published>
+    <title>
+      Reliable Agent Evaluation
+      with Reproducible Benchmarks
+    </title>
+    <summary>
+      We introduce a reproducible benchmark for evaluating autonomous agents.
+      The benchmark includes deterministic tasks and auditable traces.
+    </summary>
+    <author><name>Alice Example</name></author>
+    <author><name>Bob Example</name></author>
+    <arxiv:comment>12 pages, 4 figures</arxiv:comment>
+    <arxiv:journal_ref>Journal of Agent Tests 1 (2026)</arxiv:journal_ref>
+    <arxiv:doi>10.1234/example.2026.1</arxiv:doi>
+    <arxiv:primary_category term="cs.AI"/>
+    <category term="cs.AI"/>
+    <category term="cs.LG"/>
+    <link href="https://arxiv.org/abs/2607.12345v2" rel="alternate" type="text/html"/>
+    <link title="pdf" href="https://arxiv.org/pdf/2607.12345v2" rel="related" type="application/pdf"/>
+  </entry>
+</feed>

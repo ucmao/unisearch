@@ -44,6 +44,10 @@ export interface AppConfig {
   AIHOT_WINDOW: '24h' | '7d';
   AIHOT_CATEGORY: string;
 
+  ARXIV_SEARCH_SCOPE: 'all' | 'title' | 'author' | 'abstract' | 'category';
+  ARXIV_SORT_BY: 'relevance' | 'lastUpdatedDate' | 'submittedDate';
+  ARXIV_SORT_ORDER: 'ascending' | 'descending';
+
   // Platform specific lists
   XHS_CREATOR_ID_LIST: string[];
   DY_CREATOR_ID_LIST: string[];
@@ -60,6 +64,7 @@ export interface AppConfig {
   WB_SPECIFIED_ID_LIST: string[];
   TIEBA_SPECIFIED_ID_LIST: string[];
   ZHIHU_SPECIFIED_ID_LIST: string[];
+  ARXIV_SPECIFIED_ID_LIST: string[];
 
   [key: string]: any;
 }
@@ -110,6 +115,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   AIHOT_WINDOW: '24h',
   AIHOT_CATEGORY: 'all',
 
+  ARXIV_SEARCH_SCOPE: 'all',
+  ARXIV_SORT_BY: 'submittedDate',
+  ARXIV_SORT_ORDER: 'descending',
+
   XHS_CREATOR_ID_LIST: [],
   DY_CREATOR_ID_LIST: [],
   KS_CREATOR_ID_LIST: [],
@@ -125,6 +134,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   WB_SPECIFIED_ID_LIST: [],
   TIEBA_SPECIFIED_ID_LIST: [],
   ZHIHU_SPECIFIED_ID_LIST: [],
+  ARXIV_SPECIFIED_ID_LIST: [],
 };
 
 export let activeConfig: AppConfig = { ...DEFAULT_CONFIG };

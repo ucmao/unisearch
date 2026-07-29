@@ -193,6 +193,95 @@ const searchEngine = (
   ],
 });
 
+const ARXIV_OUTPUTS: ConnectorOutputField[] = [
+  { key: 'content_id', label: 'arXiv 基础 ID', type: 'string', required: true },
+  { key: 'arxiv_id', label: 'arXiv 版本 ID', type: 'string', required: true },
+  { key: 'version', label: '论文版本号', type: 'number' },
+  { key: 'title', label: '论文标题', type: 'string', required: true },
+  { key: 'summary', label: '论文摘要', type: 'string' },
+  { key: 'authors', label: '作者列表', type: 'string_list' },
+  { key: 'categories', label: '分类列表', type: 'string_list' },
+  { key: 'primary_category', label: '主分类', type: 'string' },
+  { key: 'content_url', label: '摘要页', type: 'string' },
+  { key: 'pdf_url', label: 'PDF 链接', type: 'string' },
+  { key: 'published_at', label: '首次提交时间', type: 'string' },
+  { key: 'updated_at', label: '最后更新时间', type: 'string' },
+  { key: 'doi', label: 'DOI', type: 'string' },
+  { key: 'journal_ref', label: '期刊引用', type: 'string' },
+  { key: 'comment', label: '作者备注', type: 'string' },
+  { key: 'rank', label: '结果排名', type: 'number' },
+];
+
+const arxiv: ConnectorManifest = {
+  id: 'arxiv', version: '1.0.0', name: 'arXiv', icon: 'file-search', category: 'web_search',
+  description: 'arXiv 官方元数据 API 论文搜索与指定论文详情连接器。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '使用 arXiv 官方公开 Atom API，无需账号或 API Key。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '论文搜索', description: '按关键词、标题、作者、摘要或分类检索 arXiv 论文元数据。',
+      runtimeMode: 'search', budgetModel: 'true_pagination',
+      depthBudget: { quick: 10, standard: 30, deep: 100 },
+      inputFields: [
+        {
+          key: 'search_scope', label: '检索字段', description: '选择关键词匹配的论文元数据字段。',
+          type: 'select', default: 'all', runtimeConfigKey: 'arxiv_search_scope',
+          options: [
+            { value: 'all', label: '全部字段' },
+            { value: 'title', label: '标题' },
+            { value: 'author', label: '作者' },
+            { value: 'abstract', label: '摘要' },
+            { value: 'category', label: 'arXiv 分类' },
+          ],
+        },
+        {
+          key: 'sort_by', label: '排序字段', description: '默认按首次提交时间排序。',
+          type: 'select', default: 'submittedDate', runtimeConfigKey: 'arxiv_sort_by',
+          options: [
+            { value: 'submittedDate', label: '首次提交时间' },
+            { value: 'lastUpdatedDate', label: '最后更新时间' },
+            { value: 'relevance', label: '相关性' },
+          ],
+        },
+        {
+          key: 'sort_order', label: '排序方向', description: '时间排序默认最新在前。',
+          type: 'select', default: 'descending', runtimeConfigKey: 'arxiv_sort_order',
+          options: [
+            { value: 'descending', label: '降序' },
+            { value: 'ascending', label: '升序' },
+          ],
+        },
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的论文数。',
+          type: 'number', default: 15, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+        {
+          key: 'start_page', label: '起始页', description: '每页固定 25 条，从指定页开始采集。',
+          type: 'number', default: 1, min: 1, max: 400, runtimeConfigKey: 'start_page',
+        },
+      ],
+      outputType: 'arxiv_paper', outputFields: ARXIV_OUTPUTS,
+      limitations: [
+        '仅采集 arXiv 描述性元数据，不下载或存储论文 PDF 正文。',
+        '遵守 arXiv API 限流：单连接运行，相邻请求至少间隔 3 秒。',
+      ],
+    },
+    {
+      id: 'content_detail', label: '论文详情', description: '根据 arXiv ID、摘要页或 PDF 链接获取论文元数据。',
+      runtimeMode: 'detail', budgetModel: 'single_target',
+      inputFields: [targetField('arXiv ID 或论文链接')],
+      outputType: 'arxiv_paper', outputFields: ARXIV_OUTPUTS,
+      limitations: [
+        '仅接受标准 arXiv ID、/abs/ 链接或 /pdf/ 链接。',
+        '仅采集 arXiv 描述性元数据，不下载或存储论文 PDF 正文。',
+      ],
+    },
+  ],
+};
+
 const aiHot: ConnectorManifest = {
   id: 'aihot', version: '1.0.0', name: 'AI HOT', icon: 'flame', category: 'web_search',
   description: 'AI HOT 精选资讯、当前多源热点、AI 日报与事件时间线连接器。',
@@ -492,6 +581,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
   searchEngine('toutiao', '头条搜索', 'newspaper'),
+  arxiv,
   aiHot,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),
