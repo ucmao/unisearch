@@ -37,6 +37,19 @@ export interface CrawlerStatus {
   platform_states?: { [platform: string]: PlatformState }
 }
 
+export interface ItemPreview {
+  id?: string
+  source?: string
+  title?: string
+  text?: string
+  author?: string
+  url?: string
+  fetched_at?: string
+  timestamp?: number
+  seq?: number
+  run_id?: string
+}
+
 export interface LogEntry {
   id: number
   timestamp: string
@@ -49,6 +62,7 @@ export interface LogEntry {
   max_retries?: number
   delay_sec?: number
   retry_reason?: string
+  item_preview?: ItemPreview
 }
 
 export interface Platform {
