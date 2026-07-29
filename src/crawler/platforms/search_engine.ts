@@ -216,7 +216,7 @@ export class BingCrawler extends AbstractCrawler {
             snippet = cleanText($item.text().replace(title, '')).slice(0, 150);
           }
 
-          const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应中国';
+          const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应搜索';
           const timeMatch = /(\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}月\d{1,2}日|\d+\s*(?:小时|分钟|天)前)/.exec($item.text());
 
           const images: string[] = [];
@@ -294,7 +294,7 @@ export class BingCrawler extends AbstractCrawler {
             snippet = cleanText($item.text().replace(title, '')).slice(0, 150);
           }
 
-          const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应中国';
+          const publisher = cleanText($item.find('cite, .news-attribution').first().text()) || '必应搜索';
           const timeMatch = /(\d{4}年\d{1,2}月\d{1,2}日|\d{1,2}月\d{1,2}日|\d+\s*(?:小时|分钟|天)前)/.exec($item.text());
 
           const images: string[] = [];

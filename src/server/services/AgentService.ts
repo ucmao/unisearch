@@ -126,7 +126,7 @@ export function normalizePlan(
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
-    百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou', 头条: 'toutiao', 头条搜索: 'toutiao',
+    百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', 必应搜索: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou', 头条: 'toutiao', 头条搜索: 'toutiao',
     arXiv: 'arxiv', Arxiv: 'arxiv', arxiv: 'arxiv', 论文库: 'arxiv',
     GitHub: 'github_repositories', Github: 'github_repositories', github: 'github_repositories', GitHub仓库: 'github_repositories', GitHub趋势: 'github_repositories',
     RSS: 'rss_news', RSS新闻: 'rss_news', RSS资讯: 'rss_news', Atom: 'rss_news', 订阅源: 'rss_news',
@@ -438,6 +438,7 @@ export class AgentService {
     } = {},
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void,
   ) {
     ensureMessageNotAborted(signal);
     const thread = agentRepository.getThread(threadId);
@@ -685,6 +686,7 @@ export class AgentService {
     if (decision.action === 'live_answer') {
       const query = String(decision.query || content).replace(/\s+/g, ' ').trim().slice(0, 300);
       try {
+        onStatus?.({ phase: 'web_search', message: '正在联网搜索…' });
         const wantsFullText = /全文|正文|详细内容|核实(?:细节|原文)|总结(?:这些|搜索到的)?文章/i.test(content);
         const evidence = await liveSearchService.search(query, {
           limit: 8,
@@ -703,6 +705,7 @@ export class AgentService {
 
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
+        onStatus?.({ phase: 'reasoning', message: '正在分析搜索结果…' });
         const answer = (await modelService.answerWithLiveEvidence(messages, evidence, { onRetry, signal, onDelta })).trim();
         ensureMessageNotAborted(signal);
         if (!answer) throw new Error('模型没有返回文本内容');

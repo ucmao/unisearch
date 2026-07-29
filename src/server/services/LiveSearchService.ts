@@ -118,7 +118,7 @@ export function parseBingSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
       source: 'bing',
       sourceUrl,
       excerpt,
-      publisher: cleanText(item.find('cite, .news-attribution').first().text()) || '必应中国',
+      publisher: cleanText(item.find('cite, .news-attribution').first().text()) || '必应搜索',
       publishedAt: resultTime(fullText),
     });
   });

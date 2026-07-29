@@ -517,7 +517,7 @@ export const agentApi = {
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
     mentioned_connectors?: string[]
     mentioned_skills?: string[]
-  } = {}, onDelta?: (delta: string) => void, signal?: AbortSignal): Promise<{ data: AgentThread }> => {
+  } = {}, onDelta?: (delta: string) => void, signal?: AbortSignal, onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void): Promise<{ data: AgentThread }> => {
     const response = await fetch(`/api/agent/threads/${encodeURIComponent(threadId)}/messages/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -543,6 +543,9 @@ export const agentApi = {
         if (!line.trim()) continue
         const event = JSON.parse(line)
         if (event.type === 'delta' && typeof event.delta === 'string') onDelta?.(event.delta)
+        else if (event.type === 'status' && typeof event.message === 'string') {
+          onStatus?.({ phase: event.phase, message: event.message })
+        }
         else if (event.type === 'complete') result = event.thread as AgentThread
         else if (event.type === 'error') throw new Error(event.detail || 'AI 消息处理失败')
         else if (event.type === 'stopped') throw new DOMException(event.detail || '已停止生成', 'AbortError')
