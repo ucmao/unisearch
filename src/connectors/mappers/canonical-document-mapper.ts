@@ -148,6 +148,16 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
       period: ['period'],
     },
   },
+  rss_news: {
+    family: 'search', subjectType: 'publisher', metricAliases: {},
+    attributeAliases: {
+      guid: ['guid'],
+      author: ['author'],
+      feedUrl: ['feed_url'],
+      feedTitle: ['feed_title'],
+      categories: ['categories'],
+    },
+  },
   media_parser: {
     family: 'media', subjectType: 'creator', metricAliases: {},
     attributeAliases: { mediaType: ['media_type', 'type'] },

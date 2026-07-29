@@ -70,6 +70,7 @@ export function normalizePlan(
     百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou', 头条: 'toutiao', 头条搜索: 'toutiao',
     arXiv: 'arxiv', Arxiv: 'arxiv', arxiv: 'arxiv', 论文库: 'arxiv',
     GitHub: 'github_repositories', Github: 'github_repositories', github: 'github_repositories', GitHub仓库: 'github_repositories', GitHub趋势: 'github_repositories',
+    RSS: 'rss_news', RSS新闻: 'rss_news', RSS资讯: 'rss_news', Atom: 'rss_news', 订阅源: 'rss_news',
     DeepSeek: 'deepseek', Kimi: 'kimi', 'Kimi AI': 'kimi', 豆包: 'doubao', Doubao: 'doubao',
     千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',

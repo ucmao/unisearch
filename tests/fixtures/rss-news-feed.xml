@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Example World News</title>
+    <link>https://news.example.com/</link>
+    <language>en-gb</language>
+    <item>
+      <title>Global AI agreement reaches final stage</title>
+      <description><![CDATA[<p>Negotiators agreed on a shared framework for safe AI deployment.</p>]]></description>
+      <link>https://news.example.com/world/ai-agreement</link>
+      <guid isPermaLink="false">world-ai-001</guid>
+      <dc:creator>Alex Reporter</dc:creator>
+      <category>Technology</category>
+      <category>World</category>
+      <pubDate>Wed, 29 Jul 2026 03:30:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Older market report</title>
+      <description>Markets closed higher.</description>
+      <link>https://news.example.com/business/old-report</link>
+      <guid>business-old-002</guid>
+      <category>Business</category>
+      <pubDate>Mon, 01 Jun 2026 10:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>
