@@ -15,6 +15,7 @@ import { DoubaoCrawler } from '../crawler/platforms/doubao';
 import { QwenCrawler } from '../crawler/platforms/qwen';
 import { NamiCrawler, WenxinCrawler, YuanbaoCrawler } from '../crawler/platforms/china_ai_web_qa';
 import { AiHotCrawler } from '../crawler/platforms/aihot';
+import { ArxivCrawler } from '../crawler/platforms/arxiv';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -31,6 +32,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   sogou: () => new SogouCrawler(),
   toutiao: () => new ToutiaoCrawler(),
   aihot: () => new AiHotCrawler(),
+  arxiv: () => new ArxivCrawler(),
   media_parser: () => new MediaParserCrawler(),
   zhaopin: () => new ZhaopinCrawler(),
   heimao: () => new HeimaoCrawler(),

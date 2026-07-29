@@ -21,7 +21,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 23);
+assert.equal(listConnectorManifests().length, 24);
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -44,7 +44,7 @@ assert.equal((normalized as any).crawler_max_notes_count, 42);
 assert.equal(normalized.enable_comments, true);
 
 for (const manifest of listConnectorManifests()) {
-  const expectedCapabilities = manifest.id === 'aihot'
+  const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv'
     ? ['keyword_search', 'content_detail']
     : (manifest.category === 'web_search' || manifest.category === 'ai_web_qa')
     ? ['keyword_search']
@@ -92,6 +92,27 @@ assert.match(catalog, /zhaopin=智联招聘/);
 assert.match(catalog, /heimao=黑猫投诉/);
 assert.match(catalog, /toutiao=头条搜索/);
 assert.match(catalog, /aihot=AI HOT/);
+assert.match(catalog, /arxiv=arXiv/);
+
+const arxivRequest = normalizeConnectorRequest({
+  ...baseRequest,
+  platform: 'arxiv',
+  connector_id: 'arxiv',
+  login_type: 'qrcode',
+  connector_options: {
+    search_scope: 'title',
+    sort_by: 'lastUpdatedDate',
+    sort_order: 'ascending',
+    max_items: 30,
+    start_page: 2,
+  },
+});
+assert.equal(arxivRequest.login_type, 'none');
+assert.equal((arxivRequest as any).arxiv_search_scope, 'title');
+assert.equal((arxivRequest as any).arxiv_sort_by, 'lastUpdatedDate');
+assert.equal((arxivRequest as any).arxiv_sort_order, 'ascending');
+assert.equal((arxivRequest as any).crawler_max_notes_count, 30);
+assert.equal(arxivRequest.start_page, 2);
 
 const aiHotRequest = normalizeConnectorRequest({
   ...baseRequest,

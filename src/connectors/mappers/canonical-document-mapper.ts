@@ -102,6 +102,20 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
       reportUrl: ['report_url'],
     },
   },
+  arxiv: {
+    family: 'search', subjectType: 'creator', metricAliases: {},
+    attributeAliases: {
+      arxivId: ['arxiv_id'],
+      version: ['version'],
+      authors: ['authors'],
+      categories: ['categories'],
+      primaryCategory: ['primary_category'],
+      pdfUrl: ['pdf_url'],
+      doi: ['doi'],
+      journalRef: ['journal_ref'],
+      comment: ['comment'],
+    },
+  },
   media_parser: {
     family: 'media', subjectType: 'creator', metricAliases: {},
     attributeAliases: { mediaType: ['media_type', 'type'] },

@@ -29,9 +29,9 @@ function raw(source: string, kind: RawItemKind, payload: Record<string, any>) {
   });
 }
 
-test('all 23 registered connectors have an executable v2 mapping', () => {
+test('all 24 registered connectors have an executable v2 mapping', () => {
   const manifests = listConnectorManifests();
-  assert.equal(manifests.length, 23);
+  assert.equal(manifests.length, 24);
   assert.deepEqual(Object.keys(CONNECTOR_MAPPING_MATRIX).sort(), manifests.map((item) => item.id).sort());
   for (const manifest of manifests) {
     const document = mapRawItemToCanonicalDocument(raw(manifest.id, 'post', {

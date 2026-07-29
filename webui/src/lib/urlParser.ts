@@ -14,6 +14,7 @@ const platformDomains: Record<string, string[]> = {
   tieba: ['tieba.baidu.com'],
   zhihu: ['zhihu.com'],
   zhaopin: ['zhaopin.com'],
+  arxiv: ['arxiv.org'],
 }
 
 export function detectPlatform(input: string): string | null {
@@ -30,6 +31,12 @@ const platformPatterns: Record<string, {
   video: RegExp[]
   creator: RegExp[]
 }> = {
+  arxiv: {
+    video: [
+      /arxiv\.org\/(?:abs|pdf)\/((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?\/\d{7})(?:v\d+)?)(?:\.pdf)?/i,
+    ],
+    creator: [],
+  },
   zhaopin: {
     video: [
       /zhaopin\.com\/jobdetail\/([a-zA-Z0-9]+)/,
