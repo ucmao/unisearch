@@ -6,53 +6,155 @@ function safeHref(value: string) {
   return /^(?:https?:\/\/|mailto:)/i.test(value) ? value : undefined
 }
 
+function parseCitationGroup(innerText: string): string[] {
+  const parts = innerText.split(/[\s,;/&、，]+/).filter(Boolean)
+  const result: string[] = []
+
+  for (const part of parts) {
+    const rangeMatch = part.match(/^S?(\d+)\s*[-–—]\s*S?(\d+)$/i)
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1], 10)
+      const end = parseInt(rangeMatch[2], 10)
+      if (!isNaN(start) && !isNaN(end) && end >= start && end - start <= 20) {
+        for (let i = start; i <= end; i++) {
+          result.push(`S${i}`)
+        }
+      } else {
+        result.push(`S${start}`, `S${end}`)
+      }
+    } else {
+      const singleMatch = part.match(/^S?(\d+)$/i)
+      if (singleMatch) {
+        result.push(`S${singleMatch[1]}`)
+      }
+    }
+  }
+
+  return Array.from(new Set(result))
+}
+
+function renderCitationButton(
+  sourceId: string,
+  keyPrefix: string,
+  platformLabels: Record<string, string>,
+  sources?: SourceCitationItem[],
+  onCitationClick?: (sourceId: string) => void
+) {
+  const matchedSource = (sources || []).find((s) => {
+    const sid = (s.id || '').toUpperCase()
+    return sid === sourceId || sid === sourceId.replace(/^S/i, '')
+  })
+  const platformName = matchedSource?.source
+    ? platformLabels[matchedSource.source] || matchedSource.source
+    : undefined
+  const tooltipText = matchedSource
+    ? `[${platformName || '资料'}] ${matchedSource.title || '未命名资料'}`
+    : `查看 [${sourceId}] 出处`
+
+  return (
+    <button
+      key={keyPrefix}
+      type="button"
+      onClick={() => {
+        if (matchedSource?.sourceUrl) {
+          window.open(matchedSource.sourceUrl, '_blank')
+        } else {
+          onCitationClick?.(sourceId)
+        }
+      }}
+      className="mx-0.5 inline-flex items-center justify-center font-mono text-[10px] text-cyber-neon-cyan/85 hover:text-cyber-neon-cyan hover:underline decoration-cyber-neon-cyan/50 transition-colors font-normal align-baseline cursor-pointer"
+      title={tooltipText}
+    >
+      [{sourceId}]
+    </button>
+  )
+}
+
 function inlineMarkdown(
   text: string,
   platformLabels: Record<string, string>,
   sources?: SourceCitationItem[],
   onCitationClick?: (sourceId: string) => void
 ): ReactNode[] {
-  const pattern = /(<br\s*\/?>|\[\s*(?:S\d+|\d+)\s*\]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`|\[[^\]]+\]\([^\s)]+\))/gi
+  const pattern = /(<br\s*\/?>|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>"'\(\)]+|\[\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*\]|（\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*）|\bS\d+(?:[、,，]\s*S?\d+)+|\bS\d+[:：]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`)/gi
   const nodes: ReactNode[] = []
   let cursor = 0
-
-
 
   for (const match of text.matchAll(pattern)) {
     const index = match.index ?? 0
     if (index > cursor) nodes.push(text.slice(cursor, index))
     const token = match[0]
+
     if (/<br\s*\/?>/i.test(token)) {
       nodes.push(<br key={`${index}-br`} />)
-    } else if (/^\[\s*(?:S\d+|\d+)\s*\]$/i.test(token)) {
-      const rawId = token.replace(/[\[\]\s]/g, '')
-      const sourceId = rawId.toUpperCase().startsWith('S') ? rawId.toUpperCase() : `S${rawId}`
-      const matchedSource = (sources || []).find((s) => {
-        const sid = (s.id || '').toUpperCase()
-        return sid === sourceId || sid === rawId.toUpperCase()
-      })
-      const platformName = matchedSource?.source ? (platformLabels[matchedSource.source] || matchedSource.source) : undefined
-      const tooltipText = matchedSource
-        ? `[${platformName || '资料'}] ${matchedSource.title || '未命名资料'}`
-        : `查看 [${sourceId}] 出处`
-
+    } else if (token.startsWith('[') && token.includes('](')) {
+      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
+      const href = link ? safeHref(link[2]) : undefined
       nodes.push(
-        <button
-          key={`${index}-citation-${sourceId}`}
-          type="button"
-          onClick={() => {
-            if (matchedSource?.sourceUrl) {
-              window.open(matchedSource.sourceUrl, '_blank')
-            } else {
-              onCitationClick?.(sourceId)
-            }
-          }}
-          className="mx-0.5 inline-flex items-center justify-center font-mono text-[10px] text-cyber-neon-cyan/85 hover:text-cyber-neon-cyan hover:underline decoration-cyber-neon-cyan/50 transition-colors font-normal align-baseline"
-          title={tooltipText}
-        >
-          [{sourceId}]
-        </button>
+        href ? (
+          <a
+            key={`${index}-link`}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-cyber-neon-cyan underline decoration-cyber-neon-cyan/40 underline-offset-2 hover:decoration-cyber-neon-cyan"
+          >
+            {link![1]}
+          </a>
+        ) : (
+          token
+        )
       )
+    } else if (/^https?:\/\//i.test(token)) {
+      let cleanUrl = token
+      let trailingPunct = ''
+      const punctMatch = token.match(/([.,;:!?)]+)$/)
+      if (punctMatch) {
+        trailingPunct = punctMatch[1]
+        cleanUrl = token.slice(0, -punctMatch[1].length)
+      }
+      const href = safeHref(cleanUrl)
+      nodes.push(
+        <Fragment key={`${index}-bare-url`}>
+          {href ? (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyber-neon-cyan underline decoration-cyber-neon-cyan/40 underline-offset-2 hover:decoration-cyber-neon-cyan break-all"
+            >
+              {cleanUrl}
+            </a>
+          ) : (
+            cleanUrl
+          )}
+          {trailingPunct}
+        </Fragment>
+      )
+    } else if ((token.startsWith('[') && token.endsWith(']')) || (token.startsWith('（') && token.endsWith('）'))) {
+      const inner = token.slice(1, -1).trim()
+      const citationIds = parseCitationGroup(inner)
+      if (citationIds.length > 0) {
+        citationIds.forEach((sid, idx) => {
+          nodes.push(renderCitationButton(sid, `${index}-citation-${sid}-${idx}`, platformLabels, sources, onCitationClick))
+        })
+      } else {
+        nodes.push(token)
+      }
+    } else if (/^\bS\d+(?:[、,，]\s*S?\d+)+$/i.test(token)) {
+      const citationIds = parseCitationGroup(token)
+      if (citationIds.length > 0) {
+        citationIds.forEach((sid, idx) => {
+          nodes.push(renderCitationButton(sid, `${index}-citation-${sid}-${idx}`, platformLabels, sources, onCitationClick))
+        })
+      } else {
+        nodes.push(token)
+      }
+    } else if (/^\bS\d+[:：]$/i.test(token)) {
+      const sid = token.slice(0, -1).toUpperCase()
+      const colon = token.slice(-1)
+      nodes.push(renderCitationButton(sid, `${index}-citation-${sid}`, platformLabels, sources, onCitationClick))
+      nodes.push(colon + ' ')
     } else if (token.startsWith('***')) {
       nodes.push(<strong key={`${index}-strong-italic`} className="font-semibold italic text-cyber-text-primary">{token.slice(3, -3)}</strong>)
     } else if (token.startsWith('**')) {
@@ -62,11 +164,7 @@ function inlineMarkdown(
     } else if (token.startsWith('`')) {
       nodes.push(<code key={`${index}-code`} className="rounded bg-cyber-bg-tertiary px-1.5 py-0.5 font-mono text-[0.9em] text-cyber-neon-cyan">{token.slice(1, -1)}</code>)
     } else {
-      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/)
-      const href = link ? safeHref(link[2]) : undefined
-      nodes.push(href
-        ? <a key={`${index}-link`} href={href} target="_blank" rel="noreferrer" className="text-cyber-neon-cyan underline decoration-cyber-neon-cyan/40 underline-offset-2 hover:decoration-cyber-neon-cyan">{link![1]}</a>
-        : token)
+      nodes.push(token)
     }
     cursor = index + token.length
   }

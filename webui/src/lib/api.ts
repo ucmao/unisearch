@@ -294,6 +294,8 @@ export interface AgentPlanStep {
   step_id: string
   plan_id: string
   platform: string
+  kind?: string
+  step_key?: string
   status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped'
   run_id: string | null
   error_message: string | null

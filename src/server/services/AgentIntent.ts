@@ -47,7 +47,7 @@ const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.
 const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:去|到|在)?(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看)/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-  'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
+  'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
 ];
 
 export function isSimpleConversation(text: string): boolean {
@@ -86,10 +86,11 @@ function cleanResearchSubject(text: string): string {
   return text
     // "@" 提及菜单插入的是 "@连接器名 " 这种无空格 token，与其余清洗规则无关，先整体去掉
     .replace(/@\S+/g, ' ')
+    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
+    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
     .replace(/关键词(?:[:：]|\s)+/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
-    .replace(/小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi(?: AI)?|豆包|Doubao|千问|通义千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心/gi, ' ')
-    .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求/gi, ' ')
+    .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|多|加|再|也|还|额外|另外|此外/gi, ' ')
     .replace(/采集|收集|抓取|搜索|搜|查找|查一下|调查|调研|研究|监测|分析/gi, ' ')
     .replace(/(?:的)?(?:舆情|口碑|竞品|评论|评价|帖子|内容|信息|数据|讨论|报告)/gi, ' ')
     .replace(/(^|\s)(?:在|从|上|里|中)(?=\s|$)/g, ' ')
@@ -99,6 +100,14 @@ function cleanResearchSubject(text: string): string {
     .replace(/^的|的$/g, '')
     .replace(/(?:了|啦|吧|呢|呀|啊)+$/g, '')
     .trim();
+}
+
+export function isExclusivePlatformRequest(text: string): boolean {
+  return /(?:只|仅|只要)(?:采集|抓取|搜索|看|用|在|查)?\s*(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|黑猫投诉|黑猫|智联招聘|智联|平台)/i.test(text);
+}
+
+export function isAdditivePlatformRequest(text: string): boolean {
+  return /(?:多|加|再|包含|额外|同时)(?:采集|抓取|搜索|加|用|在|查|入)?/i.test(text);
 }
 
 export function inferResearchKeywords(text: string): string[] {
@@ -114,13 +123,11 @@ export function inferResearchKeywords(text: string): string[] {
   return cleaned.length >= 2 ? [cleaned.slice(0, 40)] : [];
 }
 
-export function inferResearchPlatforms(text: string): string[] {
-  if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) return ['baidu', 'bing', 'so360', 'sogou', 'toutiao'];
-  if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) return ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
-  if (/(?:所有|全部|全|主流)\s*AI\s*(?:搜索|问答|类|Web\s*QA)/i.test(text)) {
-    return ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
-  }
-  if (/(?:全部|所有|全)(?:支持的)?(?:\s*\d+\s*个)?(?:平台)?|全网|各平台/i.test(text)) return [...ALL_PLATFORM_IDS];
+export function inferExcludedPlatforms(text: string): string[] {
+  const prefixPattern = /(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*([^\n，。；;]+)/gi;
+  const suffixPattern = /([^\n，。；;]+?)\s*(?:除外|不用|不要|不采|不抓|不搜)/gi;
+
+  const excluded = new Set<string>();
   const aliases: Array<[RegExp, string]> = [
     [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
     [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'douyin'],
@@ -141,13 +148,76 @@ export function inferResearchPlatforms(text: string): string[] {
     [/(?:腾讯元宝|元宝|yuanbao\.tencent\.com)/i, 'yuanbao'],
     [/(?:纳米\s*AI(?:搜索)?|纳米搜索|www\.n\.cn)/i, 'nami'],
     [/(?:文心一言|文心言|文小言|文心|wenxin\.baidu\.com|yiyan\.baidu\.com)/i, 'wenxin'],
+    [/(?:黑猫投诉|黑猫|tousu\.sina\.com\.cn)/i, 'heimao'],
+    [/(?:智联招聘|智联|zhaopin\.com)/i, 'zhaopin'],
   ];
-  const matched = aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
-  if (matched.length) return matched;
-  if (/(?:所有|全部|全|主流)?\s*AI\s*(?:搜索|问答|Web\s*QA)/i.test(text)) {
-    return ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
+
+  for (const match of text.matchAll(prefixPattern)) {
+    const segment = match[1];
+    for (const [pattern, code] of aliases) {
+      if (pattern.test(segment)) {
+        excluded.add(code);
+      }
+    }
   }
-  return [];
+
+  for (const match of text.matchAll(suffixPattern)) {
+    const segment = match[1];
+    for (const [pattern, code] of aliases) {
+      if (pattern.test(segment)) {
+        excluded.add(code);
+      }
+    }
+  }
+
+  return Array.from(excluded);
+}
+
+export function inferResearchPlatforms(text: string): string[] {
+  const excluded = inferExcludedPlatforms(text);
+  let matchedPlatforms: string[] = [];
+
+  if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) {
+    matchedPlatforms = ['baidu', 'bing', 'so360', 'sogou', 'toutiao'];
+  } else if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) {
+    matchedPlatforms = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
+  } else if (/(?:所有|全部|全|主流)\s*AI\s*(?:搜索|问答|类|Web\s*QA)/i.test(text)) {
+    matchedPlatforms = ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
+  } else if (/(?:全部|所有|全)(?:支持的)?(?:\s*\d+\s*个)?(?:平台)?|全网|各平台/i.test(text)) {
+    matchedPlatforms = [...ALL_PLATFORM_IDS];
+  } else {
+    const aliases: Array<[RegExp, string]> = [
+      [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
+      [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'douyin'],
+      [/(?:快手|kuaishou\.com|v\.kuaishou\.com)/i, 'kuaishou'],
+      [/(?:B站|哔哩哔哩|bilibili\.com|b23\.tv)/i, 'bili'],
+      [/(?:微博|weibo\.com|weibo\.cn)/i, 'weibo'],
+      [/(?:百度贴吧|贴吧|tieba\.baidu\.com)/i, 'tieba'],
+      [/(?:知乎|zhihu\.com|zhuanlan\.zhihu\.com)/i, 'zhihu'],
+      [/(?:百度网页|百度搜索|百度首页|www\.baidu\.com)/i, 'baidu'],
+      [/(?:必应中国|必应|bing\.com|bing)/i, 'bing'],
+      [/(?:360搜索|360|so\.com)/i, 'so360'],
+      [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
+      [/(?:头条搜索|so\.toutiao\.com)/i, 'toutiao'],
+      [/(?:DeepSeek|chat\.deepseek\.com)/i, 'deepseek'],
+      [/(?:Kimi(?:\s*AI)?|kimi\.moonshot\.cn|kimi\.com)/i, 'kimi'],
+      [/(?:豆包|Doubao|doubao\.com)/i, 'doubao'],
+      [/(?:通义千问|千问|Qwen|qianwen\.com|chat\.qwen\.ai)/i, 'qwen'],
+      [/(?:腾讯元宝|元宝|yuanbao\.tencent\.com)/i, 'yuanbao'],
+      [/(?:纳米\s*AI(?:搜索)?|纳米搜索|www\.n\.cn)/i, 'nami'],
+      [/(?:文心一言|文心言|文小言|文心|wenxin\.baidu\.com|yiyan\.baidu\.com)/i, 'wenxin'],
+      [/(?:黑猫投诉|黑猫|tousu\.sina\.com\.cn)/i, 'heimao'],
+      [/(?:智联招聘|智联|zhaopin\.com)/i, 'zhaopin'],
+    ];
+    const matched = aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
+    if (matched.length) {
+      matchedPlatforms = matched;
+    } else if (/(?:所有|全部|全|主流)?\s*AI\s*(?:搜索|问答|Web\s*QA)/i.test(text)) {
+      matchedPlatforms = ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
+    }
+  }
+
+  return matchedPlatforms.filter((p) => !excluded.includes(p));
 }
 
 export function hasExplicitCollectionDepth(text: string): boolean {

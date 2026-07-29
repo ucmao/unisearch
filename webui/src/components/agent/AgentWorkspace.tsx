@@ -72,11 +72,10 @@ function PlanElapsedTime({ plan, className = '' }: { plan: AgentPlan; className?
     return () => window.clearInterval(timer)
   }, [isActive, plan.plan_id])
 
-  const baseTime = plan.status === 'queued'
-    ? plan.started_at || plan.updated_at || plan.created_at
-    : plan.started_at || plan.created_at
+  const baseTime = plan.created_at || plan.started_at || plan.updated_at
   const startedAt = new Date(baseTime).getTime()
-  const elapsed = Number.isFinite(startedAt) ? formatElapsed(now - startedAt) : '0s'
+  const endTime = isActive ? now : (plan.finished_at ? new Date(plan.finished_at).getTime() : (plan.updated_at ? new Date(plan.updated_at).getTime() : now))
+  const elapsed = Number.isFinite(startedAt) && Number.isFinite(endTime) ? formatElapsed(Math.max(0, endTime - startedAt)) : '0s'
 
   return <span className={`whitespace-nowrap font-mono tabular-nums ${className}`}>已处理 {elapsed}</span>
 }
@@ -152,8 +151,11 @@ function ChatCrawlingStatusBanner({
   const isRunning = ['queued', 'running'].includes(activePlan.status)
   if (!isRunning) return null
 
-  const totalSteps = activePlan.steps.length
-  const completedSteps = activePlan.steps.filter((s) => s.status === 'completed').length
+  const connectorSteps = activePlan.steps.filter((s) => s.kind === 'connector' || (s.kind !== 'processor' && s.step_key !== 'business-analysis'))
+  const totalSteps = connectorSteps.length || activePlan.steps.length
+  const completedSteps = connectorSteps.length
+    ? connectorSteps.filter((s) => ['completed', 'failed', 'stopped', 'skipped'].includes(s.status)).length
+    : activePlan.steps.filter((s) => s.status === 'completed').length
   const contentCount = activePlan.stats?.content_count ?? 0
   const isPostProcessing = activePlan.status === 'running' && totalSteps > 0 && completedSteps === totalSteps
 
@@ -178,7 +180,7 @@ function ChatCrawlingStatusBanner({
           title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
         >
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>{isPostProcessing ? '正在整理并分析采集结果' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+          <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
           <span className="text-cyber-border-default">·</span>
           <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
           <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
@@ -1001,8 +1003,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         className={`relative shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/70 ${threadsCollapsed ? 'hidden' : 'hidden md:flex'}`}
         style={{ width: leftSidebarWidth }}
       >
-        <div className="flex h-11 shrink-0 items-center justify-end px-2 app-drag">
-          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 app-no-drag" onClick={toggleThreads} title="收起任务栏">
+        <div className="flex h-11 shrink-0 items-center pl-[74px] px-2 app-drag">
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag" onClick={toggleThreads} title="收起任务栏">
             <PanelLeftClose className="h-4 w-4" />
           </Button>
         </div>
@@ -1164,7 +1166,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {(isCollecting || browserWindowQuery.data?.can_open) && <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
+              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={() => toggleBrowserWindow.mutate()}
               disabled={toggleBrowserWindow.isPending}
               title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
@@ -1173,11 +1175,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             >
               {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
             </Button>}
-            <Button className="md:hidden h-8 w-8 rounded-xl" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}</Button>
+            <Button className="md:hidden h-8 w-8 rounded-xl focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}</Button>
             {selectedId && <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all ${terminalOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
+              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${terminalOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={() => setTerminalOpen((open) => !open)}
               title={terminalOpen ? '隐藏终端' : '显示终端'}
               aria-label={terminalOpen ? '隐藏终端' : '显示终端'}
@@ -1186,7 +1188,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {selectedId && <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all ${rightSidebarOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
+              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${rightSidebarOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={toggleRightSidebar}
               title={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
               aria-label={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
@@ -1432,11 +1434,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               aria-label="调整右侧边栏宽度"
             />
             <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
-                {activePlan ? <Badge variant="outline" className="text-[10px]">{STATUS_LABELS[activePlan.status] || activePlan.status}</Badge> : null}
-              </div>
-
               {(() => {
                 const allPlans = threadQuery.data?.plans || (activePlan ? [activePlan] : [])
 
@@ -1448,8 +1445,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
                 const isPending = activePlan?.status === 'awaiting_confirmation'
                 const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
+                const activeConnectorSteps = activePlan
+                  ? activePlan.steps.filter((s) => s.kind === 'connector' || (s.kind !== 'processor' && s.step_key !== 'business-analysis'))
+                  : []
                 const activeConnectorsCompleted = activePlan
-                  ? activePlan.steps.length > 0 && activePlan.steps.every((step) => step.status === 'completed')
+                  ? activeConnectorSteps.length > 0 && activeConnectorSteps.every((step) => ['completed', 'failed', 'stopped', 'skipped'].includes(step.status))
                   : false
                 // 正常退出但 0 条的平台同样计入可重试，否则它会被算作“已完成”而失去补救入口
                 const emptyStepCount = activePlan
@@ -1516,7 +1516,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 }
 
                 return (
-                  <div className="mt-4 space-y-5 text-xs">
+                  <div className="space-y-5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
+                      {activePlan ? (
+                        <Badge variant="outline" className="text-[10px]">
+                          {activePlan.status === 'running' && activeConnectorsCompleted
+                            ? '分析中'
+                            : (STATUS_LABELS[activePlan.status] || activePlan.status)}
+                        </Badge>
+                      ) : null}
+                    </div>
                     {/* 区域 A：当前任务状态 / 控制卡片 */}
                     {activePlan && isPending ? (
                       <div className="rounded-xl border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-3.5 shadow-sm ring-1 ring-cyber-neon-cyan/30">

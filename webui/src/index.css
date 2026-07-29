@@ -135,6 +135,17 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  button, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    outline: none !important;
+  }
+
+  button:focus,
+  button:focus-visible,
+  button:active {
+    outline: none !important;
+  }
 }
 
 /* ============================
@@ -199,19 +210,6 @@
 
 .cyber-grid {
   background-color: rgb(var(--cyber-bg-primary));
-  background-image:
-    linear-gradient(rgb(var(--cyber-neon-cyan) / 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(var(--cyber-neon-cyan) / 0.03) 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 0%, rgb(var(--cyber-neon-cyan) / 0.06) 0%, transparent 60%);
-  background-size: 50px 50px, 50px 50px, 100% 100%;
-  background-position: -1px -1px, -1px -1px, center top;
-}
-
-.dark .cyber-grid {
-  background-image:
-    linear-gradient(rgba(0, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 255, 255, 0.02) 1px, transparent 1px),
-    radial-gradient(ellipse at 50% 0%, rgba(0, 255, 255, 0.08) 0%, transparent 60%);
 }
 
 /* ============================

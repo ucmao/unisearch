@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ResearchPlan } from './AgentRepository';
-import { hasExplicitCollectionDepth, inferCollectionDepth, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
@@ -50,11 +50,15 @@ export function normalizePlan(
     千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',
     文心: 'wenxin', 文心一言: 'wenxin', 文心言: 'wenxin', 文小言: 'wenxin',
+    黑猫: 'heimao', 黑猫投诉: 'heimao', 智联: 'zhaopin', 智联招聘: 'zhaopin',
   };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))
     .filter((p: string) => SUPPORTED.includes(p)))) as string[];
   const inferredPlatforms = inferResearchPlatforms(userText);
+  const excludedPlatforms = inferExcludedPlatforms(userText);
+  const isExclusive = isExclusivePlatformRequest(userText);
+  const isAdditive = isAdditivePlatformRequest(userText);
   const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
     .map((value: any) => String(value).trim()).filter(Boolean);
   let keywords = Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
@@ -100,12 +104,27 @@ export function normalizePlan(
       : 'quick';
 
   const explicitlyMentionedPlatforms = Array.from(new Set(mentionedConnectors.filter((platform) => SUPPORTED.includes(platform))));
-  const requestedPlatforms = explicitlyMentionedPlatforms.length ? explicitlyMentionedPlatforms : inferredPlatforms;
-  const selectedPlatforms = requestedPlatforms.length
-    ? requestedPlatforms
-    : skill?.defaults?.platforms?.length
-      ? skill.defaults.platforms.filter((platform) => SUPPORTED.includes(platform))
-      : platforms;
+
+  let basePlatforms: string[] = [];
+  if (explicitlyMentionedPlatforms.length > 0) {
+    basePlatforms = explicitlyMentionedPlatforms;
+  } else if (isExclusive) {
+    basePlatforms = inferredPlatforms.length ? inferredPlatforms : platforms;
+  } else if (skill?.defaults?.platforms?.length) {
+    const defaultPlatforms = skill.defaults.platforms.filter((p) => SUPPORTED.includes(p));
+    if (inferredPlatforms.length > 0) {
+      basePlatforms = Array.from(new Set([...defaultPlatforms, ...inferredPlatforms]));
+    } else {
+      basePlatforms = defaultPlatforms;
+    }
+  } else if (isAdditive && fallbackPlan?.platforms?.length) {
+    const extraPlatforms = inferredPlatforms.length ? inferredPlatforms : platforms;
+    basePlatforms = Array.from(new Set([...fallbackPlan.platforms, ...extraPlatforms]));
+  } else {
+    basePlatforms = inferredPlatforms.length ? inferredPlatforms : platforms;
+  }
+
+  const selectedPlatforms = basePlatforms.filter((platform) => !excludedPlatforms.includes(platform));
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
   const loginType = requiresAuth ? 'qrcode' : 'none';
   const suppliedGoals = Array.isArray(input?.analysis) ? input.analysis : [];
@@ -1022,10 +1041,9 @@ export class AgentService {
           && !step.output?.failed
           && !step.output?.skipped,
       );
+      if (autoAnalyzed) continue;
       const text = status === 'completed'
-        ? autoAnalyzed
-          ? `采集与自动分析完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。业务分析报告已生成，也可前往结果看板查看和导出。`
-          : `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
+        ? `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
         : `采集已结束：${completed} 个平台成功，${connectorSteps.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
       agentRepository.addMessage(final.thread_id, 'assistant', 'status', text, { plan_id: final.plan_id, status });
     }
