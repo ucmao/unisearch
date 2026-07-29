@@ -282,6 +282,94 @@ const arxiv: ConnectorManifest = {
   ],
 };
 
+const GITHUB_REPOSITORY_OUTPUTS: ConnectorOutputField[] = [
+  { key: 'content_id', label: 'GitHub 仓库 ID', type: 'string', required: true },
+  { key: 'full_name', label: '仓库全名', type: 'string', required: true },
+  { key: 'title', label: '仓库名称', type: 'string', required: true },
+  { key: 'summary', label: '仓库描述', type: 'string' },
+  { key: 'creator_name', label: '所有者', type: 'string' },
+  { key: 'content_url', label: '仓库链接', type: 'string' },
+  { key: 'homepage', label: '项目主页', type: 'string' },
+  { key: 'language', label: '主要语言', type: 'string' },
+  { key: 'topics', label: 'Topics', type: 'string_list' },
+  { key: 'license', label: 'SPDX 许可证', type: 'string' },
+  { key: 'stars', label: 'Stars', type: 'number' },
+  { key: 'forks', label: 'Forks', type: 'number' },
+  { key: 'watchers', label: 'Watchers', type: 'number' },
+  { key: 'open_issues', label: '开放 Issues', type: 'number' },
+  { key: 'created_at', label: '创建时间', type: 'string' },
+  { key: 'updated_at', label: '更新时间', type: 'string' },
+  { key: 'pushed_at', label: '最后推送时间', type: 'string' },
+  { key: 'archived', label: '已归档', type: 'boolean' },
+  { key: 'is_fork', label: 'Fork 仓库', type: 'boolean' },
+  { key: 'rank', label: '结果排名', type: 'number' },
+];
+
+const githubRepositories: ConnectorManifest = {
+  id: 'github_repositories', version: '1.0.0', name: 'GitHub 仓库', icon: 'github', category: 'web_search',
+  description: '合并 GitHub 通用热门项目与 AI/ML 趋势榜，支持仓库检索和指定仓库详情。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '使用 GitHub 官方公开 REST API 匿名只读查询，无需账号或 API Key。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '仓库搜索与趋势',
+      description: '检索近期活跃的通用或 AI/ML GitHub 仓库；关键词为空时返回对应趋势榜。',
+      runtimeMode: 'search', budgetModel: 'true_pagination',
+      depthBudget: { quick: 20, standard: 50, deep: 100 },
+      inputFields: [
+        {
+          key: 'mode', label: '仓库范围', description: '通用模式覆盖全部仓库；AI/ML 模式合并原 AI 趋势技能的主题范围。',
+          type: 'select', default: 'general', runtimeConfigKey: 'github_repositories_mode',
+          options: [
+            { value: 'general', label: '通用仓库' },
+            { value: 'ai', label: 'AI / ML 仓库' },
+          ],
+        },
+        {
+          key: 'period', label: '活跃周期', description: '仅返回该周期内有代码推送的仓库。',
+          type: 'select', default: 'weekly', runtimeConfigKey: 'github_repositories_period',
+          options: [
+            { value: 'daily', label: '最近一天' },
+            { value: 'weekly', label: '最近一周' },
+            { value: 'monthly', label: '最近一月' },
+          ],
+        },
+        {
+          key: 'language', label: '编程语言', description: '可选 GitHub 编程语言过滤，例如 python、typescript、go。',
+          type: 'string', default: '', runtimeConfigKey: 'github_repositories_language',
+        },
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的仓库数。',
+          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+        {
+          key: 'start_page', label: '起始页', description: 'GitHub Search API 每页最多 30 条。',
+          type: 'number', default: 1, min: 1, max: 34, runtimeConfigKey: 'start_page',
+        },
+      ],
+      outputType: 'github_repository', outputFields: GITHUB_REPOSITORY_OUTPUTS,
+      limitations: [
+        '匿名 GitHub Search API 通常限制为每分钟 10 次请求；达到限额后需等待重置。',
+        '趋势榜按近期有推送且累计 Star 较高近似计算，不等同于 github.com/trending 的内部算法。',
+        '最多查询 GitHub Search API 可访问的前 1000 条结果，本连接器单次每关键词最多入库 100 条。',
+      ],
+    },
+    {
+      id: 'content_detail', label: '仓库详情', description: '根据 owner/repository 或 GitHub 仓库链接读取公开仓库元数据。',
+      runtimeMode: 'detail', budgetModel: 'single_target',
+      inputFields: [targetField('GitHub 仓库名称或链接')],
+      outputType: 'github_repository', outputFields: GITHUB_REPOSITORY_OUTPUTS,
+      limitations: [
+        '仅支持 github.com 公开仓库；不访问私有仓库或用户登录态。',
+        '仅采集仓库描述性元数据，不克隆代码、不下载 Release 或仓库文件。',
+      ],
+    },
+  ],
+};
+
 const aiHot: ConnectorManifest = {
   id: 'aihot', version: '1.0.0', name: 'AI HOT', icon: 'flame', category: 'web_search',
   description: 'AI HOT 精选资讯、当前多源热点、AI 日报与事件时间线连接器。',
@@ -582,6 +670,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('sogou', '搜狗搜索', 'search'),
   searchEngine('toutiao', '头条搜索', 'newspaper'),
   arxiv,
+  githubRepositories,
   aiHot,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),
