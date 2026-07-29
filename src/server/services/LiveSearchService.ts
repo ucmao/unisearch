@@ -1,7 +1,7 @@
 import * as cheerio from 'cheerio';
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
 
-export type LiveSearchProvider = 'baidu' | 'sogou' | 'so360';
+export type LiveSearchProvider = 'baidu' | 'bing' | 'sogou' | 'so360' | 'toutiao';
 
 /**
  * Evidence exists only for the lifetime of one live-answer request. It is never
@@ -92,6 +92,34 @@ export function parseBaiduSearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
   return results;
 }
 
+export function parseBingSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
+  const $ = cheerio.load(String(html || ''));
+  const results: EvidenceDraft[] = [];
+  $('li.b_algo, #b_results > li.b_algo, .b_algo').each((_, element) => {
+    if (results.length >= limit) return false;
+    const item = $(element);
+    const link = item.find('h2 a').first();
+    const title = cleanText(link.text());
+    const sourceUrl = safeHttpUrl(link.attr('href') || '', 'https://cn.bing.com/');
+    if (!title || !sourceUrl) return;
+    const excerpt = cleanText(
+      item.find('.b_algoSlug, .b_caption, p, [class*="b_lineclamp"]').first().text()
+        || item.text().replace(title, ''),
+    ).slice(0, 600);
+    if (!excerpt) return;
+    const fullText = cleanText(item.text());
+    results.push({
+      title,
+      source: 'bing',
+      sourceUrl,
+      excerpt,
+      publisher: cleanText(item.find('cite, .news-attribution').first().text()) || '必应中国',
+      publishedAt: resultTime(fullText),
+    });
+  });
+  return results;
+}
+
 export function parseSogouSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
   const $ = cheerio.load(String(html || ''));
   const results: EvidenceDraft[] = [];
@@ -148,6 +176,55 @@ export function parseSo360SearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
   return results;
 }
 
+function firstHttpUrl(...candidates: unknown[]): string {
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate)) return candidate;
+  }
+  return '';
+}
+
+export function parseToutiaoSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
+  const $ = cheerio.load(String(html || ''));
+  const results: EvidenceDraft[] = [];
+  $('script[data-druid-card-data-id][type="application/json"]').each((_, element) => {
+    if (results.length >= limit) return false;
+    let parsed: any;
+    try {
+      parsed = JSON.parse($(element).contents().text());
+    } catch {
+      return;
+    }
+    const data = parsed?.data;
+    if (!data || typeof data !== 'object') return;
+    const display = data.display && typeof data.display === 'object' ? data.display : {};
+    const info = display.info && typeof display.info === 'object' ? display.info : {};
+    const title = cleanText(data.title || display.title?.text || data.emphasized?.title);
+    const sourceUrl = firstHttpUrl(
+      data.article_url, info.url, data.url, data.share_url,
+      data.ttsearch_msite_url, data.source_url, data.open_url,
+    );
+    const excerpt = cleanText(
+      data.abstract || display.summary?.text || data.emphasized?.summary || data.hot_board_summary,
+    ).slice(0, 600);
+    if (!title || !sourceUrl || !excerpt) return;
+
+    let publishedAt = cleanText(data.datetime);
+    if (!publishedAt) {
+      const timestamp = Number(data.publish_time || data.create_time || data.behot_time || data.display_time);
+      if (Number.isFinite(timestamp) && timestamp > 1e9) publishedAt = new Date(timestamp * 1000).toISOString();
+    }
+    results.push({
+      title,
+      source: 'toutiao',
+      sourceUrl,
+      excerpt,
+      publisher: cleanText(data.media_name || data.source || info.site_name || info.domain) || '头条搜索',
+      publishedAt: publishedAt || undefined,
+    });
+  });
+  return results;
+}
+
 function roundRobin(groups: EvidenceDraft[][]): EvidenceDraft[] {
   const result: EvidenceDraft[] = [];
   const maxLength = Math.max(0, ...groups.map((group) => group.length));
@@ -198,6 +275,8 @@ export class LiveSearchService {
         ...requestOptions,
         headers: { Cookie: 'BDUSS=dummy;' },
       }).then((response) => parseBaiduSearchHtml(response.data, perProvider)),
+      this.client.get(`https://cn.bing.com/search?q=${encodeURIComponent(query)}&first=1`, requestOptions)
+        .then((response) => parseBingSearchHtml(response.data, perProvider)),
       this.client.get(`https://www.sogou.com/web?query=${encodeURIComponent(query)}`, {
         ...requestOptions,
         headers: { Cookie: suv },
@@ -205,6 +284,11 @@ export class LiveSearchService {
       }).then((response) => parseSogouSearchHtml(response.data, perProvider)),
       this.client.get(`https://www.so.com/s?q=${encodeURIComponent(query)}&pn=1`, requestOptions)
         .then((response) => parseSo360SearchHtml(response.data, perProvider)),
+      this.client.get(`https://so.toutiao.com/search?keyword=${encodeURIComponent(query)}&pd=synthesis&dvpf=pc`, {
+        ...requestOptions,
+        referer: 'https://so.toutiao.com/',
+        autoCookie: false,
+      }).then((response) => parseToutiaoSearchHtml(response.data, perProvider)),
     ];
     const settled = await Promise.allSettled(requests);
     options.signal?.throwIfAborted();

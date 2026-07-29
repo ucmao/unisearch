@@ -56,6 +56,30 @@ export function shouldAutoStartSkill(skill: SkillDefinition | null, explicitlyIn
   return Boolean(explicitlyInvoked && skill?.mentionable && skill.execution.autoStartWhenExplicitlyInvoked);
 }
 
+/**
+ * Start clear, low-risk collection requests immediately.  Confirmation is a
+ * safety boundary for expensive or authenticated work, not a mandatory extra
+ * turn for every public search.
+ */
+export function shouldAutoStartPlan(
+  plan: ResearchPlan,
+  userText: string,
+  skill: SkillDefinition | null = null,
+  explicitlyInvokedSkill = false,
+): boolean {
+  if (shouldAutoStartSkill(skill, explicitlyInvokedSkill)) return true;
+  if (/(?:先别|不要|暂不|先不)(?:开始|执行|采集|搜索)|(?:先|只)(?:给我|看)(?:一下)?计划|等待确认|确认后再/i.test(userText)) return false;
+  if (['deep', 'custom'].includes(String(plan.collectionDepth))) return false;
+  if (plan.platforms.length > 3) return false;
+  if (plan.platforms.some((platform) => getConnectorManifest(platform)?.auth.required)) return false;
+
+  const hasLargeOverride = Object.values(plan.connectorOptions || {}).some((options) => {
+    const maxItems = Number(options?.max_items);
+    return Number.isFinite(maxItems) && maxItems > 50;
+  });
+  return !hasLargeOverride;
+}
+
 export function normalizePlan(
   input: any,
   userText: string,
@@ -188,6 +212,12 @@ export function normalizePlan(
 
 function isAnalysisIntent(text: string) {
   return /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/.test(text);
+}
+
+export function looksLikeSimulatedPlanReply(text: string): boolean {
+  return /(?:采集|调研|搜索)计划/.test(text)
+    || /确认后(?:开始|执行)|确认无误.*(?:开始|执行)/s.test(text)
+    || /平台\s*[:：].{0,120}(?:关键词|目标|采集范围)\s*[:：]/s.test(text);
 }
 
 function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPlan {
@@ -654,7 +684,11 @@ export class AgentService {
       if (decision.action === 'chat') {
         try {
           const converseReply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal, onDelta })).trim();
-          if (converseReply) reply = converseReply;
+          if (converseReply) {
+            reply = looksLikeSimulatedPlanReply(converseReply)
+              ? '我还没有创建真实采集任务。请把平台和关键词放在一句话里告诉我，例如“采集 GitHub AI 热点”，我会直接创建并按安全策略开始执行。'
+              : converseReply;
+          }
         } catch {}
       }
 
@@ -939,9 +973,11 @@ export class AgentService {
     const capabilityLabel = plan.platforms
       .map((platform) => getConnectorManifest(platform)?.capabilities.find((capability) => capability.id === (plan.capability || 'keyword_search'))?.label)
       .find(Boolean) || '关键词搜索';
-    const autoStart = shouldAutoStartSkill(planSkill, explicitlyInvokedSkill);
+    const autoStart = shouldAutoStartPlan(plan, planningText, planSkill, explicitlyInvokedSkill);
     const lead = autoStart
-      ? '已按该 Skill 的默认快速方案创建任务并开始采集。'
+      ? planSkill?.category === 'business'
+        ? '已按该 Skill 的方案创建任务并开始采集。'
+        : '已创建任务并开始采集。'
       : decision.action === 'revise_plan'
       ? '已按你的补充更新采集范围。'
       : '已识别并创建待确认的采集计划。';
@@ -1007,7 +1043,9 @@ export class AgentService {
     const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
     if (autoStart) this.executePlan(created.plan_id);
     const nextStep = autoStart
-      ? '\n\n采集结束后会自动生成业务分析报告；如遇登录或验证，请在内置采集浏览器中完成操作。'
+      ? plan.analysis.length || planSkill?.execution.autoAnalyzeOnCompletion
+        ? '\n\n任务已进入执行队列，采集结束后会自动完成计划中的分析；如需调整，可以随时暂停。'
+        : '\n\n任务已进入执行队列；如需调整，可以随时暂停。采集完成后可继续让我分析结果。'
       : '\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。';
     agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n分析维度：${plan.analysis.join('、') || '按用户后续问题分析'}${nextStep}`, {
       plan_id: created.plan_id,

@@ -575,7 +575,7 @@ export class AgentRepository {
       `).run(id(), workflowId, JSON.stringify({ goals: plan.analysis }), now, now);
       previousStep = 'analyze-results';
     }
-    if (skill.execution.autoAnalyzeOnCompletion) {
+    if (skill.execution.autoAnalyzeOnCompletion || plan.analysis?.length) {
       this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
