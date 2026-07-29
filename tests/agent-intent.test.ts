@@ -98,7 +98,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
+    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
   ]);
 });
 
@@ -198,3 +198,40 @@ test('unspecified collection depth defaults to quick first results', () => {
   assert.equal(hasExplicitCollectionDepth('尽量全面采集小红书上的新品反馈'), true);
   assert.equal(inferCollectionDepth('按常规范围采集'), 'standard');
 });
+
+test('negative platform exclusion directives filter out specified platforms', () => {
+  const { inferExcludedPlatforms, inferResearchPlatforms } = require('../src/server/services/AgentIntent');
+  const { normalizePlan } = require('../src/server/services/AgentService');
+  const { skillRegistry } = require('../src/skills/registry');
+
+  assert.deepEqual(inferExcludedPlatforms('不要采集黑猫投诉，关键词：易拓'), ['heimao']);
+  assert.deepEqual(inferExcludedPlatforms('排除小红书和抖音'), ['xhs', 'douyin']);
+  assert.deepEqual(inferExcludedPlatforms('黑猫投诉除外'), ['heimao']);
+
+  const skill = skillRegistry.get('brand-geo-risk-monitor');
+  const plan = normalizePlan(
+    { keywords: ['易拓'] },
+    '不要采集黑猫投诉，关键词：易拓',
+    undefined,
+    false,
+    skill,
+  );
+
+  assert.equal(plan.platforms.includes('heimao'), false);
+  assert.deepEqual(plan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin']);
+  assert.deepEqual(plan.keywords, ['易拓']);
+
+  const additivePlan = normalizePlan(
+    { keywords: ['皮卡丘'] },
+    '@品牌GEO与投诉风险监测 不要采集黑猫，多采集一个百度搜索，关键词：皮卡丘',
+    undefined,
+    false,
+    skill,
+  );
+
+  assert.equal(additivePlan.platforms.includes('heimao'), false);
+  assert.equal(additivePlan.platforms.includes('baidu'), true);
+  assert.deepEqual(additivePlan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'baidu']);
+  assert.deepEqual(additivePlan.keywords, ['皮卡丘']);
+});
+

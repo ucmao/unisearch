@@ -74,15 +74,26 @@ export class WorkflowRuntime {
         );
         context.signal.throwIfAborted();
       }
-      agentRepository.addMessage(workflow.thread_id, 'assistant', 'analysis', result.answer, {
+      const startTime = new Date(workflow.created_at || workflow.started_at || Date.now()).getTime();
+      const endTime = Date.now();
+      const totalSeconds = Math.max(1, Math.round((endTime - startTime) / 1000));
+      const formattedTotalTime = totalSeconds >= 60
+        ? `${Math.floor(totalSeconds / 60)}分${totalSeconds % 60}秒`
+        : `${totalSeconds}秒`;
+
+      const finalReportAnswer = result.answer;
+
+      agentRepository.addMessage(workflow.thread_id, 'assistant', 'analysis', finalReportAnswer, {
         action: 'auto_skill_analysis',
         plan_id: workflow.plan_id,
         skill_id: skill.id,
         retrieval: 'hybrid_rag',
         sources: result.sources,
         analyzed_record_count: rows.length,
+        total_duration_sec: totalSeconds,
+        total_duration_formatted: formattedTotalTime,
       });
-      return { recordCount: rows.length, sourceCount: result.sources.length };
+      return { recordCount: rows.length, sourceCount: result.sources.length, totalDurationSec: totalSeconds };
     } catch (error: any) {
       context.signal.throwIfAborted();
       agentRepository.addMessage(
