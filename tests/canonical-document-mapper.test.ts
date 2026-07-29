@@ -29,9 +29,9 @@ function raw(source: string, kind: RawItemKind, payload: Record<string, any>) {
   });
 }
 
-test('all 22 registered connectors have an executable v2 mapping', () => {
+test('all 23 registered connectors have an executable v2 mapping', () => {
   const manifests = listConnectorManifests();
-  assert.equal(manifests.length, 22);
+  assert.equal(manifests.length, 23);
   assert.deepEqual(Object.keys(CONNECTOR_MAPPING_MATRIX).sort(), manifests.map((item) => item.id).sort());
   for (const manifest of manifests) {
     const document = mapRawItemToCanonicalDocument(raw(manifest.id, 'post', {
@@ -94,6 +94,31 @@ test('search mapper maps snippet, publisher, rank and assets', () => {
   assert.deepEqual(document.metrics, {});
   assert.equal(document.assets.length, 1);
   assert.equal(document.assets[0].role, 'thumbnail');
+});
+
+test('AI HOT mapper preserves attribution, source metrics and citations', () => {
+  const document = mapRawItemToCanonicalDocument(buildRawItem('emitAiHotItem', {
+    content_id: 'hot-1',
+    title: 'AI 模型动态',
+    summary: '多个来源正在讨论该事件。',
+    creator_name: '示例媒体',
+    content_url: 'https://aihot.virxact.com/items/hot-1',
+    original_url: 'https://example.com/original',
+    category: 'ai-models',
+    score: 98,
+    source_count: 4,
+    signal_count: 7,
+    content_mode: 'hot_topics',
+    citations: [{ title: '原文', url: 'https://example.com/original', source: '示例媒体' }],
+  }));
+  assert.equal(document.kind, 'article');
+  assert.equal(document.subject.type, 'publisher');
+  assert.equal(document.subject.name, '示例媒体');
+  assert.deepEqual(document.metrics, { score: 98, sourceCount: 4, signalCount: 7 });
+  assert.equal(document.attributes.category, 'ai-models');
+  assert.equal(document.attributes.contentMode, 'hot_topics');
+  assert.equal(document.attributes.originalUrl, 'https://example.com/original');
+  assert.deepEqual(document.citations, [{ title: '原文', url: 'https://example.com/original', source: '示例媒体' }]);
 });
 
 test('mapper preserves a cover supplied only through RawItem hints', () => {

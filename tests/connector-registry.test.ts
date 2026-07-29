@@ -21,7 +21,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 22);
+assert.equal(listConnectorManifests().length, 23);
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -44,7 +44,9 @@ assert.equal((normalized as any).crawler_max_notes_count, 42);
 assert.equal(normalized.enable_comments, true);
 
 for (const manifest of listConnectorManifests()) {
-  const expectedCapabilities = (manifest.category === 'web_search' || manifest.category === 'ai_web_qa')
+  const expectedCapabilities = manifest.id === 'aihot'
+    ? ['keyword_search', 'content_detail']
+    : (manifest.category === 'web_search' || manifest.category === 'ai_web_qa')
     ? ['keyword_search']
     : manifest.category === 'utility'
     ? ['url_resolve']
@@ -89,5 +91,27 @@ assert.match(catalog, /nami=纳米AI/);
 assert.match(catalog, /zhaopin=智联招聘/);
 assert.match(catalog, /heimao=黑猫投诉/);
 assert.match(catalog, /toutiao=头条搜索/);
+assert.match(catalog, /aihot=AI HOT/);
+
+const aiHotRequest = normalizeConnectorRequest({
+  ...baseRequest,
+  platform: 'aihot',
+  connector_id: 'aihot',
+  login_type: 'qrcode',
+  keywords: '',
+  connector_options: {
+    content_mode: 'hot_topics',
+    items_mode: 'all',
+    window: '7d',
+    category: 'ai-models',
+    max_items: 12,
+  },
+});
+assert.equal(aiHotRequest.login_type, 'none');
+assert.equal((aiHotRequest as any).aihot_content_mode, 'hot_topics');
+assert.equal((aiHotRequest as any).aihot_items_mode, 'all');
+assert.equal((aiHotRequest as any).aihot_window, '7d');
+assert.equal((aiHotRequest as any).aihot_category, 'ai-models');
+assert.equal((aiHotRequest as any).crawler_max_notes_count, 12);
 
 console.log('connector registry tests passed');

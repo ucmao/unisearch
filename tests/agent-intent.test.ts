@@ -98,8 +98,13 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
+    'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
   ]);
+});
+
+test('AI HOT requests select the connector and can omit keywords', () => {
+  assert.deepEqual(inferResearchPlatforms('看看 AI HOT 当前热点'), ['aihot']);
+  assert.equal(localIntentDecision('看看 AI HOT 当前热点').action, 'create_plan');
 });
 
 test('confirmation only executes a pending plan', () => {

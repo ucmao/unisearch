@@ -108,11 +108,11 @@ export interface ConnectorManifest {
   description: string
   auth: {
     required: boolean
-    methods: Array<'qrcode' | 'cookie'>
+    methods: Array<'qrcode' | 'cookie' | 'none'>
     description: string
   }
   runtime: {
-    engine: 'playwright'
+    engine: 'playwright' | 'http' | 'hybrid'
     isolatedProcess: boolean
     supportsHeadless: boolean
   }
