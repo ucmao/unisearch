@@ -214,7 +214,7 @@ const ARXIV_OUTPUTS: ConnectorOutputField[] = [
 
 const arxiv: ConnectorManifest = {
   id: 'arxiv', version: '1.0.0', name: 'arXiv', icon: 'file-search', category: 'web_search',
-  description: 'arXiv 官方元数据 API 论文搜索与指定论文详情连接器。',
+  description: 'arXiv 官方元数据 API 论文搜索与指定论文详情连接器（国际学术预印本论文库，建议使用英文检索）。',
   auth: {
     required: false, methods: ['none'],
     description: '使用 arXiv 官方公开 Atom API，无需账号或 API Key。',
@@ -222,7 +222,7 @@ const arxiv: ConnectorManifest = {
   runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
   capabilities: [
     {
-      id: 'keyword_search', label: '论文搜索', description: '按关键词、标题、作者、摘要或分类检索 arXiv 论文元数据。',
+      id: 'keyword_search', label: '论文搜索', description: '按关键词、标题、作者、摘要或分类检索 arXiv 论文元数据（建议使用英文检索）。',
       runtimeMode: 'search', budgetModel: 'true_pagination',
       depthBudget: { quick: 10, standard: 30, deep: 100 },
       inputFields: [
@@ -265,6 +265,7 @@ const arxiv: ConnectorManifest = {
       ],
       outputType: 'arxiv_paper', outputFields: ARXIV_OUTPUTS,
       limitations: [
+        'arXiv 为国际学术预印本论文库，建议使用英文关键词检索以获得更佳匹配结果。',
         '仅采集 arXiv 描述性元数据，不下载或存储论文 PDF 正文。',
         '遵守 arXiv API 限流：单连接运行，相邻请求至少间隔 3 秒。',
       ],
@@ -755,6 +756,60 @@ const complaintPlatform = (
   ],
 });
 
+const webReader: ConnectorManifest = {
+  id: 'web_reader', version: '1.0.0', name: '通用网页阅读器', icon: 'file-text', category: 'utility',
+  description: '全网通用网页正文与文章采集阅读器。支持输入任意公开网页 HTTP/HTTPS 链接，自动抽取网页标题、真实正文文本、发布时间、来源站点与核心图片。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '无需登录，直接抓取公开网页。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'content_detail', label: '网页正文解析', description: '输入单个或多个网页链接，提取抓取其完整文章正文、标题与元数据。', runtimeMode: 'detail',
+      budgetModel: 'single_target',
+      inputFields: [
+        {
+          key: 'specified_ids', label: '网页 URL 列表', description: '支持任意 HTTP/HTTPS 网页链接，多个目标使用逗号或换行分隔。',
+          type: 'string_list', required: true, runtimeConfigKey: 'specified_ids',
+        },
+      ],
+      outputType: 'web_reader_content', outputFields: [
+        { key: 'content_id', label: '网页 URL', type: 'string', required: true },
+        { key: 'title', label: '网页标题', type: 'string' },
+        { key: 'summary', label: '网页摘要', type: 'string' },
+        { key: 'description', label: '网页正文', type: 'string' },
+        { key: 'content_url', label: '网页链接', type: 'string' },
+        { key: 'creator_name', label: '作者/来源', type: 'string' },
+        { key: 'site_name', label: '站点名称', type: 'string' },
+        { key: 'published_at', label: '发布时间', type: 'string' },
+        { key: 'images', label: '网页图片', type: 'string_list' },
+      ], limitations: ['依赖网页公开可见的 HTML DOM。'],
+    },
+    {
+      id: 'url_resolve', label: '网页短链解析与提取', description: '展开重定向短链并解析提取网页正文。', runtimeMode: 'detail',
+      budgetModel: 'single_target',
+      inputFields: [
+        {
+          key: 'specified_ids', label: '目标链接或短链', description: '多个目标使用逗号或换行分隔。',
+          type: 'string_list', required: true, runtimeConfigKey: 'specified_ids',
+        },
+      ],
+      outputType: 'web_reader_content', outputFields: [
+        { key: 'content_id', label: '网页 URL', type: 'string', required: true },
+        { key: 'title', label: '网页标题', type: 'string' },
+        { key: 'summary', label: '网页摘要', type: 'string' },
+        { key: 'description', label: '网页正文', type: 'string' },
+        { key: 'content_url', label: '网页链接', type: 'string' },
+        { key: 'creator_name', label: '作者/来源', type: 'string' },
+        { key: 'site_name', label: '站点名称', type: 'string' },
+        { key: 'published_at', label: '发布时间', type: 'string' },
+        { key: 'images', label: '网页图片', type: 'string_list' },
+      ], limitations: ['依赖网页公开可见的 HTML DOM。'],
+    },
+  ],
+};
+
 export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('xhs', '小红书', 'book-open', { content: '作品', creator: '创作者', comment: '评论与子评论' }),
   social('douyin', '抖音', 'music', { content: '作品', creator: '创作者', comment: '评论与回复' }),
@@ -772,6 +827,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   githubRepositories,
   rssNews,
   aiHot,
+  webReader,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),
   complaintPlatform('heimao', '黑猫投诉', 'shield-alert'),
@@ -783,3 +839,4 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   aiWebQA('nami', '纳米AI', 'atom'),
   aiWebQA('wenxin', '文心一言', 'message-circle-heart'),
 ];
+

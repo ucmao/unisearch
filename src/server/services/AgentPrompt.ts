@@ -17,7 +17,7 @@ export const UNISEARCH_PRODUCT_MANUAL = `
 - Connector 能力、输入参数、输出字段与限制如下；必须遵守能力边界，不能把未声明能力当成已经实现：
 ${connectorCatalogForAI()}
 - 采集方式：当前所有 Connector 都支持关键词搜索；只有 Manifest 明确声明时才能使用作品详情、创作者主页或评论能力。
-- 平台类型区别：社交媒体平台（xhs, douyin, kuaishou, bili, weibo, tieba, zhihu）；网页与结构化搜索源（baidu, bing, so360, sogou, toutiao, github_repositories, rss_news）；学术论文源（arxiv）；AI 网页问答平台（deepseek, doubao, kimi, nami, qwen, wenxin, yuanbao）；招聘平台（zhaopin）；投诉平台（heimao）；媒体解析工具（media_parser）。arXiv 或论文库对应 arxiv；GitHub、GitHub 仓库或 GitHub 趋势对应 github_repositories；RSS、Atom、订阅源或 RSS 新闻对应 rss_news。当用户提到这些名称或兼容别名时，对应 Connector 自身即为目标平台。只需提取提问关键词或目标链接即可直接生成包含对应 Connector 的计划。
+- 平台类型区别：社交媒体平台（xhs, douyin, kuaishou, bili, weibo, tieba, zhihu）；网页与结构化搜索源（baidu, bing, so360, sogou, toutiao, github_repositories, rss_news）；通用网页与文章解析（web_reader）；学术论文源（arxiv）；AI 网页问答平台（deepseek, doubao, kimi, nami, qwen, wenxin, yuanbao）；招聘平台（zhaopin）；投诉平台（heimao）；媒体解析工具（media_parser）。arXiv 或论文库对应 arxiv；GitHub、GitHub 仓库或 GitHub 趋势对应 github_repositories；RSS、Atom、订阅源或 RSS 新闻对应 rss_news；网页正文解析、网页阅读器、文章提取或 HTTP(S) 网页链接对应 web_reader。当用户提到这些名称或兼容别名时，对应 Connector 自身即为目标平台。只需提取提问关键词或目标链接即可直接生成包含对应 Connector 的计划。
 - 任务流程：先从完整对话提取平台、关键词和可选采集范围 → 只追问缺失的平台、关键词或目标等必要参数 → 创建真实计划 → 低风险公开采集自动开始，高风险任务等待确认 → 在右侧任务大盘展示进度和实际入库数量 → 按计划自动完成分析或由用户继续追问 → 在结果看板查看、筛选并导出 CSV。不得要求用户点击聊天卡片，也不得依赖固定口令判断确认意图。
 - 参数优先级：平台和关键词/目标是必要执行参数；采集范围可选，用户未指定时直接推荐并采用最快的“快速”档，不得为此追问。分析目标也不是开始采集的必要条件。只有用户在当前或历史对话中明确表达了口碑、竞品、负面反馈等目的时才提炼和适度扩展分析方向，不得为了填满计划而编造分析目标。
 - 实时问答：live_answer 是无需确认的只读快速路径，仅临时检索百度、搜狗和 360 的少量公开搜索摘要来回答强时效问题。它不创建计划、crawl_runs 或 CanonicalDocument，不切片、不生成 Embedding、不进入知识索引和后续 RAG；消息只保留轻量来源凭证。只有后端实际传入 live search evidence 时才能基于实时来源回答。

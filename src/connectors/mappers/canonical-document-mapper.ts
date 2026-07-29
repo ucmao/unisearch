@@ -162,6 +162,12 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
     family: 'media', subjectType: 'creator', metricAliases: {},
     attributeAliases: { mediaType: ['media_type', 'type'] },
   },
+  web_reader: {
+    family: 'search', subjectType: 'publisher', metricAliases: {},
+    attributeAliases: {
+      siteName: ['site_name'],
+    },
+  },
   zhaopin: {
     family: 'job', subjectType: 'company', metricAliases: {},
     attributeAliases: {
