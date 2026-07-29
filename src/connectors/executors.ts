@@ -18,6 +18,7 @@ import { AiHotCrawler } from '../crawler/platforms/aihot';
 import { ArxivCrawler } from '../crawler/platforms/arxiv';
 import { RssNewsCrawler } from '../crawler/platforms/rss_news';
 import { WebReaderCrawler } from '../crawler/platforms/web_reader';
+import { GitHubRepositoriesCrawler } from '../crawler/platforms/github_repositories';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {

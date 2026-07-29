@@ -21,7 +21,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 26);
+assert.equal(listConnectorManifests().length, 27);
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -48,6 +48,8 @@ for (const manifest of listConnectorManifests()) {
     ? ['keyword_search', 'content_detail']
     : (manifest.category === 'web_search' || manifest.category === 'ai_web_qa')
     ? ['keyword_search']
+    : manifest.id === 'web_reader'
+    ? ['content_detail', 'url_resolve']
     : manifest.category === 'utility'
     ? ['url_resolve']
     : (manifest.category === 'job_platform' || manifest.category === 'complaint_platform')

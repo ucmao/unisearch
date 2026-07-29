@@ -3,10 +3,18 @@ import type { Database } from 'better-sqlite3';
 import { getDb } from '../../database/connection';
 import { AnalyticsRepository } from '../../database/repository';
 import { exporterRegistry } from '../../exporters/registry';
-import { platformLabel } from '../../connectors/registry';
+import { getConnectorManifest, platformLabel } from '../../connectors/registry';
 import { skillRegistry } from '../../skills/registry';
 
 export type AgentRole = 'user' | 'assistant' | 'system';
+
+export interface ContentEnrichmentOptions {
+  mode: 'snippet' | 'auto' | 'full';
+  maxReadItems: number;
+  maxPerDomain: number;
+  concurrency: number;
+  timeoutMsPerUrl: number;
+}
 
 export interface ResearchPlan {
   skillId?: string;
@@ -16,6 +24,7 @@ export interface ResearchPlan {
   capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve';
   targets?: string[];
   connectorOptions?: Record<string, Record<string, unknown>>;
+  contentEnrichment: ContentEnrichmentOptions;
   /**
    * The only stored representation of "how much to collect". Concrete crawl
    * parameters (item budget, comment toggles, start page) are derived per
@@ -525,14 +534,24 @@ export class AgentRepository {
     const insert = this.db.prepare(`
       INSERT INTO workflow_steps (
         step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
-        input_json, status, max_attempts, timeout_ms, external_ref, created_at, updated_at
-      ) VALUES (?, ?, ?, 'connector', ?, '[]', ?, 'queued', 2, 300000, ?, ?, ?)
+        dependency_policy, input_json, status, max_attempts, timeout_ms, external_ref, created_at, updated_at
+      ) VALUES (?, ?, ?, 'connector', ?, ?, ?, ?, 'queued', 2, 300000, ?, ?, ?)
     `);
     const capability = plan.capability || 'keyword_search';
+    const collectStepKeys: string[] = [];
+    const webSearchStepKeys: string[] = [];
     for (const platform of plan.platforms) {
+      const stepKey = `collect:${platform}`;
+      collectStepKeys.push(stepKey);
+      if (capability === 'keyword_search' && getConnectorManifest(platform)?.category === 'web_search') {
+        webSearchStepKeys.push(stepKey);
+      }
       insert.run(
-        id(), workflowId, `collect:${platform}`, `connector.${platform}.${capability}`,
+        id(), workflowId, stepKey, `connector.${platform}.${capability}`,
+        '[]',
+        'success',
         JSON.stringify({
+          capability,
           keywords: plan.keywords,
           targets: plan.targets || [],
           options: plan.connectorOptions?.[platform] || {},
@@ -540,6 +559,41 @@ export class AgentRepository {
         platform, now, now,
       );
     }
+
+    let readerStepKey: string | null = null;
+    if (webSearchStepKeys.length && plan.contentEnrichment.mode !== 'snippet') {
+      const selectorStepKey = 'select-search-urls';
+      this.db.prepare(`
+        INSERT INTO workflow_steps (
+          step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+          dependency_policy, input_json, status, max_attempts, timeout_ms,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, 'processor', 'processor.search-results.select',
+          ?, 'terminal', ?, 'queued', 2, 300000, ?, ?)
+      `).run(
+        id(), workflowId, selectorStepKey, JSON.stringify(webSearchStepKeys),
+        JSON.stringify(plan.contentEnrichment), now, now,
+      );
+      readerStepKey = 'read:web_reader';
+      insert.run(
+        id(), workflowId, readerStepKey, 'connector.web_reader.content_detail',
+        JSON.stringify([selectorStepKey]),
+        'success',
+        JSON.stringify({
+          capability: 'content_detail',
+          keywords: [],
+          targetsFromStep: selectorStepKey,
+          options: {
+            ...(plan.connectorOptions?.web_reader || {}),
+            timeout_ms_per_url: plan.contentEnrichment.timeoutMsPerUrl,
+            concurrency: plan.contentEnrichment.concurrency,
+          },
+        }),
+        'web_reader', now, now,
+      );
+    }
+
+    const finalDependencies = readerStepKey ? [...collectStepKeys, readerStepKey] : collectStepKeys;
     this.db.prepare(`
       INSERT INTO workflow_steps (
         step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -550,7 +604,7 @@ export class AgentRepository {
     `).run(
       id(),
       workflowId,
-      JSON.stringify(plan.platforms.map((platform) => `collect:${platform}`)),
+      JSON.stringify(finalDependencies),
       JSON.stringify({ processorIds: ['metadata.normalize', 'document.clean_markdown'] }),
       now,
       now,
@@ -656,6 +710,8 @@ export class AgentRepository {
       ...step,
       platform: step.external_ref,
       run_id: parseJson<any>(step.output_json, {}).runId || null,
+      input: parseJson<Record<string, unknown>>(step.input_json, {}),
+      depends_on: parseJson<string[]>(step.depends_on_json, []),
     }));
     const stats = this.getPlanStats(row.workflow_id);
     const plan = parseJson<ResearchPlan>(row.input_json, {} as ResearchPlan);
@@ -694,6 +750,82 @@ export class AgentRepository {
     this.db.prepare(`
       UPDATE workflow_steps SET status=?, output_json=?, error_message=?, updated_at=? WHERE step_id=?
     `).run(status === 'stopped' ? 'cancelled' : status, JSON.stringify(output), errorMessage || null, new Date().toISOString(), stepId);
+  }
+
+  isStepReady(workflowId: string, stepKey: string): boolean {
+    const steps = this.db.prepare(`
+      SELECT step_key, status, depends_on_json, dependency_policy
+      FROM workflow_steps WHERE workflow_id=?
+    `).all(workflowId) as any[];
+    const target = steps.find((step) => step.step_key === stepKey);
+    if (!target || target.status !== 'queued') return false;
+    const statusByKey = new Map(steps.map((step) => [step.step_key, step.status]));
+    const accepted = target.dependency_policy === 'terminal'
+      ? ['completed', 'skipped', 'failed', 'cancelled']
+      : ['completed', 'skipped'];
+    return parseJson<string[]>(target.depends_on_json, [])
+      .every((dependency) => accepted.includes(String(statusByKey.get(dependency))));
+  }
+
+  getStepOutput(workflowId: string, stepKey: string): Record<string, unknown> {
+    const row = this.db.prepare(`
+      SELECT output_json FROM workflow_steps WHERE workflow_id=? AND step_key=?
+    `).get(workflowId, stepKey) as any;
+    return parseJson<Record<string, unknown>>(row?.output_json || '{}', {});
+  }
+
+  selectSearchUrls(
+    workflowId: string,
+    options: { maxReadItems: number; maxPerDomain: number },
+  ): Array<{ url: string; providers: string[]; bestRank: number; title: string }> {
+    const rows = this.db.prepare(`
+      SELECT d.source_url, d.provider, d.rank, d.title
+      FROM search_discoveries d
+      JOIN crawl_runs r ON r.run_id=d.run_id
+      WHERE r.workflow_id=?
+      ORDER BY COALESCE(d.rank, 2147483647), d.fetched_at DESC
+    `).all(workflowId) as Array<{ source_url: string; provider: string; rank: number | null; title: string }>;
+
+    const normalize = (value: string): string | null => {
+      try {
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol)) return null;
+        url.hash = '';
+        for (const key of [...url.searchParams.keys()]) {
+          if (/^(?:utm_.+|spm|from|source|ref|referrer|tracking_id)$/i.test(key)) url.searchParams.delete(key);
+        }
+        return url.toString();
+      } catch { return null; }
+    };
+    const grouped = new Map<string, { url: string; providers: Set<string>; bestRank: number; title: string }>();
+    for (const row of rows) {
+      const url = normalize(row.source_url);
+      if (!url || /\.(?:pdf|zip|rar|7z|jpe?g|png|gif|webp|mp4|mp3)(?:$|\?)/i.test(url)) continue;
+      const current = grouped.get(url) || {
+        url, providers: new Set<string>(), bestRank: Number.MAX_SAFE_INTEGER, title: row.title,
+      };
+      current.providers.add(row.provider);
+      if (row.rank !== null) current.bestRank = Math.min(current.bestRank, row.rank);
+      if (!current.title) current.title = row.title;
+      grouped.set(url, current);
+    }
+    const perDomain = new Map<string, number>();
+    return [...grouped.values()]
+      .sort((left, right) => right.providers.size - left.providers.size || left.bestRank - right.bestRank)
+      .filter((item) => {
+        const domain = new URL(item.url).hostname.toLowerCase();
+        const count = perDomain.get(domain) || 0;
+        if (count >= options.maxPerDomain) return false;
+        perDomain.set(domain, count + 1);
+        return true;
+      })
+      .slice(0, options.maxReadItems)
+      .map((item) => ({
+        url: item.url,
+        providers: [...item.providers],
+        bestRank: item.bestRank === Number.MAX_SAFE_INTEGER ? 0 : item.bestRank,
+        title: item.title,
+      }));
   }
 
   getCrawlRun(runId: string): any {

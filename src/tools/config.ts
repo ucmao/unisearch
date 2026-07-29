@@ -55,6 +55,9 @@ export interface AppConfig {
   RSS_NEWS_SOURCE: 'balanced' | 'bbc_world' | 'bbc_top' | 'bbc_business' | 'bbc_technology' | 'npr_top' | 'aljazeera_all';
   RSS_NEWS_PERIOD: '24h' | '7d' | '30d' | 'all';
 
+  WEB_READER_TIMEOUT_MS: number;
+  WEB_READER_CONCURRENCY: number;
+
   // Platform specific lists
   XHS_CREATOR_ID_LIST: string[];
   DY_CREATOR_ID_LIST: string[];
@@ -134,6 +137,9 @@ export const DEFAULT_CONFIG: AppConfig = {
 
   RSS_NEWS_SOURCE: 'balanced',
   RSS_NEWS_PERIOD: '7d',
+
+  WEB_READER_TIMEOUT_MS: 15000,
+  WEB_READER_CONCURRENCY: 3,
 
   XHS_CREATOR_ID_LIST: [],
   DY_CREATOR_ID_LIST: [],

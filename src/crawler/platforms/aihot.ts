@@ -227,6 +227,7 @@ export function mapAiHotStory(story: JsonRecord): JsonRecord {
 }
 
 export class AiHotCrawler extends AbstractCrawler {
+  public async search(): Promise<void> { await this.start(); }
   private maxItems(): number {
     return Math.max(1, Math.min(100, Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20)));
   }

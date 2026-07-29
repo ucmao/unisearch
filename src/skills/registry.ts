@@ -1,9 +1,9 @@
-import { skillDefinitionSchema, type SkillDefinition } from '../core/skills/types';
+import { skillDefinitionSchema, type SkillDefinition, type SkillDefinitionInput } from '../core/skills/types';
 
 export class SkillRegistry {
   private readonly skills = new Map<string, SkillDefinition>();
 
-  register(value: SkillDefinition): void {
+  register(value: SkillDefinitionInput): void {
     const skill = skillDefinitionSchema.parse(value);
     if (this.skills.has(skill.id)) throw new Error(`Skill already registered: ${skill.id}`);
     this.skills.set(skill.id, skill);
@@ -44,6 +44,42 @@ skillRegistry.register({
     exporters: ['markdown', 'json', 'obsidian', 'ima'],
     outputs: ['documents'],
   },
+});
+
+skillRegistry.register({
+  id: 'web-search-research',
+  version: '1.0.0',
+  name: '全网搜索与深度阅读',
+  description: '聚合百度、必应、360、搜狗和头条搜索结果，统一去重后读取高价值网页正文。',
+  category: 'core',
+  icon: 'search',
+  mentionable: true,
+  inputs: [
+    { key: 'subject', required: true, description: '搜索关键词、主题或问题' },
+    { key: 'readingMode', required: false, description: '只看摘要、自动阅读全文或尽量阅读全文' },
+  ],
+  workflow: {
+    connectorCapabilities: ['keyword_search', 'content_detail'],
+    itemProcessors: ['search-results.select', 'metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'extractive.summary'],
+    exporters: ['markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: ['baidu', 'bing', 'so360', 'sogou', 'toutiao'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    contentEnrichment: {
+      mode: 'auto', maxReadItems: 8, maxPerDomain: 2, concurrency: 3, timeoutMsPerUrl: 15_000,
+    },
+    analysis: [],
+    outputs: ['markdown'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: true,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: ['只读取公开可访问的 HTML 网页。', '搜索结果与正文读取均受站点反爬和网络状态影响。'],
 });
 
 const BUSINESS_WORKFLOW = {

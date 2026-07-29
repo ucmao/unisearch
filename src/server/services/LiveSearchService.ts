@@ -1,5 +1,6 @@
 import * as cheerio from 'cheerio';
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
+import { webReaderService, type WebReaderParsedArticle } from '../../services/web-reader-service';
 
 export type LiveSearchProvider = 'baidu' | 'bing' | 'sogou' | 'so360' | 'toutiao';
 
@@ -29,6 +30,10 @@ export interface LiveSourceCitation {
 
 interface LiveSearchHttpClient {
   get(url: string, options?: Record<string, unknown>): Promise<{ data: unknown }>;
+}
+
+interface LiveWebReader {
+  read(url: string, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<WebReaderParsedArticle>;
 }
 
 interface EvidenceDraft extends Omit<SearchEvidence, 'id' | 'fetchedAt'> {}
@@ -254,11 +259,19 @@ export function toLiveSourceCitations(evidence: SearchEvidence[]): LiveSourceCit
 }
 
 export class LiveSearchService {
-  constructor(private readonly client: LiveSearchHttpClient = systemHttpClient) {}
+  constructor(
+    private readonly client: LiveSearchHttpClient = systemHttpClient,
+    private readonly reader: LiveWebReader = webReaderService,
+  ) {}
 
   async search(
     rawQuery: string,
-    options: { limit?: number; signal?: AbortSignal } = {},
+    options: {
+      limit?: number;
+      signal?: AbortSignal;
+      readMode?: 'snippet' | 'auto' | 'full';
+      maxReadItems?: number;
+    } = {},
   ): Promise<SearchEvidence[]> {
     const query = rawQuery.replace(/\s+/g, ' ').trim().slice(0, 300);
     if (!query) return [];
@@ -294,9 +307,34 @@ export class LiveSearchService {
     options.signal?.throwIfAborted();
     const groups = settled.map((result) => result.status === 'fulfilled' ? result.value : []);
     const fetchedAt = new Date().toISOString();
-    return deduplicate(roundRobin(groups))
+    const evidence = deduplicate(roundRobin(groups))
       .slice(0, Math.max(1, Math.min(12, options.limit || 8)))
       .map((draft, index) => ({ ...draft, id: `S${index + 1}`, fetchedAt }));
+    if (!options.readMode || options.readMode === 'snippet') return evidence;
+
+    const readCount = Math.max(1, Math.min(
+      evidence.length,
+      options.maxReadItems || (options.readMode === 'full' ? 5 : 3),
+    ));
+    const enriched = await Promise.allSettled(evidence.slice(0, readCount).map(async (item) => {
+      const article = await this.reader.read(item.sourceUrl, {
+        timeoutMs: 3_500,
+        signal: options.signal,
+      });
+      return {
+        ...item,
+        title: article.title || item.title,
+        sourceUrl: article.content_url || item.sourceUrl,
+        excerpt: article.description.slice(0, 5_000) || item.excerpt,
+        publisher: article.creator_name || article.site_name || item.publisher,
+        publishedAt: article.published_at ? String(article.published_at) : item.publishedAt,
+      };
+    }));
+    options.signal?.throwIfAborted();
+    return evidence.map((item, index) => {
+      const result = enriched[index];
+      return result?.status === 'fulfilled' ? result.value : item;
+    });
   }
 }
 

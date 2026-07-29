@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 7;
+export const DATABASE_SCHEMA_VERSION = 8;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -255,6 +255,28 @@ export function initSchema(db: Database): void {
     CREATE INDEX IF NOT EXISTS idx_document_sources_run ON document_sources(run_id);
     CREATE INDEX IF NOT EXISTS idx_document_sources_source_item
       ON document_sources(platform, source_item_id);
+
+    CREATE TABLE IF NOT EXISTS search_discoveries (
+      discovery_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      run_id TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      query TEXT NOT NULL,
+      rank INTEGER,
+      title TEXT NOT NULL DEFAULT '',
+      snippet TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL,
+      publisher TEXT,
+      published_at TEXT,
+      fetched_at TEXT NOT NULL,
+      FOREIGN KEY(document_id) REFERENCES documents(document_id) ON DELETE CASCADE,
+      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE,
+      UNIQUE(run_id, provider, query, source_url)
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_discoveries_document
+      ON search_discoveries(document_id, fetched_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_search_discoveries_run
+      ON search_discoveries(run_id, rank);
     CREATE TRIGGER IF NOT EXISTS delete_orphan_document
     AFTER DELETE ON document_sources
     BEGIN

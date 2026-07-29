@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
-import { agentRepository, type ResearchPlan } from './AgentRepository';
+import { agentRepository, type ContentEnrichmentOptions, type ResearchPlan } from './AgentRepository';
 import { hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
@@ -38,6 +38,41 @@ function allowsEmptyKeywords(plan: Pick<ResearchPlan, 'platforms' | 'capability'
   return plan.capability === 'keyword_search'
     && plan.platforms.length === 1
     && plan.platforms[0] === 'aihot';
+}
+
+function normalizeContentEnrichment(
+  input: unknown,
+  userText: string,
+  platforms: string[],
+  capability: ResearchPlan['capability'],
+  depth: ResearchPlan['collectionDepth'],
+  skill: SkillDefinition | null,
+): ContentEnrichmentOptions {
+  const hasWebSearch = capability === 'keyword_search'
+    && platforms.some((platform) => getConnectorManifest(platform)?.category === 'web_search');
+  const configured = input && typeof input === 'object'
+    ? input as Partial<ContentEnrichmentOptions>
+    : skill?.defaults?.contentEnrichment;
+  let mode: ContentEnrichmentOptions['mode'] = hasWebSearch ? 'auto' : 'snippet';
+  if (configured && ['snippet', 'auto', 'full'].includes(String(configured.mode))) {
+    mode = configured.mode as ContentEnrichmentOptions['mode'];
+  }
+  if (/(?:只看|仅看|保留)(?:搜索)?摘要|不要(?:读取)?正文|不读正文/i.test(userText)) mode = 'snippet';
+  else if (/(?:阅读|读取|抓取|提取)(?:完整)?正文|阅读全文|完整网页|深度阅读/i.test(userText)) mode = 'full';
+  if (!hasWebSearch) mode = 'snippet';
+
+  const budget = depth === 'deep' ? 30 : depth === 'standard' ? 16 : 8;
+  const number = (value: unknown, fallback: number, min: number, max: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback;
+  };
+  return {
+    mode,
+    maxReadItems: mode === 'snippet' ? 0 : number(configured?.maxReadItems, budget, 1, 100),
+    maxPerDomain: number(configured?.maxPerDomain, 2, 1, 20),
+    concurrency: number(configured?.concurrency, 3, 1, 8),
+    timeoutMsPerUrl: number(configured?.timeoutMsPerUrl, 15_000, 1_000, 30_000),
+  };
 }
 
 function skillPlanningContext(skill: SkillDefinition | null): string {
@@ -189,6 +224,15 @@ export function normalizePlan(
     connectorOptions.aihot = aiHotOptions(userText, connectorOptions.aihot || {});
   }
 
+  const contentEnrichment = normalizeContentEnrichment(
+    input?.contentEnrichment,
+    userText,
+    selectedPlatforms,
+    capability,
+    collectionDepth,
+    skill,
+  );
+
   return {
     skillId: skill?.id || fallbackPlan?.skillId || 'multi-source-research',
     goal,
@@ -197,6 +241,7 @@ export function normalizePlan(
     capability,
     targets,
     connectorOptions,
+    contentEnrichment,
     collectionDepth: hasExplicitCollectionDepth(userText) || preserveFallbackDepth
       ? collectionDepth
       : skill?.defaults?.collectionDepth || collectionDepth,
@@ -229,6 +274,7 @@ function mergePlan(base: ResearchPlan, patch: Partial<ResearchPlan>): ResearchPl
     keywords: Array.isArray(patch.keywords) ? patch.keywords : base.keywords,
     targets: Array.isArray(patch.targets) ? patch.targets : base.targets,
     connectorOptions: patch.connectorOptions && typeof patch.connectorOptions === 'object' ? patch.connectorOptions : base.connectorOptions,
+    contentEnrichment: patch.contentEnrichment || base.contentEnrichment,
     collectionDepth,
     analysis: Array.isArray(patch.analysis) ? patch.analysis : base.analysis,
     outputs: Array.isArray(patch.outputs) ? patch.outputs : base.outputs,
@@ -639,7 +685,13 @@ export class AgentService {
     if (decision.action === 'live_answer') {
       const query = String(decision.query || content).replace(/\s+/g, ' ').trim().slice(0, 300);
       try {
-        const evidence = await liveSearchService.search(query, { limit: 8, signal });
+        const wantsFullText = /全文|正文|详细内容|核实(?:细节|原文)|总结(?:这些|搜索到的)?文章/i.test(content);
+        const evidence = await liveSearchService.search(query, {
+          limit: 8,
+          signal,
+          readMode: wantsFullText ? 'auto' : 'snippet',
+          maxReadItems: wantsFullText ? 3 : 0,
+        });
         ensureMessageNotAborted(signal);
         if (!evidence.length) {
           agentRepository.addMessage(threadId, 'assistant', 'text', '这次没有检索到足够可靠的实时网页摘要，暂时无法据此回答。你可以补充更具体的地点、对象或时间后重试。', {
@@ -1023,6 +1075,12 @@ export class AgentService {
           : `${label}${detail ? `（${detail}）` : ''}`;
       }
       scopeLine = `\n范围：${depthSummary}`;
+      if (plan.contentEnrichment.mode !== 'snippet') {
+        const modeLabel = plan.contentEnrichment.mode === 'full' ? '尽量阅读全文' : '自动深度阅读';
+        scopeLine += `\n正文：${modeLabel}，搜索结果去重后最多读取 ${plan.contentEnrichment.maxReadItems} 个网页，每域名最多 ${plan.contentEnrichment.maxPerDomain} 个`;
+      } else if (plan.platforms.some((platform) => getConnectorManifest(platform)?.category === 'web_search')) {
+        scopeLine += '\n正文：仅保留搜索摘要';
+      }
     }
 
     // A fresh create_plan for a new round can silently pull in more platforms/keywords
@@ -1078,12 +1136,12 @@ export class AgentService {
 
     if (plan.status === 'awaiting_confirmation') return '当前计划还在等待确认，尚未开始采集，所以已入库 0 条内容。';
     if (plan.status === 'queued') return `任务正在排队，目前已入库 ${stats.content_count} 条内容。${distribution}`.trim();
-    if (plan.status === 'running') return `任务仍在采集中，目前已入库 ${stats.content_count} 条内容，已完成 ${completed}/${plan.steps.length} 个平台。${distribution}`.trim();
+    if (plan.status === 'running') return `任务仍在采集中，目前已入库 ${stats.content_count} 条内容，已完成 ${completed}/${plan.steps.length} 个采集阶段。${distribution}`.trim();
     if (plan.status === 'completed' && stats.content_count === 0) {
       return '任务状态显示已完成，但实际入库为 0 条内容。这通常表示爬虫进程正常退出了，但没有搜到结果或数据没有成功写入；建议查看采集控制台日志。';
     }
     if (plan.status === 'completed') return `本次任务已完成，共采集到 ${stats.content_count} 条内容。${distribution}`.trim();
-    if (plan.status === 'partially_completed') return `本次任务部分完成，共采集到 ${stats.content_count} 条内容，成功 ${completed}/${plan.steps.length} 个平台。${distribution}${failureReasons}`.trim();
+    if (plan.status === 'partially_completed') return `本次任务部分完成，共采集到 ${stats.content_count} 条内容，成功 ${completed}/${plan.steps.length} 个采集阶段。${distribution}${failureReasons}`.trim();
     if (plan.status === 'failed') return `本次任务执行失败，目前实际入库 ${stats.content_count} 条内容。${distribution}${failureReasons || '\n建议查看采集控制台日志后重试。'}`.trim();
     if (plan.status === 'stopped') return `任务已停止，停止前共入库 ${stats.content_count} 条内容。${distribution}`.trim();
     return `当前任务状态为 ${plan.status}，已入库 ${stats.content_count} 条内容。${distribution}`.trim();
@@ -1095,7 +1153,12 @@ export class AgentService {
     return plan;
   }
 
-  updatePlan(planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) {
+  updatePlan(planId: string, updates: {
+    keywords?: string[];
+    analysis?: string[];
+    collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom';
+    contentEnrichment?: Partial<ContentEnrichmentOptions>;
+  }) {
     const current = agentRepository.getPlan(planId);
     if (!current) throw new Error('计划不存在');
     if (current.status !== 'awaiting_confirmation') throw new Error('只有等待确认的计划可以修改参数');
@@ -1110,6 +1173,16 @@ export class AgentService {
     }
     if (updates.collectionDepth && ['quick', 'standard', 'deep', 'custom'].includes(updates.collectionDepth)) {
       updatedPlan.collectionDepth = updates.collectionDepth;
+    }
+    if (updates.contentEnrichment && typeof updates.contentEnrichment === 'object') {
+      updatedPlan.contentEnrichment = normalizeContentEnrichment(
+        { ...current.plan.contentEnrichment, ...updates.contentEnrichment },
+        '',
+        current.plan.platforms,
+        current.plan.capability,
+        updatedPlan.collectionDepth,
+        skillRegistry.find(current.plan.skillId),
+      );
     }
     return agentRepository.updatePendingPlan(planId, updatedPlan);
   }

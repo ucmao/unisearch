@@ -235,6 +235,7 @@ export interface SkillDefinition {
     platforms: string[]
     capability: string
     collectionDepth: 'quick' | 'standard' | 'deep'
+    contentEnrichment?: ContentEnrichmentOptions
     analysis: string[]
     outputs: string[]
   }
@@ -282,12 +283,21 @@ export interface ResearchPlanData {
   capability?: 'keyword_search' | 'content_detail' | 'creator_profile' | 'comments' | 'url_resolve'
   targets?: string[]
   connectorOptions?: Record<string, Record<string, unknown>>
+  contentEnrichment: ContentEnrichmentOptions
   collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom'
   loginType: 'qrcode' | 'cookie'
   headless: boolean
   analysis: string[]
   analysisSource?: 'ai' | 'fallback' | 'user'
   outputs: string[]
+}
+
+export interface ContentEnrichmentOptions {
+  mode: 'snippet' | 'auto' | 'full'
+  maxReadItems: number
+  maxPerDomain: number
+  concurrency: number
+  timeoutMsPerUrl: number
 }
 
 export interface AgentPlanStep {
@@ -549,7 +559,12 @@ export const agentApi = {
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
   stopPlan: (planId: string) =>
     api.post<{ stopped: boolean; plan: AgentPlan }>(`/agent/plans/${encodeURIComponent(planId)}/stop`, null, { timeout: 60000 }),
-  updatePlan: (planId: string, updates: { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' }) =>
+  updatePlan: (planId: string, updates: {
+    keywords?: string[]
+    analysis?: string[]
+    collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom'
+    contentEnrichment?: Partial<ContentEnrichmentOptions>
+  }) =>
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}`, updates),
   updatePlanAnalysis: (planId: string, analysis: string[]) =>
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/analysis`, { analysis }),
