@@ -52,6 +52,9 @@ export interface AppConfig {
   GITHUB_REPOSITORIES_PERIOD: 'daily' | 'weekly' | 'monthly';
   GITHUB_REPOSITORIES_LANGUAGE: string;
 
+  RSS_NEWS_SOURCE: 'balanced' | 'bbc_world' | 'bbc_top' | 'bbc_business' | 'bbc_technology' | 'npr_top' | 'aljazeera_all';
+  RSS_NEWS_PERIOD: '24h' | '7d' | '30d' | 'all';
+
   // Platform specific lists
   XHS_CREATOR_ID_LIST: string[];
   DY_CREATOR_ID_LIST: string[];
@@ -70,6 +73,7 @@ export interface AppConfig {
   ZHIHU_SPECIFIED_ID_LIST: string[];
   ARXIV_SPECIFIED_ID_LIST: string[];
   GITHUB_REPOSITORIES_SPECIFIED_ID_LIST: string[];
+  RSS_NEWS_SPECIFIED_ID_LIST: string[];
 
   [key: string]: any;
 }
@@ -128,6 +132,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   GITHUB_REPOSITORIES_PERIOD: 'weekly',
   GITHUB_REPOSITORIES_LANGUAGE: '',
 
+  RSS_NEWS_SOURCE: 'balanced',
+  RSS_NEWS_PERIOD: '7d',
+
   XHS_CREATOR_ID_LIST: [],
   DY_CREATOR_ID_LIST: [],
   KS_CREATOR_ID_LIST: [],
@@ -145,6 +152,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   ZHIHU_SPECIFIED_ID_LIST: [],
   ARXIV_SPECIFIED_ID_LIST: [],
   GITHUB_REPOSITORIES_SPECIFIED_ID_LIST: [],
+  RSS_NEWS_SPECIFIED_ID_LIST: [],
 };
 
 export let activeConfig: AppConfig = { ...DEFAULT_CONFIG };

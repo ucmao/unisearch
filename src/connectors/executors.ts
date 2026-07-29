@@ -17,6 +17,7 @@ import { NamiCrawler, WenxinCrawler, YuanbaoCrawler } from '../crawler/platforms
 import { AiHotCrawler } from '../crawler/platforms/aihot';
 import { ArxivCrawler } from '../crawler/platforms/arxiv';
 import { GitHubRepositoriesCrawler } from '../crawler/platforms/github_repositories';
+import { RssNewsCrawler } from '../crawler/platforms/rss_news';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -35,6 +36,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   aihot: () => new AiHotCrawler(),
   arxiv: () => new ArxivCrawler(),
   github_repositories: () => new GitHubRepositoriesCrawler(),
+  rss_news: () => new RssNewsCrawler(),
   media_parser: () => new MediaParserCrawler(),
   zhaopin: () => new ZhaopinCrawler(),
   heimao: () => new HeimaoCrawler(),

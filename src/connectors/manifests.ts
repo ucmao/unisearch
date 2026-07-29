@@ -370,6 +370,105 @@ const githubRepositories: ConnectorManifest = {
   ],
 };
 
+const RSS_NEWS_OUTPUTS: ConnectorOutputField[] = [
+  { key: 'content_id', label: 'Feed 条目 ID', type: 'string', required: true },
+  { key: 'guid', label: 'RSS/Atom GUID', type: 'string' },
+  { key: 'title', label: '标题', type: 'string', required: true },
+  { key: 'summary', label: 'Feed 摘要', type: 'string' },
+  { key: 'creator_name', label: '新闻源', type: 'string' },
+  { key: 'author', label: '作者', type: 'string' },
+  { key: 'content_url', label: '原文链接', type: 'string' },
+  { key: 'feed_url', label: 'Feed URL', type: 'string', required: true },
+  { key: 'feed_title', label: 'Feed 标题', type: 'string' },
+  { key: 'categories', label: '分类', type: 'string_list' },
+  { key: 'published_at', label: '发布时间', type: 'string' },
+  { key: 'updated_at', label: '更新时间', type: 'string' },
+  { key: 'language', label: '语言', type: 'string' },
+  { key: 'rank', label: '结果排名', type: 'number' },
+];
+
+const rssNews: ConnectorManifest = {
+  id: 'rss_news', version: '1.0.0', name: 'RSS 新闻', icon: 'rss', category: 'web_search',
+  description: '合并国际新闻 RSS 摘要与通用 RSS/Atom 订阅源读取能力，采集标题、Feed 摘要和原文链接。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '读取发布方公开提供的 RSS/Atom URL，无需账号或 API Key。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '最新新闻与关键词过滤',
+      description: '从内置公开 Feed 读取最新条目，可按标题、摘要和分类进行本地关键词过滤。关键词为空时返回最新条目。',
+      runtimeMode: 'search', budgetModel: 'scroll_count',
+      depthBudget: { quick: 15, standard: 40, deep: 100 },
+      inputFields: [
+        {
+          key: 'source', label: '新闻源', description: '平衡视角会读取 BBC World、NPR 与 Al Jazeera；也可只读取单一 Feed。',
+          type: 'select', default: 'balanced', runtimeConfigKey: 'rss_news_source',
+          options: [
+            { value: 'balanced', label: '平衡视角（BBC + NPR + Al Jazeera）' },
+            { value: 'bbc_world', label: 'BBC 世界新闻' },
+            { value: 'bbc_top', label: 'BBC 头条' },
+            { value: 'bbc_business', label: 'BBC 商业' },
+            { value: 'bbc_technology', label: 'BBC 科技' },
+            { value: 'npr_top', label: 'NPR 新闻' },
+            { value: 'aljazeera_all', label: 'Al Jazeera' },
+          ],
+        },
+        {
+          key: 'period', label: '时间范围', description: '按 Feed 中的发布时间过滤；没有时间戳的条目仍会保留。',
+          type: 'select', default: '7d', runtimeConfigKey: 'rss_news_period',
+          options: [
+            { value: '24h', label: '最近 24 小时' },
+            { value: '7d', label: '最近 7 天' },
+            { value: '30d', label: '最近 30 天' },
+            { value: 'all', label: 'Feed 当前全部条目' },
+          ],
+        },
+        {
+          key: 'max_items', label: '最大采集数量', description: '全部选定 Feed 合并、去重后的最大入库条目数。',
+          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: 'rss_news_item', outputFields: RSS_NEWS_OUTPUTS,
+      limitations: [
+        '只保存 Feed 自带的标题、摘要、来源和原文链接，不抓取新闻正文、图片、音视频或付费内容。',
+        'BBC Feed 仅适合个人非商业阅读并须保留 BBC News 署名与原文链接；商业使用需另行取得许可。',
+        'NPR、Al Jazeera 及自定义 Feed 的再利用条件由各发布方决定，用户需遵守对应条款。',
+        'Feed 是当前快照，不支持历史翻页；采集深度仅控制合并后的最大条目数。',
+      ],
+    },
+    {
+      id: 'content_detail', label: '读取自定义 Feed',
+      description: '读取一个或多个公开 RSS、RDF 或 Atom URL，并按时间和关键词过滤条目。',
+      runtimeMode: 'detail', budgetModel: 'single_target',
+      inputFields: [
+        targetField('公开 RSS/Atom URL'),
+        {
+          key: 'period', label: '时间范围', description: '按 Feed 中的发布时间过滤。',
+          type: 'select', default: '7d', runtimeConfigKey: 'rss_news_period',
+          options: [
+            { value: '24h', label: '最近 24 小时' },
+            { value: '7d', label: '最近 7 天' },
+            { value: '30d', label: '最近 30 天' },
+            { value: 'all', label: 'Feed 当前全部条目' },
+          ],
+        },
+        {
+          key: 'max_items', label: '最大采集数量', description: '多个 Feed 合并、去重后的最大入库条目数。',
+          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: 'rss_news_item', outputFields: RSS_NEWS_OUTPUTS,
+      limitations: [
+        '拒绝 localhost、私有 IP 和本地网络 URL，单个 Feed 响应最大 5 MB。',
+        '仅解析 Feed 当前提供的元数据，不提供订阅状态、已读状态或历史监控数据库。',
+        '使用自定义 Feed 前应确认发布方允许相应用途。',
+      ],
+    },
+  ],
+};
+
 const aiHot: ConnectorManifest = {
   id: 'aihot', version: '1.0.0', name: 'AI HOT', icon: 'flame', category: 'web_search',
   description: 'AI HOT 精选资讯、当前多源热点、AI 日报与事件时间线连接器。',
@@ -671,6 +770,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('toutiao', '头条搜索', 'newspaper'),
   arxiv,
   githubRepositories,
+  rssNews,
   aiHot,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),

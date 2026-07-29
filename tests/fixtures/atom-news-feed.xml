@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+  <title>Example Technology Feed</title>
+  <entry>
+    <title>Open source agents gain new evaluation tools</title>
+    <id>tag:example.com,2026:agent-tools</id>
+    <updated>2026-07-29T02:00:00Z</updated>
+    <published>2026-07-29T01:30:00Z</published>
+    <author><name>Sam Writer</name></author>
+    <category term="AI"/>
+    <link rel="alternate" href="https://tech.example.com/agent-tools"/>
+    <summary type="html"><![CDATA[New tools improve reproducible agent evaluation.]]></summary>
+  </entry>
+</feed>

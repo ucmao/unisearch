@@ -98,7 +98,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-    'arxiv', 'github_repositories', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
+    'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
   ]);
 });
 
@@ -115,6 +115,14 @@ test('GitHub repository requests select the merged connector and remove the plat
   assert.deepEqual(inferResearchPlatforms('分析 https://github.com/openai/openai-node'), ['github_repositories']);
   assert.deepEqual(inferResearchKeywords('在 GitHub 搜索 Agent 框架'), ['Agent 框架']);
   assert.equal(localIntentDecision('看看 GitHub AI 热门项目').action, 'create_plan');
+});
+
+test('RSS requests select the news Feed connector and remove the source name from keywords', () => {
+  assert.deepEqual(inferResearchPlatforms('用 RSS 新闻查 AI 监管'), ['rss_news']);
+  assert.deepEqual(inferResearchPlatforms('读取 Atom Feed 最新文章'), ['rss_news']);
+  assert.deepEqual(inferResearchPlatforms('监控订阅源更新'), ['rss_news']);
+  assert.deepEqual(inferResearchKeywords('用 RSS 新闻查 AI 监管'), ['AI 监管']);
+  assert.equal(localIntentDecision('看看 RSS 最新新闻').action, 'create_plan');
 });
 
 test('AI HOT requests select the connector and can omit keywords', () => {

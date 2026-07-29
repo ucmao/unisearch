@@ -24,7 +24,11 @@ export function detectPlatform(input: string): string | null {
     .filter(([, domains]) => domains.some((domain) => normalized.includes(domain)))
     .map(([platform]) => platform)
 
-  return matches.length === 1 ? matches[0] : null
+  if (matches.length === 1) return matches[0]
+  if (matches.length === 0 && /^https?:\/\//i.test(input.trim()) && /(?:rss|atom|feed|\.xml)(?:[/?#=&]|$)/i.test(input)) {
+    return 'rss_news'
+  }
+  return null
 }
 
 // URL patterns for different platforms
@@ -32,6 +36,10 @@ const platformPatterns: Record<string, {
   video: RegExp[]
   creator: RegExp[]
 }> = {
+  rss_news: {
+    video: [/^(https?:\/\/.+)$/i],
+    creator: [],
+  },
   github_repositories: {
     video: [
       /github\.com\/([A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]+)/i,
