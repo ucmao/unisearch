@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { LogEntry, CrawlerConfig } from '@/types/crawler'
+import type { LogEntry, CrawlerConfig, ItemPreview } from '@/types/crawler'
 
 interface RunningDetails {
   crawlerType: string | null
@@ -12,9 +12,10 @@ interface CrawlerState {
   statuses: { [platform: string]: 'idle' | 'running' | 'stopping' | 'error' }
   runningInfo: { [platform: string]: RunningDetails }
 
-  // Logs by platform
+  // Logs & Live Previews
   logs: { [platform: string]: LogEntry[] }
   clearedAfterLogId: { [platform: string]: number | null }
+  liveItemPreviews: ItemPreview[]
 
   // Selection & UI Tab
   selectedPlatforms: string[]
@@ -38,10 +39,12 @@ interface CrawlerState {
   setConnectorOption: (platform: string, key: string, value: unknown) => void
   setSelectedPlatforms: (platforms: string[]) => void
   setActivePlatformTab: (platform: string) => void
+  clearLiveItemPreviews: () => void
   reset: (platform?: string) => void
 }
 
 const CLEARED_LOG_ID_PREFIX = 'unisearch_cleared_log_id_'
+let globalPreviewSeq = 0
 
 function getClearedLogIdFromStorage(platform: string): number | null {
   const stored = localStorage.getItem(`${CLEARED_LOG_ID_PREFIX}${platform}`)
@@ -96,6 +99,7 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
   runningInfo: initialRunningInfo,
   logs: initialLogs,
   clearedAfterLogId: initialClearedLogIds,
+  liveItemPreviews: [],
   selectedPlatforms: ['bili'],
   activePlatformTab: 'bili',
   config: defaultConfig,
@@ -180,11 +184,18 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
 
     set((state) => {
       const pLogs = state.logs[platform] || []
+      const previewWithTime = log.item_preview
+        ? { ...log.item_preview, run_id: log.item_preview.run_id || log.run_id, timestamp: Date.now(), seq: ++globalPreviewSeq }
+        : null
+      const nextPreviews = previewWithTime
+        ? [...state.liveItemPreviews.slice(-99), previewWithTime]
+        : state.liveItemPreviews
       return {
         logs: {
           ...state.logs,
           [platform]: [...pLogs.slice(-499), log],
         },
+        liveItemPreviews: nextPreviews,
       }
     })
   },
@@ -257,6 +268,8 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
   },
 
   setActivePlatformTab: (activePlatformTab) => set({ activePlatformTab }),
+
+  clearLiveItemPreviews: () => set({ liveItemPreviews: [] }),
 
   reset: (platform) => {
     if (platform) {

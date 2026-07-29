@@ -77,7 +77,7 @@ function PlanElapsedTime({ plan, className = '' }: { plan: AgentPlan; className?
   const endTime = isActive ? now : (plan.finished_at ? new Date(plan.finished_at).getTime() : (plan.updated_at ? new Date(plan.updated_at).getTime() : now))
   const elapsed = Number.isFinite(startedAt) && Number.isFinite(endTime) ? formatElapsed(Math.max(0, endTime - startedAt)) : '0s'
 
-  return <span className={`whitespace-nowrap font-mono tabular-nums ${className}`}>已处理 {elapsed}</span>
+  return <span className={`whitespace-nowrap font-mono tabular-nums ${className}`}>{elapsed}</span>
 }
 
 type AiProgressStatus = { phase: 'web_search' | 'reasoning'; message: string }
@@ -236,6 +236,92 @@ function CsvDownloadLink({ planId, threadId, compact = false }: { planId?: strin
   )
 }
 
+function SinglePassPacedThreeLineStream({ isRunning }: { isRunning: boolean }) {
+  const liveItemPreviews = useCrawlerStore((state) => state.liveItemPreviews)
+  const platformLabels = usePlatformLabels()
+
+  const [, setQueue] = useState<any[]>([])
+  const [displayed, setDisplayed] = useState<Array<{ item: any; displayTime: number }>>([])
+  const processedSeqRef = useRef(0)
+
+  // Reset state & wipe store previews immediately whenever collection stops / finishes
+  useEffect(() => {
+    if (!isRunning) {
+      setQueue([])
+      setDisplayed([])
+      processedSeqRef.current = 0
+      useCrawlerStore.getState().clearLiveItemPreviews()
+    }
+  }, [isRunning])
+
+  // Ingest new items from liveItemPreviews that have seq > processedSeqRef.current
+  useEffect(() => {
+    const newItems = liveItemPreviews.filter((item) => (item.seq || 0) > processedSeqRef.current)
+    if (newItems.length > 0) {
+      const maxSeq = Math.max(...newItems.map((i) => i.seq || 0))
+      processedSeqRef.current = maxSeq
+      setQueue((prev) => [...prev, ...newItems])
+    }
+  }, [liveItemPreviews])
+
+  // Dequeue 1 item every 1500ms into displayed list (max 3 items), tagging displayTime
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setQueue((prevQueue) => {
+        if (prevQueue.length === 0) return prevQueue
+        const [nextItem, ...remaining] = prevQueue
+        const entry = { item: nextItem, displayTime: Date.now() }
+        setDisplayed((prevDisp) => [...prevDisp.slice(-2), entry])
+        return remaining
+      })
+    }, 1500)
+
+    return () => clearInterval(timer)
+  }, [])
+
+  // Auto-expire items older than 4500ms (checked every 300ms)
+  useEffect(() => {
+    if (!isRunning || displayed.length === 0) return
+    const timer = setInterval(() => {
+      const now = Date.now()
+      setDisplayed((prev) => prev.filter((d) => now - d.displayTime < 4500))
+    }, 300)
+    return () => clearInterval(timer)
+  }, [isRunning, displayed.length])
+
+  if (!isRunning || displayed.length === 0) return null
+
+  return (
+    <div className="ml-11 flex flex-col gap-1 max-w-xl transition-all duration-300">
+      {displayed.map(({ item, displayTime }, idx) => {
+        const platformName = item.source ? (platformLabels[item.source] || item.source) : ''
+        const content = item.title || item.text || '解析到新数据'
+
+        return (
+          <div
+            key={item.id || `${item.source}-${displayTime}-${idx}`}
+            className="flex items-center gap-1.5 text-[11px] leading-tight text-cyber-text-muted/80 font-normal transition-all duration-300 animate-in fade-in slide-in-from-bottom-1"
+          >
+            {platformName && (
+              <span className="shrink-0 select-none">
+                {platformName} ·
+              </span>
+            )}
+            <span className="truncate flex-1">
+              {content}
+            </span>
+            {item.author && (
+              <span className="shrink-0 text-[10px] opacity-75 select-none">
+                @{item.author}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function ChatCrawlingStatusBanner({
   activePlan,
   rightSidebarOpen,
@@ -272,34 +358,42 @@ function ChatCrawlingStatusBanner({
     }
   }
 
+  const isStreamActive = isRunning && !isPostProcessing
+
   return (
-    <div className="flex gap-3 text-xs text-cyber-text-muted">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
-        <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+    <div className={`relative text-xs text-cyber-text-muted transition-all duration-300 ${isStreamActive ? 'pb-14' : 'pb-0'}`}>
+      <div className="flex items-center gap-3">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
+          <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+        </div>
+        <div className="flex items-center gap-2 py-1">
+          <button
+            type="button"
+            onClick={handleClick}
+            className="inline-flex items-center gap-1.5 transition-colors hover:text-cyber-text-primary"
+            title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
+          >
+            <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
+            <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+            <span className="text-cyber-border-default">·</span>
+            <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
+            <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
+          </button>
+          <button
+            type="button"
+            onClick={onStop}
+            disabled={stopping}
+            className="inline-flex items-center gap-1 rounded-md border border-cyber-border-default px-1.5 py-0.5 text-[10px] text-cyber-text-muted transition-colors hover:border-cyber-neon-pink/60 hover:text-cyber-neon-pink disabled:opacity-40"
+            title="中止本次采集"
+          >
+            {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-2.5 w-2.5 fill-current" />}
+            中止
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-2 py-1">
-        <button
-          type="button"
-          onClick={handleClick}
-          className="inline-flex items-center gap-1.5 transition-colors hover:text-cyber-text-primary"
-          title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
-        >
-          <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
-          <span className="text-cyber-border-default">·</span>
-          <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
-          <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
-        </button>
-        <button
-          type="button"
-          onClick={onStop}
-          disabled={stopping}
-          className="inline-flex items-center gap-1 rounded-md border border-cyber-border-default px-1.5 py-0.5 text-[10px] text-cyber-text-muted transition-colors hover:border-cyber-neon-pink/60 hover:text-cyber-neon-pink disabled:opacity-40"
-          title="中止本次采集"
-        >
-          {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-2.5 w-2.5 fill-current" />}
-          中止
-        </button>
+
+      <div className="absolute top-9 left-0 z-10 pointer-events-none w-full">
+        <SinglePassPacedThreeLineStream isRunning={isStreamActive} />
       </div>
     </div>
   )
@@ -934,8 +1028,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     },
     onError: (error) => toast.error(getError(error)),
   })
+  const clearLiveItemPreviews = useCrawlerStore((state) => state.clearLiveItemPreviews)
   const execute = useMutation({
     mutationFn: (planId: string) => agentApi.executePlan(planId),
+    onMutate: () => { clearLiveItemPreviews() },
     onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
     onError: (error) => toast.error(getError(error)),
   })

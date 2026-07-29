@@ -11,6 +11,16 @@ import { parseConnectorEvent } from '../../core/contracts/connector-event';
 
 export type CrawlerStartRequest = ConnectorStartRequest;
 
+export interface ItemPreview {
+  id?: string;
+  source?: string;
+  title?: string;
+  text?: string;
+  author?: string;
+  url?: string;
+  fetched_at?: string;
+}
+
 export interface LogEntry {
   id: number;
   timestamp: string;
@@ -19,6 +29,7 @@ export interface LogEntry {
   platform?: string;
   run_id?: string;
   thread_id?: string;
+  item_preview?: ItemPreview;
 }
 
 export interface CrawlerWindowCoordinator {
@@ -51,7 +62,7 @@ export class CrawlerTask {
     this.shouldLoop = config.loop_execution;
   }
 
-  private addLog(message: string, level: LogEntry['level'], manager: CrawlerManager): void {
+  private addLog(message: string, level: LogEntry['level'], manager: CrawlerManager, itemPreview?: ItemPreview): void {
     this.logId++;
     const entry: LogEntry = {
       id: this.logId,
@@ -61,6 +72,7 @@ export class CrawlerTask {
       platform: this.platform,
       run_id: this.currentRunId || undefined,
       thread_id: (this.config.thread_id || this.currentRunId) || undefined,
+      item_preview: itemPreview,
     };
 
     if (this.currentRunId) {
@@ -238,14 +250,33 @@ export class CrawlerTask {
               if (this.currentRunId && (this.liveItemCount === 1 || this.liveItemCount % 5 === 0)) {
                 analyticsRepository.refreshRunCounts(this.currentRunId);
               }
+
+              const hints = event.item?.hints || {};
+              const rawTitle = hints.title?.trim();
+              const rawText = hints.text?.trim();
+              const previewText = rawTitle || (rawText ? (rawText.length > 80 ? `${rawText.slice(0, 80)}...` : rawText) : '');
+
+              const itemPreview: ItemPreview | undefined = previewText ? {
+                id: event.item?.id,
+                source: event.item?.source || this.platform,
+                title: rawTitle,
+                text: rawText ? (rawText.length > 100 ? `${rawText.slice(0, 100)}...` : rawText) : undefined,
+                author: hints.author?.trim(),
+                url: event.item?.sourceUrl,
+                fetched_at: event.item?.fetchedAt,
+                run_id: this.currentRunId || undefined,
+              } : undefined;
+
               if (this.liveItemCount === 1) {
                 this.firstItemAt = Date.now();
                 const firstItemSeconds = this.startedAt
                   ? ((this.firstItemAt - new Date(this.startedAt).getTime()) / 1000).toFixed(1)
                   : '0.0';
-                this.addLog(`首条数据已入库（${firstItemSeconds}秒），可以立即打开结果看板查看`, 'success', manager);
+                this.addLog(`首条数据已入库（${firstItemSeconds}秒），可以立即打开结果看板查看`, 'success', manager, itemPreview);
               } else if (this.liveItemCount % 10 === 0) {
-                this.addLog(`已实时入库 ${this.liveItemCount} 条原始结果，任务仍在继续`, 'info', manager);
+                this.addLog(`已实时入库 ${this.liveItemCount} 条原始结果，任务仍在继续`, 'info', manager, itemPreview);
+              } else {
+                this.addLog(`[实时采集] ${previewText}`, 'info', manager, itemPreview);
               }
             } else if (event.type === 'progress' && event.message) {
               this.addLog(event.message, 'info', manager);

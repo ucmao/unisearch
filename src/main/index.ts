@@ -208,9 +208,10 @@ function crawlerHubHtml(): string {
       statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong>`;
       iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4bb98a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
     } else if (activeState === 'failed') {
-      const errReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
+      const rawReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
+      const errReason = /[。.]\s*$/.test(rawReason) ? rawReason : `${rawReason}。`;
       statusTitle = `${label} 采集中断`;
-      statusDesc = `<strong class="highlight-error">${errReason}。</strong><br>关联网页与关联进程已自动关闭，你可以返回主界面日志中排查具体原因。`;
+      statusDesc = `<strong class="highlight-error">${errReason}</strong>`;
       iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d66b7b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
     } else {
       statusTitle = `${label} 任务已停止`;
