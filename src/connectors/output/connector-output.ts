@@ -38,6 +38,7 @@ const OUTPUTS: Record<string, OutputDefinition> = {
   emitHeimaoResult: { source: 'heimao', kind: 'complaint' },
   emitAiHotItem: { source: 'aihot', kind: 'article' },
   emitArxivPaper: { source: 'arxiv', kind: 'article' },
+  emitGitHubRepository: { source: 'github_repositories', kind: 'article' },
 };
 
 const SOURCE_ID_KEYS = [
@@ -201,6 +202,7 @@ class ConnectorOutput {
   emitHeimaoResult = (item: Payload) => this.emit('emitHeimaoResult', item);
   emitAiHotItem = (item: Payload) => this.emit('emitAiHotItem', item);
   emitArxivPaper = (item: Payload) => this.emit('emitArxivPaper', item);
+  emitGitHubRepository = (item: Payload) => this.emit('emitGitHubRepository', item);
 }
 
 export const connectorOutput = new ConnectorOutput();

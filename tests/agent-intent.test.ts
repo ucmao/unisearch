@@ -98,7 +98,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-    'arxiv', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
+    'arxiv', 'github_repositories', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
   ]);
 });
 
@@ -107,6 +107,14 @@ test('arXiv requests select the academic connector and remove the platform name 
   assert.deepEqual(inferResearchPlatforms('去论文库查 RAG'), ['arxiv']);
   assert.deepEqual(inferResearchKeywords('在 arXiv 搜索 Agent 论文'), ['Agent']);
   assert.equal(localIntentDecision('在 arXiv 搜索 Agent 论文').action, 'create_plan');
+});
+
+test('GitHub repository requests select the merged connector and remove the platform name from keywords', () => {
+  assert.deepEqual(inferResearchPlatforms('在 GitHub 搜索 Agent 框架'), ['github_repositories']);
+  assert.deepEqual(inferResearchPlatforms('看看 GitHub AI 热门项目'), ['github_repositories']);
+  assert.deepEqual(inferResearchPlatforms('分析 https://github.com/openai/openai-node'), ['github_repositories']);
+  assert.deepEqual(inferResearchKeywords('在 GitHub 搜索 Agent 框架'), ['Agent 框架']);
+  assert.equal(localIntentDecision('看看 GitHub AI 热门项目').action, 'create_plan');
 });
 
 test('AI HOT requests select the connector and can omit keywords', () => {
@@ -205,6 +213,7 @@ test('search engine alias and page range expressions are parsed correctly', () =
   assert.deepEqual(inferResearchPlatforms('去文心问一下'), ['wenxin']);
   assert.deepEqual(inferResearchPlatforms('去文心一言问'), ['wenxin']);
   assert.deepEqual(inferResearchPlatforms('在 arxiv.org 搜论文'), ['arxiv']);
+  assert.deepEqual(inferResearchPlatforms('在 github.com 搜热门仓库'), ['github_repositories']);
   assert.deepEqual(inferResearchPlatforms('所有 AI 问答平台'), ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin']);
   assert.equal(inferCollectionDepth('范围改成 前三页'), 'quick');
   assert.equal(inferCollectionDepth('改为前3页'), 'quick');

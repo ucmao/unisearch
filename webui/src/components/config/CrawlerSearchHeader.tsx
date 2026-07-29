@@ -18,6 +18,7 @@ import {
   Newspaper,
   Flame,
   FileSearch,
+  Github,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -44,6 +45,7 @@ const ICON_MAP: { [key: string]: any } = {
   'briefcase': Briefcase,
   'flame': Flame,
   'file-search': FileSearch,
+  'github': Github,
 }
 
 
@@ -132,7 +134,9 @@ export function CrawlerSearchHeader() {
     }
 
     const onlyAiHot = selectedPlatforms.length === 1 && selectedPlatforms[0] === 'aihot'
-    if (!finalKeywords && config.crawler_type === 'search' && !onlyAiHot) {
+    const onlyGitHubRepositories = selectedPlatforms.length === 1 && selectedPlatforms[0] === 'github_repositories'
+    const allowsEmptyKeywords = onlyAiHot || onlyGitHubRepositories
+    if (!finalKeywords && config.crawler_type === 'search' && !allowsEmptyKeywords) {
       toast.error('请至少输入一个关键词')
       return
     }
@@ -160,8 +164,10 @@ export function CrawlerSearchHeader() {
     const aiHotMode = String(connectorOptions.aihot?.content_mode || 'items')
     const taskTitle = finalKeywords || (config.crawler_type === 'detail'
       ? '指定内容采集'
-      : onlyAiHot
+        : onlyAiHot
         ? aiHotMode === 'hot_topics' ? 'AI HOT 当前热点' : aiHotMode === 'latest_daily' ? 'AI HOT 最新日报' : 'AI HOT 最近资讯'
+        : onlyGitHubRepositories
+          ? String(connectorOptions.github_repositories?.mode || 'general') === 'ai' ? 'GitHub AI 仓库趋势' : 'GitHub 仓库趋势'
         : '创作者采集')
     selectedPlatforms.forEach((p) => {
       if (statuses[p] !== 'running' && statuses[p] !== 'stopping') {

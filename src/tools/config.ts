@@ -48,6 +48,10 @@ export interface AppConfig {
   ARXIV_SORT_BY: 'relevance' | 'lastUpdatedDate' | 'submittedDate';
   ARXIV_SORT_ORDER: 'ascending' | 'descending';
 
+  GITHUB_REPOSITORIES_MODE: 'general' | 'ai';
+  GITHUB_REPOSITORIES_PERIOD: 'daily' | 'weekly' | 'monthly';
+  GITHUB_REPOSITORIES_LANGUAGE: string;
+
   // Platform specific lists
   XHS_CREATOR_ID_LIST: string[];
   DY_CREATOR_ID_LIST: string[];
@@ -65,6 +69,7 @@ export interface AppConfig {
   TIEBA_SPECIFIED_ID_LIST: string[];
   ZHIHU_SPECIFIED_ID_LIST: string[];
   ARXIV_SPECIFIED_ID_LIST: string[];
+  GITHUB_REPOSITORIES_SPECIFIED_ID_LIST: string[];
 
   [key: string]: any;
 }
@@ -119,6 +124,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   ARXIV_SORT_BY: 'submittedDate',
   ARXIV_SORT_ORDER: 'descending',
 
+  GITHUB_REPOSITORIES_MODE: 'general',
+  GITHUB_REPOSITORIES_PERIOD: 'weekly',
+  GITHUB_REPOSITORIES_LANGUAGE: '',
+
   XHS_CREATOR_ID_LIST: [],
   DY_CREATOR_ID_LIST: [],
   KS_CREATOR_ID_LIST: [],
@@ -135,6 +144,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   TIEBA_SPECIFIED_ID_LIST: [],
   ZHIHU_SPECIFIED_ID_LIST: [],
   ARXIV_SPECIFIED_ID_LIST: [],
+  GITHUB_REPOSITORIES_SPECIFIED_ID_LIST: [],
 };
 
 export let activeConfig: AppConfig = { ...DEFAULT_CONFIG };

@@ -116,6 +116,38 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
       comment: ['comment'],
     },
   },
+  github_repositories: {
+    family: 'search', subjectType: 'creator',
+    metricAliases: {
+      stars: ['stars', 'stargazers_count'],
+      forks: ['forks', 'forks_count'],
+      watchers: ['watchers', 'watchers_count'],
+      openIssues: ['open_issues', 'open_issues_count'],
+      subscribers: ['subscribers', 'subscribers_count'],
+    },
+    attributeAliases: {
+      repositoryId: ['repository_id'],
+      nodeId: ['node_id'],
+      fullName: ['full_name'],
+      creatorUrl: ['creator_url'],
+      apiUrl: ['api_url'],
+      homepage: ['homepage'],
+      topics: ['topics'],
+      license: ['license'],
+      licenseName: ['license_name'],
+      sizeKb: ['size_kb'],
+      defaultBranch: ['default_branch'],
+      createdAt: ['created_at'],
+      pushedAt: ['pushed_at'],
+      archived: ['archived'],
+      disabled: ['disabled'],
+      isFork: ['is_fork'],
+      isPrivate: ['is_private'],
+      visibility: ['visibility'],
+      searchMode: ['search_mode'],
+      period: ['period'],
+    },
+  },
   media_parser: {
     family: 'media', subjectType: 'creator', metricAliases: {},
     attributeAliases: { mediaType: ['media_type', 'type'] },
@@ -294,7 +326,7 @@ export function mapRawItemToCanonicalDocument(item: RawItem, runId?: string): Ca
   const attributes = definedRecord(effectiveDefinition.attributeAliases, payload);
   const markdown = canonicalMarkdown(item, effectiveDefinition);
   const title = String(item.hints.title || compactText(markdown, 80) || '').trim();
-  const canonicalKey = item.kind === 'comment'
+  const canonicalKey = item.kind === 'comment' || (item.source === 'github_repositories' && item.sourceItemId)
     ? `${item.source}:${item.kind}:${item.sourceItemId || item.id}`
     : item.sourceUrl || `${item.source}:${item.kind}:${item.sourceItemId || item.id}`;
   const documentId = hash(canonicalKey);
