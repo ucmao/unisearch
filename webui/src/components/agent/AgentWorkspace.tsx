@@ -202,7 +202,9 @@ function ChatCrawlingStatusBanner({
 
 function renderMentionText(text: string) {
   if (!text) return null
-  const regex = /(@[\u4e00-\u9fa5\w-]+|\/[\w-]+)/g
+  // Slash commands are standalone tokens. Requiring whitespace (or the start of
+  // the message) keeps URL path segments such as https://36kr.com/feed plain.
+  const regex = /(@[\u4e00-\u9fa5\w-]+|(?<!\S)\/[\w-]+)/g
   const parts: React.ReactNode[] = []
   let lastIndex = 0
   let match: RegExpExecArray | null

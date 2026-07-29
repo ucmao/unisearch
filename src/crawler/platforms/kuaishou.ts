@@ -11,6 +11,7 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { isExplicitKuaishouAuthFailure, summarizeKuaishouGraphqlFailure } from './kuaishouAuth';
 
 // Kuaishou reports timestamps in milliseconds, but a few legacy fields still come back in seconds.
 const toEpochSeconds = (value: unknown): number => {
@@ -20,20 +21,41 @@ const toEpochSeconds = (value: unknown): number => {
 };
 
 const PHOTO_SELECTION = `
-  id caption originCaption likeCount realLikeCount viewCount commentCount
-  coverUrl coverUrls { url } timestamp
+  __typename id duration caption originCaption likeCount realLikeCount viewCount commentCount
+  coverUrl photoUrl photoH265Url manifest manifestH265 videoResource
+  coverUrls { url __typename } timestamp expTag animatedCoverUrl distance videoRatio liked
+  stereoType profileUserTopPhoto musicBlocked
 `;
 
 const KS_SEARCH_QUERY = `
   fragment photoFields on PhotoEntity {${PHOTO_SELECTION}}
   fragment recoPhotoFields on recoPhotoEntity {${PHOTO_SELECTION}}
-  query visionSearchPhoto($keyword: String, $pcursor: String, $searchSessionId: String, $page: String) {
-    visionSearchPhoto(keyword: $keyword, pcursor: $pcursor, searchSessionId: $searchSessionId, page: $page) {
-      result searchSessionId pcursor
+  fragment feedContent on Feed {
+    type
+    author { id name headerUrl following headerUrls { url __typename } __typename }
+    photo { ...photoFields ...recoPhotoFields __typename }
+    canAddComment llsid status currentPcursor
+    tags { type name __typename }
+    __typename
+  }
+  query visionSearchPhoto($keyword: String, $pcursor: String, $searchSessionId: String, $page: String, $webPageArea: String) {
+    visionSearchPhoto(keyword: $keyword, pcursor: $pcursor, searchSessionId: $searchSessionId, page: $page, webPageArea: $webPageArea) {
+      result llsid webPageArea searchSessionId pcursor
       feeds {
-        author { id name }
-        photo { ...photoFields ...recoPhotoFields }
+        ...feedContent
       }
+      aladdinBanner { imgUrl link __typename }
+      __typename
+    }
+  }`;
+
+// MediaCrawler uses this operation as its login "pong" instead of trusting a rendered avatar.
+const KS_LOGIN_PROBE_QUERY = `
+  query visionProfileUserList($pcursor: String, $ftype: Int) {
+    visionProfileUserList(pcursor: $pcursor, ftype: $ftype) {
+      result hostName pcursor
+      fols { user_name headurl user_text isFollowing user_id __typename }
+      __typename
     }
   }`;
 
@@ -81,6 +103,7 @@ export class KuaishouCrawler extends AbstractCrawler {
   public page: Page | null = null;
   private consecutiveDetailFailures = 0;
   private cdpSession: any = null;
+  private lastPositiveLoginAt = 0;
 
   public async start(): Promise<void> {
     console.log('[KS] Starting Kuaishou crawler (Electron CDP mode)...');
@@ -99,6 +122,9 @@ export class KuaishouCrawler extends AbstractCrawler {
     if (await this.hasManualVerification()) {
       await this.waitForManualVerification('打开快手首页时触发安全验证');
     }
+    // domcontentloaded fires before Kuaishou hydrates its account chrome. Without this pause an
+    // already logged-in session can briefly look anonymous and we accidentally open a login modal.
+    await this.page.waitForTimeout(1200);
     await this.handleLogin();
 
     if (activeConfig.CRAWLER_TYPE === 'search') {
@@ -118,19 +144,30 @@ export class KuaishouCrawler extends AbstractCrawler {
       await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.kuaishou.com');
       await this.page!.reload({ waitUntil: 'domcontentloaded' });
     }
-    let isLoggedIn = await this.checkLoginState();
+    const initialApiState = await this.probeApiLoginState();
+    let isLoggedIn = initialApiState === 'authenticated'
+      || (initialApiState === 'unknown' && await this.checkLoginState());
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
       console.log('[KS] User is not logged in. Waiting for manual login...');
-      try {
-        await this.page!.locator('xpath=//p[normalize-space(text())="登录"] | //button[normalize-space(.)="登录"] | //a[normalize-space(.)="登录"]').first().click({ timeout: 3000 });
-      } catch {}
+      // Only click when a real login control is visible. An avatar may still be painted from cached
+      // page state while the API session is unusable; in that case the user must log out and back in.
+      if (await this.hasExplicitLoginPrompt()) {
+        try {
+          await this.page!.locator('xpath=//p[normalize-space(text())="登录"] | //button[normalize-space(.)="登录"] | //a[normalize-space(.)="登录"]').first().click({ timeout: 3000 });
+        } catch {}
+      }
 
-      notifyLoginRequired('kuaishou', '快手当前会话未登录，需要在采集浏览器中确认或完成登录');
+      const reason = initialApiState === 'unauthenticated'
+        ? '快手页面可能仍显示头像，但采集接口会话已失效；请先退出当前账号，再重新登录'
+        : '快手当前会话未登录，需要在采集浏览器中确认或完成登录';
+      notifyLoginRequired('kuaishou', reason);
 
       const startTime = Date.now();
       while (Date.now() - startTime < 120 * 1000) {
-        isLoggedIn = await this.checkLoginState();
+        const apiState = await this.probeApiLoginState();
+        isLoggedIn = apiState === 'authenticated'
+          || (apiState === 'unknown' && await this.checkLoginState());
         if (isLoggedIn) {
           console.log('[KS] Login successful!');
           notifyLoginSuccess('kuaishou');
@@ -147,6 +184,44 @@ export class KuaishouCrawler extends AbstractCrawler {
     if (!isLoggedIn && activeConfig.ENABLE_GET_COMMENTS) {
       console.warn('[KS] 当前为未登录会话：快手搜索仍可用，但评论接口对未登录会话一律返回空列表，本次将采集不到任何评论。');
     }
+  }
+
+  /** API-level login check, following MediaCrawler's visionProfileUserList pong strategy. */
+  private async probeApiLoginState(): Promise<'authenticated' | 'unauthenticated' | 'unknown'> {
+    if (!this.page) return 'unknown';
+    const body: any = await this.page.evaluate(async (query) => {
+      try {
+        const response = await fetch('/graphql', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+          body: JSON.stringify({
+            operationName: 'visionProfileUserList',
+            variables: { ftype: 1 },
+            query,
+          }),
+        });
+        if (!response.ok) return { __httpStatus: response.status };
+        return await response.json();
+      } catch (error: any) {
+        return { __transportError: error?.message || 'fetch failed' };
+      }
+    }, KS_LOGIN_PROBE_QUERY).catch((error: any) => ({ __transportError: error?.message || 'evaluate failed' }));
+
+    const result = body?.data?.visionProfileUserList?.result;
+    if (result === 1) {
+      this.lastPositiveLoginAt = Date.now();
+      console.log('[KS] Login state confirmed via API probe (visionProfileUserList).');
+      return 'authenticated';
+    }
+    if (result !== undefined && result !== null) {
+      console.warn(`[KS] API login probe rejected (result=${result}).`);
+      this.lastPositiveLoginAt = 0;
+      return 'unauthenticated';
+    }
+    const detail = summarizeKuaishouGraphqlFailure(body, 'visionProfileUserList');
+    console.warn(`[KS] API login probe inconclusive: ${detail}`);
+    return 'unknown';
   }
 
   /** Auth cookie names visible to the crawler tab's own session partition, read over raw CDP. */
@@ -172,6 +247,7 @@ export class KuaishouCrawler extends AbstractCrawler {
       const cookieNames = await this.authCookieNames();
       if (cookieNames.length) {
         console.log(`[KS] Login state confirmed via cookies (${cookieNames.join(', ')}).`);
+        this.lastPositiveLoginAt = Date.now();
         return true;
       }
       if (this.page) {
@@ -186,13 +262,35 @@ export class KuaishouCrawler extends AbstractCrawler {
         }).catch(() => false);
         if (loggedInDOM) {
           console.log('[KS] Login state confirmed via DOM.');
+          this.lastPositiveLoginAt = Date.now();
           return true;
         }
       }
     } catch (err: any) {
       console.error('[KS] Error checking login state:', err.message);
     }
+    // Client-side navigation replaces Kuaishou's header before the new one is hydrated. Do not let
+    // that brief DOM gap turn a login confirmed moments ago into an expired-session diagnosis.
+    if (Date.now() - this.lastPositiveLoginAt < 30_000) {
+      console.log('[KS] Login state retained from recent positive evidence while page chrome is loading.');
+      return true;
+    }
     return false;
+  }
+
+  /** True only when the current page visibly offers account login in the site header. */
+  private async hasExplicitLoginPrompt(): Promise<boolean> {
+    if (!this.page) return false;
+    return this.page.evaluate(() => {
+      const header = document.querySelector('header, [class*="header-"], [class*="nav-"]');
+      if (!header || header.closest('[class*="comment"]')) return false;
+      if (header.querySelector('a[href*="/profile/"], [class*="user-avatar"], [class*="login-user"]')) return false;
+      return Array.from(header.querySelectorAll('button, a, p, span')).some((element) => {
+        const text = element.textContent?.trim();
+        if (text !== '登录' || (element as HTMLElement).offsetParent === null) return false;
+        return !element.querySelector('button, a, p, span');
+      });
+    }).catch(() => false);
   }
 
   private async hasManualVerification(): Promise<boolean> {
@@ -233,10 +331,14 @@ export class KuaishouCrawler extends AbstractCrawler {
 
   private async waitForInteractiveLogin(reason: string): Promise<void> {
     console.warn(`[KS] Login is required: ${reason}`);
+    this.lastPositiveLoginAt = 0;
     notifyLoginRequired('kuaishou', reason);
     const startTime = Date.now();
     while (Date.now() - startTime < 120 * 1000) {
-      if (await this.checkLoginState()) {
+      const apiState = await this.probeApiLoginState();
+      const isLoggedIn = apiState === 'authenticated'
+        || (apiState === 'unknown' && await this.checkLoginState());
+      if (isLoggedIn) {
         console.log('[KS] Login successful. Resuming crawler...');
         notifyLoginSuccess('kuaishou');
         return;
@@ -270,36 +372,41 @@ export class KuaishouCrawler extends AbstractCrawler {
             headers: { 'Content-Type': 'application/json;charset=UTF-8' },
             body: JSON.stringify({ operationName, variables, query }),
           });
-          if (!response.ok) return { __transportError: `HTTP ${response.status}` };
+          if (!response.ok) return { __httpStatus: response.status };
           return await response.json();
         } catch (error: any) {
           return { __transportError: error?.message || 'fetch failed' };
         }
       }, { operationName, query, variables }).catch((error: any) => ({ __transportError: error?.message || 'evaluate failed' }));
 
-      if (Array.isArray(body?.errors) && body.errors.length) {
-        throw new Error(`${context}失败：快手接口返回 GraphQL 错误（${operationName} 的字段可能已变更）：${body.errors[0]?.message}`);
+      const explicitAuthFailure = isExplicitKuaishouAuthFailure(body);
+      if (Array.isArray(body?.errors) && body.errors.length && !explicitAuthFailure) {
+        throw new Error(`${context}失败：${summarizeKuaishouGraphqlFailure(body, resultField)}（${operationName} 的字段可能已变更）`);
       }
-      if (body?.__transportError) {
-        lastError = body.__transportError;
+      if (body?.__transportError || body?.__httpStatus) {
+        lastError = summarizeKuaishouGraphqlFailure(body, resultField);
       } else {
         const payload = body?.data?.[resultField];
         if (isOk(payload)) return payload as T;
-        lastError = `接口拒绝请求（${JSON.stringify(payload ?? null).slice(0, 160)}）`;
+        lastError = summarizeKuaishouGraphqlFailure(body, resultField);
       }
+
+      console.warn(`[KS] ${context} attempt ${attempt}/3 rejected: ${lastError}`);
 
       if (attempt === 3) break;
       if (await this.hasManualVerification()) {
         await this.waitForManualVerification(`${context}时触发快手安全验证`);
         continue;
       }
-      if (!(await this.checkLoginState())) {
-        await this.waitForInteractiveLogin(`${context}时快手判定当前登录已失效`);
+      // Do not infer logout merely from a missing avatar after navigation. Kuaishou uses the same
+      // empty/non-1 payloads for throttling, fingerprint rejection and API rollouts.
+      if (explicitAuthFailure || await this.hasExplicitLoginPrompt()) {
+        await this.waitForInteractiveLogin(`${context}时快手明确要求重新登录`);
         continue;
       }
       await this.humanDelay(this.page!);
     }
-    throw new Error(`${context}失败：${lastError}，登录有效但请求被拒绝，可能触发限流或风控`);
+    throw new Error(`${context}失败：${lastError}。未发现明确的登录失效信号，可能是限流、风控或快手接口变更`);
   }
 
   /** Normalises a search / profile feed entry into the stored video record shape. */
@@ -326,44 +433,138 @@ export class KuaishouCrawler extends AbstractCrawler {
     };
   }
 
+  /**
+   * Kuaishou can reject the private GraphQL operation while still rendering public search cards.
+   * Keep the task useful by collecting those visible cards instead of turning an API rollout or
+   * fingerprint decision into a zero-result run.
+   */
+  private async scrapeVisibleSearchResults(keyword: string, limit: number): Promise<any[]> {
+    const records = new Map<string, any>();
+    let unchangedPasses = 0;
+    for (let pass = 0; pass < 8 && records.size < limit && unchangedPasses < 2; pass++) {
+      const before = records.size;
+      const cards = await this.page!.evaluate(() => {
+        const parseCard = (card: Element, href = '') => {
+          const image = card.querySelector<HTMLImageElement>('img');
+          const cover = card.querySelector<HTMLImageElement>('img.cover-img') || image;
+          let id = '';
+          try {
+            id = new URL(cover?.currentSrc || cover?.src || '', location.href).searchParams.get('clientCacheKey') || '';
+            id = id.replace(/\.(?:jpe?g|webp|avif)$/i, '');
+          } catch {}
+          const author = card.querySelector<HTMLElement>('[class*="author"], [class*="user-name"], [class*="username"], .name');
+          const titleNode = card.querySelector<HTMLElement>('[class*="caption"], [class*="title"], [class*="desc"]');
+          const textLines = (card.textContent || '').split('\n').map((line) => line.trim()).filter(Boolean);
+          return {
+            id,
+            href,
+            title: titleNode?.textContent?.trim() || cover?.alt?.trim() || textLines[0] || '',
+            cover: cover?.currentSrc || cover?.src || '',
+            author: author?.textContent?.trim() || '',
+            likes: card.getAttribute('data-like-count')?.replace(/^⭐\s*/, '') || '',
+          };
+        };
+        const modernCards = Array.from(document.querySelectorAll('.photo-card')).map((card) => parseCard(card));
+        const legacyCards = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/short-video/"]')).map((anchor) => {
+          const href = anchor.href || anchor.getAttribute('href') || '';
+          return parseCard(anchor.closest('[class*="card"], [class*="item"], li') || anchor, href);
+        });
+        return [...modernCards, ...legacyCards];
+      }).catch(() => [] as Array<{ id: string; href: string; title: string; cover: string; author: string; likes: string }>);
+
+      for (const card of cards) {
+        const id = card.id || card.href.match(/\/short-video\/([^/?#]+)/i)?.[1] || '';
+        if (!id || records.has(id)) continue;
+        records.set(id, {
+          video_id: id,
+          video_type: 'video',
+          title: card.title,
+          desc: card.title,
+          video_url: `https://www.kuaishou.com/short-video/${id}`,
+          video_cover_url: card.cover,
+          video_play_url: '',
+          liked_count: card.likes || '0',
+          viewd_count: '0',
+          comment_count: '0',
+          creator_hash: '',
+          nickname: card.author,
+          create_time: 0,
+          source_keyword: keyword,
+        });
+        if (records.size >= limit) break;
+      }
+
+      unchangedPasses = records.size === before ? unchangedPasses + 1 : 0;
+      if (records.size >= limit || unchangedPasses >= 2) break;
+      await this.page!.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight * 0.85, 600))).catch(() => {});
+      await this.page!.waitForTimeout(900);
+    }
+    return Array.from(records.values()).slice(0, limit);
+  }
+
   public async search(): Promise<void> {
     const keywords = activeConfig.KEYWORDS.split(',');
     const failures: string[] = [];
     for (const keyword of keywords) {
       console.log(`[KS] Searching keyword: ${keyword}`);
       try {
-        const searchUrl = `https://www.kuaishou.com/search/video?searchKey=${encodeURIComponent(keyword)}`;
-        if (this.page && (!this.page.url().includes('/search/video') || !this.page.url().includes(encodeURIComponent(keyword)))) {
+        // Kuaishou's 2026 web app moved search from /search/video?searchKey= to a server-rendered
+        // /search/:keyword route. The old URL now renders only the site shell and no result cards.
+        const searchUrl = `https://www.kuaishou.com/search/${encodeURIComponent(keyword)}?source=SEARCH`;
+        if (this.page && !this.page.url().includes(`/search/${encodeURIComponent(keyword)}`)) {
           await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
-          await this.page.waitForTimeout(1500);
+          await this.page.locator('.photo-card').first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
         }
 
         const videos: any[] = [];
         const seenIds = new Set<string>();
+        // Prefer the site's own server-rendered cards. The legacy visionSearchPhoto endpoint can
+        // return result=50 even though this route has already rendered a complete result set.
+        const nativeCards = await this.scrapeVisibleSearchResults(keyword, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+        for (const record of nativeCards) {
+          seenIds.add(record.video_id);
+          videos.push(record);
+        }
+        if (nativeCards.length) console.log(`[KS] Native search page collected ${nativeCards.length} cards.`);
         let pageNumber = Math.max(1, activeConfig.START_PAGE || 1);
         let searchSessionId = '';
         const maxPages = Math.max(1, Math.ceil(activeConfig.CRAWLER_MAX_NOTES_COUNT / 20));
-        for (let requestIndex = 0; requestIndex < maxPages && videos.length < activeConfig.CRAWLER_MAX_NOTES_COUNT; requestIndex++) {
-          const result = await this.graphql<any>(
-            'visionSearchPhoto',
-            'visionSearchPhoto',
-            KS_SEARCH_QUERY,
-            { keyword, pcursor: String(pageNumber), page: 'search', searchSessionId },
-            `搜索“${keyword}”`,
-            (payload) => payload?.result === 1,
-          );
-          const feeds = Array.isArray(result.feeds) ? result.feeds : [];
-          console.log(`[KS] GraphQL search page ${pageNumber}: ${feeds.length} feeds`);
-          for (const feed of feeds) {
-            const record = this.mapFeed(feed, keyword);
-            if (!record || seenIds.has(record.video_id)) continue;
+        try {
+          if (videos.length) {
+            console.log('[KS] Skipping legacy GraphQL search because native search cards are available.');
+          } else {
+          for (let requestIndex = 0; requestIndex < maxPages && videos.length < activeConfig.CRAWLER_MAX_NOTES_COUNT; requestIndex++) {
+            const result = await this.graphql<any>(
+              'visionSearchPhoto',
+              'visionSearchPhoto',
+              KS_SEARCH_QUERY,
+              { keyword, pcursor: String(pageNumber), page: 'search', searchSessionId },
+              `搜索“${keyword}”`,
+              (payload) => payload?.result === 1,
+            );
+            const feeds = Array.isArray(result.feeds) ? result.feeds : [];
+            console.log(`[KS] GraphQL search page ${pageNumber}: ${feeds.length} feeds`);
+            for (const feed of feeds) {
+              const record = this.mapFeed(feed, keyword);
+              if (!record || seenIds.has(record.video_id)) continue;
+              seenIds.add(record.video_id);
+              videos.push(record);
+            }
+            if (!feeds.length) break;
+            searchSessionId = result.searchSessionId || searchSessionId;
+            pageNumber++;
+            await this.humanDelay(this.page!);
+          }
+          }
+        } catch (error: any) {
+          console.warn(`[KS] GraphQL search unavailable for “${keyword}”: ${error.message}. Falling back to visible search cards.`);
+          const visible = await this.scrapeVisibleSearchResults(keyword, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+          for (const record of visible) {
+            if (seenIds.has(record.video_id)) continue;
             seenIds.add(record.video_id);
             videos.push(record);
           }
-          if (!feeds.length) break;
-          searchSessionId = result.searchSessionId || searchSessionId;
-          pageNumber++;
-          await this.humanDelay(this.page!);
+          console.log(`[KS] Visible search fallback collected ${visible.length} cards.`);
         }
 
         console.log(`[KS] Found ${videos.length} videos. Ingesting...`);
