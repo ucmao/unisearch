@@ -5,12 +5,12 @@
 
 **基于 Electron + TypeScript 的多平台 AI 内容调研与采集工具**
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Node Version](https://img.shields.io/badge/node-20+-blue.svg)](https://nodejs.org/) [![Electron](https://img.shields.io/badge/electron-42+-blue.svg)](https://www.electronjs.org/) [![Support](https://img.shields.io/badge/support-20+%20Connectors-brightgreen.svg)](#-支持的平台矩阵)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Node Version](https://img.shields.io/badge/node-20+-blue.svg)](https://nodejs.org/) [![Electron](https://img.shields.io/badge/electron-42+-blue.svg)](https://www.electronjs.org/) [![Support](https://img.shields.io/badge/support-20+%20Connectors-brightgreen.svg)](#-支持的采集平台与信源)
 
 <p align="center">
 <a href="#-系统架构">系统架构</a> •
 <a href="#-核心功能">核心功能</a> •
-<a href="#-支持的平台矩阵">平台矩阵</a> •
+<a href="#-支持的采集平台与信源">采集平台与信源</a> •
 <a href="#-快速开始">快速开始</a> •
 <a href="#-应用打包">应用打包</a> •
 <a href="#-联系作者">联系作者</a>
@@ -106,31 +106,16 @@ flowchart TD
 
 ---
 
-## 💾 支持的平台矩阵
+## 💾 支持的采集平台与信源
 
-| 平台名称 | 平台分类 | 关键词搜索 | 内容详情解析 | 创作者/主体 | 评论与回复 | 短链/链接解析 | 登录/认证方式 |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **小红书** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **抖音** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **快手** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **哔哩哔哩** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **新浪微博** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **百度贴吧** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **知乎** | 社交内容 | ✓ | ✓ | ✓ | ✓ | ✓ | 二维码 / Cookie |
-| **百度搜索** | 搜索引擎 | ✓ | ✓ (SERP摘要) | - | - | - | 免登录 |
-| **必应中国** | 搜索引擎 | ✓ | ✓ (SERP摘要) | - | - | - | 免登录 |
-| **360 搜索** | 搜索引擎 | ✓ | ✓ (SERP摘要) | - | - | - | 免登录 |
-| **搜狗搜索** | 搜索引擎 | ✓ | ✓ (SERP摘要) | - | - | - | 免登录 |
-| **头条搜索** | 搜索引擎 | ✓ | ✓ (SERP摘要) | - | - | - | 免登录 |
-| **DeepSeek** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **Kimi (月之暗面)** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **豆包** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **通义千问** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **腾讯元宝** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **纳米 AI** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **文心一言** | AI 网页问答 | ✓ | ✓ (思考过程) | - | - | - | 免登录 / Cookie |
-| **智联招聘** | 垂直招聘 | ✓ | ✓ (职位 JD) | ✓ (招聘公司) | - | - | 免登录 / Cookie |
-| **黑猫投诉** | 消费维权 | ✓ | ✓ (投诉单据) | ✓ (涉诉商家) | - | - | 免登录 / Cookie |
+| 类别 | 平台与信源 |
+| :--- | :--- |
+| **社交与内容平台** | 小红书、抖音、快手、哔哩哔哩、微博、百度贴吧、知乎 |
+| **搜索引擎** | 百度、必应中国、360搜索、搜狗搜索、头条搜索 |
+| **AI 网页问答** | DeepSeek、Kimi、豆包、通义千问、腾讯元宝、纳米AI、文心一言 |
+| **技术、论文与资讯** | arXiv、GitHub 仓库、RSS 新闻、AI HOT |
+| **垂直平台** | 智联招聘、黑猫投诉 |
+| **媒体解析** | 综合无水印解析 |
 
 ---
 

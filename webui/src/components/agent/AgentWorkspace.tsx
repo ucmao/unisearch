@@ -1181,7 +1181,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             >
               {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
             </Button>}
-            <Button className="md:hidden h-8 w-8 rounded-xl focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0" size="icon" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending}>{createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}</Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="md:hidden h-8 w-8 rounded-xl transition-all text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              onClick={openNewTask}
+              disabled={create.isPending || createNewTask.isPending}
+              title="新建任务"
+              aria-label="新建任务"
+            >
+              {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}
+            </Button>
             {selectedId && <Button
               size="icon"
               variant="ghost"

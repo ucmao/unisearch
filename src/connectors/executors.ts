@@ -16,8 +16,8 @@ import { QwenCrawler } from '../crawler/platforms/qwen';
 import { NamiCrawler, WenxinCrawler, YuanbaoCrawler } from '../crawler/platforms/china_ai_web_qa';
 import { AiHotCrawler } from '../crawler/platforms/aihot';
 import { ArxivCrawler } from '../crawler/platforms/arxiv';
-import { GitHubRepositoriesCrawler } from '../crawler/platforms/github_repositories';
 import { RssNewsCrawler } from '../crawler/platforms/rss_news';
+import { WebReaderCrawler } from '../crawler/platforms/web_reader';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -38,6 +38,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   github_repositories: () => new GitHubRepositoriesCrawler(),
   rss_news: () => new RssNewsCrawler(),
   media_parser: () => new MediaParserCrawler(),
+  web_reader: () => new WebReaderCrawler(),
   zhaopin: () => new ZhaopinCrawler(),
   heimao: () => new HeimaoCrawler(),
   deepseek: () => new DeepSeekCrawler(),
