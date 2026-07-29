@@ -10,16 +10,18 @@ export interface SourceCitationItem {
   sourceUrl?: string
   excerpt?: string
   score?: number
+  fetchedAt?: string
 }
 
 interface CollapsibleSourcesBarProps {
   sources: SourceCitationItem[]
   keywords?: string[]
+  retrieval?: string
   onCitationClick?: (sourceId: string) => void
 }
 
 
-export function CollapsibleSourcesBar({ sources, keywords = [], onCitationClick }: CollapsibleSourcesBarProps) {
+export function CollapsibleSourcesBar({ sources, keywords = [], retrieval, onCitationClick }: CollapsibleSourcesBarProps) {
   const [expanded, setExpanded] = useState(false)
   const platformLabels = usePlatformLabels()
 
@@ -37,7 +39,9 @@ export function CollapsibleSourcesBar({ sources, keywords = [], onCitationClick 
       >
         <span className="flex items-center gap-1.5">
           <span>
-            {validKeywords.length > 0
+            {retrieval === 'live_search'
+              ? `已实时检索，参考 ${sources.length} 个网页来源`
+              : validKeywords.length > 0
               ? `已搜索 ${validKeywords.length} 个关键词，参考 ${sources.length} 篇资料`
               : `已检索知识库，参考 ${sources.length} 篇资料`}
           </span>

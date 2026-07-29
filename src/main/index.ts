@@ -1,4 +1,4 @@
-import { app, BrowserView, BrowserWindow, dialog, shell, ipcMain } from 'electron';
+import { app, BrowserView, BrowserWindow, dialog, shell, ipcMain, nativeTheme } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
@@ -84,6 +84,11 @@ function crawlerMarkerUrl(platform: string): string {
 }
 
 const CRAWLER_TAB_HEIGHT = 48;
+const CRAWLER_TRAFFIC_LIGHT_GUTTER = process.platform === 'darwin' ? 78 : 10;
+
+function crawlerHubBackgroundColor(): string {
+  return nativeTheme.shouldUseDarkColors ? '#1e1f22' : '#f0f4f8';
+}
 
 function focusMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -130,6 +135,7 @@ function closeCrawlerTab(platform: string): void {
 function crawlerHubHtml(): string {
   const activeState = activeCrawlerPlatform ? crawlerTabStates.get(activeCrawlerPlatform) : null;
   const isRunningActive = activeCrawlerPlatform ? crawlerViews.has(activeCrawlerPlatform) : false;
+  const isDark = nativeTheme.shouldUseDarkColors;
 
   const tabs = Array.from(crawlerTabStates.entries()).map(([platform, status]) => {
     const active = platform === activeCrawlerPlatform ? ' active' : '';
@@ -151,7 +157,7 @@ function crawlerHubHtml(): string {
       const count = metrics?.itemCount ?? 0;
       const duration = metrics?.durationSeconds !== undefined ? `，耗时 ${metrics.durationSeconds} 秒` : '';
       statusTitle = `${label} 采集成功`;
-      statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong><br>底层网页与自动化进程已安全注销释放内存，你可在 UniSearch 主界面中随时查看看板或继续 AI 分析。`;
+      statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong>`;
       iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4bb98a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
     } else if (activeState === 'failed') {
       const errReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
@@ -180,9 +186,9 @@ function crawlerHubHtml(): string {
     `;
   }
 
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
+  return `<!doctype html><html class="${isDark ? 'dark' : ''}"><head><meta charset="utf-8"><style>
     *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#f0f4f8;color:#142033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-    .bar{height:${CRAWLER_TAB_HEIGHT}px;display:flex;align-items:flex-end;gap:4px;padding:7px 10px 0;border-bottom:1px solid #cbd8e2;background:linear-gradient(#f8fbfd,#e8f0f5);-webkit-app-region:drag}
+    .bar{height:${CRAWLER_TAB_HEIGHT}px;display:flex;align-items:flex-end;gap:4px;padding:7px 10px 0 ${CRAWLER_TRAFFIC_LIGHT_GUTTER}px;border-bottom:1px solid #cbd8e2;background:linear-gradient(#f8fbfd,#e8f0f5);-webkit-app-region:drag}
     .brand{align-self:center;padding:0 10px 4px 2px;font-size:12px;font-weight:650;color:#506273;white-space:nowrap}
     .tabs{display:flex;min-width:0;height:40px;gap:4px;overflow-x:auto;-webkit-app-region:no-drag}
     .tab{display:flex;align-items:center;gap:7px;min-width:96px;height:36px;padding:0 8px 0 12px;border:1px solid transparent;border-radius:10px 10px 0 0;color:#627487;text-decoration:none;font-size:13px;font-weight:550;white-space:nowrap;transition:all 0.15s ease}
@@ -207,7 +213,49 @@ function crawlerHubHtml(): string {
     .btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.15s ease}
     .btn.primary{background:#206bc4;color:#fff;box-shadow:0 2px 6px rgba(32,107,196,0.25)}.btn.primary:hover{background:#1a59a5}
     .btn.secondary{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}.btn.secondary:hover{background:#e2e8f0;color:#1e293b}
-  </style></head><body>
+
+    /* Dark Mode (PyCharm Dark Theme) */
+    html.dark, body.dark {
+      background: #1e1f22 !important;
+      color: #bcbec4 !important;
+    }
+    html.dark .bar, body.dark .bar { border-bottom-color: #393b40 !important; background: #2b2d30 !important; }
+    html.dark .brand, body.dark .brand { color: #868a91 !important; }
+    html.dark .tab, body.dark .tab { color: #868a91 !important; }
+    html.dark .tab:hover, body.dark .tab:hover { background: #35373c !important; color: #bcbec4 !important; }
+    html.dark .tab.active, body.dark .tab.active { border-color: #393b40 !important; border-bottom-color: #1e1f22 !important; background: #1e1f22 !important; color: #bcbec4 !important; }
+    html.dark .close-btn, body.dark .close-btn { color: #868a91 !important; }
+    html.dark .close-btn:hover, body.dark .close-btn:hover { color: #f25c6e !important; background: rgba(242,92,110,0.2) !important; }
+    html.dark .summary-container, body.dark .summary-container { background: #1e1f22 !important; }
+    html.dark .summary-card, body.dark .summary-card { background: #2b2d30 !important; border-color: #393b40 !important; box-shadow: 0 12px 32px rgba(0,0,0,0.4) !important; }
+    html.dark .title, body.dark .title { color: #bcbec4 !important; }
+    html.dark .description, body.dark .description { color: #868a91 !important; }
+    html.dark .btn.secondary, body.dark .btn.secondary { background: #35373c !important; color: #bcbec4 !important; border-color: #393b40 !important; }
+    html.dark .btn.secondary:hover, body.dark .btn.secondary:hover { background: #3c3f44 !important; color: #ffffff !important; }
+    html.dark .icon-box.completed, body.dark .icon-box.completed { background: rgba(75,185,138,0.15) !important; }
+    html.dark .icon-box.failed, body.dark .icon-box.failed { background: rgba(214,107,123,0.15) !important; }
+    html.dark .icon-box.stopped, body.dark .icon-box.stopped { background: rgba(134,138,145,0.15) !important; }
+
+    @media (prefers-color-scheme: dark) {
+      html, body { background: #1e1f22 !important; color: #bcbec4 !important; }
+      .bar { border-bottom-color: #393b40 !important; background: #2b2d30 !important; }
+      .brand { color: #868a91 !important; }
+      .tab { color: #868a91 !important; }
+      .tab:hover { background: #35373c !important; color: #bcbec4 !important; }
+      .tab.active { border-color: #393b40 !important; border-bottom-color: #1e1f22 !important; background: #1e1f22 !important; color: #bcbec4 !important; }
+      .close-btn { color: #868a91 !important; }
+      .close-btn:hover { color: #f25c6e !important; background: rgba(242,92,110,0.2) !important; }
+      .summary-container { background: #1e1f22 !important; }
+      .summary-card { background: #2b2d30 !important; border-color: #393b40 !important; box-shadow: 0 12px 32px rgba(0,0,0,0.4) !important; }
+      .title { color: #bcbec4 !important; }
+      .description { color: #868a91 !important; }
+      .btn.secondary { background: #35373c !important; color: #bcbec4 !important; border-color: #393b40 !important; }
+      .btn.secondary:hover { background: #3c3f44 !important; color: #ffffff !important; }
+      .icon-box.completed { background: rgba(75,185,138,0.15) !important; }
+      .icon-box.failed { background: rgba(214,107,123,0.15) !important; }
+      .icon-box.stopped { background: rgba(134,138,145,0.15) !important; }
+    }
+  </style></head><body class="${isDark ? 'dark' : ''}">
     <div class="bar"><div class="brand">UniSearch采集浏览器</div><nav class="tabs">${tabs}</nav></div>
     ${bodyContent}
   </body></html>`;
@@ -255,6 +303,11 @@ function createCrawlerHubWindow(): BrowserWindow {
     show: false,
     title: 'UniSearch 内置采集浏览器',
     icon: getAppIconPath(),
+    backgroundColor: crawlerHubBackgroundColor(),
+    ...(process.platform === 'darwin' ? {
+      titleBarStyle: 'hiddenInset' as const,
+      trafficLightPosition: { x: 14, y: 14 },
+    } : {}),
     webPreferences: {
       backgroundThrottling: false,
       contextIsolation: true,
@@ -293,6 +346,13 @@ function createCrawlerHubWindow(): BrowserWindow {
   refreshCrawlerHubTabs();
   return crawlerHubWindow;
 }
+
+nativeTheme.on('updated', () => {
+  if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+    crawlerHubWindow.setBackgroundColor(crawlerHubBackgroundColor());
+  }
+  refreshCrawlerHubTabs();
+});
 
 export function createCrawlerView(platform: string): BrowserView {
   const existing = crawlerViews.get(platform);

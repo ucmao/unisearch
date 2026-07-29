@@ -261,8 +261,13 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
       let contentToCopy = message.content.replace(/\n\s*---\s*\n\s*##?\s*📚?\s*(?:参考资料|资料来源|References|来源列表)[\s\S]*$/, '').trim()
       const sources = message.metadata?.sources
       if (Array.isArray(sources) && sources.length > 0) {
-        const keywords = message.metadata?.keywords || plan?.plan?.keywords || []
+        const keywords = message.metadata?.retrieval === 'live_search'
+          ? []
+          : message.metadata?.keywords || plan?.plan?.keywords || []
         const kwText = keywords.length > 0 ? keywords.map((k: string) => `“${k}”`).join('、、') : ''
+        const sourceSummary = message.metadata?.retrieval === 'live_search'
+          ? `已实时检索，参考 ${sources.length} 个网页来源 ›`
+          : `已搜索关键词，参考 ${sources.length} 篇资料 ›`
         const listItems = sources.map((s: any, idx: number) => {
           const title = (s.title || '未命名资料').replace(/\r?\n/g, ' ')
           const link = s.sourceUrl ? `[${title}](${s.sourceUrl})` : `${title} [${s.id}]`
@@ -271,7 +276,7 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
         const detailsBlock = [
           '',
           '<details>',
-          `<summary>已搜索关键词，参考 ${sources.length} 篇资料 ›</summary>`,
+          `<summary>${sourceSummary}</summary>`,
           '',
           kwText ? kwText : '',
           ...listItems,
@@ -323,7 +328,8 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
         {!isUser && Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0 ? (
           <CollapsibleSourcesBar
             sources={message.metadata.sources}
-            keywords={message.metadata?.keywords || plan?.plan?.keywords}
+            keywords={message.metadata?.retrieval === 'live_search' ? [] : message.metadata?.keywords || plan?.plan?.keywords}
+            retrieval={message.metadata?.retrieval}
             onCitationClick={onCitationClick}
           />
         ) : null}
@@ -1810,7 +1816,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2.5 text-slate-900 text-base font-bold">
               {exportConfirmPlatform ? (
-                <img src={exportConfirmPlatform.icon} alt="" className="h-6 w-6 object-contain" />
+                <img src={exportConfirmPlatform.icon} alt="" className="h-6 w-6 object-contain rounded-md overflow-hidden" />
               ) : null}
               <span>导出至 {exportConfirmPlatform?.name} 知识库</span>
             </DialogTitle>

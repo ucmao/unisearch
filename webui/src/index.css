@@ -63,63 +63,63 @@
     --shadow-glow-spread: 6px;
   }
 
-  /* Dark theme - Full Cyberpunk */
+  /* Dark theme - PyCharm / JetBrains Dark Theme (Darcula & New UI Dark) */
   .dark {
     /* Semantic colors */
-    --background: 233 67% 4%;
-    --foreground: 210 20% 93%;
-    --card: 215 21% 11%;
-    --card-foreground: 210 20% 93%;
-    --popover: 213 18% 13%;
-    --popover-foreground: 210 20% 93%;
+    --background: 220 6% 13%;   /* #1e1f22: PyCharm Main Editor background */
+    --foreground: 220 8% 75%;   /* #bcbec4: JetBrains standard text color */
+    --card: 220 5% 18%;         /* #2b2d30: PyCharm Sidebar / Card background */
+    --card-foreground: 220 8% 75%;
+    --popover: 220 5% 20%;      /* #303236: Popover background */
+    --popover-foreground: 220 8% 75%;
     --primary: 225 75% 55%;
     --primary-foreground: 0 0% 100%;
     --secondary: 352 71% 60%;
     --secondary-foreground: 0 0% 100%;
-    --muted: 215 14% 17%;
-    --muted-foreground: 215 16% 57%;
+    --muted: 220 5% 22%;        /* #35373c: Muted container */
+    --muted-foreground: 220 5% 55%;/* #868a91: Muted secondary text */
     --accent: 225 75% 55%;
     --accent-foreground: 0 0% 100%;
     --destructive: 352 71% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 215 14% 25%;
-    --input: 215 14% 25%;
+    --border: 220 5% 24%;       /* #393b40: PyCharm UI border */
+    --input: 220 5% 24%;
     --ring: 225 75% 55%;
 
-    /* Cyberpunk color system - Dark variants */
-    --cyber-bg-primary: 10 10 15;
-    --cyber-bg-secondary: 13 17 23;
-    --cyber-bg-tertiary: 22 27 34;
-    --cyber-bg-panel: 28 33 40;
-    --cyber-bg-elevated: 33 38 45;
+    /* PyCharm Dark Color System - matching PyCharm Darcula & New UI */
+    --cyber-bg-primary: 30 31 34;     /* #1e1f22: Main workspace background (PyCharm Editor Area) */
+    --cyber-bg-secondary: 43 45 48;   /* #2b2d30: Sidebar background (PyCharm Project Tool Window) */
+    --cyber-bg-tertiary: 53 55 60;    /* #35373c: Header & Cards background */
+    --cyber-bg-panel: 60 63 68;       /* #3c3f44: Input box container / Active items */
+    --cyber-bg-elevated: 70 73 80;    /* #464950: Elevated popovers / Hover states */
 
-    --cyber-neon-cyan: 55 98 227;
-    --cyber-neon-cyan-dim: 37 72 175;
+    --cyber-neon-cyan: 53 116 240;     /* #3574f0: PyCharm Royal Blue accent */
+    --cyber-neon-cyan-dim: 40 89 184;   /* #2859b8: PyCharm Dimmed Blue */
     --cyber-neon-pink: 225 79 98;
     --cyber-neon-pink-dim: 190 55 75;
-    --cyber-neon-green: 0 255 65;
-    --cyber-neon-green-dim: 57 255 20;
-    --cyber-neon-orange: 255 152 0;
-    --cyber-neon-yellow: 255 234 0;
-    --cyber-neon-purple: 191 0 255;
+    --cyber-neon-green: 152 195 121;   /* #98c379: PyCharm Soft Green */
+    --cyber-neon-green-dim: 110 150 85;
+    --cyber-neon-orange: 229 192 123;  /* #e5c07b: PyCharm Warm Amber */
+    --cyber-neon-yellow: 229 192 123;
+    --cyber-neon-purple: 198 120 221;  /* #c678dd: PyCharm Purple */
 
-    --cyber-text-primary: 230 237 243;
-    --cyber-text-secondary: 139 148 158;
-    --cyber-text-muted: 72 79 88;
+    --cyber-text-primary: 188 190 196;   /* #bcbec4: Crisp JetBrains silver text */
+    --cyber-text-secondary: 134 138 145; /* #868a91: Muted secondary text */
+    --cyber-text-muted: 90 93 99;        /* #5a5d63: Disabled / Placeholder text */
 
-    --cyber-border-default: 48 54 61;
-    --cyber-border-subtle: 33 38 45;
-    --cyber-border-glow: 55 98 227;
+    --cyber-border-default: 57 59 64;    /* #393b40: PyCharm border color */
+    --cyber-border-subtle: 45 47 51;     /* #2d2f33: Very soft inner border */
+    --cyber-border-glow: 53 116 240;
 
     /* Glass effect */
-    --glass-bg: 22 27 34 / 0.7;
-    --glass-border: 48 54 61 / 0.5;
-    --glass-dark-bg: 13 17 23 / 0.85;
-    --glass-dark-border: 48 54 61 / 0.4;
+    --glass-bg: 53 55 60 / 0.7;
+    --glass-border: 57 59 64 / 0.5;
+    --glass-dark-bg: 43 45 48 / 0.85;
+    --glass-dark-border: 57 59 64 / 0.4;
 
-    /* Shadows - vibrant for dark mode */
-    --shadow-glow-opacity: 0.5;
-    --shadow-glow-spread: 10px;
+    /* Shadows */
+    --shadow-glow-opacity: 0.3;
+    --shadow-glow-spread: 6px;
   }
 
   * {
