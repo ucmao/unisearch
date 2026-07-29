@@ -1,4 +1,4 @@
-import { app, BrowserView, BrowserWindow, dialog, shell, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserView, BrowserWindow, dialog, shell, ipcMain, nativeTheme, screen } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import net from 'net';
@@ -6,6 +6,8 @@ import { randomInt } from 'crypto';
 import { startServer, stopServer } from '../server';
 import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../tools/browserIdentity';
 import { platformLabel } from '../connectors/registry';
+import { fitWindowBoundsToDisplays, loadWindowState, saveWindowState } from './windowState';
+import type { SavedWindowState } from './windowState';
 
 app.setName('UniSearch');
 process.title = 'UniSearch';
@@ -70,8 +72,54 @@ type CrawlerTabStatus = 'running' | 'completed' | 'failed' | 'stopped';
 const crawlerTabStates = new Map<string, CrawlerTabStatus>();
 let activeCrawlerPlatform: string | null = null;
 let isQuitting = false;
+const windowStateTimers = new Map<string, NodeJS.Timeout>();
 
 let apiPort = 8080;
+
+function windowStatePath(): string {
+  return path.join(app.getPath('userData'), 'window-state.json');
+}
+
+function restoredWindowState(key: string, width: number, height: number): SavedWindowState | undefined {
+  const saved = loadWindowState(windowStatePath(), key);
+  if (!saved) return undefined;
+  return {
+    ...saved,
+    bounds: fitWindowBoundsToDisplays(saved.bounds, screen.getAllDisplays(), { width, height }),
+  };
+}
+
+function persistWindowState(key: string, window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const bounds = window.isMaximized() || window.isMinimized() || window.isFullScreen()
+    ? window.getNormalBounds()
+    : window.getBounds();
+  try {
+    saveWindowState(windowStatePath(), key, { bounds, maximized: window.isMaximized() });
+  } catch (error) {
+    console.warn(`[Electron] Failed to save ${key} window state:`, error);
+  }
+}
+
+function trackWindowState(key: string, window: BrowserWindow): void {
+  const scheduleSave = () => {
+    const existing = windowStateTimers.get(key);
+    if (existing) clearTimeout(existing);
+    windowStateTimers.set(key, setTimeout(() => {
+      windowStateTimers.delete(key);
+      persistWindowState(key, window);
+    }, 300));
+  };
+  window.on('resize', scheduleSave);
+  window.on('move', scheduleSave);
+  window.on('maximize', scheduleSave);
+  window.on('unmaximize', scheduleSave);
+  window.on('closed', () => {
+    const timer = windowStateTimers.get(key);
+    if (timer) clearTimeout(timer);
+    windowStateTimers.delete(key);
+  });
+}
 
 function getAppIconPath(): string | undefined {
   const iconFilename = process.platform === 'darwin' ? 'icon.png' : 'icon-windows.png';
@@ -295,9 +343,9 @@ function activateCrawlerView(platform: string): boolean {
 
 function createCrawlerHubWindow(): BrowserWindow {
   if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) return crawlerHubWindow;
+  const restoredState = restoredWindowState('crawler', 1280, 800);
   crawlerHubWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...(restoredState?.bounds ?? { width: 1280, height: 800 }),
     minWidth: 820,
     minHeight: 560,
     show: false,
@@ -314,6 +362,8 @@ function createCrawlerHubWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   });
+  trackWindowState('crawler', crawlerHubWindow);
+  if (restoredState?.maximized) crawlerHubWindow.maximize();
   crawlerHubWindow.webContents.on('will-navigate', (event, url) => {
     if (url.startsWith('unisearch-tab://')) {
       event.preventDefault();
@@ -521,9 +571,9 @@ function createWindow(port: number): void {
     focusMainWindow();
     return;
   }
+  const restoredState = restoredWindowState('main', 1200, 800);
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    ...(restoredState?.bounds ?? { width: 1200, height: 800 }),
     icon: getAppIconPath(),
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
@@ -535,6 +585,8 @@ function createWindow(port: number): void {
     },
     title: 'UniSearch Desktop',
   });
+  trackWindowState('main', mainWindow);
+  if (restoredState?.maximized) mainWindow.maximize();
 
   // 拦截新窗口请求（如 target="_blank" 的原帖链接），使用系统默认外部浏览器打开
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -585,6 +637,8 @@ function createWindow(port: number): void {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (mainWindow && !mainWindow.isDestroyed()) persistWindowState('main', mainWindow);
+  if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) persistWindowState('crawler', crawlerHubWindow);
 });
 
 app.on('ready', async () => {
