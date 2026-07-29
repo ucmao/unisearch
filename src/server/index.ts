@@ -397,6 +397,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         { attachment_ids, task_references, mentioned_connectors, mentioned_skills },
         controller.signal,
         (delta) => write({ type: 'delta', delta }),
+        (status) => write({ type: 'status', ...status }),
       );
       write({ type: 'complete', thread });
     } catch (error: any) {

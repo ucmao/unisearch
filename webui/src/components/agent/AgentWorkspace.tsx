@@ -80,6 +80,111 @@ function PlanElapsedTime({ plan, className = '' }: { plan: AgentPlan; className?
   return <span className={`whitespace-nowrap font-mono tabular-nums ${className}`}>已处理 {elapsed}</span>
 }
 
+type AiProgressStatus = { phase: 'web_search' | 'reasoning'; message: string }
+
+function ThinkingIndicator({ retryState, progress }: {
+  retryState: { count: number; max: number; delaySec: number } | null
+  progress: AiProgressStatus | null
+}) {
+  const [startedAt] = useState(() => Date.now())
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+
+  useEffect(() => {
+    const updateElapsed = () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
+    updateElapsed()
+    const timer = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(timer)
+  }, [startedAt])
+
+  const subStatusText = retryState
+    ? `连接暂时不稳定，正在自动重试 ${retryState.count}/${retryState.max}（${retryState.delaySec}s 后继续）`
+    : progress?.message
+      ? progress.message
+      : progress?.phase === 'web_search'
+        ? '正在检索最新网页与参考资料…'
+        : progress?.phase === 'reasoning'
+          ? '联网搜索已完成，正在根据来源推导答案…'
+          : elapsedSeconds < 5
+            ? '正在解析问题与上下文…'
+            : elapsedSeconds < 15
+              ? '正在分析资料并理清回答逻辑…'
+              : elapsedSeconds < 30
+                ? '正在构建深度回答框架…'
+                : '较复杂步骤处理中，正在生成回答…'
+
+  return (
+    <div className="flex gap-3 text-xs text-cyber-text-muted" role="status" aria-live="polite">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
+        <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+      </div>
+      <div className="flex flex-col justify-center gap-1 leading-5">
+        <div className="flex items-center gap-2 text-cyber-text-secondary">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyber-neon-cyan/80" />
+          <span>AI 正在思考…</span>
+          <span className="font-mono tabular-nums text-cyber-text-muted text-[11px]">({elapsedSeconds}s)</span>
+        </div>
+        <p className="truncate text-[11px] text-cyber-text-muted/80 transition-all duration-300">
+          {subStatusText}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+async function compressImage(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || file.size < 400 * 1024 || file.type === 'image/gif') {
+    return file
+  }
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const maxDim = 2048
+      let { width, height } = img
+      if (width <= maxDim && height <= maxDim && file.size < 1024 * 1024) {
+        resolve(file)
+        return
+      }
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width)
+          width = maxDim
+        } else {
+          width = Math.round((width * maxDim) / height)
+          height = maxDim
+        }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        resolve(file)
+        return
+      }
+      ctx.drawImage(img, 0, 0, width, height)
+      canvas.toBlob(
+        (blob) => {
+          if (!blob || blob.size >= file.size) {
+            resolve(file)
+            return
+          }
+          const newFile = new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() })
+          resolve(newFile)
+        },
+        'image/jpeg',
+        0.8
+      )
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(file)
+    }
+    img.src = url
+  })
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -382,6 +487,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   })
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
   const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
+  const [aiProgress, setAiProgress] = useState<AiProgressStatus | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
   const [addMenuOpen, setAddMenuOpen] = useState(false)
@@ -563,12 +669,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         }, (delta) => {
           streamedContent += delta
           if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
-        }, controller.signal)
+        }, controller.signal, (status) => setAiProgress(status))
       } finally {
         if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
       }
     },
     onMutate: async ({ id, message }) => {
+      setAiProgress(null)
       await client.cancelQueries({ queryKey: ['agent-thread', id] })
       client.setQueryData<AgentThread>(['agent-thread', id], (current) => current ? {
         ...current,
@@ -590,6 +697,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     onSettled: () => {
       sendAbortControllerRef.current = null
       setIsStoppingMessage(false)
+      setAiProgress(null)
     },
   })
 
@@ -625,7 +733,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   }
 
   const upload = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (rawFile: File) => {
+      const file = await compressImage(rawFile)
       const targetId = await ensureThread()
       if (file.size > 8 * 1024 * 1024) throw new Error(`文件 ${file.name} 超过 8MB 限制`)
       const localPreviewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
@@ -668,13 +777,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
     const filesToUpload = validFiles.slice(0, availableSlots)
     if (filesToUpload.length > 0) {
-      try {
-        await filesToUpload.reduce((promise, file) =>
-          promise.then(() => upload.mutateAsync(file).then(() => undefined)), Promise.resolve()
-        )
-      } catch {
-        // Handled in mutation
-      }
+      await Promise.allSettled(filesToUpload.map((file) => upload.mutateAsync(file)))
     }
   }
 
@@ -1232,22 +1335,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   />
                 )}
                 {isThinking && (
-                  <div className="flex gap-3 text-xs text-cyber-text-muted">
-                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
-                      <Bot className="h-4 w-4 text-cyber-neon-cyan" />
-                    </div>
-                    <div className="flex flex-col justify-center gap-1 leading-5">
-                      <div className="flex items-center gap-2">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin text-cyber-neon-cyan" />
-                        <span>AI 正在思考…</span>
-                      </div>
-                      {aiRetryState ? (
-                        <p className="text-cyber-text-muted">
-                          重试计数 {aiRetryState.count} / {aiRetryState.max} (等待 {aiRetryState.delaySec}s)
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
+                  <ThinkingIndicator retryState={aiRetryState} progress={aiProgress} />
                 )}
                 <div ref={bottomRef} />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">

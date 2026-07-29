@@ -76,11 +76,18 @@ export class AgentAttachmentService {
       kind = 'image';
     } else if (TEXT_EXTENSIONS.has(extension)) {
       kind = 'text';
-      textContent = buffer.toString('utf8').replace(/\u0000/g, '').slice(0, MAX_EXTRACTED_CHARS);
+      try {
+        textContent = buffer.toString('utf8').replace(/\u0000/g, '').slice(0, MAX_EXTRACTED_CHARS);
+      } catch {
+        textContent = '(文本编码转换失败)';
+      }
     } else if (SPREADSHEET_EXTENSIONS.has(extension)) {
       kind = 'spreadsheet';
-      try { textContent = await extractSpreadsheet(buffer); }
-      catch { throw new Error('无法读取这个 Excel 文件，请确认文件未损坏'); }
+      try {
+        textContent = await extractSpreadsheet(buffer);
+      } catch (err: any) {
+        textContent = `(Excel 无法完整解析: ${err?.message || '文件损坏'})`;
+      }
     } else {
       throw new Error('暂支持图片、TXT、Markdown、CSV、JSON 和 XLSX 文件；PDF、Word、旧版 XLS 与视频将在后续支持');
     }
