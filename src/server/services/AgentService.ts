@@ -14,6 +14,7 @@ import { knowledgeIndex } from '../../knowledge/knowledge-index';
 import { exportService } from '../../exporters/registry';
 import { skillRegistry } from '../../skills/registry';
 import type { SkillDefinition } from '../../core/skills/types';
+import { liveSearchService, toLiveSourceCitations } from './LiveSearchService';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -446,7 +447,7 @@ export class AgentService {
     }
 
     let decision: AgentDecision;
-    if (['model_info', 'execute', 'stop', 'status', 'analyze', 'export'].includes(localDecision.action)) {
+    if (['model_info', 'live_answer', 'execute', 'stop', 'status', 'analyze', 'export'].includes(localDecision.action)) {
       decision = localDecision;
     } else if (localDecision.action === 'chat' && ((attachments.length > 0 || taskReferences.length > 0) || isSimpleConversation(content))) {
       try {
@@ -488,7 +489,7 @@ export class AgentService {
         ensureMessageNotAborted(signal);
         if (
           localDecision.action === 'create_plan'
-          && ['chat', 'clarify', 'status', 'analyze', 'export'].includes(decision.action)
+          && ['chat', 'live_answer', 'clarify', 'status', 'analyze', 'export'].includes(decision.action)
           && !(activeSkill && decision.action === 'clarify' && !/平台/.test(decision.reply))
         ) {
           // localDecision already confirmed both a subject and a platform are
@@ -573,6 +574,43 @@ export class AgentService {
       return agentRepository.getThread(threadId);
     }
 
+    if (decision.action === 'live_answer') {
+      const query = String(decision.query || content).replace(/\s+/g, ' ').trim().slice(0, 300);
+      try {
+        const evidence = await liveSearchService.search(query, { limit: 8, signal });
+        ensureMessageNotAborted(signal);
+        if (!evidence.length) {
+          agentRepository.addMessage(threadId, 'assistant', 'text', '这次没有检索到足够可靠的实时网页摘要，暂时无法据此回答。你可以补充更具体的地点、对象或时间后重试。', {
+            action: 'live_answer', retrieval: 'live_search', query, sources: [],
+          });
+          this.scheduleThreadTitle(threadId);
+          return agentRepository.getThread(threadId);
+        }
+
+        const updatedThread = agentRepository.getThread(threadId);
+        const messages = conversationMessages(updatedThread);
+        const answer = (await modelService.answerWithLiveEvidence(messages, evidence, { onRetry, signal, onDelta })).trim();
+        ensureMessageNotAborted(signal);
+        if (!answer) throw new Error('模型没有返回文本内容');
+        agentRepository.addMessage(threadId, 'assistant', 'text', answer, {
+          action: 'live_answer',
+          retrieval: 'live_search',
+          query,
+          fetched_at: evidence[0].fetchedAt,
+          sources: toLiveSourceCitations(evidence),
+        });
+        this.scheduleThreadTitle(threadId);
+        return agentRepository.getThread(threadId);
+      } catch (error: any) {
+        ensureMessageNotAborted(signal);
+        const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
+        agentRepository.addMessage(threadId, 'assistant', 'status', `实时检索回答失败：${reason}`, {
+          action: 'live_answer_error', retrieval: 'live_search', error: reason,
+        });
+        return agentRepository.getThread(threadId);
+      }
+    }
+
     if (decision.action === 'chat' || decision.action === 'clarify') {
       const updatedThread = agentRepository.getThread(threadId);
       const messages = conversationMessages(updatedThread);
@@ -623,7 +661,7 @@ export class AgentService {
             }
           } catch (err: any) { ensureMessageNotAborted(signal); }
         }
-        agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有等待确认的计划。你可以先告诉我想采集的具体主题。', { action: 'chat' });
+        agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有生成或挂起等待确认的采集计划。如果你想发起采集，请告诉我具体的平台和关键词（例如：“在小红书搜索 某品牌”）。', { action: 'chat' });
       } else {
         this.executePlan(latest.plan_id);
         agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，任务已进入本地执行队列。', { plan_id: latest.plan_id, action: 'execute' });

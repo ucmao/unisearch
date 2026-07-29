@@ -163,14 +163,23 @@ test('capability and model questions never become collection plans', () => {
   assert.equal(localIntentDecision('你用的是什么模型？').action, 'model_info');
 });
 
-test('unsupported realtime weather questions get an honest contextual answer', () => {
+test('realtime weather questions use the one-shot live answer path', () => {
   const weather = localIntentDecision('福州今天天气怎么样');
-  assert.equal(weather.action, 'chat');
-  assert.match(weather.reply, /没有接入实时天气/);
+  assert.equal(weather.action, 'live_answer');
+  assert.equal(weather.query, '福州今天天气怎么样');
 
   const followUp = localIntentDecision('我在福州', { previousUserText: '今天天气怎么样' });
-  assert.equal(followUp.action, 'chat');
-  assert.match(followUp.reply, /福州.*没有天气接口/);
+  assert.equal(followUp.action, 'live_answer');
+  assert.equal(followUp.query, '今天天气怎么样 我在福州');
+
+  const explicitResearchWithWeather = localIntentDecision('在百度/必应搜索“今天天气”');
+  assert.equal(explicitResearchWithWeather.action, 'create_plan');
+
+  const explicitBaiduWeather = localIntentDecision('在百度搜索广州天气');
+  assert.equal(explicitBaiduWeather.action, 'create_plan');
+
+  const mentionedBaiduWeather = localIntentDecision('@百度搜索 广州天气', { mentionedConnectors: ['baidu'] });
+  assert.equal(mentionedBaiduWeather.action, 'create_plan');
 });
 
 test('search engine alias and page range expressions are parsed correctly', () => {
@@ -234,4 +243,3 @@ test('negative platform exclusion directives filter out specified platforms', ()
   assert.deepEqual(additivePlan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'baidu']);
   assert.deepEqual(additivePlan.keywords, ['皮卡丘']);
 });
-

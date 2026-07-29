@@ -116,6 +116,7 @@ export const PlatformExportIcons: React.FC<PlatformExportIconsProps> = ({
               type="button"
               onClick={() => onSelectPlatform(platform)}
               disabled={isPending}
+              title={`导出至 ${platform.name} (${platform.tag})`}
               className={`relative flex h-8.5 w-8.5 shrink-0 items-center justify-center rounded-lg border border-cyber-border-subtle bg-cyber-card/70 transition-all duration-200 ${platform.hoverBg} ${platform.hoverBorder} hover:scale-110 hover:shadow-lg hover:shadow-cyan-500/10 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               {isLoading ? (
@@ -124,7 +125,7 @@ export const PlatformExportIcons: React.FC<PlatformExportIconsProps> = ({
                 <img
                   src={platform.icon}
                   alt={platform.name}
-                  className="h-6 w-6 shrink-0 object-contain pointer-events-none transition-transform duration-200"
+                  className="h-6 w-6 shrink-0 object-contain rounded-md overflow-hidden pointer-events-none transition-transform duration-200"
                 />
               )}
             </button>

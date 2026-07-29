@@ -1,13 +1,15 @@
 import type { ResearchPlan } from './AgentRepository';
 import { isAnalysisRevisionRequest } from './ResearchAnalysis';
 
-export type AgentAction = 'chat' | 'clarify' | 'model_info' | 'create_plan' | 'revise_plan' | 'execute' | 'stop' | 'status' | 'analyze' | 'export' | 'direct_parse';
+export type AgentAction = 'chat' | 'live_answer' | 'clarify' | 'model_info' | 'create_plan' | 'revise_plan' | 'execute' | 'stop' | 'status' | 'analyze' | 'export' | 'direct_parse';
 
 export interface AgentDecision {
   action: AgentAction;
   reply: string;
   missingFields?: string[];
   plan?: Partial<ResearchPlan> | null;
+  /** Search phrase proposed by the model for a one-shot live answer. */
+  query?: string;
 }
 
 export interface IntentContext {
@@ -298,6 +300,16 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
     return { action: 'direct_parse', reply: '' };
   }
 
+  // Picking a Connector from the @ menu is an explicit request to use the
+  // persistent collection workflow, even when the same text could otherwise be
+  // answered by the silent live-search path.
+  if (context.mentionedConnectors?.length) {
+    if (!hasResearchSubject(value)) {
+      return { action: 'clarify', reply: '已选择采集平台。请再告诉我这次要搜索的具体主题或关键词。', missingFields: ['subject'] };
+    }
+    return { action: status === 'awaiting_confirmation' ? 'revise_plan' : 'create_plan', reply: '' };
+  }
+
   if (GREETING.test(value)) {
     return { action: 'chat', reply: '你好！当然可以先聊聊。你可以问我能做什么，也可以慢慢告诉我想了解的主题；信息足够后，我再帮你整理采集计划。' };
   }
@@ -313,11 +325,11 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
     return { action: 'chat', reply: '你只要告诉我想搜索的主题或关键词，以及平台即可；我会生成采集计划，等你确认后再开始执行。' };
   }
   if (MODEL_INFO.test(value)) return { action: 'model_info', reply: '' };
-  if (WEATHER.test(value)) {
-    return { action: 'chat', reply: '我目前没有接入实时天气数据源，所以不能可靠地查询今天的天气。这个应用现在专注于跨平台公开内容采集与分析。' };
+  if (WEATHER.test(value) && !(RESEARCH.test(value) && inferResearchPlatforms(value).length > 0)) {
+    return { action: 'live_answer', reply: '', query: value };
   }
-  if (context.previousUserText && WEATHER.test(context.previousUserText) && LOCATION.test(value)) {
-    return { action: 'chat', reply: `收到，你说的是${value.replace(/^(?:我在|我住在|城市是|地点是)\s*/, '').replace(/[!！,.，。\s]+$/, '')}。不过当前应用还没有天气接口，因此我不能给出可靠的实时天气；接入天气工具后才能完成这类查询。` };
+  if (context.previousUserText && WEATHER.test(context.previousUserText) && LOCATION.test(value) && !(RESEARCH.test(value) && inferResearchPlatforms(value).length > 0)) {
+    return { action: 'live_answer', reply: '', query: `${context.previousUserText} ${value}` };
   }
   if (status === 'awaiting_confirmation' && CONFIRM.test(value)) return { action: 'execute', reply: '好的，我现在按已确认的计划开始采集。' };
   if (FORCE_EXECUTE.test(value)) return { action: 'execute', reply: '' };
