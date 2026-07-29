@@ -1,7 +1,7 @@
 export interface AppConfig {
   PLATFORM: string;
   KEYWORDS: string;
-  LOGIN_TYPE: 'qrcode' | 'cookie' | 'phone';
+  LOGIN_TYPE: 'qrcode' | 'cookie' | 'phone' | 'none';
   COOKIES: string;
   CRAWLER_TYPE: 'search' | 'detail' | 'creator';
   
@@ -38,6 +38,11 @@ export interface AppConfig {
   STOP_WORDS_FILE: string;
   CRAWLER_MAX_SLEEP_SEC: number;
   DISABLE_SSL_VERIFY: boolean;
+
+  AIHOT_CONTENT_MODE: 'items' | 'hot_topics' | 'latest_daily';
+  AIHOT_ITEMS_MODE: 'selected' | 'all';
+  AIHOT_WINDOW: '24h' | '7d';
+  AIHOT_CATEGORY: string;
 
   // Platform specific lists
   XHS_CREATOR_ID_LIST: string[];
@@ -99,6 +104,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   STOP_WORDS_FILE: './resources/hit_stopwords.txt',
   CRAWLER_MAX_SLEEP_SEC: 2,
   DISABLE_SSL_VERIFY: false,
+
+  AIHOT_CONTENT_MODE: 'items',
+  AIHOT_ITEMS_MODE: 'selected',
+  AIHOT_WINDOW: '24h',
+  AIHOT_CATEGORY: 'all',
 
   XHS_CREATOR_ID_LIST: [],
   DY_CREATOR_ID_LIST: [],

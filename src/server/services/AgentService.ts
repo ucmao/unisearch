@@ -19,6 +19,27 @@ import { liveSearchService, toLiveSourceCitations } from './LiveSearchService';
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
 
+function aiHotOptions(userText: string, current: Record<string, unknown> = {}): Record<string, unknown> {
+  const result = { ...current };
+  if (/日报|daily/i.test(userText)) result.content_mode = 'latest_daily';
+  else if (/热点|热榜|hot\s*topics?/i.test(userText)) result.content_mode = 'hot_topics';
+  else if (result.content_mode === undefined) result.content_mode = 'items';
+  if (/最近?\s*7\s*天|近一周|一周内/i.test(userText)) result.window = '7d';
+  if (/公开池|全部资讯|所有资讯/i.test(userText)) result.items_mode = 'all';
+  if (/论文|paper/i.test(userText)) result.category = 'paper';
+  else if (/模型发布|AI\s*模型/i.test(userText)) result.category = 'ai-models';
+  else if (/产品发布|AI\s*产品/i.test(userText)) result.category = 'ai-products';
+  else if (/行业动态/i.test(userText)) result.category = 'industry';
+  else if (/技巧|观点/i.test(userText)) result.category = 'tip';
+  return result;
+}
+
+function allowsEmptyKeywords(plan: Pick<ResearchPlan, 'platforms' | 'capability'>): boolean {
+  return plan.capability === 'keyword_search'
+    && plan.platforms.length === 1
+    && plan.platforms[0] === 'aihot';
+}
+
 function skillPlanningContext(skill: SkillDefinition | null): string {
   if (!skill) return '';
   return JSON.stringify({
@@ -52,6 +73,7 @@ export function normalizePlan(
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',
     文心: 'wenxin', 文心一言: 'wenxin', 文心言: 'wenxin', 文小言: 'wenxin',
     黑猫: 'heimao', 黑猫投诉: 'heimao', 智联: 'zhaopin', 智联招聘: 'zhaopin',
+    'AI HOT': 'aihot', AI热点: 'aihot', AI热榜: 'aihot',
   };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))
@@ -133,6 +155,13 @@ export function normalizePlan(
     ? normalizeAnalysisGoals([...skill.defaults.analysis, ...suppliedGoals], goal)
     : normalizeAnalysisGoals(input?.analysis, goal);
 
+  const connectorOptions = input?.connectorOptions && typeof input.connectorOptions === 'object'
+    ? { ...input.connectorOptions }
+    : {};
+  if (selectedPlatforms.includes('aihot')) {
+    connectorOptions.aihot = aiHotOptions(userText, connectorOptions.aihot || {});
+  }
+
   return {
     skillId: skill?.id || fallbackPlan?.skillId || 'multi-source-research',
     goal,
@@ -140,7 +169,7 @@ export function normalizePlan(
     keywords,
     capability,
     targets,
-    connectorOptions: input?.connectorOptions && typeof input.connectorOptions === 'object' ? input.connectorOptions : {},
+    connectorOptions,
     collectionDepth: hasExplicitCollectionDepth(userText) || preserveFallbackDepth
       ? collectionDepth
       : skill?.defaults?.collectionDepth || collectionDepth,
@@ -653,7 +682,7 @@ export class AgentService {
             const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
             ensureMessageNotAborted(signal);
             const plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
-            if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0))) {
+            if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0) || allowsEmptyKeywords(plan))) {
               const created = agentRepository.createPlan(threadId, plan);
               this.executePlan(created.plan_id);
               agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，已生成采集计划并自动进入本地执行队列。', { plan_id: created.plan_id, action: 'execute' });
@@ -887,7 +916,7 @@ export class AgentService {
       });
       return agentRepository.getThread(threadId);
     }
-    if (plan.capability === 'keyword_search' && !plan.keywords.length) {
+    if (plan.capability === 'keyword_search' && !plan.keywords.length && !allowsEmptyKeywords(plan)) {
       agentRepository.addMessage(threadId, 'assistant', 'clarify', '你最想调研的具体品牌、产品、事件或主题是什么？', {
         action: 'clarify', missing_fields: ['subject'],
       });

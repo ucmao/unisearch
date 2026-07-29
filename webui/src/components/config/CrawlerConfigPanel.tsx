@@ -136,6 +136,11 @@ export function CrawlerConfigPanel() {
     ? selectedConnectors[0].auth.methods.filter((method) => selectedConnectors.every((connector) => connector.auth.methods.includes(method)))
     : []
 
+  useEffect(() => {
+    if (!loginMethods.length || loginMethods.includes(config.login_type as 'qrcode' | 'cookie' | 'none')) return
+    updateConfig({ login_type: loginMethods[0] })
+  }, [config.login_type, loginMethods, updateConfig])
+
   return (
     <aside className="relative min-w-0 overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-panel/35 p-4 glass-panel float-panel xl:h-full xl:overflow-y-auto">
       <div className="absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-cyber-neon-purple via-cyber-neon-cyan to-transparent" />
@@ -204,7 +209,7 @@ export function CrawlerConfigPanel() {
             <Select value={config.login_type} onValueChange={(value) => updateConfig({ login_type: value })} disabled={isDisabled || !loginMethods.length}>
               <SelectTrigger className="h-9 text-xs font-mono"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {loginMethods.map((method) => <SelectItem key={method} value={method}>{method === 'cookie' ? 'Cookie 登录' : '二维码登录'}</SelectItem>)}
+                {loginMethods.map((method) => <SelectItem key={method} value={method}>{method === 'cookie' ? 'Cookie 登录' : method === 'qrcode' ? '二维码登录' : '无需登录'}</SelectItem>)}
               </SelectContent>
             </Select>
           </Field>
@@ -220,7 +225,7 @@ export function CrawlerConfigPanel() {
           )) : (
             <div className="flex items-center gap-3 rounded-lg border border-dashed border-cyber-border-subtle/50 p-4">
               <KeyRound className="h-5 w-5 text-cyber-neon-cyan/70" />
-              <p className="text-[10px] text-cyber-text-muted">每个 Connector 使用独立浏览器会话完成二维码登录。</p>
+              <p className="text-[10px] text-cyber-text-muted">{config.login_type === 'none' ? '该 Connector 使用匿名公开接口，无需登录。' : '每个 Connector 使用独立浏览器会话完成二维码登录。'}</p>
             </div>
           )}
         </TabsContent>

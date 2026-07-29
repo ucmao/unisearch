@@ -14,6 +14,7 @@ import { KimiCrawler } from '../crawler/platforms/kimi';
 import { DoubaoCrawler } from '../crawler/platforms/doubao';
 import { QwenCrawler } from '../crawler/platforms/qwen';
 import { NamiCrawler, WenxinCrawler, YuanbaoCrawler } from '../crawler/platforms/china_ai_web_qa';
+import { AiHotCrawler } from '../crawler/platforms/aihot';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -29,6 +30,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   so360: () => new So360Crawler(),
   sogou: () => new SogouCrawler(),
   toutiao: () => new ToutiaoCrawler(),
+  aihot: () => new AiHotCrawler(),
   media_parser: () => new MediaParserCrawler(),
   zhaopin: () => new ZhaopinCrawler(),
   heimao: () => new HeimaoCrawler(),

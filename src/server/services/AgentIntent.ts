@@ -44,12 +44,12 @@ const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|�
 const EXPORT = /(?:导出|下载|生成).*(?:CSV|表格|数据|结果|Markdown|Obsidian|JSON|IMA)|(?:CSV|表格|Markdown|Obsidian|JSON|IMA).*(?:导出|下载|生成)/i;
 const ANALYZE = /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|归纳|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/i;
 const REVISE_ACTION = '(?:加上|增加|添加|再加|也要|去掉|删除|移除|不要|改成|改为|换成|换一个|更换|替换|修改|调整|只要)';
-const REVISE_FIELD = '(?:小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
+const REVISE_FIELD = '(?:小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
 const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.*${REVISE_ACTION})`, 'i');
-const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:去|到|在)?(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看)/i;
+const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:AI HOT|AI热点|AI热榜).*(?:热点|日报|资讯)|(?:去|到|在)?(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看)/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-  'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
+  'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
 ];
 
 export function isSimpleConversation(text: string): boolean {
@@ -88,8 +88,8 @@ function cleanResearchSubject(text: string): string {
   return text
     // "@" 提及菜单插入的是 "@连接器名 " 这种无空格 token，与其余清洗规则无关，先整体去掉
     .replace(/@\S+/g, ' ')
-    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
-    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
+    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
+    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
     .replace(/关键词(?:[:：]|\s)+/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
     .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|多|加|再|也|还|额外|另外|此外/gi, ' ')
@@ -105,7 +105,7 @@ function cleanResearchSubject(text: string): string {
 }
 
 export function isExclusivePlatformRequest(text: string): boolean {
-  return /(?:只|仅|只要)(?:采集|抓取|搜索|看|用|在|查)?\s*(?:小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|黑猫投诉|黑猫|智联招聘|智联|平台)/i.test(text);
+  return /(?:只|仅|只要)(?:采集|抓取|搜索|看|用|在|查)?\s*(?:AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|黑猫投诉|黑猫|智联招聘|智联|平台)/i.test(text);
 }
 
 export function isAdditivePlatformRequest(text: string): boolean {
@@ -143,6 +143,7 @@ export function inferExcludedPlatforms(text: string): string[] {
     [/(?:360搜索|360|so\.com)/i, 'so360'],
     [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
     [/(?:头条搜索|so\.toutiao\.com)/i, 'toutiao'],
+    [/(?:AI\s*HOT|AI热点|AI热榜|aihot\.virxact\.com)/i, 'aihot'],
     [/(?:DeepSeek|chat\.deepseek\.com)/i, 'deepseek'],
     [/(?:Kimi(?:\s*AI)?|kimi\.moonshot\.cn|kimi\.com)/i, 'kimi'],
     [/(?:豆包|Doubao|doubao\.com)/i, 'doubao'],
@@ -201,6 +202,7 @@ export function inferResearchPlatforms(text: string): string[] {
       [/(?:360搜索|360|so\.com)/i, 'so360'],
       [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
       [/(?:头条搜索|so\.toutiao\.com)/i, 'toutiao'],
+      [/(?:AI\s*HOT|AI热点|AI热榜|aihot\.virxact\.com)/i, 'aihot'],
       [/(?:DeepSeek|chat\.deepseek\.com)/i, 'deepseek'],
       [/(?:Kimi(?:\s*AI)?|kimi\.moonshot\.cn|kimi\.com)/i, 'kimi'],
       [/(?:豆包|Doubao|doubao\.com)/i, 'doubao'],
@@ -316,10 +318,10 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
   if (THANKS.test(value)) return { action: 'chat', reply: '不客气。你可以继续补充想法，或者随时让我帮你整理成采集任务。' };
   if (GOODBYE.test(value)) return { action: 'chat', reply: '再见！之后想继续调研时，回到这个任务就可以接着聊。' };
   if (CAPABILITY.test(value)) {
-    return { action: 'chat', reply: '我可以先和你讨论调研思路，再按需要从小红书、抖音、快手、哔哩哔哩、微博、贴吧、知乎，以及百度、必应中国、360搜索、搜狗搜索采集内容；计划会先给你确认，完成后还能继续做总结、舆情和竞品分析。' };
+    return { action: 'chat', reply: '我可以先和你讨论调研思路，再按需要从小红书、抖音、快手、哔哩哔哩、微博、贴吧、知乎、搜索引擎和 AI HOT 采集内容；计划会先给你确认，完成后还能继续做总结、舆情和竞品分析。' };
   }
   if (PLATFORM_CAPABILITY.test(value)) {
-    return { action: 'chat', reply: '目前支持 11 个平台：小红书、抖音、快手、哔哩哔哩、微博、百度贴吧、知乎，以及百度、必应中国、360搜索和搜狗搜索。你可以指定一个或多个平台；如果没有指定，我会先给出建议并让你确认。' };
+    return { action: 'chat', reply: '目前支持小红书、抖音、快手、B站、微博、贴吧、知乎，百度、必应等网页搜索，DeepSeek 等 AI 问答，以及招聘、投诉和 AI HOT 垂直资讯 Connector。你可以指定一个或多个平台；如果没有指定，我会先给出建议并让你确认。' };
   }
   if (RESEARCH_HOW_TO.test(value)) {
     return { action: 'chat', reply: '你只要告诉我想搜索的主题或关键词，以及平台即可；我会生成采集计划，等你确认后再开始执行。' };

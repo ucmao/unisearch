@@ -193,6 +193,107 @@ const searchEngine = (
   ],
 });
 
+const aiHot: ConnectorManifest = {
+  id: 'aihot', version: '1.0.0', name: 'AI HOT', icon: 'flame', category: 'web_search',
+  description: 'AI HOT 精选资讯、当前多源热点、AI 日报与事件时间线连接器。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '官方公开 API v1，匿名只读，无需 API Key。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: 'AI 资讯与热点',
+      description: '查询最近 AI 资讯，或直接采集当前热点和最新日报。资讯模式支持关键词、分类与时间窗口。',
+      runtimeMode: 'search', budgetModel: 'true_pagination',
+      depthBudget: { quick: 20, standard: 50, deep: 100 },
+      inputFields: [
+        {
+          key: 'content_mode', label: '内容模式', description: '资讯查询使用关键词和筛选条件；热点与日报不需要关键词。',
+          type: 'select', default: 'items', runtimeConfigKey: 'aihot_content_mode',
+          options: [
+            { value: 'items', label: '最近 AI 资讯' },
+            { value: 'hot_topics', label: '当前多源热点' },
+            { value: 'latest_daily', label: '最新 AI 日报' },
+          ],
+        },
+        {
+          key: 'items_mode', label: '资讯范围', description: '精选适合默认调研；公开池覆盖更多最近内容。仅资讯模式生效。',
+          type: 'select', default: 'selected', runtimeConfigKey: 'aihot_items_mode',
+          options: [
+            { value: 'selected', label: '精选' },
+            { value: 'all', label: '最近 7 天公开池' },
+          ],
+        },
+        {
+          key: 'window', label: '时间窗口', description: '仅资讯模式生效。',
+          type: 'select', default: '24h', runtimeConfigKey: 'aihot_window',
+          options: [
+            { value: '24h', label: '最近 24 小时' },
+            { value: '7d', label: '最近 7 天' },
+          ],
+        },
+        {
+          key: 'category', label: '内容分类', description: '仅资讯模式生效；论文需明确选择“论文研究”。',
+          type: 'select', default: 'all', runtimeConfigKey: 'aihot_category',
+          options: [
+            { value: 'all', label: '全部分类' },
+            { value: 'ai-models', label: 'AI 模型' },
+            { value: 'ai-products', label: 'AI 产品' },
+            { value: 'industry', label: '行业动态' },
+            { value: 'paper', label: '论文研究' },
+            { value: 'tip', label: '技巧与观点' },
+          ],
+        },
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的资讯数；热点与日报按本次任务总量限制。',
+          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+      ],
+      outputType: 'aihot_article', outputFields: [
+        { key: 'content_id', label: 'AI HOT 内容 ID', type: 'string', required: true },
+        { key: 'title', label: '标题', type: 'string', required: true },
+        { key: 'summary', label: 'AI 生成摘要', type: 'string' },
+        { key: 'creator_name', label: '原始来源', type: 'string' },
+        { key: 'content_url', label: 'AI HOT canonical', type: 'string' },
+        { key: 'original_url', label: '原文链接', type: 'string' },
+        { key: 'published_at', label: '发布时间', type: 'string' },
+        { key: 'category', label: '分类', type: 'string' },
+        { key: 'score', label: '精选评分', type: 'number' },
+      ],
+      limitations: [
+        '摘要和翻译由 AI 生成，数字、政策与原话等重要事实需回原文核对。',
+        '正文不在 items 响应中；输出保留 AI HOT attribution、canonical 与原文链接。',
+        '热点与日报是当前快照，不包含 snapshot + changes 的长期镜像同步。',
+      ],
+    },
+    {
+      id: 'content_detail', label: '热点事件详情',
+      description: '根据 AI HOT story publicId 或 /stories/ 链接获取事件摘要、报道时间线、同线事件与相关事件。',
+      runtimeMode: 'detail', budgetModel: 'single_target',
+      inputFields: [
+        {
+          key: 'specified_ids', label: 'Story ID 或链接', description: '填写 API 返回的 story publicId 或 AI HOT /stories/ 链接。',
+          type: 'string_list', required: true, runtimeConfigKey: 'specified_ids',
+        },
+      ],
+      outputType: 'aihot_story', outputFields: [
+        { key: 'content_id', label: 'Story publicId', type: 'string', required: true },
+        { key: 'title', label: '事件标题', type: 'string', required: true },
+        { key: 'summary', label: '事件 AI 摘要', type: 'string' },
+        { key: 'content_url', label: 'AI HOT 事件页', type: 'string' },
+        { key: 'source_count', label: '独立来源数', type: 'number' },
+        { key: 'report_count', label: '报道数', type: 'number' },
+        { key: 'reports', label: '报道时间线', type: 'object' },
+      ],
+      limitations: [
+        '只接受 API 实际返回的 story publicId；普通 /items/ 链接不能推导 story ID。',
+        '事件合并时跟随 API 308 重定向；不存在或未公开的事件会返回 404。',
+      ],
+    },
+  ],
+};
+
 const utilityParser = (
   id: string,
   name: string,
@@ -391,6 +492,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
   searchEngine('toutiao', '头条搜索', 'newspaper'),
+  aiHot,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),
   complaintPlatform('heimao', '黑猫投诉', 'shield-alert'),

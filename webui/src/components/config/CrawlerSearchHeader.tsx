@@ -16,6 +16,7 @@ import {
   Globe,
   Briefcase,
   Newspaper,
+  Flame,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -40,6 +41,7 @@ const ICON_MAP: { [key: string]: any } = {
   'compass': Globe,
   'newspaper': Newspaper,
   'briefcase': Briefcase,
+  'flame': Flame,
 }
 
 
@@ -127,7 +129,8 @@ export function CrawlerSearchHeader() {
       setInputValue('')
     }
 
-    if (!finalKeywords && config.crawler_type === 'search') {
+    const onlyAiHot = selectedPlatforms.length === 1 && selectedPlatforms[0] === 'aihot'
+    if (!finalKeywords && config.crawler_type === 'search' && !onlyAiHot) {
       toast.error('请至少输入一个关键词')
       return
     }
@@ -152,7 +155,12 @@ export function CrawlerSearchHeader() {
     }
 
     const taskId = crypto.randomUUID().replace(/-/g, '')
-    const taskTitle = finalKeywords || (config.crawler_type === 'detail' ? '指定内容采集' : '创作者采集')
+    const aiHotMode = String(connectorOptions.aihot?.content_mode || 'items')
+    const taskTitle = finalKeywords || (config.crawler_type === 'detail'
+      ? '指定内容采集'
+      : onlyAiHot
+        ? aiHotMode === 'hot_topics' ? 'AI HOT 当前热点' : aiHotMode === 'latest_daily' ? 'AI HOT 最新日报' : 'AI HOT 最近资讯'
+        : '创作者采集')
     selectedPlatforms.forEach((p) => {
       if (statuses[p] !== 'running' && statuses[p] !== 'stopping') {
         startCrawler({

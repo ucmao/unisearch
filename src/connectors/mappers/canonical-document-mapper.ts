@@ -42,7 +42,7 @@ const AI_DEFINITION: ConnectorMappingDefinition = {
 };
 
 /**
- * Executable mapping matrix for all 22 registered connectors. Raw aliases stay
+ * Executable mapping matrix for every registered connector. Raw aliases stay
  * here, at the ingestion boundary, rather than leaking into repositories/UI.
  */
 export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition> = {
@@ -75,6 +75,33 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
   so360: SEARCH_DEFINITION,
   sogou: SEARCH_DEFINITION,
   toutiao: SEARCH_DEFINITION,
+  aihot: {
+    family: 'search', subjectType: 'publisher',
+    metricAliases: {
+      score: ['score'],
+      sourceCount: ['source_count'],
+      signalCount: ['signal_count'],
+      reportCount: ['report_count'],
+    },
+    attributeAliases: {
+      category: ['category'],
+      selected: ['selected'],
+      originalTitle: ['original_title'],
+      originalUrl: ['original_url'],
+      attribution: ['attribution'],
+      discoveredAt: ['discovered_at'],
+      contentMode: ['content_mode'],
+      storyUrl: ['story_url'],
+      storyStatus: ['story_status'],
+      sourceNames: ['source_names'],
+      reports: ['reports'],
+      storyline: ['storyline'],
+      related: ['related'],
+      dailyDate: ['daily_date'],
+      dailySection: ['daily_section'],
+      reportUrl: ['report_url'],
+    },
+  },
   media_parser: {
     family: 'media', subjectType: 'creator', metricAliases: {},
     attributeAliases: { mediaType: ['media_type', 'type'] },
