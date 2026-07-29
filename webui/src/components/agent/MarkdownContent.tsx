@@ -76,7 +76,9 @@ function inlineMarkdown(
   sources?: SourceCitationItem[],
   onCitationClick?: (sourceId: string) => void
 ): ReactNode[] {
-  const pattern = /(<br\s*\/?>|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>"'\(\)]+|\[\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*\]|（\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*）|\bS\d+(?:[、,，]\s*S?\d+)+|\bS\d+[:：]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`)/gi
+  // Chinese prose commonly follows a URL without a space. Treat full-width
+  // punctuation as a boundary so the link does not swallow the rest of a line.
+  const pattern = /(<br\s*\/?>|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>"'\(\)（），。；：！？、【】《》「」『』]+|\[\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*\]|（\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*）|\bS\d+(?:[、,，]\s*S?\d+)+|\bS\d+[:：]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`)/gi
   const nodes: ReactNode[] = []
   let cursor = 0
 

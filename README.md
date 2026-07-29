@@ -20,7 +20,7 @@ UniSearch 是一款基于 AI 的**多平台公开内容采集与调研桌面工�
 
 通过自然语言描述调研目标，由 AI 自动规划任务流程，并发调度底层连接器进行公开数据采集与清洗。
 
-**数据全部存储在本地 SQLite 数据库中，无需第三方服务中转，独立高效可控。**
+**采集结果与登录态保存在本地；AI 规划与分析可接入配置的模型 API。**
 
 </div>
 
@@ -28,79 +28,49 @@ UniSearch 是一款基于 AI 的**多平台公开内容采集与调研桌面工�
 
 ## 🏗️ 系统架构
 
-UniSearch 采用了 **AI Agent 意图解构 -> Skill 技能编排 -> Connector 标准连接器 -> 隔离子进程执行** 的四层分级架构：
+UniSearch 的主链路为 **Agent 规划 -> Skill / Workflow 编排 -> Connector / Processor 隔离执行 -> 知识处理与导出**：
 
 ```mermaid
 flowchart TD
-    subgraph UI ["前端界面 (WebUI / Electron)"]
-        UserPrompt["自然语言调研目标 / 任务控制台"]
-    end
+    UI["Electron / WebUI"] --> API["Fastify API / WebSocket"]
+    API --> Agent["AgentService<br/>意图识别与模型调用"]
+    Agent --> Skill["Skill Registry"]
+    Skill --> Workflow["Workflow Engine / Runtime"]
 
-    subgraph Agent ["1. AI Agent 意图层 (Agent Intent Engine)"]
-        AgentIntent["意图识别与目标拆解"]
-        AgentPrompt["Prompt Service (DeepSeek / MiniMax / OpenAI)"]
-        UserPrompt --> AgentIntent
-        AgentIntent <--> AgentPrompt
-    end
+    Workflow --> Connector["Connector Registry / Manifests"]
+    Connector --> Manager["CrawlerManager"]
+    Manager -- child_process.fork --> Crawler["Crawler Worker<br/>HTTP / Playwright / CDP"]
+    Crawler -- CDP --> Browser["Electron Chromium"]
+    Crawler -- RawItem --> Document["Document Engine"]
 
-    subgraph Skills ["2. Skills 技能编排层 (Skill Registry)"]
-        SkillReg["Skill 注册中心"]
-        SkillExec["Workflow 工作流执行 (多源采集 / 知识归一化 / 媒体处理)"]
-        AgentIntent --> SkillExec
-        SkillReg --- SkillExec
-    end
-
-    subgraph Connectors ["3. Connector 连接器层 (Connector Registry)"]
-        ConnectorReg["Manifests 标准连接器定义"]
-        Capabilities["Capabilities (搜索 / 详情 / 创作者 / 评论 / 短链解析)"]
-        SkillExec --> ConnectorReg
-        ConnectorReg --- Capabilities
-    end
-
-    subgraph Processes ["4. 隔离子进程 & 运行层 (Worker Subprocesses)"]
-        CrawlerMgr["CrawlerManager (主进程调度)"]
-        Worker1["Worker 进程 1 (Playwright/CDP)"]
-        Worker2["Worker 进程 2 (Playwright/CDP)"]
-        WorkerN["Worker 进程 N (HTTP/Hybrid)"]
-
-        ConnectorReg --> CrawlerMgr
-        CrawlerMgr -- child_process.fork --> Worker1
-        CrawlerMgr -- child_process.fork --> Worker2
-        CrawlerMgr -- child_process.fork --> WorkerN
-
-        Worker1 -- CDP --> Browser["Electron 内置 Chromium"]
-        Worker2 -- CDP --> Browser
-    end
-
-    subgraph Storage ["数据持久化 (Storage Layer)"]
-        SQLite[(SQLite 本地数据库)]
-        Worker1 -- IPC Connector Event --> SQLite
-        Worker2 -- IPC Connector Event --> SQLite
-        WorkerN -- Direct Store --> SQLite
-        SQLite --> UI
-    end
+    Workflow -- child_process.fork --> Processor["Processor Worker"]
+    Processor -- Document / Artifact --> Document
+    Document --> DB[(SQLite)]
+    DB --> Knowledge["FTS + 本地向量索引 / RAG"]
+    Knowledge --> Analyze["Analyzer / Exporter"]
+    DB --> API
 ```
 
 ### 核心架构说明
 
-- **Agent 意图层 (Agent Intent Engine)**：将用户的自然语言目标解析为结构化调研计划，自动匹配平台、关键词、采集深度与分析维度。
-- **Skills 技能层 (Skill Registry)**：提供跨平台多源调研（`multi-source-research`）、媒体转知识库（`media-to-knowledge`）等高度抽象的工作流组合能力。
-- **Connector 连接器层 (Connector Manifests)**：统一各平台的输入参数、输出 Schema、预算模型及认证交互，实现平台能力的解耦扩展。
-- **子进程隔离运行 (Worker Subprocess)**：每个 Connector 运行在独立的 Node.js 子进程中（`child_process.fork`），基于 Playwright/CDP 或 HTTP 独立抓取，子进程崩溃不影响 Electron 主进程，并通过 IPC 向 SQLite 实时流式入库。
+- **Agent**：将自然语言解析为平台、关键词、采集深度和分析目标。
+- **Skill / Workflow**：Skill 定义可复用任务模板，Workflow 统一调度采集、处理、索引、分析与导出。
+- **Connector / Worker**：Connector 统一平台能力与参数；采集和文档处理分别在 Crawler Worker、Processor Worker 子进程执行。
+- **数据与知识**：RawItem 归一化为 Document 后存入 SQLite，支持混合检索、引用式 RAG、分析和多格式导出。
 
 ---
 
 ## 💎 核心功能
 
-* **AI 智能任务规划**：支持自然语言描述调研目标，由 AI 自动规划检索平台、关键词及分析维度，执行前自由确认与调整。
-* **原生自动化采集**：基于 Playwright 与 CDP 浏览器自动化技术，高效提取平台公开内容、详情及评论数据。
+* **AI 智能任务规划**：从自然语言生成平台、关键词、采集深度与分析目标。
+* **多模式采集**：通过 HTTP、Playwright 与 CDP 提取公开内容、详情及评论。
 * **多平台并行执行**：支持主流社交、搜索引擎、AI 问答等多平台并行采集，并提供实时日志与进度监控。
-* **本地数据持久化**：数据统一保存至本地 SQLite 数据库，支持灵活搜索、多维筛选与 CSV 导出。
+* **本地知识库**：统一存入 SQLite，支持检索、RAG、分析及多格式导出。
 * **独立安全登录**：支持二维码及 Cookie 本地缓存登录，遇验证码可在内置浏览器中手动处理。
 
 ## ✨ 项目特点
 
-* **纯本地架构**：无需配置复杂外部后端服务，数据与登录态完全保存在本地磁盘。
+* **本地优先**：后端、数据库、知识索引与登录态均在本机运行或保存。
 * **高效易用**：内置 Electron 桌面可视化界面，前后端解耦设计，响应快速流畅。
 * **AI 大模型兼容**：支持 DeepSeek、MiniMax 及标准 OpenAI 兼容接口。
 
@@ -115,7 +85,7 @@ flowchart TD
 | **AI 网页问答** | DeepSeek、Kimi、豆包、通义千问、腾讯元宝、纳米AI、文心一言 |
 | **技术、论文与资讯** | arXiv、GitHub 仓库、RSS 新闻、AI HOT |
 | **垂直平台** | 智联招聘、黑猫投诉 |
-| **媒体解析** | 综合无水印解析 |
+| **通用工具** | 通用网页阅读器、综合无水印解析 |
 
 ---
 
@@ -136,9 +106,12 @@ npm --prefix webui install
 ### 🖥️ 启动开发模式
 
 ```bash
-# 启动 Electron 桌面应用 (自动编译后端并运行)
+# 首次启动先构建 WebUI
+npm run webui:build
 npm run electron:dev
 ```
+
+AI 功能需在应用设置中配置 MiniMax、DeepSeek 或 OpenAI 兼容接口。
 
 ### 🛠️ 前后端分离调试（可选）
 
@@ -150,8 +123,7 @@ npm run electron:dev
    ```
 2. **启动前端 Vite 开发服务**（在另一个终端窗口）：
    ```bash
-   cd webui
-   npm run dev
+   npm --prefix webui run dev
    ```
    在浏览器访问 `http://localhost:5173/` 即可。
 
@@ -159,7 +131,7 @@ npm run electron:dev
 
 ## 📦 应用打包
 
-执行以下命令将项目打包为跨平台桌面可执行程序（.dmg / .exe）：
+执行以下命令为当前平台构建安装包：
 
 ```bash
 # 构建后端、WebUI 并打包

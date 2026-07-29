@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { BrowserLauncher, PlaywrightModule } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
-import { CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
+import { buildCrawlerUserAgent, CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
 import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
 import { getBrowserDataDir, resolveRuntimeResource } from '../../tools/runtimePaths';
 
@@ -25,6 +25,36 @@ async function configureCrawlerPage(browserContext: BrowserContext, page: Page):
       return page;
     }
     const session = await browserContext.newCDPSession(page);
+    const browserVersion = await session.send('Browser.getVersion').catch(() => null);
+    const chromeVersion = String(browserVersion?.product || '').match(/Chrome\/([\d.]+)/)?.[1];
+    const userAgent = buildCrawlerUserAgent(chromeVersion || undefined);
+    const majorVersion = (chromeVersion || process.versions.chrome || '148').split('.')[0];
+    const platformName = process.platform === 'win32' ? 'Windows' : process.platform === 'linux' ? 'Linux' : 'macOS';
+    await session.send('Network.setUserAgentOverride', {
+      userAgent,
+      acceptLanguage: 'zh-CN,zh;q=0.9',
+      platform: platformName,
+      userAgentMetadata: {
+        brands: [
+          { brand: 'Not_A Brand', version: '99' },
+          { brand: 'Chromium', version: majorVersion },
+          { brand: 'Google Chrome', version: majorVersion },
+        ],
+        fullVersionList: [
+          { brand: 'Not_A Brand', version: '99.0.0.0' },
+          { brand: 'Chromium', version: chromeVersion || `${majorVersion}.0.0.0` },
+          { brand: 'Google Chrome', version: chromeVersion || `${majorVersion}.0.0.0` },
+        ],
+        fullVersion: chromeVersion || `${majorVersion}.0.0.0`,
+        platform: platformName,
+        platformVersion: process.platform === 'darwin' ? '10.15.7' : process.platform === 'win32' ? '10.0.0' : '6.0.0',
+        architecture: process.arch === 'arm64' ? 'arm' : 'x86',
+        model: '',
+        mobile: false,
+        bitness: '64',
+        wow64: false,
+      },
+    });
     await session.send('Emulation.setTimezoneOverride', { timezoneId: CRAWLER_TIMEZONE });
     await session.send('Emulation.setLocaleOverride', { locale: CRAWLER_LOCALE });
     await page.addInitScript(() => {
