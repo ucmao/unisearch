@@ -773,6 +773,14 @@ const webReader: ConnectorManifest = {
           key: 'specified_ids', label: '网页 URL 列表', description: '支持任意 HTTP/HTTPS 网页链接，多个目标使用逗号或换行分隔。',
           type: 'string_list', required: true, runtimeConfigKey: 'specified_ids',
         },
+        {
+          key: 'timeout_ms_per_url', label: '单页超时', description: '读取单个网页的最长等待时间（毫秒）。',
+          type: 'number', default: 15000, min: 1000, max: 30000, runtimeConfigKey: 'web_reader_timeout_ms',
+        },
+        {
+          key: 'concurrency', label: '读取并发数', description: '同时读取的网页数量。',
+          type: 'number', default: 3, min: 1, max: 8, runtimeConfigKey: 'web_reader_concurrency',
+        },
       ],
       outputType: 'web_reader_content', outputFields: [
         { key: 'content_id', label: '网页 URL', type: 'string', required: true },
@@ -793,6 +801,14 @@ const webReader: ConnectorManifest = {
         {
           key: 'specified_ids', label: '目标链接或短链', description: '多个目标使用逗号或换行分隔。',
           type: 'string_list', required: true, runtimeConfigKey: 'specified_ids',
+        },
+        {
+          key: 'timeout_ms_per_url', label: '单页超时', description: '读取单个网页的最长等待时间（毫秒）。',
+          type: 'number', default: 15000, min: 1000, max: 30000, runtimeConfigKey: 'web_reader_timeout_ms',
+        },
+        {
+          key: 'concurrency', label: '读取并发数', description: '同时读取的网页数量。',
+          type: 'number', default: 3, min: 1, max: 8, runtimeConfigKey: 'web_reader_concurrency',
         },
       ],
       outputType: 'web_reader_content', outputFields: [
@@ -839,4 +855,3 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   aiWebQA('nami', '纳米AI', 'atom'),
   aiWebQA('wenxin', '文心一言', 'message-circle-heart'),
 ];
-

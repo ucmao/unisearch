@@ -31,6 +31,8 @@ export class WorkflowRuntime {
   constructor() {
     workflowEngine.registerHandler('processor.documents.finalize', (input, context) =>
       this.finalizeDocuments(input, context));
+    workflowEngine.registerHandler('processor.search-results.select', (input, context) =>
+      this.selectSearchUrls(input, context));
     workflowEngine.registerHandler('analyzer.knowledge.index', (_input, context) =>
       Promise.resolve(knowledgeIndex.rebuild({ workflowId: context.workflowId })));
     workflowEngine.registerHandler('analyzer.extractive.summary', (input, context) =>
@@ -188,12 +190,19 @@ export class WorkflowRuntime {
 
   private async startReadyConnectors(workflow: any): Promise<void> {
     for (const step of workflow.steps.filter((candidate: any) => candidate.status === 'queued')) {
+      if (!agentRepository.isStepReady(workflow.plan_id, step.step_key)) continue;
       if (!crawlerManager.hasCapacity()) break;
       const platformState = crawlerManager.getStatus(step.platform);
       if (platformState.status === 'running' || platformState.status === 'stopping') continue;
       const plan = workflow.plan as ResearchPlan;
-      const targets = plan.targets || [];
-      const capabilityId = plan.capability || 'keyword_search';
+      const stepInput = step.input && typeof step.input === 'object' ? step.input : {};
+      const targetOutput = typeof stepInput.targetsFromStep === 'string'
+        ? agentRepository.getStepOutput(workflow.plan_id, stepInput.targetsFromStep)
+        : null;
+      const targets = Array.isArray(targetOutput?.targets)
+        ? targetOutput.targets.map(String)
+        : Array.isArray(stepInput.targets) ? stepInput.targets.map(String) : plan.targets || [];
+      const capabilityId = String(stepInput.capability || plan.capability || 'keyword_search') as NonNullable<ResearchPlan['capability']>;
       const manifest = getConnectorManifest(step.platform);
       const capability = manifest?.capabilities.find((item) => item.id === capabilityId);
       if (!capability) {
@@ -210,11 +219,15 @@ export class WorkflowRuntime {
         collection_depth: depth,
         ...(preset.maxItems !== undefined ? { max_items: preset.maxItems }
           : maxItemsDefault !== undefined ? { max_items: Number(maxItemsDefault) } : {}),
-        ...(plan.connectorOptions?.[step.platform] || {}),
+        ...(stepInput.options && typeof stepInput.options === 'object' ? stepInput.options : {}),
         ...(capabilityId === 'creator_profile' ? { creator_ids: targets } : {}),
         ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
         enable_comments: resolvedComments,
       };
+      if (['content_detail', 'comments', 'url_resolve'].includes(capabilityId) && !targets.length) {
+        agentRepository.updateStep(step.step_id, 'skipped', null, null);
+        continue;
+      }
       try {
         const started = await crawlerManager.start({
           platform: step.platform,
@@ -222,7 +235,7 @@ export class WorkflowRuntime {
           capability: capabilityId,
           login_type: plan.loginType,
           crawler_type: capability.runtimeMode,
-          keywords: plan.keywords.join(','),
+          keywords: Array.isArray(stepInput.keywords) ? stepInput.keywords.map(String).join(',') : plan.keywords.join(','),
           specified_ids: ['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? targets.join(',') : '',
           creator_ids: capabilityId === 'creator_profile' ? targets.join(',') : '',
           connector_options: connectorOptions,
@@ -241,11 +254,27 @@ export class WorkflowRuntime {
         if (started) {
           const state = crawlerManager.getStatus(step.platform);
           agentRepository.updateStep(step.step_id, 'running', state.run_id, null);
+          agentRepository.updatePlanStatus(workflow.plan_id, 'running');
         }
       } catch (error: any) {
         agentRepository.updateStep(step.step_id, 'failed', null, error.message || 'Connector 参数校验失败');
       }
     }
+  }
+
+  private async selectSearchUrls(
+    input: Record<string, unknown>,
+    context: WorkflowStepHandlerContext,
+  ): Promise<Record<string, unknown>> {
+    context.signal.throwIfAborted();
+    const maxReadItems = Math.max(1, Math.min(100, Number(input.maxReadItems || 8)));
+    const maxPerDomain = Math.max(1, Math.min(20, Number(input.maxPerDomain || 2)));
+    const selected = agentRepository.selectSearchUrls(context.workflowId, { maxReadItems, maxPerDomain });
+    return {
+      targets: selected.map((item) => item.url),
+      selected,
+      selectedCount: selected.length,
+    };
   }
 
   private async finalizeDocuments(

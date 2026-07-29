@@ -37,6 +37,8 @@ const OUTPUTS: Record<string, OutputDefinition> = {
   emitZhaopinResult: { source: 'zhaopin', kind: 'job' },
   emitHeimaoResult: { source: 'heimao', kind: 'complaint' },
   emitAiHotItem: { source: 'aihot', kind: 'article' },
+  emitArxivPaper: { source: 'arxiv', kind: 'article' },
+  emitGitHubRepository: { source: 'github_repositories', kind: 'article' },
   emitRssNewsItem: { source: 'rss_news', kind: 'article' },
   emitWebReaderResult: { source: 'web_reader', kind: 'article' },
 };

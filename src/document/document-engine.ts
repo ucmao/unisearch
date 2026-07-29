@@ -41,8 +41,7 @@ export class DocumentEngine {
       runId,
       now: () => new Date(),
     });
-    this.persist(processed.document, item, processed.artifacts || []);
-    return processed.document;
+    return this.persist(processed.document, item, processed.artifacts || []);
   }
 
   get(documentId: string): CanonicalDocument | null {
@@ -146,9 +145,34 @@ export class DocumentEngine {
     return document;
   }
 
-  private persist(documentInput: CanonicalDocument, rawItem: RawItem, artifacts: Artifact[]): void {
-    const document = canonicalDocumentSchema.parse(documentInput);
+  private persist(documentInput: CanonicalDocument, rawItem: RawItem, artifacts: Artifact[]): CanonicalDocument {
+    let document = canonicalDocumentSchema.parse(documentInput);
     const transaction = this.db.transaction(() => {
+      if (rawItem.source === 'web_reader') {
+        const discoveries = this.db.prepare(`
+          SELECT provider, query, rank, title, snippet, publisher, published_at, fetched_at
+          FROM search_discoveries WHERE document_id=?
+          ORDER BY COALESCE(rank, 2147483647), fetched_at DESC
+        `).all(document.documentId) as any[];
+        if (discoveries.length) {
+          document = canonicalDocumentSchema.parse({
+            ...document,
+            attributes: {
+              ...document.attributes,
+              discoveredBy: discoveries.map((item) => ({
+                provider: item.provider,
+                query: item.query,
+                rank: item.rank,
+                title: item.title,
+                snippet: item.snippet,
+                publisher: item.publisher,
+                publishedAt: item.published_at,
+                fetchedAt: item.fetched_at,
+              })),
+            },
+          });
+        }
+      }
       this.upsertDocument(document);
       const documentVersionId = this.insertVersion(document);
 
@@ -183,6 +207,42 @@ export class DocumentEngine {
         document.createdAt,
       );
 
+      if (rawItem.kind === 'search_result'
+        && ['baidu', 'bing', 'so360', 'sogou', 'toutiao'].includes(rawItem.source)
+        && document.provenance.runId && document.sourceUrl) {
+        const payload = rawItem.payload as Record<string, unknown>;
+        const provider = String(payload.search_engine || payload.engine || rawItem.source);
+        const query = String(payload.source_keyword || payload.keyword || '');
+        const rankValue = Number(payload.search_rank ?? payload.rank);
+        this.db.prepare(`
+          INSERT INTO search_discoveries (
+            discovery_id, document_id, run_id, provider, query, rank, title,
+            snippet, source_url, publisher, published_at, fetched_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(run_id, provider, query, source_url) DO UPDATE SET
+            document_id=excluded.document_id,
+            rank=excluded.rank,
+            title=excluded.title,
+            snippet=excluded.snippet,
+            publisher=excluded.publisher,
+            published_at=excluded.published_at,
+            fetched_at=excluded.fetched_at
+        `).run(
+          hash(`${document.provenance.runId}:${provider}:${query}:${document.sourceUrl}`),
+          document.documentId,
+          document.provenance.runId,
+          provider,
+          query,
+          Number.isFinite(rankValue) ? Math.max(0, Math.floor(rankValue)) : null,
+          document.title,
+          String(payload.snippet || document.summary || ''),
+          document.sourceUrl,
+          payload.publisher ? String(payload.publisher) : null,
+          payload.publish_time ? String(payload.publish_time) : null,
+          rawItem.fetchedAt,
+        );
+      }
+
       this.persistAssets(document);
       for (const artifact of artifacts) this.addArtifact(artifact);
 
@@ -207,6 +267,7 @@ export class DocumentEngine {
       }
     });
     transaction();
+    return document;
   }
 
   private upsertDocument(document: CanonicalDocument): void {

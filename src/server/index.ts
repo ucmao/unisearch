@@ -569,7 +569,18 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.patch('/api/agent/plans/:plan_id', async (request, reply) => {
     const { plan_id } = request.params as { plan_id: string };
-    const body = (request.body || {}) as { keywords?: string[]; analysis?: string[]; collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom' };
+    const body = (request.body || {}) as {
+      keywords?: string[];
+      analysis?: string[];
+      collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom';
+      contentEnrichment?: {
+        mode?: 'snippet' | 'auto' | 'full';
+        maxReadItems?: number;
+        maxPerDomain?: number;
+        concurrency?: number;
+        timeoutMsPerUrl?: number;
+      };
+    };
     try { return agentService.updatePlan(plan_id, body); }
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });

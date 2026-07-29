@@ -24,6 +24,13 @@ export const skillDefinitionSchema = z.object({
     platforms: z.array(z.string()).default([]),
     capability: z.enum(['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve']).default('keyword_search'),
     collectionDepth: z.enum(['quick', 'standard', 'deep']).default('quick'),
+    contentEnrichment: z.object({
+      mode: z.enum(['snippet', 'auto', 'full']),
+      maxReadItems: z.number().int().min(0).max(100),
+      maxPerDomain: z.number().int().min(1).max(20),
+      concurrency: z.number().int().min(1).max(8),
+      timeoutMsPerUrl: z.number().int().min(1000).max(30000),
+    }).strict().optional(),
     analysis: z.array(z.string()).default([]),
     outputs: z.array(z.string()).default(['csv']),
   }).strict().optional(),
@@ -39,3 +46,4 @@ export const skillDefinitionSchema = z.object({
 }).strict();
 
 export type SkillDefinition = z.infer<typeof skillDefinitionSchema>;
+export type SkillDefinitionInput = z.input<typeof skillDefinitionSchema>;

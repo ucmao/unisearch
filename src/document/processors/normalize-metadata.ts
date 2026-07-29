@@ -6,6 +6,9 @@ function normalizeUrl(value?: string): string | undefined {
   try {
     const url = new URL(value);
     url.hash = '';
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:utm_.+|spm|from|source|ref|referrer|tracking_id)$/i.test(key)) url.searchParams.delete(key);
+    }
     return url.toString();
   } catch {
     return value.trim() || undefined;
