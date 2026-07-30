@@ -429,10 +429,16 @@ export function createCrawlerView(platform: string): BrowserView {
   return view;
 }
 
-export async function prepareCrawlerWindow(platform: string): Promise<boolean> {
+export async function prepareCrawlerWindow(platform: string, preserveCurrentPage = false): Promise<boolean> {
+  const existing = crawlerViews.get(platform);
+  const alreadyPrepared = Boolean(existing && !existing.webContents.isDestroyed());
   const view = createCrawlerView(platform);
   if (view.webContents.isDestroyed()) return false;
-  await view.webContents.loadURL(crawlerMarkerUrl(platform));
+  // Verification/login notifications can arrive after the worker has already
+  // navigated this view. Preparing it again must only surface the existing
+  // page; replacing a challenge with about:blank destroys the user's flow and
+  // can make the worker interpret the marker page as a successful navigation.
+  if (!preserveCurrentPage || !alreadyPrepared) await view.webContents.loadURL(crawlerMarkerUrl(platform));
   if (!activeCrawlerPlatform || !crawlerViews.has(activeCrawlerPlatform)) activateCrawlerView(platform);
   else refreshCrawlerHubTabs();
   return true;

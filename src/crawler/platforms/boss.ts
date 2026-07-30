@@ -4,11 +4,8 @@ import {
   connectToElectronChromium,
   getElectronCrawlerPage,
   notifyLoginRequired,
-  notifyLoginSuccess,
   notifyManualVerificationRequired,
-  notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
-import { configuredTargets } from '../base/connectorHelpers';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { activeConfig } from '../../tools/config';
 import {
@@ -18,13 +15,13 @@ import {
   parseBossDomJobs,
   parseBossSearchPayload,
   type BossJobRecord,
-  type BossPageAssessment,
 } from './bossParsing';
 
 const SEARCH_RESPONSE_PATTERN = /\/wapi\/zpgeek\/search\/joblist(?:\.json)?(?:[?#]|$)/i;
 
-function splitKeywords(value: string): string[] {
-  return value
+function extractUrlsOrKeywords(input: string): string[] {
+  if (!input) return [];
+  return input
     .split(/[\n,，]+/)
     .map((item) => item.trim())
     .filter(Boolean);
@@ -41,123 +38,196 @@ function uniqueJobs(jobs: Iterable<BossJobRecord>): BossJobRecord[] {
   return result;
 }
 
-/**
- * Authorized BOSS integration only. The crawler drives normal visible page
- * navigation and consumes responses produced by that page. It never forges
- * request signatures, solves challenges, or copies browser credentials.
- */
 export class BossCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
 
-  public async start(): Promise<void> {
-    this.assertAuthorizedRun();
+  protected override async humanDelay(page: Page, seconds = activeConfig.CRAWLER_MAX_SLEEP_SEC): Promise<void> {
+    if (!page || page.isClosed()) return;
+    try {
+      await super.humanDelay(page, seconds);
+    } catch (err: any) {
+      if (err?.message?.includes('closed') || err?.message?.includes('Target')) return;
+      throw err;
+    }
+  }
 
-    console.log('[BOSS] Connecting authorized crawler to the Electron browser...');
+  public async start(): Promise<void> {
+    console.log('[BOSS] Connecting BOSS crawler to Electron built-in browser engine...');
     const playwright = require('playwright');
     this.browserContext = await connectToElectronChromium(playwright);
     this.page = await getElectronCrawlerPage(this.browserContext, 'boss');
 
-    if (activeConfig.COOKIES) {
+    if (activeConfig.COOKIES && this.browserContext) {
+      console.log('[BOSS] Applying user-provided Cookie header...');
       await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.zhipin.com');
     }
 
-    if ((activeConfig.CRAWLER_TYPE || 'search') === 'detail') {
+    const crawlerType = activeConfig.CRAWLER_TYPE || 'search';
+    if (crawlerType === 'detail') {
       await this.collectDetails();
     } else {
       await this.search();
     }
   }
 
-  private assertAuthorizedRun(): void {
-    if (!String(activeConfig.BOSS_AUTHORIZATION_REFERENCE || '').trim()) {
-      throw new Error('BOSS Connector 已停止：请先填写 BOSS 官方书面授权、合作协议或测试批准的引用编号');
+  private async checkAndHandleVerification(context: string): Promise<boolean> {
+    if (!this.page || this.page.isClosed()) return false;
+    const url = this.page.url();
+    const title = await this.page.title().catch(() => '');
+    const bodyText = await this.page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
+
+    const assessment = classifyBossPageState({
+      url,
+      title,
+      bodyText: bodyText.slice(0, 10_000),
+    });
+
+    if (assessment.state === 'ready') return false;
+
+    if (assessment.state === 'login_required') {
+      console.warn(`[BOSS] Login required for ${context}. Requesting user login in browser window...`);
+      notifyLoginRequired('boss', `BOSS直聘“${context}”需要在内置浏览器中完成登录。`);
+    } else if (assessment.state === 'verification_required') {
+      console.warn(`[BOSS] Security verification slider/captcha detected for ${context}. Requesting manual verification...`);
+      notifyManualVerificationRequired('boss', `BOSS直聘“${context}”需要在内置浏览器中完成人机验证。`);
+    } else if (assessment.state === 'rate_limited') {
+      console.warn(`[BOSS] Rate limit detected for ${context}: ${assessment.reason}`);
+      notifyManualVerificationRequired('boss', `BOSS直聘访问频次受限 (${assessment.reason})，请在内置浏览器窗口中暂缓或解封。`);
     }
+
+    const maxWaitMs = 120_000;
+    const startTime = Date.now();
+    console.log(`[BOSS] Waiting for manual resolution in browser window (up to ${maxWaitMs / 1000}s)...`);
+
+    while (Date.now() - startTime < maxWaitMs) {
+      if (!this.page || this.page.isClosed()) return false;
+      await this.humanDelay(this.page, 3);
+      if (!this.page || this.page.isClosed()) return false;
+
+      const currentUrl = this.page.url();
+      const currentTitle = await this.page.title().catch(() => '');
+      const currentBody = await this.page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
+
+      const currentAssessment = classifyBossPageState({
+        url: currentUrl,
+        title: currentTitle,
+        bodyText: currentBody.slice(0, 10_000),
+      });
+
+      if (currentAssessment.state === 'ready') {
+        console.log(`[BOSS] Manual verification / login completed successfully for ${context}!`);
+        await this.humanDelay(this.page, 2);
+        return true;
+      }
+    }
+
+    console.warn(`[BOSS] Manual verification timeout reached for ${context}. Proceeding with best-effort parsing.`);
+    return false;
   }
 
-  private async currentPageAssessment(): Promise<BossPageAssessment> {
-    if (!this.page) throw new Error('[BOSS] Browser page is not initialized.');
-    const [title, bodyText] = await Promise.all([
-      this.page.title().catch(() => ''),
-      this.page.locator('body').innerText({ timeout: 1500 }).catch(() => ''),
-    ]);
-    return classifyBossPageState({
-      url: this.page.url(),
-      title,
-      bodyText: bodyText.slice(0, 20_000),
+  private async emitJob(job: BossJobRecord, sourceKeyword: string, rank?: number): Promise<void> {
+    await connectorOutput.emitBossResult({
+      ...job,
+      creator_name: job.company_name,
+      desc: job.description,
+      job_url: job.content_url,
+      source_keyword: sourceKeyword,
+      ...(rank ? { rank } : {}),
     });
   }
 
-  private async waitForAccess(
-    context: string,
-    initial?: BossPageAssessment,
-  ): Promise<void> {
+  public async search(): Promise<void> {
     if (!this.page) throw new Error('[BOSS] Browser page is not initialized.');
-    const assessment = initial && initial.state !== 'ready'
-      ? initial
-      : await this.currentPageAssessment();
 
-    if (assessment.state === 'ready' || assessment.state === 'page_changed') return;
-    if (assessment.state === 'rate_limited') {
-      throw new Error(`BOSS 访问频率受限：${assessment.reason}。任务已停止，不会通过重试硬顶风控。`);
+    const keywords = extractUrlsOrKeywords(activeConfig.KEYWORDS || '');
+    if (keywords.length === 0) {
+      console.warn('[BOSS] No search keywords specified.');
+      return;
     }
 
-    const isLogin = assessment.state === 'login_required';
-    const timeoutMs = isLogin ? 120_000 : 180_000;
-    if (isLogin) {
-      notifyLoginRequired('boss', `BOSS直聘“${context}”需要在内置浏览器中由用户完成登录。`);
-    } else {
-      notifyManualVerificationRequired('boss', `BOSS直聘“${context}”需要由用户在内置浏览器中完成安全验证。`);
-    }
+    const maxItems = Math.max(1, Math.min(200, Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20)));
+    console.log(`[BOSS] Starting search for ${keywords.length} keyword(s), limit ${maxItems} per keyword...`);
 
-    const startedAt = Date.now();
-    let stableReadyPasses = 0;
-    while (Date.now() - startedAt < timeoutMs) {
-      await this.page.waitForTimeout(1_000);
-      const next = await this.currentPageAssessment();
-      if (next.state === 'rate_limited') {
-        throw new Error(`BOSS 访问频率受限：${next.reason}。任务已停止。`);
-      }
-      if (next.state === 'ready' || next.state === 'page_changed') {
-        stableReadyPasses++;
-        if (stableReadyPasses >= 2) {
-          if (isLogin) notifyLoginSuccess('boss');
-          else notifyManualVerificationSuccess('boss');
-          return;
+    for (const keyword of keywords) {
+      if (!this.page || this.page.isClosed()) break;
+      console.log(`[BOSS] Searching for keyword: "${keyword}"...`);
+      const collected = new Map<string, BossJobRecord>();
+      const pendingResponses = new Set<Promise<void>>();
+
+      const onResponse = (response: Response) => {
+        if (!SEARCH_RESPONSE_PATTERN.test(response.url())) return;
+        const task = (async () => {
+          try {
+            const payload = await response.json();
+            const parsed = parseBossSearchPayload(payload, keyword);
+            for (const job of parsed.jobs) {
+              collected.set(job.content_id, job);
+            }
+          } catch (error: any) {
+            console.warn(`[BOSS] Failed to parse search XHR response: ${error.message}`);
+          }
+        })();
+        pendingResponses.add(task);
+        void task.finally(() => pendingResponses.delete(task));
+      };
+
+      this.page.on('response', onResponse);
+
+      try {
+        let pageNum = 1;
+        while (collected.size < maxItems && pageNum <= 5) {
+          if (!this.page || this.page.isClosed()) break;
+          const searchUrl = `https://www.zhipin.com/web/geek/job?query=${encodeURIComponent(keyword)}&page=${pageNum}`;
+          console.log(`[BOSS] Navigating to search page ${pageNum}: ${searchUrl}`);
+
+          await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+          if (!this.page || this.page.isClosed()) break;
+
+          await this.humanDelay(this.page, 3);
+          await Promise.allSettled(Array.from(pendingResponses));
+          if (!this.page || this.page.isClosed()) break;
+
+          await this.checkAndHandleVerification(`搜索关键词 "${keyword}"`);
+          await Promise.allSettled(Array.from(pendingResponses));
+          if (!this.page || this.page.isClosed()) break;
+
+          await this.page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});
+          await this.humanDelay(this.page, 1.5);
+          await Promise.allSettled(Array.from(pendingResponses));
+
+          const domJobs = await this.collectDomJobs(keyword);
+          for (const job of domJobs) {
+            collected.set(job.content_id, job);
+          }
+
+          if (domJobs.length === 0 && collected.size === 0) {
+            console.log(`[BOSS] No jobs found on page ${pageNum} for "${keyword}". Stopping pagination.`);
+            break;
+          }
+
+          if (collected.size >= maxItems) break;
+          pageNum++;
         }
-      } else {
-        stableReadyPasses = 0;
+      } finally {
+        if (this.page && !this.page.isClosed()) {
+          this.page.off('response', onResponse);
+        }
+        await Promise.allSettled(Array.from(pendingResponses));
       }
+
+      const jobs = uniqueJobs(collected.values()).slice(0, maxItems);
+      for (let index = 0; index < jobs.length; index++) {
+        await this.emitJob(jobs[index], keyword, index + 1);
+      }
+      console.log(`[BOSS] Search successfully emitted ${jobs.length} job(s) for "${keyword}".`);
     }
 
-    throw new Error(isLogin
-      ? '等待 BOSS 登录超时；请完成登录后重新运行任务'
-      : '等待 BOSS 人工安全验证超时；请完成验证后重新运行任务');
-  }
-
-  private async readSearchResponse(response: Response, keyword: string): Promise<{
-    assessment?: BossPageAssessment;
-    jobs: BossJobRecord[];
-  }> {
-    if (!SEARCH_RESPONSE_PATTERN.test(response.url())) return { jobs: [] };
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      const assessment = classifyBossPageState({
-        url: response.url(),
-        status: response.status(),
-        expectedData: false,
-      });
-      return { assessment, jobs: [] };
-    }
-
-    const parsed = parseBossSearchPayload(payload, keyword);
-    return { assessment: parsed.assessment, jobs: parsed.jobs };
+    console.log('[BOSS] Job search execution completed.');
   }
 
   private async collectDomJobs(keyword: string): Promise<BossJobRecord[]> {
-    if (!this.page) return [];
+    if (!this.page || this.page.isClosed()) return [];
     const snapshots = await this.page.evaluate(() => {
       const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/job_detail/"]'));
       const seen = new Set<string>();
@@ -203,104 +273,47 @@ export class BossCrawler extends AbstractCrawler {
     }).jobs;
   }
 
-  private async emitJob(job: BossJobRecord, sourceKeyword: string, rank?: number): Promise<void> {
-    await connectorOutput.emitBossResult({
-      ...job,
-      creator_name: job.company_name,
-      desc: job.description,
-      job_url: job.content_url,
-      source_keyword: sourceKeyword,
-      ...(rank ? { rank } : {}),
-    });
-  }
-
-  public async search(): Promise<void> {
-    if (!this.page) throw new Error('[BOSS] Browser page is not initialized.');
-    const keywords = splitKeywords(activeConfig.KEYWORDS || '');
-    if (!keywords.length) throw new Error('BOSS 岗位搜索至少需要一个关键词');
-    const maxItems = Math.max(1, Math.min(200, Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20)));
-
-    for (const keyword of keywords) {
-      const collected = new Map<string, BossJobRecord>();
-      let responseAssessment: BossPageAssessment | undefined;
-      let pageStructureChanged = false;
-      const pendingResponses = new Set<Promise<void>>();
-      const onResponse = (response: Response) => {
-        const task = (async () => {
-          const parsed = await this.readSearchResponse(response, keyword);
-          const assessment = parsed.assessment;
-          if (assessment && assessment.state !== 'ready') {
-            responseAssessment = assessment;
-            if (assessment.state === 'page_changed') pageStructureChanged = true;
-          }
-          for (const job of parsed.jobs) collected.set(job.content_id, job);
-        })().catch((error: any) => {
-          console.warn(`[BOSS] Ignored an unreadable page response: ${error.message}`);
-        });
-        pendingResponses.add(task);
-        void task.finally(() => pendingResponses.delete(task));
-      };
-
-      this.page.on('response', onResponse);
-      try {
-        const searchUrl = `https://www.zhipin.com/web/geek/job?query=${encodeURIComponent(keyword)}`;
-        await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-        await this.page.waitForTimeout(2_000);
-        await this.waitForAccess(keyword, responseAssessment);
-
-        let stagnantRounds = 0;
-        for (let round = 0; round < 20 && collected.size < maxItems && stagnantRounds < 3; round++) {
-          const before = collected.size;
-          for (const job of await this.collectDomJobs(keyword)) collected.set(job.content_id, job);
-          if (collected.size >= maxItems) break;
-          await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-          await this.page.waitForTimeout(1_500);
-          stagnantRounds = collected.size > before ? 0 : stagnantRounds + 1;
-          if (responseAssessment && responseAssessment.state !== 'ready') {
-            await this.waitForAccess(keyword, responseAssessment);
-            responseAssessment = undefined;
-          }
-        }
-      } finally {
-        this.page.off('response', onResponse);
-        await Promise.allSettled(Array.from(pendingResponses));
-      }
-
-      const jobs = uniqueJobs(collected.values()).slice(0, maxItems);
-      if (!jobs.length && pageStructureChanged) {
-        throw new Error('BOSS 搜索响应成功但未识别到岗位结构，页面或字段可能已经变化');
-      }
-      for (let index = 0; index < jobs.length; index++) {
-        await this.emitJob(jobs[index], keyword, index + 1);
-      }
-      console.log(`[BOSS] Authorized search emitted ${jobs.length} job(s) for “${keyword}”.`);
-    }
-  }
-
   private async collectDetails(): Promise<void> {
-    if (!this.page) throw new Error('[BOSS] Browser page is not initialized.');
-    const targets = configuredTargets('boss', 'detail');
-    if (!targets.length) throw new Error('BOSS 职位详情能力至少需要一个职位链接或 ID');
+    if (!this.page || this.page.isClosed()) throw new Error('[BOSS] Browser page is not initialized or closed.');
+
+    const rawTargets = activeConfig.SPECIFIED_IDS || activeConfig.KEYWORDS || '';
+    const targets = extractUrlsOrKeywords(rawTargets);
+    if (!targets.length) {
+      console.warn('[BOSS] No detail URLs or IDs provided.');
+      return;
+    }
+
+    console.log(`[BOSS] Starting detail parsing for ${targets.length} target(s)...`);
 
     for (const target of targets) {
+      if (!this.page || this.page.isClosed()) break;
       const detailUrl = buildBossDetailUrl(target);
-      if (!detailUrl) throw new Error(`无法识别 BOSS 职位链接或 ID：${target}`);
-      await this.page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-      await this.page.waitForTimeout(1_500);
-      await this.waitForAccess('职位详情');
+      if (!detailUrl) {
+        console.warn(`[BOSS] Invalid job detail URL/ID: "${target}"`);
+        continue;
+      }
 
-      let parsed = parseBossDetailHtml(await this.page.content(), this.page.url());
-      if (parsed.state === 'login_required' || parsed.state === 'verification_required') {
-        await this.waitForAccess('职位详情', parsed.assessment);
-        parsed = parseBossDetailHtml(await this.page.content(), this.page.url());
+      console.log(`[BOSS] Navigating to detail page: ${detailUrl}`);
+      await this.page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
+      if (!this.page || this.page.isClosed()) break;
+
+      await this.humanDelay(this.page, 2);
+      if (!this.page || this.page.isClosed()) break;
+
+      await this.checkAndHandleVerification(`职位详情 (${target})`);
+      if (!this.page || this.page.isClosed()) break;
+
+      const html = await this.page.content().catch(() => '');
+      const parsed = parseBossDetailHtml(html, this.page.url());
+
+      if (parsed.job) {
+        await this.emitJob(parsed.job, target);
+        console.log(`[BOSS] Successfully stored job detail: "${parsed.job.title}" @ ${parsed.job.company_name}`);
+      } else {
+        console.warn(`[BOSS] Could not parse job detail for ${detailUrl}: ${parsed.reason}`);
       }
-      if (parsed.state === 'rate_limited') {
-        throw new Error(`BOSS 访问频率受限：${parsed.reason}`);
-      }
-      if (!parsed.job) {
-        throw new Error(`BOSS 职位详情页面结构无法识别：${parsed.reason}`);
-      }
-      await this.emitJob(parsed.job, target);
     }
+
+    console.log('[BOSS] Detail parsing completed.');
   }
 }

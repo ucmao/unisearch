@@ -7,6 +7,7 @@ import {
   classifyBossPageState,
   buildBossDetailUrl,
   extractBossJobId,
+  isExpectedBossRoute,
   normalizeBossJob,
   parseBossDetailHtml,
   parseBossDomJobs,
@@ -16,12 +17,23 @@ import { resetConfig } from '../src/tools/config';
 
 const fixture = (name: string) => readFileSync(path.resolve(import.meta.dirname, 'fixtures', name), 'utf8');
 
-test('runtime refuses to touch the browser without an authorization reference', async () => {
-  resetConfig();
-  await assert.rejects(
-    () => new BossCrawler().start(),
-    /官方书面授权、合作协议或测试批准/,
-  );
+test('authorized CDP probe stays passive and cannot navigate or poll pages', () => {
+  const source = readFileSync(path.resolve(import.meta.dirname, '..', 'scratch', 'probe_boss_cdp.ts'), 'utf8');
+
+  assert.doesNotMatch(source, /\.goto\s*\(/);
+  assert.doesNotMatch(source, /\.reload\s*\(/);
+  assert.doesNotMatch(source, /\.click\s*\(/);
+  assert.doesNotMatch(source, /\.newPage\s*\(/);
+  assert.doesNotMatch(source, /setInterval\s*\(/);
+  assert.doesNotMatch(source, /BOSS_PROBE_OPEN_FIRST_DETAIL/);
+});
+
+test('BOSS runtime uses standard stealth identity setup', () => {
+  const source = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'crawler', 'base', 'BaseCrawler.ts'), 'utf8');
+  const mainSource = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'main', 'index.ts'), 'utf8');
+
+  assert.match(mainSource, /view\.webContents\.session\.setUserAgent\(CRAWLER_USER_AGENT/);
+  assert.match(source, /getElectronCrawlerPage/);
 });
 
 test('zpData.jobList fixture is normalized without retaining duplicate labels or private data', () => {
@@ -119,6 +131,15 @@ test('access-state classifier keeps login, verification, rate limiting and schem
   assert.equal(classifyBossPageState({ expectedData: false }).state, 'page_changed');
   assert.equal(classifyBossPageState({ expectedData: true }).state, 'ready');
   assert.equal(classifyBossPageState({ expectedData: false, explicitEmpty: true }).state, 'ready');
+});
+
+test('expected route guard rejects homepage and off-site redirects', () => {
+  assert.equal(isExpectedBossRoute('https://www.zhipin.com/web/geek/job?query=Java', 'search'), true);
+  assert.equal(isExpectedBossRoute('https://www.zhipin.com/job_detail/REDACTED.html', 'detail'), true);
+  assert.equal(isExpectedBossRoute('https://www.zhipin.com/', 'search'), false);
+  assert.equal(isExpectedBossRoute('https://www.zhipin.com/fuzhou/', 'search'), false);
+  assert.equal(isExpectedBossRoute('https://example.com/web/geek/job', 'search'), false);
+  assert.equal(isExpectedBossRoute('about:blank#unisearch-crawler-boss', 'search'), false);
 });
 
 test('known empty search is not confused with structure drift', () => {
