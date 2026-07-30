@@ -174,6 +174,26 @@ test('deleting a standalone assistant message does not consume the following use
   }
 });
 
+test('deleting assistant message for regenerate removes assistant messages and returns user message info', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('刷新回答测试', false, false);
+    const userMsg = repo.addMessage(thread.thread_id, 'user', 'text', '分析可观珠宝', { test: 123 });
+    const replyMsg = repo.addMessage(thread.thread_id, 'assistant', 'text', '回答可观珠宝分析');
+
+    const res = repo.deleteAssistantMessageForRegenerate(thread.thread_id, replyMsg.message_id);
+    assert.ok(res);
+    assert.equal(res.userMessage.content, '分析可观珠宝');
+    assert.equal(res.userMessage.metadata.test, 123);
+
+    const remaining = repo.getThread(thread.thread_id).messages;
+    assert.equal(remaining.length, 1);
+    assert.equal(remaining[0].message_id, userMsg.message_id);
+  } finally {
+    db.close();
+  }
+});
+
 test('schema version reset drops legacy data instead of migrating it', () => {
   const db = new Database(':memory:');
   try {

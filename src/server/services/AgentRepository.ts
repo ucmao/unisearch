@@ -321,6 +321,42 @@ export class AgentRepository {
     return { deleted, attachment_ids: attachmentIds };
   }
 
+  deleteAssistantMessageForRegenerate(threadId: string, messageId: string): { userMessage: { content: string; metadata: any } } | null {
+    const rows = this.db.prepare(`
+      SELECT rowid, message_id, role, content, metadata_json
+      FROM agent_messages
+      WHERE thread_id=?
+      ORDER BY created_at ASC, rowid ASC
+    `).all(threadId) as Array<{ rowid: number; message_id: string; role: AgentRole; content: string; metadata_json: string }>;
+    const targetIndex = rows.findIndex((row) => row.message_id === messageId);
+    if (targetIndex < 0 || rows[targetIndex].role !== 'assistant') return null;
+
+    let userIndex = -1;
+    for (let index = targetIndex - 1; index >= 0; index -= 1) {
+      if (rows[index].role === 'user') {
+        userIndex = index;
+        break;
+      }
+    }
+    if (userIndex < 0) return null;
+
+    const toDelete = rows.slice(targetIndex).map((row) => row.message_id);
+    const placeholders = toDelete.map(() => '?').join(',');
+    this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM agent_messages WHERE thread_id=? AND message_id IN (${placeholders})`)
+        .run(threadId, ...toDelete);
+      this.touchThread(threadId);
+    })();
+
+    const userRow = rows[userIndex];
+    return {
+      userMessage: {
+        content: userRow.content,
+        metadata: parseJson(userRow.metadata_json, {}),
+      },
+    };
+  }
+
   getMemorySettings(): MemorySettings {
     const row = this.db.prepare('SELECT * FROM agent_memory_settings WHERE id=1').get() as any;
     return {

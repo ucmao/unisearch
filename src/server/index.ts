@@ -419,6 +419,61 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     return { stopped: true };
   });
 
+  fastify.post('/api/agent/threads/:thread_id/messages/:message_id/regenerate/stream', async (request, reply) => {
+    const { thread_id, message_id } = request.params as { thread_id: string; message_id: string };
+    if (activeAgentMessageRequests.has(thread_id)) {
+      return reply.status(409).send({ detail: '该任务已有消息正在处理中' });
+    }
+
+    const controller = new AbortController();
+    activeAgentMessageRequests.set(thread_id, controller);
+    reply.hijack();
+    reply.raw.statusCode = 200;
+    reply.raw.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    reply.raw.setHeader('Cache-Control', 'no-cache, no-transform');
+    reply.raw.setHeader('Connection', 'keep-alive');
+    reply.raw.flushHeaders?.();
+    const write = (event: Record<string, unknown>) => {
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(`${JSON.stringify(event)}\n`);
+    };
+
+    try {
+      const thread = await agentService.regenerateMessage(
+        thread_id,
+        message_id,
+        controller.signal,
+        (delta) => write({ type: 'delta', delta }),
+        (status) => write({ type: 'status', ...status }),
+      );
+      write({ type: 'complete', thread });
+    } catch (error: any) {
+      write({
+        type: controller.signal.aborted ? 'stopped' : 'error',
+        detail: controller.signal.aborted ? '已停止生成' : (error.message || 'AI 消息处理失败'),
+      });
+    } finally {
+      if (activeAgentMessageRequests.get(thread_id) === controller) activeAgentMessageRequests.delete(thread_id);
+      if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.end();
+    }
+  });
+
+  fastify.post('/api/agent/threads/:thread_id/messages/:message_id/regenerate', async (request, reply) => {
+    const { thread_id, message_id } = request.params as { thread_id: string; message_id: string };
+    if (activeAgentMessageRequests.has(thread_id)) {
+      return reply.status(409).send({ detail: '该任务已有消息正在处理中' });
+    }
+    const controller = new AbortController();
+    activeAgentMessageRequests.set(thread_id, controller);
+    try {
+      return await agentService.regenerateMessage(thread_id, message_id, controller.signal);
+    } catch (error: any) {
+      if (controller.signal.aborted) return reply.status(409).send({ detail: '已停止生成' });
+      return reply.status(400).send({ detail: error.message });
+    } finally {
+      if (activeAgentMessageRequests.get(thread_id) === controller) activeAgentMessageRequests.delete(thread_id);
+    }
+  });
+
   fastify.delete('/api/agent/threads/:thread_id/messages/:message_id', async (request, reply) => {
     const { thread_id, message_id } = request.params as { thread_id: string; message_id: string };
     const result = agentRepository.deleteMessagePair(thread_id, message_id);

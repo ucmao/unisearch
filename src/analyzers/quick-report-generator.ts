@@ -145,7 +145,6 @@ export class QuickReportGenerator {
         '当前未配置可用的 AI 模型，因此仅展示程序生成的全量统计与代表性证据。',
       ].join('\n');
     } else {
-      request.onDelta?.(`${boundary}\n\n`);
       const materials = {
         texts: [
           { label: '全部文档的确定性统计结果', content: JSON.stringify(request.datasetProfile) },
@@ -192,7 +191,7 @@ export class QuickReportGenerator {
     const coverage = buildQuickAnalysisCoverage(request.datasetProfile, selection.evidence, body, Boolean(request.partial));
     return {
       title: request.reportName,
-      answer: `${buildQuickReportBoundary(coverage)}\n\n${body}`,
+      answer: body,
       sources,
       coverage,
       evidenceSelection: {

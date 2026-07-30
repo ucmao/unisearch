@@ -239,8 +239,7 @@ test('Quick Report Generator separates selection, generation and program-owned r
   assert.match(prompt, /只能使用“全部文档的确定性统计结果”/);
   assert.equal(materials.texts[0].label, '全部文档的确定性统计结果');
   assert.match(materials.texts[0].content, /"documentCount":212/);
-  assert.match(streamed, /数据范围说明/);
-  assert.match(result.answer, /^> \*\*数据范围说明\*\*/);
+  assert.equal(result.answer, '全量统计显示共有 212 条；代表性岗位显示相关要求 [S1][S2]。');
   assert.equal(result.coverage.statisticallyAnalyzedDocumentCount, 212);
   assert.equal(result.coverage.qualitativelyAnalyzedDocumentCount, 2);
   assert.equal(result.coverage.citedDocumentCount, 2);

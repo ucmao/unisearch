@@ -440,6 +440,7 @@ export class AgentService {
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
     onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void,
+    options: { skipAddUserMessage?: boolean } = {},
   ) {
     ensureMessageNotAborted(signal);
     const thread = agentRepository.getThread(threadId);
@@ -472,7 +473,9 @@ export class AgentService {
       mentioned_connectors: mentionedConnectors,
       mentioned_skills: explicitlySelectedSkill ? [explicitlySelectedSkill.id] : [],
     };
-    agentRepository.addMessage(threadId, 'user', 'text', content, messageMetadata);
+    if (!options.skipAddUserMessage) {
+      agentRepository.addMessage(threadId, 'user', 'text', content, messageMetadata);
+    }
     const previousMeaningfulMessage = thread.messages.some((message: any) =>
       message.role === 'user' && isMeaningfulTitleInput(String(message.content)),
     );
@@ -1132,6 +1135,38 @@ export class AgentService {
     });
     if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     return agentRepository.getThread(threadId);
+  }
+
+  async regenerateMessage(
+    threadId: string,
+    messageId: string,
+    signal?: AbortSignal,
+    onDelta?: (delta: string) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void,
+  ) {
+    ensureMessageNotAborted(signal);
+    const target = agentRepository.deleteAssistantMessageForRegenerate(threadId, messageId);
+    if (!target) throw new Error('未找到需要刷新回答的 AI 消息');
+
+    const userMeta = target.userMessage.metadata || {};
+    const context = {
+      attachment_ids: Array.isArray(userMeta.attachments)
+        ? userMeta.attachments.map((a: any) => String(a.attachment_id)).filter(Boolean)
+        : [],
+      task_references: Array.isArray(userMeta.task_references) ? userMeta.task_references : [],
+      mentioned_connectors: Array.isArray(userMeta.mentioned_connectors) ? userMeta.mentioned_connectors : [],
+      mentioned_skills: Array.isArray(userMeta.mentioned_skills) ? userMeta.mentioned_skills : [],
+    };
+
+    return this.sendMessage(
+      threadId,
+      target.userMessage.content,
+      context,
+      signal,
+      onDelta,
+      onStatus,
+      { skipAddUserMessage: true },
+    );
   }
 
   private async stopPlan(plan: any) {
