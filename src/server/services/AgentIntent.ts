@@ -44,13 +44,24 @@ const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|�
 const EXPORT = /(?:导出|下载|生成).*(?:CSV|表格|数据|结果|Markdown|Obsidian|JSON|IMA)|(?:CSV|表格|Markdown|Obsidian|JSON|IMA).*(?:导出|下载|生成)/i;
 const ANALYZE = /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|归纳|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/i;
 const REVISE_ACTION = '(?:加上|增加|添加|再加|也要|去掉|删除|移除|不要|改成|改为|换成|换一个|更换|替换|修改|调整|只要)';
-const REVISE_FIELD = '(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
+const REVISE_FIELD = '(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\\s*直聘|zhipin\\.com|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
 const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.*${REVISE_ACTION})`, 'i');
-const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:RSS|Atom|订阅源).*(?:新闻|更新|文章|资讯)|(?:GitHub|AI HOT|AI热点|AI热榜).*(?:趋势|热门|仓库|项目|热点|日报|资讯)|(?:去|到|在)?(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看|读取)/i;
+const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:RSS|Atom|订阅源).*(?:新闻|更新|文章|资讯)|(?:GitHub|AI HOT|AI热点|AI热榜).*(?:趋势|热门|仓库|项目|热点|日报|资讯)|(?:去|到|在)?(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\s*直聘|(?:[\w-]+\.)*zhipin\.com)(?:上|里)?(?:搜|找|查|问|看看|读取)/i;
+const BOSS_STRONG_MENTION = /(?:BOSS\s*直聘|(?:^|[^\w.-])(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b)/i;
+const BOSS_CONTEXTUAL_MENTION = /(?:在|去|到|从|用|通过|打开|访问)\s*@?\bboss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))|(?:^|[\s，。；;、@])boss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-  'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin', 'job51', 'liepin',
+  'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
 ];
+
+function hasBossPlatformMention(text: string): boolean {
+  return BOSS_STRONG_MENTION.test(text) || BOSS_CONTEXTUAL_MENTION.test(text);
+}
+
+function hasExcludedBossMention(segment: string): boolean {
+  return BOSS_STRONG_MENTION.test(segment)
+    || /(?:^|[、,，和与])\s*@?boss\b(?=\s*(?:直聘|招聘|平台|网站|app)?\s*(?:[、,，和与]|$))/i.test(segment);
+}
 
 export function isSimpleConversation(text: string): boolean {
   const value = text.trim();
@@ -85,7 +96,14 @@ function splitExplicitKeywords(value: string, sourceText: string): string[] {
 }
 
 function cleanResearchSubject(text: string): string {
-  return text
+  const withoutBossPlatform = text
+    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*@?(?:BOSS\s*直聘|(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b|boss\b(?=\s*(?:直聘|招聘|平台|网站|app)?(?:[\s，。；;、]|$)))/gi, ' ')
+    .replace(/(?:BOSS\s*直聘|(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b|(?:^|[\s，。；;、@])boss\b)\s*(?:除外|不用|不要|不采|不抓|不搜)/gi, ' ')
+    .replace(/https?:\/\/(?:[\w-]+\.)*zhipin\.com\b[^\s，。；;]*/gi, ' ')
+    .replace(/BOSS\s*直聘|(^|[^\w.-])(?:[\w-]+\.)*zhipin\.com\b/gi, '$1')
+    .replace(/(^|[\s，。；;、@])boss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))/gi, '$1');
+
+  return withoutBossPlatform
     // "@" 提及菜单插入的是 "@连接器名 " 这种无空格 token，与其余清洗规则无关，先整体去掉
     .replace(/@\S+/g, ' ')
     .replace(/(?:用\s*)?(?:RSS\s*(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)(?:\s*(?:查|搜索|读取))?/gi, ' ')
@@ -107,7 +125,8 @@ function cleanResearchSubject(text: string): string {
 }
 
 export function isExclusivePlatformRequest(text: string): boolean {
-  return /(?:只|仅|只要)(?:采集|抓取|搜索|看|用|在|查)?\s*(?:RSS(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源|GitHub(?:仓库|趋势|热门项目)?|arXiv|论文库|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|黑猫投诉|黑猫|智联招聘|智联|平台)/i.test(text);
+  const explicitExclusive = /(?:只|仅|只要)(?:采集|抓取|搜索|看|用|在|查)?\s*(?:RSS(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源|GitHub(?:仓库|趋势|热门项目)?|arXiv|论文库|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|黑猫投诉|黑猫|智联招聘|智联|BOSS\s*直聘|(?:[\w-]+\.)*zhipin\.com|平台)/i.test(text);
+  return explicitExclusive || (/(?:只|仅|只要)/.test(text) && hasBossPlatformMention(text));
 }
 
 export function isAdditivePlatformRequest(text: string): boolean {
@@ -157,6 +176,7 @@ export function inferExcludedPlatforms(text: string): string[] {
     [/(?:纳米\s*AI(?:搜索)?|纳米搜索|www\.n\.cn)/i, 'nami'],
     [/(?:文心一言|文心言|文小言|文心|wenxin\.baidu\.com|yiyan\.baidu\.com)/i, 'wenxin'],
     [/(?:黑猫投诉|黑猫|tousu\.sina\.com\.cn)/i, 'heimao'],
+    [BOSS_STRONG_MENTION, 'boss'],
     [/(?:智联招聘|智联|zhaopin\.com)/i, 'zhaopin'],
     [/(?:前程无忧|51job|51job\.com)/i, 'job51'],
     [/(?:猎聘网|猎聘|liepin\.com)/i, 'liepin'],
@@ -164,6 +184,7 @@ export function inferExcludedPlatforms(text: string): string[] {
 
   for (const match of text.matchAll(prefixPattern)) {
     const segment = match[1];
+    if (hasExcludedBossMention(segment)) excluded.add('boss');
     for (const [pattern, code] of aliases) {
       if (pattern.test(segment)) {
         excluded.add(code);
@@ -173,6 +194,7 @@ export function inferExcludedPlatforms(text: string): string[] {
 
   for (const match of text.matchAll(suffixPattern)) {
     const segment = match[1];
+    if (hasExcludedBossMention(segment)) excluded.add('boss');
     for (const [pattern, code] of aliases) {
       if (pattern.test(segment)) {
         excluded.add(code);
@@ -191,6 +213,8 @@ export function inferResearchPlatforms(text: string): string[] {
     matchedPlatforms = ['baidu', 'bing', 'so360', 'sogou', 'toutiao'];
   } else if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) {
     matchedPlatforms = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
+  } else if (/(?:所有|全部|全|主流)?\s*(?:招聘平台|招聘网站)/i.test(text)) {
+    matchedPlatforms = ['boss', 'zhaopin', 'job51', 'liepin'];
   } else if (/(?:所有|全部|全|主流)\s*AI\s*(?:搜索|问答|类|Web\s*QA)/i.test(text)) {
     matchedPlatforms = ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
   } else if (/(?:全部|所有|全)(?:支持的)?(?:\s*\d+\s*个)?(?:平台)?|全网|各平台/i.test(text)) {
@@ -221,13 +245,15 @@ export function inferResearchPlatforms(text: string): string[] {
       [/(?:纳米\s*AI(?:搜索)?|纳米搜索|www\.n\.cn)/i, 'nami'],
       [/(?:文心一言|文心言|文小言|文心|wenxin\.baidu\.com|yiyan\.baidu\.com)/i, 'wenxin'],
       [/(?:黑猫投诉|黑猫|tousu\.sina\.com\.cn)/i, 'heimao'],
+      [BOSS_STRONG_MENTION, 'boss'],
       [/(?:智联招聘|智联|zhaopin\.com)/i, 'zhaopin'],
       [/(?:前程无忧|51job|51job\.com)/i, 'job51'],
       [/(?:猎聘网|猎聘|liepin\.com)/i, 'liepin'],
     ];
     const matched = aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
+    if (hasBossPlatformMention(text)) matched.unshift('boss');
     if (matched.length) {
-      matchedPlatforms = matched;
+      matchedPlatforms = Array.from(new Set(matched));
     } else if (/(?:所有|全部|全|主流)?\s*AI\s*(?:搜索|问答|Web\s*QA)/i.test(text)) {
       matchedPlatforms = ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
     }

@@ -10,6 +10,7 @@ import { MediaParserCrawler } from '../crawler/platforms/media_parser';
 import { ZhaopinCrawler } from '../crawler/platforms/zhaopin';
 import { Job51Crawler } from '../crawler/platforms/job51';
 import { LiepinCrawler } from '../crawler/platforms/liepin';
+import { BossCrawler } from '../crawler/platforms/boss';
 import { HeimaoCrawler } from '../crawler/platforms/heimao';
 import { DeepSeekCrawler } from '../crawler/platforms/deepseek';
 import { KimiCrawler } from '../crawler/platforms/kimi';
@@ -45,6 +46,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   zhaopin: () => new ZhaopinCrawler(),
   job51: () => new Job51Crawler(),
   liepin: () => new LiepinCrawler(),
+  boss: () => new BossCrawler(),
   heimao: () => new HeimaoCrawler(),
   deepseek: () => new DeepSeekCrawler(),
   kimi: () => new KimiCrawler(),

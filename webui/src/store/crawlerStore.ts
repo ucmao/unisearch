@@ -78,7 +78,13 @@ const defaultConfig: CrawlerConfig = {
   loop_execution: false,
 }
 
-const SUPPORTED_PLATFORMS = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'arxiv', 'github_repositories', 'rss_news']
+const SUPPORTED_PLATFORMS = [
+  'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
+  'baidu', 'bing', 'so360', 'sogou', 'toutiao',
+  'arxiv', 'github_repositories', 'rss_news', 'aihot', 'web_reader', 'media_parser',
+  'zhaopin', 'job51', 'liepin', 'boss', 'heimao',
+  'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
+]
 
 const initialStatuses = SUPPORTED_PLATFORMS.reduce((acc, p) => ({ ...acc, [p]: 'idle' as const }), {})
 const initialRunningInfo = SUPPORTED_PLATFORMS.reduce(

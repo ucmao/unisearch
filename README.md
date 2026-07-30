@@ -5,7 +5,7 @@
 
 **基于 Electron + TypeScript 的多平台 AI 内容调研与采集工具**
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Node Version](https://img.shields.io/badge/node-20+-blue.svg)](https://nodejs.org/) [![Electron](https://img.shields.io/badge/electron-42+-blue.svg)](https://www.electronjs.org/) [![Support](https://img.shields.io/badge/support-20+%20Connectors-brightgreen.svg)](#-支持的采集平台与信源)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Node Version](https://img.shields.io/badge/node-20+-blue.svg)](https://nodejs.org/) [![Electron](https://img.shields.io/badge/electron-42+-blue.svg)](https://www.electronjs.org/) [![Support](https://img.shields.io/badge/support-30%20Connectors-brightgreen.svg)](#-支持的采集平台与信源)
 
 <p align="center">
 <a href="#-系统架构">系统架构</a> •
@@ -84,8 +84,10 @@ flowchart TD
 | **搜索引擎** | 百度、必应中国、360搜索、搜狗搜索、头条搜索 |
 | **AI 网页问答** | DeepSeek、Kimi、豆包、通义千问、腾讯元宝、纳米AI、文心一言 |
 | **技术、论文与资讯** | arXiv、GitHub 仓库、RSS 新闻、AI HOT |
-| **垂直平台** | 智联招聘、黑猫投诉 |
+| **垂直平台** | 智联招聘、前程无忧、猎聘网、BOSS直聘（仅限官方书面授权环境）、黑猫投诉 |
 | **通用工具** | 通用网页阅读器、综合无水印解析 |
+
+BOSS 直聘任务必须提供官方书面授权或合作测试批准的引用；Connector 不采集简历、联系方式或聊天数据，也不会自动处理验证码或规避平台访问控制。
 
 ---
 

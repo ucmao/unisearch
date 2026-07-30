@@ -195,6 +195,20 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
       education: ['education'],
     },
   },
+  boss: {
+    family: 'job', subjectType: 'company', metricAliases: {},
+    attributeAliases: {
+      salary: ['salary', 'salary_desc', 'salaryDesc'],
+      city: ['work_city', 'city_name', 'cityName'],
+      experience: ['job_experience', 'experience', 'jobExperience'],
+      education: ['education', 'degree_name', 'job_degree', 'jobDegree'],
+      skills: ['skills', 'job_skills', 'jobSkills'],
+      welfare: ['welfare', 'benefits', 'welfare_labels', 'welfareLabels'],
+      companyIndustry: ['company_industry', 'industry_name', 'industryName'],
+      companyStage: ['company_stage', 'stage_name', 'stageName'],
+      companyScale: ['company_scale', 'scale_name', 'scaleName'],
+    },
+  },
   heimao: {
     family: 'complaint', subjectType: 'merchant', metricAliases: {},
     attributeAliases: {
@@ -278,9 +292,12 @@ function metrics(definition: ConnectorMappingDefinition, payload: Payload): Reco
 
 function subject(item: RawItem, definition: ConnectorMappingDefinition): CanonicalDocument['subject'] {
   const payload = item.payload as Payload;
-  const id = firstString(payload, ['creator_id', 'creator_hash', 'user_id', 'author_id', 'company_id', 'merchant_id']);
+  const id = firstString(payload, [
+    'creator_id', 'creator_hash', 'user_id', 'author_id', 'company_id', 'brand_id', 'brandId', 'merchant_id',
+  ]);
   const payloadName = firstString(payload, [
-    'creator_name', 'nickname', 'user_nickname', 'publisher', 'company_name', 'merchant_name', 'forum_name',
+    'creator_name', 'nickname', 'user_nickname', 'publisher', 'company_name', 'brand_name', 'brandName',
+    'merchant_name', 'forum_name',
   ]);
   const name = definition.family === 'ai_qa'
     ? payloadName || AI_PLATFORM_NAMES[item.source] || item.source
@@ -329,7 +346,7 @@ function buildSummary(item: RawItem, definition: ConnectorMappingDefinition, att
   const payload = item.payload as Payload;
   if (definition.family === 'job') {
     const facts = [attributes.salary, attributes.city, attributes.experience, attributes.education,
-      firstString(payload, ['company_name'])].filter(present).map(String);
+      firstString(payload, ['company_name', 'brand_name', 'brandName'])].filter(present).map(String);
     if (facts.length) return facts.join(' · ');
   }
   if (definition.family === 'complaint') {
