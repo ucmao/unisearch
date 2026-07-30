@@ -49,7 +49,7 @@ const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.
 const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:RSS|Atom|订阅源).*(?:新闻|更新|文章|资讯)|(?:GitHub|AI HOT|AI热点|AI热榜).*(?:趋势|热门|仓库|项目|热点|日报|资讯)|(?:去|到|在)?(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言)(?:上|里)?(?:搜|找|查|问|看看|读取)/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-  'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
+  'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin', 'job51', 'liepin',
 ];
 
 export function isSimpleConversation(text: string): boolean {
@@ -158,6 +158,8 @@ export function inferExcludedPlatforms(text: string): string[] {
     [/(?:文心一言|文心言|文小言|文心|wenxin\.baidu\.com|yiyan\.baidu\.com)/i, 'wenxin'],
     [/(?:黑猫投诉|黑猫|tousu\.sina\.com\.cn)/i, 'heimao'],
     [/(?:智联招聘|智联|zhaopin\.com)/i, 'zhaopin'],
+    [/(?:前程无忧|51job|51job\.com)/i, 'job51'],
+    [/(?:猎聘网|猎聘|liepin\.com)/i, 'liepin'],
   ];
 
   for (const match of text.matchAll(prefixPattern)) {
@@ -220,6 +222,8 @@ export function inferResearchPlatforms(text: string): string[] {
       [/(?:文心一言|文心言|文小言|文心|wenxin\.baidu\.com|yiyan\.baidu\.com)/i, 'wenxin'],
       [/(?:黑猫投诉|黑猫|tousu\.sina\.com\.cn)/i, 'heimao'],
       [/(?:智联招聘|智联|zhaopin\.com)/i, 'zhaopin'],
+      [/(?:前程无忧|51job|51job\.com)/i, 'job51'],
+      [/(?:猎聘网|猎聘|liepin\.com)/i, 'liepin'],
     ];
     const matched = aliases.filter(([pattern]) => pattern.test(text)).map(([, code]) => code);
     if (matched.length) {

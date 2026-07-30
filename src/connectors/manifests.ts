@@ -846,6 +846,8 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   webReader,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),
+  jobPlatform('job51', '前程无忧', 'briefcase'),
+  jobPlatform('liepin', '猎聘网', 'briefcase'),
   complaintPlatform('heimao', '黑猫投诉', 'shield-alert'),
   aiWebQA('deepseek', 'DeepSeek', 'brain'),
   aiWebQA('kimi', 'Kimi', 'sparkles'),

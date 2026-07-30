@@ -177,6 +177,24 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
       education: ['education', 'edu_level'],
     },
   },
+  job51: {
+    family: 'job', subjectType: 'company', metricAliases: {},
+    attributeAliases: {
+      salary: ['salary', 'providesalary_text'],
+      city: ['work_city', 'workarea_text'],
+      experience: ['job_experience', 'workyear_text'],
+      education: ['education', 'degree_text'],
+    },
+  },
+  liepin: {
+    family: 'job', subjectType: 'company', metricAliases: {},
+    attributeAliases: {
+      salary: ['salary'],
+      city: ['work_city'],
+      experience: ['job_experience'],
+      education: ['education'],
+    },
+  },
   heimao: {
     family: 'complaint', subjectType: 'merchant', metricAliases: {},
     attributeAliases: {

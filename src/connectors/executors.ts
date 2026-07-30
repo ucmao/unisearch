@@ -8,6 +8,8 @@ import { ZhihuCrawler } from '../crawler/platforms/zhihu';
 import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler, ToutiaoCrawler } from '../crawler/platforms/search_engine';
 import { MediaParserCrawler } from '../crawler/platforms/media_parser';
 import { ZhaopinCrawler } from '../crawler/platforms/zhaopin';
+import { Job51Crawler } from '../crawler/platforms/job51';
+import { LiepinCrawler } from '../crawler/platforms/liepin';
 import { HeimaoCrawler } from '../crawler/platforms/heimao';
 import { DeepSeekCrawler } from '../crawler/platforms/deepseek';
 import { KimiCrawler } from '../crawler/platforms/kimi';
@@ -41,6 +43,8 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   media_parser: () => new MediaParserCrawler(),
   web_reader: () => new WebReaderCrawler(),
   zhaopin: () => new ZhaopinCrawler(),
+  job51: () => new Job51Crawler(),
+  liepin: () => new LiepinCrawler(),
   heimao: () => new HeimaoCrawler(),
   deepseek: () => new DeepSeekCrawler(),
   kimi: () => new KimiCrawler(),

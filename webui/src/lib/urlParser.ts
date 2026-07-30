@@ -14,6 +14,8 @@ const platformDomains: Record<string, string[]> = {
   tieba: ['tieba.baidu.com'],
   zhihu: ['zhihu.com'],
   zhaopin: ['zhaopin.com'],
+  job51: ['51job.com'],
+  liepin: ['liepin.com'],
   arxiv: ['arxiv.org'],
   github_repositories: ['github.com'],
 }
@@ -59,6 +61,19 @@ const platformPatterns: Record<string, {
     creator: [
       /zhaopin\.com\/company\/([a-zA-Z0-9]+)/,
     ],
+  },
+  job51: {
+    video: [
+      /51job\.com\/all\/([a-zA-Z0-9]+)/,
+      /jobs\.51job\.com\/[a-z0-9-]+\/([a-zA-Z0-9]+)/,
+    ],
+    creator: [],
+  },
+  liepin: {
+    video: [
+      /liepin\.com\/job\/(\d+)/,
+    ],
+    creator: [],
   },
   xhs: {
     video: [

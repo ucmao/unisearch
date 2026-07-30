@@ -98,7 +98,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-    'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin',
+    'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin', 'job51', 'liepin',
   ]);
 });
 
