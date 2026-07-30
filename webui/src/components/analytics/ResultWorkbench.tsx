@@ -812,10 +812,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       {onBack && (
         <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 pl-[74px] pr-4 backdrop-blur app-drag">
           <div className="flex items-center gap-1.5 app-no-drag">
-            <Button size="icon" variant="ghost" className="h-8 w-8 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => setSidebarCollapsed(!sidebarCollapsed)} title={sidebarCollapsed ? "展开任务范围侧栏" : "收起任务范围侧栏"}>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              title={sidebarCollapsed ? "展开任务范围侧栏" : "收起任务范围侧栏"}
+            >
               {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
             </Button>
-            <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2.5 text-xs text-cyber-text-secondary hover:text-cyber-text-primary" onClick={onBack}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1.5 rounded-xl px-2.5 text-xs text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              onClick={onBack}
+            >
               <ArrowLeft className="h-4 w-4" />返回任务
             </Button>
             <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
@@ -824,13 +835,18 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
           </div>
 
           <div className="flex items-center gap-2 app-no-drag">
-            <Button variant="outline" size="sm" className="h-8 text-xs md:hidden" onClick={() => setMobileScopeOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-xl text-xs md:hidden"
+              onClick={() => setMobileScopeOpen(true)}
+            >
               <History className="h-3.5 w-3.5" />任务范围
             </Button>
             <Button
               size="sm"
               onClick={() => setExportDialogOpen(true)}
-              className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/30 hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/50 transition-colors"
+              className="h-8 gap-1.5 rounded-xl text-xs bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/30 hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/50 transition-colors focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
             >
               <Download className="h-3.5 w-3.5" />
               <span>统一下载</span>

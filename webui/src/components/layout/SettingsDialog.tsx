@@ -347,7 +347,7 @@ export function SettingsDialog({
                           type={showApiKey ? 'text' : 'password'}
                           value={form.apiKey || ''}
                           onChange={(event) => setForm({ ...form, apiKey: event.target.value, clearApiKey: event.target.value === '' })}
-                          placeholder="填写 API Key"
+                          placeholder={form.apiKeyConfigured ? '••••••••••••••••（输入新 Key 可覆盖）' : '填写 API Key'}
                           className={form.apiKey ? 'pr-9' : ''}
                         />
                         {form.apiKey ? (
