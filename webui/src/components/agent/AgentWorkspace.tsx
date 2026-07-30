@@ -451,10 +451,11 @@ function AnalysisCoverageBar({ coverage }: { coverage: AnalysisCoverage }) {
     <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[11px] text-cyber-text-muted">
       <span className="font-medium text-amber-500">{coverage.partial ? '阶段性快速分析' : '快速抽样分析'}</span>
       <span>已入库 <strong className="font-mono text-cyber-text-primary">{coverage.collectedDocumentCount}</strong></span>
+      <span>全量统计 <strong className="font-mono text-cyber-text-primary">{coverage.statisticallyAnalyzedDocumentCount}</strong></span>
       <span>定性阅读 <strong className="font-mono text-cyber-text-primary">{coverage.qualitativelyAnalyzedDocumentCount}</strong></span>
       <span>知识片段 <strong className="font-mono text-cyber-text-primary">{coverage.evidenceChunkCount}</strong></span>
       <span>正文引用 <strong className="font-mono text-cyber-text-primary">{coverage.citedDocumentCount}</strong></span>
-      {!coverage.fullDatasetStatistics ? <span className="text-amber-600 dark:text-amber-400">未执行全量统计</span> : null}
+      {coverage.fullDatasetStatistics ? <span className="text-cyber-neon-green">全量数字已统计</span> : null}
     </div>
   )
 }

@@ -40,7 +40,7 @@ skillRegistry.register({
   workflow: {
     connectorCapabilities: ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
     itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
-    analyzers: ['knowledge.index', 'extractive.summary'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
     exporters: ['markdown', 'json', 'obsidian', 'ima'],
     outputs: ['documents'],
   },
@@ -61,7 +61,7 @@ skillRegistry.register({
   workflow: {
     connectorCapabilities: ['keyword_search', 'content_detail'],
     itemProcessors: ['search-results.select', 'metadata.normalize', 'document.clean_markdown'],
-    analyzers: ['knowledge.index', 'extractive.summary'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
     exporters: ['markdown', 'json', 'obsidian', 'ima'],
     outputs: ['documents'],
   },
@@ -85,7 +85,7 @@ skillRegistry.register({
 const BUSINESS_WORKFLOW = {
   connectorCapabilities: ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
   itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
-  analyzers: ['knowledge.index', 'extractive.summary'],
+  analyzers: ['knowledge.index', 'dataset.profile'],
   exporters: ['markdown', 'json', 'obsidian', 'ima'],
   outputs: ['documents'],
 };

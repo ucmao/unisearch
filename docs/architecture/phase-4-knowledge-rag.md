@@ -55,8 +55,9 @@ Agent 对已完成任务执行“分析这些结果”时直接使用该混合�
 
 ## Analyzer
 
-Analyzer Registry 当前提供 `extractive.summary@1.0.0`，生成来源分布、高频主题和代表性资料，
-结果持久化到 `analysis_reports`。
+Analyzer Registry 当前提供 `dataset.profile@1.0.0`，对 Workflow 的全部去重文档执行确定性统计，
+生成平台、内容类型、关键词、主体类型、时间范围、字段覆盖率、数值指标和数据质量概况；
+结果持久化到 `analysis_reports`，并作为快速分析报告的全量数字依据。
 
 ## Exporter
 

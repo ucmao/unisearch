@@ -11,6 +11,7 @@ import { analysisService } from '../analyzers/registry';
 import { exportService, exporterRegistry } from '../exporters/registry';
 import { ragService } from '../knowledge/rag-service';
 import { skillRegistry } from '../skills/registry';
+import type { DatasetProfile } from '../analyzers/dataset-profiler';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -35,8 +36,8 @@ export class WorkflowRuntime {
       this.selectSearchUrls(input, context));
     workflowEngine.registerHandler('analyzer.knowledge.index', (_input, context) =>
       Promise.resolve(knowledgeIndex.rebuild({ workflowId: context.workflowId })));
-    workflowEngine.registerHandler('analyzer.extractive.summary', (input, context) =>
-      analysisService.run('extractive.summary', context.workflowId, input));
+    workflowEngine.registerHandler('analyzer.dataset.profile', (input, context) =>
+      analysisService.run('dataset.profile', context.workflowId, input));
     workflowEngine.registerHandler('analyzer.business.insight', (_input, context) =>
       this.createBusinessAnalysis(context));
     for (const exporter of exporterRegistry.list()) {
@@ -68,7 +69,11 @@ export class WorkflowRuntime {
     );
     if (existing) return { skipped: true, reason: '自动分析已生成' };
 
-    const documentCount = agentRepository.getPlanStats(workflow.plan_id).content_count;
+    const profileStepOutput = agentRepository.getStepOutput(workflow.plan_id, 'profile-dataset');
+    const datasetProfile = (profileStepOutput.metadata as { datasetProfile?: DatasetProfile } | undefined)?.datasetProfile;
+    if (!datasetProfile) throw new Error('数据集全量统计结果不存在');
+    const datasetProfileReportId = String(profileStepOutput.report_id || '');
+    const documentCount = datasetProfile.documentCount;
     if (!documentCount) return { skipped: true, reason: '没有可分析的数据', recordCount: 0 };
 
     try {
@@ -78,7 +83,7 @@ export class WorkflowRuntime {
         {
           workflowId: workflow.plan_id,
           limit: 12,
-          analysisScope: { mode: 'quick', collectedDocumentCount: documentCount },
+          analysisScope: { mode: 'quick', datasetProfile },
         },
       );
       context.signal.throwIfAborted();
@@ -89,7 +94,7 @@ export class WorkflowRuntime {
           {
             workflowId: workflow.plan_id,
             limit: 12,
-            analysisScope: { mode: 'quick', collectedDocumentCount: documentCount },
+            analysisScope: { mode: 'quick', datasetProfile },
           },
         );
         context.signal.throwIfAborted();
@@ -110,10 +115,17 @@ export class WorkflowRuntime {
         retrieval: 'hybrid_rag',
         sources: result.sources,
         analysis_coverage: result.coverage,
+        dataset_profile_report_id: datasetProfileReportId,
         total_duration_sec: totalSeconds,
         total_duration_formatted: formattedTotalTime,
       });
-      return { recordCount: documentCount, sourceCount: result.sources.length, coverage: result.coverage, totalDurationSec: totalSeconds };
+      return {
+        recordCount: documentCount,
+        sourceCount: result.sources.length,
+        coverage: result.coverage,
+        datasetProfileReportId,
+        totalDurationSec: totalSeconds,
+      };
     } catch (error: any) {
       context.signal.throwIfAborted();
       agentRepository.addMessage(

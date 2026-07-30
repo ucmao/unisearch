@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3';
 import type { Analyzer, AnalysisReport } from '../core/analyzers/types';
 import { getDb } from '../database/connection';
 import { DocumentEngine } from '../document/document-engine';
+import { profileDataset, renderDatasetProfile } from './dataset-profiler';
 
 export class AnalyzerRegistry {
   private readonly analyzers = new Map<string, Analyzer>();
@@ -20,51 +21,17 @@ export class AnalyzerRegistry {
   }
 }
 
-function keywords(text: string): Array<{ keyword: string; count: number }> {
-  const stop = new Set(['这个', '那个', '我们', '他们', '以及', '一个', '可以', '没有', '就是', '还是', '进行', '内容', '用户']);
-  const values = text.toLocaleLowerCase().match(/[a-z][a-z0-9_-]{2,}|[\u3400-\u9fff]{2,6}/g) || [];
-  const counts = new Map<string, number>();
-  for (const value of values) if (!stop.has(value)) counts.set(value, (counts.get(value) || 0) + 1);
-  return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((a, b) => b.count - a.count).slice(0, 20);
-}
-
 export const analyzerRegistry = new AnalyzerRegistry();
 analyzerRegistry.register({
-  id: 'extractive.summary',
+  id: 'dataset.profile',
   version: '1.0.0',
-  name: '抽取式资料概览',
+  name: '数据集全量统计',
   async analyze(documents): Promise<AnalysisReport> {
-    const bySource = new Map<string, number>();
-    for (const document of documents) {
-      const source = document.platform;
-      bySource.set(source, (bySource.get(source) || 0) + 1);
-    }
-    const topKeywords = keywords(documents.map((document) => `${document.title}\n${document.markdown}`).join('\n'));
-    const sourceLines = [...bySource.entries()].sort((a, b) => b[1] - a[1]).map(([source, count]) => `- ${source}: ${count} 篇`);
-    const representative = documents
-      .filter((document) => document.title)
-      .slice(0, 10)
-      .map((document) => `- [${document.title}](${document.sourceUrl || '#'})`);
+    const datasetProfile = profileDataset(documents);
     return {
-      title: 'UniSearch 资料概览',
-      content: [
-        '# UniSearch 资料概览',
-        '',
-        `共分析 ${documents.length} 篇资料。`,
-        '',
-        '## 来源分布',
-        '',
-        ...(sourceLines.length ? sourceLines : ['- 暂无来源']),
-        '',
-        '## 高频主题',
-        '',
-        topKeywords.map((item) => `${item.keyword}（${item.count}）`).join('、') || '暂无可提取主题',
-        '',
-        '## 代表性资料',
-        '',
-        ...(representative.length ? representative : ['- 暂无']),
-      ].join('\n'),
-      metadata: { documentCount: documents.length, sources: Object.fromEntries(bySource), keywords: topKeywords },
+      title: 'UniSearch 数据集全量统计',
+      content: renderDatasetProfile(datasetProfile),
+      metadata: { datasetProfile },
     };
   },
 });
