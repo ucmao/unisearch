@@ -568,7 +568,53 @@ export const agentApi = {
     return { data: result }
   },
   stopMessage: (threadId: string) =>
-    api.post<{ stopped: boolean }>(`/agent/threads/${encodeURIComponent(threadId)}/messages/stop`),
+    api.post<{ stopped: boolean }>(`/agent/threads/${encodeURIComponent(threadId)}/messages/stop`, {}),
+  regenerateMessage: (threadId: string, messageId: string, signal?: AbortSignal) =>
+    api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/regenerate`, {}, { timeout: 180000, signal }),
+  regenerateMessageStream: async (
+    threadId: string,
+    messageId: string,
+    onDelta?: (delta: string) => void,
+    signal?: AbortSignal,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void,
+  ): Promise<{ data: AgentThread }> => {
+    const response = await fetch(`/api/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/regenerate/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      signal,
+    })
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}))
+      throw new Error(payload.detail || `请求失败（${response.status}）`)
+    }
+    if (!response.body) throw new Error('浏览器不支持流式响应')
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let result: AgentThread | null = null
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+      const lines = buffer.split(/\r?\n/)
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.trim()) continue
+        const event = JSON.parse(line)
+        if (event.type === 'delta' && typeof event.delta === 'string') onDelta?.(event.delta)
+        else if (event.type === 'status' && typeof event.message === 'string') {
+          onStatus?.({ phase: event.phase, message: event.message })
+        }
+        else if (event.type === 'complete') result = event.thread as AgentThread
+        else if (event.type === 'error') throw new Error(event.detail || 'AI 消息处理失败')
+        else if (event.type === 'stopped') throw new DOMException(event.detail || '已停止生成', 'AbortError')
+      }
+      if (done) break
+    }
+    if (!result) throw new Error('AI 流式响应未正常完成')
+    return { data: result }
+  },
   deleteMessagePair: (threadId: string, messageId: string) =>
     api.delete<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`),
   executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),

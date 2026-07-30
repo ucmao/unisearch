@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   AlertTriangle, ArrowRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileText, Globe,
-  Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search,
+  Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type AnalysisCoverage } from '@/lib/api'
@@ -15,7 +15,6 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { MarkdownContent } from './MarkdownContent'
 import { SourceDrawer, type SourceCitation } from './SourceDrawer'
 import { CollapsibleSourcesBar } from './CollapsibleSourcesBar'
-import { AnalysisCoverageCard } from './AnalysisCoverageCard'
 import { Terminal } from '@/components/console/Terminal'
 import { SettingsDialog, type SettingsSection } from '@/components/layout/SettingsDialog'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
@@ -447,12 +446,16 @@ function renderMentionText(text: string) {
   return parts.length > 0 ? parts : text
 }
 
-function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewImage, onCitationClick }: {
+function MessageBubble({ message, plan, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
   onDeletePair: () => Promise<unknown>
   deletingPair: boolean
+  onRegenerate?: () => Promise<unknown>
+  regenerating?: boolean
+  disabled?: boolean
+  isLatestAssistant?: boolean
   onPreviewImage?: (url: string) => void
   onCitationClick?: (sourceId: string) => void
 }) {
@@ -529,14 +532,12 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
           })}
           {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => <span key={reference.plan_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2 py-1 text-[10px] text-cyber-text-secondary"><Database className="h-3 w-3 shrink-0" /><span className="truncate">{reference.goal}</span></span>)}
         </div> : null}
-        {!isUser && message.kind === 'analysis' && message.metadata?.analysis_coverage ? (
-          <AnalysisCoverageCard coverage={message.metadata.analysis_coverage as AnalysisCoverage} />
-        ) : null}
-        {!isUser && Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0 ? (
+        {!isUser && (message.metadata?.analysis_coverage || (Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0)) ? (
           <CollapsibleSourcesBar
-            sources={message.metadata.sources}
+            sources={message.metadata?.sources}
             keywords={message.metadata?.retrieval === 'live_search' ? [] : message.metadata?.keywords || plan?.plan?.keywords}
             retrieval={message.metadata?.retrieval}
+            coverage={message.metadata?.analysis_coverage as AnalysisCoverage}
             onCitationClick={onCitationClick}
           />
         ) : null}
@@ -552,13 +553,27 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
             <button type="button" onClick={copyMarkdown} className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary" title="复制 Markdown 原文" aria-label="复制 Markdown 原文">
               {copied ? <Check className="h-3 w-3 text-cyber-neon-green" /> : <Copy className="h-3 w-3" />}
             </button>
-            {!isUser ? <DeleteConfirmDialog
-              trigger={<button type="button" disabled={deletingPair} className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink disabled:opacity-40" title="删除这一轮对话" aria-label="删除这一轮对话"><Trash2 className="h-3 w-3" /></button>}
-              title="删除这一轮对话？"
-              description="将删除这条用户消息及其对应的全部 AI 回复；关联的采集任务和看板数据会保留。此操作无法撤销。"
-              confirmLabel="删除这一轮"
-              onConfirm={onDeletePair}
-            /> : null}
+            {!isUser ? <>
+              {isLatestAssistant ? (
+                <button
+                  type="button"
+                  disabled={disabled || regenerating}
+                  onClick={onRegenerate}
+                  className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-neon-cyan disabled:opacity-40"
+                  title="重新回答"
+                  aria-label="重新回答"
+                >
+                  <RotateCw className={`h-3 w-3 ${regenerating ? 'animate-spin' : ''}`} />
+                </button>
+              ) : null}
+              <DeleteConfirmDialog
+                trigger={<button type="button" disabled={deletingPair} className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-neon-pink/10 hover:text-cyber-neon-pink disabled:opacity-40" title="删除这一轮对话" aria-label="删除这一轮对话"><Trash2 className="h-3 w-3" /></button>}
+                title="删除这一轮对话？"
+                description="将删除这条用户消息及其对应的全部 AI 回复；关联的采集任务和看板数据会保留。此操作无法撤销。"
+                confirmLabel="删除这一轮"
+                onConfirm={onDeletePair}
+              />
+            </> : null}
           </div>
         </div>
       </div>
@@ -1002,6 +1017,76 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     },
     onError: (error) => toast.error(getError(error)),
   })
+  const regenerate = useMutation({
+    mutationFn: async ({ threadId, messageId }: { threadId: string; messageId: string }) => {
+      const controller = new AbortController()
+      sendAbortControllerRef.current = controller
+      let streamedContent = ''
+      const streamingMessageId = `streaming-${Date.now()}`
+      let renderFrame: number | null = null
+
+      const renderDelta = () => {
+        renderFrame = null
+        const renderedContent = streamedContent
+        client.setQueryData<AgentThread>(['agent-thread', threadId], (current) => {
+          if (!current) return current
+          const streamedMessage: AgentMessage = {
+            message_id: streamingMessageId,
+            thread_id: threadId,
+            role: 'assistant',
+            kind: 'text',
+            content: renderedContent,
+            metadata: { streaming: true },
+            created_at: new Date().toISOString(),
+          }
+          const existingIndex = current.messages.findIndex((item) => item.message_id === streamingMessageId)
+          return {
+            ...current,
+            messages: existingIndex >= 0
+              ? current.messages.map((item, index) => index === existingIndex ? streamedMessage : item)
+              : [...current.messages, streamedMessage],
+          }
+        })
+        bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      }
+      try {
+        return await agentApi.regenerateMessageStream(threadId, messageId, (delta) => {
+          streamedContent += delta
+          if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+        }, controller.signal, (status) => setAiProgress(status))
+      } finally {
+        if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
+      }
+    },
+    onMutate: async ({ threadId, messageId }) => {
+      setAiProgress(null)
+      await client.cancelQueries({ queryKey: ['agent-thread', threadId] })
+      client.setQueryData<AgentThread>(['agent-thread', threadId], (current) => {
+        if (!current) return current
+        const targetIndex = current.messages.findIndex((msg) => msg.message_id === messageId)
+        if (targetIndex < 0) return current
+        return {
+          ...current,
+          messages: current.messages.slice(0, targetIndex),
+        }
+      })
+    },
+    onSuccess: ({ data }) => {
+      client.setQueryData(['agent-thread', data.thread_id], data)
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+      client.invalidateQueries({ queryKey: ['agent-model-profile'] })
+    },
+    onError: (error, { threadId }) => {
+      if ((error as any)?.code !== 'ERR_CANCELED' && (error as any)?.name !== 'AbortError') toast.error(getError(error))
+      client.invalidateQueries({ queryKey: ['agent-thread', threadId] })
+      client.invalidateQueries({ queryKey: ['agent-threads'] })
+    },
+    onSettled: () => {
+      sendAbortControllerRef.current = null
+      setIsStoppingMessage(false)
+      setAiProgress(null)
+    },
+  })
   const rename = useMutation({
     mutationFn: ({ id, title }: { id: string; title: string }) => agentApi.renameThread(id, title),
     onSuccess: ({ data }) => {
@@ -1146,8 +1231,15 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   // says nothing about it. The composer button needs this to offer a real abort.
   const isPlanRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
+  const lastAssistantMessageId = useMemo(() => {
+    const messages = threadQuery.data?.messages || []
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return messages[i].message_id
+    }
+    return null
+  }, [threadQuery.data?.messages])
   const hasStreamingAnswer = Boolean(threadQuery.data?.messages.some((message) => message.metadata?.streaming))
-  const isThinking = send.isPending && send.variables?.id === selectedId && !hasStreamingAnswer
+  const isThinking = ((send.isPending && send.variables?.id === selectedId) || (regenerate.isPending && regenerate.variables?.threadId === selectedId)) && !hasStreamingAnswer
   const toggleThreads = () => {
     setThreadsCollapsed((current) => {
       localStorage.setItem('unisearch-threads-collapsed', String(!current))
@@ -1425,7 +1517,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} deletingPair={removeMessagePair.isPending || send.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onPreviewImage={(url) => setPreviewImageUrl(url)} onCitationClick={handleCitationClick} />)}
+                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} deletingPair={removeMessagePair.isPending || send.isPending || regenerate.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onRegenerate={() => regenerate.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} regenerating={regenerate.isPending && regenerate.variables?.messageId === message.message_id} disabled={send.isPending || regenerate.isPending} isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId} onPreviewImage={(url) => setPreviewImageUrl(url)} onCitationClick={handleCitationClick} />)}
                 {activePlan && activePlan.status !== 'awaiting_confirmation' && (
                   <ChatCrawlingStatusBanner
                     activePlan={activePlan}
