@@ -64,7 +64,8 @@ export class AnalysisService {
 
   async run(analyzerId: string, workflowId?: string, options: Record<string, unknown> = {}): Promise<any> {
     const analyzer = analyzerRegistry.get(analyzerId);
-    const report = await analyzer.analyze(this.documents(workflowId), options);
+    const threadId = typeof options.threadId === 'string' ? options.threadId : undefined;
+    const report = await analyzer.analyze(this.documents(workflowId, threadId), options);
     return this.saveReport({
       analyzerId: analyzer.id,
       analyzerVersion: analyzer.version,

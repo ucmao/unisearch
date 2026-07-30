@@ -31,7 +31,8 @@ export interface EvidenceSelection {
 }
 
 export interface EvidenceSelectionRequest {
-  workflowId: string;
+  threadId?: string;
+  workflowId?: string;
   workflowGoal: string;
   userRequest: string;
   analysisGoals: string[];
@@ -129,7 +130,11 @@ export class EvidenceSelector {
     const candidateLimit = Math.min(50, Math.max(30, targetDocumentCount * 3));
     const documents = new Map<string, RankedDocument>();
     for (const query of queries) {
-      const results = this.index.search(query, { workflowId: request.workflowId, limit: candidateLimit });
+      const results = this.index.search(query, {
+        threadId: request.threadId,
+        workflowId: request.workflowId,
+        limit: candidateLimit,
+      });
       results.forEach((result, rank) => {
         const rankScore = 1 / (rank + 1);
         const current = documents.get(result.documentId) || {
