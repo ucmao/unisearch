@@ -169,13 +169,6 @@ function formatDate(value?: string | number) {
   }).format(date)
 }
 
-function formatRunTime(value: string | null) {
-  if (!value) return '—'
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
-  }).format(new Date(value))
-}
-
 function displayValue(value: unknown, maxLength = 80): string {
   if (value === undefined || value === null || value === '') return '—'
   const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
@@ -614,7 +607,26 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
   const selectedWorkflowId = scope.startsWith('plan:') ? scope.slice(5) : undefined
   const selectedThreadId = scope.startsWith('thread:') ? scope.slice(7) : undefined
-  const filters = { run_id: selectedRunId, workflow_id: selectedWorkflowId, thread_id: selectedThreadId, platform, kind, keyword, subject_type: subjectType, query }
+  const scopeFilters = useMemo(() => ({
+    run_id: selectedRunId,
+    workflow_id: selectedWorkflowId,
+    thread_id: selectedThreadId,
+  }), [selectedRunId, selectedWorkflowId, selectedThreadId])
+
+  const scopeSummaryQuery = useQuery({
+    queryKey: ['analytics-scope-summary', scopeFilters],
+    queryFn: async () => (await dataApi.getAnalyticsSummary(scopeFilters)).data,
+    refetchInterval: crawlerStatus === 'running' ? 1500 : false,
+  })
+
+  const filters = useMemo(() => ({
+    ...scopeFilters,
+    platform,
+    kind,
+    keyword,
+    subject_type: subjectType,
+    query,
+  }), [scopeFilters, platform, kind, keyword, subjectType, query])
 
   const summaryQuery = useQuery({
     queryKey: ['analytics-summary', filters],
@@ -626,16 +638,17 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     queryFn: async () => (await dataApi.getAnalyticsDocuments({ ...filters, sort_by: sortBy, sort_order: sortOrder, page, page_size: 20 })).data,
     refetchInterval: crawlerStatus === 'running' ? 1500 : false,
   })
+  const scopeSummary = scopeSummaryQuery.data
   const summary = summaryQuery.data
   const documents = documentsQuery.data
-  const platformLabels = useMemo(() => new Map(summary?.filters.platforms || []), [summary])
+  const platformLabels = useMemo(() => new Map(scopeSummary?.filters.platforms || summary?.filters.platforms || []), [scopeSummary, summary])
 
   const dynamicColumns = useMemo(() => [
-    ...(summary?.filters.metric_keys || []).map((key) => ({ key: `metric:${key}`, label: metricLabels[key] || key, group: '指标' })),
-    ...(summary?.filters.attribute_keys || [])
+    ...(scopeSummary?.filters.metric_keys || summary?.filters.metric_keys || []).map((key) => ({ key: `metric:${key}`, label: metricLabels[key] || key, group: '指标' })),
+    ...(scopeSummary?.filters.attribute_keys || summary?.filters.attribute_keys || [])
       .filter((key) => key !== 'reasoningContent')
       .map((key) => ({ key: `attribute:${key}`, label: attributeLabels[key] || key, group: '扩展属性' })),
-  ], [summary])
+  ], [scopeSummary, summary])
 
   useEffect(() => setScope(initialScope), [initialScope])
   useEffect(() => { setPage(1); setSelectedDocument(null) }, [scope, platform, kind, keyword, subjectType, query, sortBy, sortOrder])
@@ -714,36 +727,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
               {task.rounds.map((round) => {
                 const isRoundSelected = scope === `plan:${round.plan_id}`
                 return (
-                  <div key={round.plan_id}>
-                    <div className="group flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }}
-                        className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[11px] transition-colors ${isRoundSelected ? 'font-medium text-cyber-text-primary bg-cyber-neon-cyan/10' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary'}`}
-                      >
-                        {round.round_title || round.plan_id}
-                      </button>
-                      <div className="opacity-0 transition-opacity group-hover:opacity-100">
-                        <DeleteConfirmDialog
-                          title="删除该采集轮次？"
-                          description="该轮次下的执行和文档来源将被物理删除。"
-                          onConfirm={() => deleteScope('round', round.plan_id)}
-                          trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
-                        />
-                      </div>
-                    </div>
-                    <div className="ml-2">
-                      {round.runs.map((run) => (
-                        <button
-                          key={run.run_id}
-                          type="button"
-                          onClick={() => { setScope(`run:${run.run_id}`); if (mobile) setMobileScopeOpen(false) }}
-                          className={`flex w-full items-center justify-between rounded px-2 py-1 text-[10px] transition-colors ${scope === `run:${run.run_id}` ? 'bg-cyber-neon-cyan/15 font-medium text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary'}`}
-                        >
-                          <span>{run.platform_label}</span>
-                          <span>{formatRunTime(run.started_at)}</span>
-                        </button>
-                      ))}
+                  <div key={round.plan_id} className="group flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }}
+                      className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[11px] transition-colors ${isRoundSelected ? 'font-medium text-cyber-text-primary bg-cyber-neon-cyan/10' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary'}`}
+                    >
+                      {round.round_title || round.plan_id}
+                    </button>
+                    <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                      <DeleteConfirmDialog
+                        title="删除该采集轮次？"
+                        description="该轮次下的执行和文档来源将被物理删除。"
+                        onConfirm={() => deleteScope('round', round.plan_id)}
+                        trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
+                      />
                     </div>
                   </div>
                 )
@@ -876,23 +874,23 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
               <div className="flex flex-wrap items-center gap-2.5">
                 <Select value={platform} onValueChange={setPlatform}>
                   <SelectTrigger className="h-8 w-28 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="平台" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部平台</SelectItem>{summary?.filters.platforms.map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectItem value="all">全部平台</SelectItem>{(scopeSummary?.filters.platforms || summary?.filters.platforms || []).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
                 </Select>
                 <Select value={kind} onValueChange={setKind}>
                   <SelectTrigger className="h-8 w-44 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle font-medium"><SelectValue placeholder="类型" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="main_only">全部正文/主帖 (排除评论)</SelectItem>
                     <SelectItem value="all">全部类型 (包含评论)</SelectItem>
-                    {summary?.filters.kinds.map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}
+                    {(scopeSummary?.filters.kinds || summary?.filters.kinds || []).map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 <Select value={keyword} onValueChange={setKeyword}>
                   <SelectTrigger className="h-8 w-32 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="关键词" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部关键词</SelectItem>{summary?.filters.keywords.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectItem value="all">全部关键词</SelectItem>{(scopeSummary?.filters.keywords || summary?.filters.keywords || []).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
                 </Select>
                 <Select value={subjectType} onValueChange={setSubjectType}>
                   <SelectTrigger className="h-8 w-28 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="主体类型" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部主体</SelectItem>{summary?.filters.subject_types.map((value) => <SelectItem key={value} value={value}>{subjectTypeLabels[value] || value}</SelectItem>)}</SelectContent>
+                  <SelectContent><SelectItem value="all">全部主体</SelectItem>{(scopeSummary?.filters.subject_types || summary?.filters.subject_types || []).map((value) => <SelectItem key={value} value={value}>{subjectTypeLabels[value] || value}</SelectItem>)}</SelectContent>
                 </Select>
                 <form className="relative" onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()) }}>
                   <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cyber-text-muted" />
@@ -952,7 +950,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     </div>
 
       <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}><DialogContent className="max-h-[80vh] overflow-y-auto"><DialogHeader><DialogTitle>动态列设置</DialogTitle><DialogDescription>固定字段与当前结果中实际出现的指标、属性。缺失值保持为空。</DialogDescription></DialogHeader><div className="space-y-4">{['通用字段', '指标', '扩展属性'].map((group) => { const columns = [...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })), ...dynamicColumns].filter((column) => column.group === group); return columns.length ? <section key={group}><h3 className="mb-2 text-xs font-semibold text-cyber-text-muted">{group}</h3><div className="grid gap-2 sm:grid-cols-2">{columns.map((column) => <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded border border-cyber-border-subtle p-2 text-xs"><Checkbox checked={visibleColumns.has(column.key)} onCheckedChange={(checked) => toggleColumn(column.key, checked)} />{column.label}</label>)}</div></section> : null })}</div></DialogContent></Dialog>
-      <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}><DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none"><DialogHeader><DialogTitle>任务范围</DialogTitle><DialogDescription>选择任务、采集轮次或单次执行</DialogDescription></DialogHeader>{renderScopeTree(true)}</DialogContent></Dialog>
+      <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}><DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none"><DialogHeader><DialogTitle>任务范围</DialogTitle><DialogDescription>选择任务或采集轮次</DialogDescription></DialogHeader>{renderScopeTree(true)}</DialogContent></Dialog>
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent className="sm:max-w-[440px] border-cyber-border-subtle bg-cyber-bg-panel/95 backdrop-blur-md p-5">
           <DialogHeader className="pb-1">
