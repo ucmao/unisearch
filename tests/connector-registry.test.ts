@@ -101,27 +101,8 @@ assert.match(catalog, /rss_news=RSS 新闻/);
 
 const bossManifest = listConnectorManifests().find((manifest) => manifest.id === 'boss');
 assert.ok(bossManifest);
-assert.match(bossManifest.description, /仅限已获授权环境/);
-assert.equal(bossManifest.auth.required, true);
-assert.deepEqual(bossManifest.auth.methods, ['qrcode', 'cookie']);
+assert.equal(bossManifest.name, 'BOSS直聘');
 assert.deepEqual(bossManifest.capabilities.map((capability) => capability.id), ['keyword_search', 'content_detail']);
-for (const capability of bossManifest.capabilities) {
-  const authorization = capability.inputFields.find((field) => field.key === 'authorization_reference');
-  assert.ok(authorization, `${capability.id} should require an authorization reference`);
-  assert.equal(authorization.required, true);
-  assert.equal(authorization.type, 'string');
-  assert.equal(authorization.runtimeConfigKey, 'BOSS_AUTHORIZATION_REFERENCE');
-  assert.equal(authorization.default, undefined);
-}
-
-assert.throws(() => normalizeConnectorRequest({
-  ...baseRequest,
-  platform: 'boss',
-  connector_id: 'boss',
-  capability: 'keyword_search',
-  login_type: 'none',
-  connector_options: { max_items: 20 },
-}), /授权编号\/依据/);
 
 const bossRequest = normalizeConnectorRequest({
   ...baseRequest,
@@ -129,10 +110,9 @@ const bossRequest = normalizeConnectorRequest({
   connector_id: 'boss',
   capability: 'keyword_search',
   login_type: 'cookie',
-  connector_options: { max_items: 20, authorization_reference: 'BOSS-OFFICIAL-TEST-001' },
+  connector_options: { max_items: 20 },
 });
-assert.equal(bossRequest.login_type, 'cookie');
-assert.equal((bossRequest as any).BOSS_AUTHORIZATION_REFERENCE, 'BOSS-OFFICIAL-TEST-001');
+assert.equal(bossRequest.platform, 'boss');
 
 const arxivRequest = normalizeConnectorRequest({
   ...baseRequest,

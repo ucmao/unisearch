@@ -33,7 +33,7 @@ export interface LogEntry {
 }
 
 export interface CrawlerWindowCoordinator {
-  prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
+  prepareCrawlerWindow?: (platform: string, preserveCurrentPage?: boolean) => Promise<boolean> | boolean;
 }
 
 export class CrawlerTask {
@@ -302,7 +302,7 @@ export class CrawlerTask {
           manager.emit('login_success', msg);
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_REQUIRED') {
           const prepareCrawlerWindow = manager.getWindowCoordinator().prepareCrawlerWindow;
-          if (prepareCrawlerWindow) void prepareCrawlerWindow(this.platform);
+          if (prepareCrawlerWindow) void prepareCrawlerWindow(this.platform, true);
           this.addLog(`检测到 ${this.platform} 图形验证，请在内置浏览器中手动完成`, 'warning', manager);
           manager.emit('manual_verification_required', msg);
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_SUCCESS') {

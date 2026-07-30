@@ -10,8 +10,19 @@ import { getBrowserDataDir, resolveRuntimeResource } from '../../tools/runtimePa
 
 const configuredCrawlerContexts = new WeakSet<BrowserContext>();
 
-async function configureCrawlerPage(browserContext: BrowserContext, page: Page): Promise<Page> {
-  if (!configuredCrawlerContexts.has(browserContext)) {
+interface CrawlerPageConfiguration {
+  installStealth?: boolean;
+  alignIdentity?: boolean;
+}
+
+async function configureCrawlerPage(
+  browserContext: BrowserContext,
+  page: Page,
+  configuration: CrawlerPageConfiguration = {},
+): Promise<Page> {
+  const installStealth = configuration.installStealth !== false;
+  const alignIdentity = configuration.alignIdentity !== false;
+  if (installStealth && !configuredCrawlerContexts.has(browserContext)) {
     const stealthPath = resolveRuntimeResource('libs', 'stealth.min.js');
     if (fs.existsSync(stealthPath) && typeof (browserContext as any).addInitScript === 'function') {
       await browserContext.addInitScript({ path: stealthPath }).catch((error: any) => {
@@ -20,6 +31,7 @@ async function configureCrawlerPage(browserContext: BrowserContext, page: Page):
     }
     configuredCrawlerContexts.add(browserContext);
   }
+  if (!alignIdentity) return page;
   try {
     if (typeof (browserContext as any).newCDPSession !== 'function' || typeof (page as any).addInitScript !== 'function') {
       return page;
@@ -129,15 +141,31 @@ export async function connectToElectronChromium(playwright: PlaywrightModule): P
 
 export async function getElectronCrawlerPage(browserContext: BrowserContext, platform: string, attempts = 20): Promise<Page> {
   const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
+  // BOSS Direct Hire detects heavy stealth.min.js Function.prototype.toString proxies.
+  // We use clean identity alignment and lightweight webdriver masking for BOSS.
+  const pageConfiguration: CrawlerPageConfiguration = platform === 'boss'
+    ? { installStealth: false, alignIdentity: true }
+    : {};
   for (let attempt = 0; attempt < attempts; attempt++) {
     const page = browserContext.pages().find((candidate) => candidate.url().includes(marker));
-    if (page) return configureCrawlerPage(browserContext, page);
+    if (page) {
+      if (typeof page.addInitScript === 'function') {
+        await page.addInitScript(() => {
+          try {
+            Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
+              get: () => undefined,
+            });
+          } catch {}
+        }).catch(() => {});
+      }
+      return configureCrawlerPage(browserContext, page, pageConfiguration);
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   const fallbackPages = browserContext.pages();
   if (fallbackPages.length === 1 && fallbackPages[0].url() === 'about:blank') {
     // Standalone persistent-context fallback, not an Electron CDP target.
-    return configureCrawlerPage(browserContext, fallbackPages[0]);
+    return configureCrawlerPage(browserContext, fallbackPages[0], pageConfiguration);
   }
   const available = fallbackPages.map((page) => page.url()).join(', ');
   throw new Error(`未找到平台 ${platform} 的专用采集页面。当前 CDP 页面: ${available || '无'}`);

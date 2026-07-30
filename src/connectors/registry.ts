@@ -60,6 +60,7 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
     login_type: loginType as 'qrcode' | 'cookie' | 'none',
     connector_options: options,
   };
+
   for (const field of capability.inputFields) {
     const raw = options[field.key] ?? (field.runtimeConfigKey ? (input as any)[field.runtimeConfigKey] : undefined);
     const value = raw === undefined ? field.default : raw;

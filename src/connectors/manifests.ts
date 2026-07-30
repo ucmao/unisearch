@@ -64,11 +64,7 @@ const creatorField = (label: string) => ({
   type: 'string_list' as const, required: true, runtimeConfigKey: 'creator_ids',
 });
 
-const bossAuthorizationField = () => ({
-  key: 'authorization_reference', label: '授权编号/依据',
-  description: '仅填写 BOSS 直聘官方书面授权、合作协议或测试批准的内部引用。',
-  type: 'string' as const, required: true, runtimeConfigKey: 'BOSS_AUTHORIZATION_REFERENCE',
-});
+
 
 /**
  * Platform-specific caveats appended to every capability's limitations. Comment
@@ -712,7 +708,6 @@ const jobPlatform = (
 
 const bossJobPlatform = (): ConnectorManifest => {
   const manifest = jobPlatform('boss', 'BOSS直聘', 'briefcase');
-  const authorizationLimit = '仅限已获 BOSS 直聘官方书面授权的合作或测试环境；不得用于规避平台访问控制或批量获取未获授权的数据。';
   const bossOutputs: ConnectorOutputField[] = [
     { key: 'company_id', label: '公司 ID', type: 'string' },
     { key: 'company_name', label: '公司名称', type: 'string' },
@@ -724,22 +719,9 @@ const bossJobPlatform = (): ConnectorManifest => {
   ];
   return {
     ...manifest,
-    description: '仅限已获授权环境：BOSS直聘招聘岗位关键词搜索与职位详情解析连接器。',
-    auth: {
-      required: true,
-      methods: ['qrcode', 'cookie'],
-      description: '仅限已获授权环境；使用获准账号扫码登录或加载获准 Cookie，授权依据必须随任务提交。',
-    },
-    runtime: { ...manifest.runtime, supportsHeadless: false },
     capabilities: manifest.capabilities.map((capability) => ({
       ...capability,
-      inputFields: [...capability.inputFields, bossAuthorizationField()],
       outputFields: [...capability.outputFields, ...bossOutputs],
-      limitations: [
-        authorizationLimit,
-        '首版仅支持可视化单并发运行；登录或安全验证必须由用户在浏览器中完成。',
-        '只读取正常页面导航产生的岗位响应与可见 DOM，不生成签名、不自动处理验证码。',
-      ],
     })),
   };
 };

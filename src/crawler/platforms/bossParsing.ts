@@ -83,7 +83,22 @@ export interface BossDetailParseResult {
   job: BossJobRecord | null;
 }
 
+export type BossExpectedRoute = 'search' | 'detail';
+
 const DEFAULT_BASE_URL = 'https://www.zhipin.com';
+
+export function isExpectedBossRoute(value: unknown, route: BossExpectedRoute): boolean {
+  try {
+    const url = new URL(stringValue(value));
+    const isBossHost = url.hostname === 'zhipin.com' || url.hostname.endsWith('.zhipin.com');
+    if (!isBossHost) return false;
+    return route === 'search'
+      ? /^\/web\/geek\/job(?:\/|$)/i.test(url.pathname)
+      : /^\/job_detail\//i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
 
 const RATE_LIMIT_PATTERN = /(?:HTTP\s*429|too\s+many\s+requests|rate[\s_-]*limit|访问.{0,8}频繁|请求.{0,8}频繁|操作.{0,8}频繁|稍后(?:再试|重试))/i;
 const VERIFICATION_PATTERN = /(?:安全验证|人机验证|图形验证|滑块|验证码|完成.{0,6}验证|captcha|security[\s_-]*check|verification\s+required)/i;

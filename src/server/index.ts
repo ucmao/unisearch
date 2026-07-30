@@ -42,7 +42,7 @@ function runningWorkflowIds(platform?: string): string[] {
 }
 
 export interface ServerWindowControls {
-  prepareCrawlerWindow?: (platform: string) => Promise<boolean> | boolean;
+  prepareCrawlerWindow?: (platform: string, preserveCurrentPage?: boolean) => Promise<boolean> | boolean;
   releaseCrawlerWindow?: (platform: string, status?: string, metrics?: any) => boolean;
   isCrawlerWindowVisible?: (platform?: string) => boolean;
   hasActiveCrawlerViews?: () => boolean;
