@@ -257,6 +257,17 @@ export interface AgentMessage {
   created_at: string
 }
 
+export interface AnalysisCoverage {
+  mode: 'quick'
+  collectedDocumentCount: number
+  qualitativelyAnalyzedDocumentCount: number
+  evidenceDocumentCount: number
+  evidenceChunkCount: number
+  citedDocumentCount: number
+  fullDatasetStatistics: false
+  partial: boolean
+}
+
 export interface AgentAttachment {
   attachment_id: string
   file_name: string

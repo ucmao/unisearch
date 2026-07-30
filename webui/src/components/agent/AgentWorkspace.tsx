@@ -6,7 +6,7 @@ import {
   Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, Search,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
-import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary } from '@/lib/api'
+import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type AnalysisCoverage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -446,6 +446,19 @@ function renderMentionText(text: string) {
   return parts.length > 0 ? parts : text
 }
 
+function AnalysisCoverageBar({ coverage }: { coverage: AnalysisCoverage }) {
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[11px] text-cyber-text-muted">
+      <span className="font-medium text-amber-500">{coverage.partial ? '阶段性快速分析' : '快速抽样分析'}</span>
+      <span>已入库 <strong className="font-mono text-cyber-text-primary">{coverage.collectedDocumentCount}</strong></span>
+      <span>定性阅读 <strong className="font-mono text-cyber-text-primary">{coverage.qualitativelyAnalyzedDocumentCount}</strong></span>
+      <span>知识片段 <strong className="font-mono text-cyber-text-primary">{coverage.evidenceChunkCount}</strong></span>
+      <span>正文引用 <strong className="font-mono text-cyber-text-primary">{coverage.citedDocumentCount}</strong></span>
+      {!coverage.fullDatasetStatistics ? <span className="text-amber-600 dark:text-amber-400">未执行全量统计</span> : null}
+    </div>
+  )
+}
+
 function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
@@ -468,7 +481,7 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
         const kwText = keywords.length > 0 ? keywords.map((k: string) => `“${k}”`).join('、、') : ''
         const sourceSummary = message.metadata?.retrieval === 'live_search'
           ? `已实时检索，参考 ${sources.length} 个网页来源 ›`
-          : `已搜索关键词，参考 ${sources.length} 篇资料 ›`
+          : `已检索知识库，参考 ${sources.length} 个知识片段 ›`
         const listItems = sources.map((s: any, idx: number) => {
           const title = (s.title || '未命名资料').replace(/\r?\n/g, ' ')
           const link = s.sourceUrl ? `[${title}](${s.sourceUrl})` : `${title} [${s.id}]`
@@ -526,6 +539,9 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
           })}
           {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => <span key={reference.plan_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2 py-1 text-[10px] text-cyber-text-secondary"><Database className="h-3 w-3 shrink-0" /><span className="truncate">{reference.goal}</span></span>)}
         </div> : null}
+        {!isUser && message.kind === 'analysis' && message.metadata?.analysis_coverage ? (
+          <AnalysisCoverageBar coverage={message.metadata.analysis_coverage as AnalysisCoverage} />
+        ) : null}
         {!isUser && Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0 ? (
           <CollapsibleSourcesBar
             sources={message.metadata.sources}

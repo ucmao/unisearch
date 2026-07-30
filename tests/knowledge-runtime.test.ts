@@ -13,7 +13,7 @@ import { KNOWLEDGE_PROJECTOR_VERSION, knowledgeProjector } from '../src/knowledg
 import { AnalysisService } from '../src/analyzers/registry';
 import { exporterRegistry } from '../src/exporters/registry';
 import { listProcessorCapabilities } from '../src/processor/capabilities';
-import { RagService } from '../src/knowledge/rag-service';
+import { buildAnalysisBoundary, buildAnalysisCoverage, RagService } from '../src/knowledge/rag-service';
 
 function database() {
   const db = new Database(':memory:');
@@ -83,6 +83,64 @@ test('RAG returns ranked citations and an honest fallback without a model key', 
     assert.equal(result.sources[0].kind, 'search_result');
     assert.ok(result.sources[0].chunkId);
     assert.match(result.answer, /\[S1\]/);
+  } finally {
+    db.close();
+  }
+});
+
+test('quick analysis coverage distinguishes collected documents from reviewed evidence', () => {
+  const sources = [
+    { id: 'S1', documentId: 'doc-1', chunkId: 'chunk-1' },
+    { id: 'S2', documentId: 'doc-1', chunkId: 'chunk-2' },
+    { id: 'S3', documentId: 'doc-2', chunkId: 'chunk-3' },
+  ] as any;
+  const coverage = buildAnalysisCoverage(
+    { mode: 'quick', collectedDocumentCount: 212 },
+    sources,
+    '结论一 [S1]，结论二 [S3]，重复引用 [S2]。',
+  );
+
+  assert.deepEqual(coverage, {
+    mode: 'quick',
+    collectedDocumentCount: 212,
+    qualitativelyAnalyzedDocumentCount: 2,
+    evidenceDocumentCount: 2,
+    evidenceChunkCount: 3,
+    citedDocumentCount: 2,
+    fullDatasetStatistics: false,
+    partial: false,
+  });
+  assert.match(buildAnalysisBoundary(coverage), /已入库 \*\*212\*\* 个去重文档/);
+  assert.match(buildAnalysisBoundary(coverage), /实际读取 \*\*2\*\* 个独立文档/);
+  assert.match(buildAnalysisBoundary(coverage), /尚未执行全量统计/);
+});
+
+test('quick RAG analysis tells the model the truthful evidence boundary', async () => {
+  const db = database();
+  try {
+    await seed(db);
+    const index = new KnowledgeIndex(() => db);
+    index.rebuild();
+    let prompt = '';
+    const model = {
+      getProfile: () => ({ apiKeyConfigured: true }),
+      converse: async (messages: Array<{ content: string }>) => {
+        prompt = messages[0].content;
+        return '只确认当前证据支持的事实 [S1]。';
+      },
+    } as any;
+    const result = await new RagService(index, model).answer('分析这些结果', {
+      workflowId: undefined,
+      limit: 12,
+      analysisScope: { mode: 'quick', collectedDocumentCount: 212 },
+    });
+
+    assert.match(prompt, /已入库 212 个去重文档/);
+    assert.match(prompt, /快速抽样分析，不是全量统计/);
+    assert.match(result.answer, /数据范围说明/);
+    assert.equal(result.coverage?.collectedDocumentCount, 212);
+    assert.equal(result.coverage?.qualitativelyAnalyzedDocumentCount, 1);
+    assert.equal(result.coverage?.citedDocumentCount, 1);
   } finally {
     db.close();
   }

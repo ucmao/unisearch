@@ -68,21 +68,29 @@ export class WorkflowRuntime {
     );
     if (existing) return { skipped: true, reason: '自动分析已生成' };
 
-    const rows = agentRepository.getPlanContents(workflow.plan_id, 100);
-    if (!rows.length) return { skipped: true, reason: '没有可分析的数据', recordCount: 0 };
+    const documentCount = agentRepository.getPlanStats(workflow.plan_id).content_count;
+    if (!documentCount) return { skipped: true, reason: '没有可分析的数据', recordCount: 0 };
 
     try {
       const goals = (workflow.plan.analysis || []).join('、') || workflow.goal;
       let result = await ragService.answer(
         `请生成本次“${reportName}”的最终分析报告。\n原任务：${workflow.goal}\n分析目标：${goals}${analysisRule}\n请先说明样本量和数据边界，再给出有来源支撑的发现、风险或机会，以及明确标记为建议的行动项。`,
-        { workflowId: workflow.plan_id, limit: 12 },
+        {
+          workflowId: workflow.plan_id,
+          limit: 12,
+          analysisScope: { mode: 'quick', collectedDocumentCount: documentCount },
+        },
       );
       context.signal.throwIfAborted();
       if (!result.sources.length) {
         knowledgeIndex.rebuild({ workflowId: workflow.plan_id });
         result = await ragService.answer(
           `请根据已采集资料生成“${reportName}”报告，围绕以下目标分析：${goals}。${analysisRule}`,
-          { workflowId: workflow.plan_id, limit: 12 },
+          {
+            workflowId: workflow.plan_id,
+            limit: 12,
+            analysisScope: { mode: 'quick', collectedDocumentCount: documentCount },
+          },
         );
         context.signal.throwIfAborted();
       }
@@ -101,11 +109,11 @@ export class WorkflowRuntime {
         skill_id: skill?.id,
         retrieval: 'hybrid_rag',
         sources: result.sources,
-        analyzed_record_count: rows.length,
+        analysis_coverage: result.coverage,
         total_duration_sec: totalSeconds,
         total_duration_formatted: formattedTotalTime,
       });
-      return { recordCount: rows.length, sourceCount: result.sources.length, totalDurationSec: totalSeconds };
+      return { recordCount: documentCount, sourceCount: result.sources.length, coverage: result.coverage, totalDurationSec: totalSeconds };
     } catch (error: any) {
       context.signal.throwIfAborted();
       agentRepository.addMessage(
@@ -115,7 +123,7 @@ export class WorkflowRuntime {
         `采集数据已保存，但“${reportName}”自动分析失败：${error.message || '未知错误'}。你可以稍后直接说“分析这些结果”重试。`,
         { action: `${analysisAction}_error`, plan_id: workflow.plan_id, skill_id: skill?.id },
       );
-      return { failed: true, error: error.message || '未知错误', recordCount: rows.length };
+      return { failed: true, error: error.message || '未知错误', recordCount: documentCount };
     }
   }
 

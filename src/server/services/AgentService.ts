@@ -860,35 +860,39 @@ export class AgentService {
       // `collectMaterials` is also used for normal chat and includes the whole
       // conversation, which makes some compatible models overlook the records
       // and answer as if they had no access to the completed task.
-      const rows = agentRepository.getPlanContents(latest.plan_id, 100);
-      if (rows.length) {
+      const documentCount = agentRepository.getPlanStats(latest.plan_id).content_count;
+      if (documentCount) {
         try {
           const analysisSkill = skillRegistry.find(latest.plan.skillId);
           const skillRule = analysisSkill?.analysisInstructions
             ? `\n业务 Skill：${analysisSkill.name}\n业务分析规则：${analysisSkill.analysisInstructions}`
             : '';
           const isPartialAnalysis = ['queued', 'running'].includes(latest.status);
-          const partialLead = isPartialAnalysis
-            ? `> 阶段性分析：任务仍在采集中，以下结论基于当前已入库的 ${rows.length} 条内容，最终结果可能变化。\n\n`
-            : '';
-          if (partialLead) onDelta?.(partialLead);
           if (isPartialAnalysis) knowledgeIndex.rebuild({ workflowId: latest.plan_id });
           let rag = await ragService.answer(
-            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}${skillRule}${isPartialAnalysis ? `\n当前任务尚未完成，只能基于已入库的 ${rows.length} 条内容做阶段性分析。` : ''}`,
-            { workflowId: latest.plan_id, limit: 10 },
+            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}${skillRule}${isPartialAnalysis ? `\n当前任务尚未完成，只能基于当前已入库的 ${documentCount} 个文档做阶段性分析。` : ''}`,
+            {
+              workflowId: latest.plan_id,
+              limit: 10,
+              analysisScope: { mode: 'quick', collectedDocumentCount: documentCount, partial: isPartialAnalysis },
+            },
             onDelta,
           );
           ensureMessageNotAborted(signal);
           if (!rag.sources.length) {
             knowledgeIndex.rebuild({ workflowId: latest.plan_id });
-            rag = await ragService.answer(`${content}${skillRule}`, { workflowId: latest.plan_id, limit: 10 }, onDelta);
+            rag = await ragService.answer(`${content}${skillRule}`, {
+              workflowId: latest.plan_id,
+              limit: 10,
+              analysisScope: { mode: 'quick', collectedDocumentCount: documentCount, partial: isPartialAnalysis },
+            }, onDelta);
             ensureMessageNotAborted(signal);
           }
-          agentRepository.addMessage(threadId, 'assistant', 'analysis', `${partialLead}${rag.answer}`, {
+          agentRepository.addMessage(threadId, 'assistant', 'analysis', rag.answer, {
             retrieval: 'hybrid_rag',
             sources: rag.sources,
             partial: isPartialAnalysis,
-            analyzed_record_count: rows.length,
+            analysis_coverage: rag.coverage,
           });
         } catch (error: any) {
           ensureMessageNotAborted(signal);
