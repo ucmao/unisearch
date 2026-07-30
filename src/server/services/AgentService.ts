@@ -9,13 +9,13 @@ import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, tit
 import { normalizeAnalysisGoals } from './ResearchAnalysis';
 import { directParserService } from './DirectParserService';
 import { workflowRuntime } from '../../workflow/workflow-runtime';
-import { ragService } from '../../knowledge/rag-service';
 import { knowledgeIndex } from '../../knowledge/knowledge-index';
 import { exportService } from '../../exporters/registry';
 import { skillRegistry } from '../../skills/registry';
 import type { SkillDefinition } from '../../core/skills/types';
 import { liveSearchService, toLiveSourceCitations } from './LiveSearchService';
 import { analysisService } from '../../analyzers/registry';
+import { quickReportGenerator } from '../../analyzers/quick-report-generator';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -867,36 +867,44 @@ export class AgentService {
       if (documentCount) {
         try {
           const analysisSkill = skillRegistry.find(latest.plan.skillId);
-          const skillRule = analysisSkill?.analysisInstructions
-            ? `\n业务 Skill：${analysisSkill.name}\n业务分析规则：${analysisSkill.analysisInstructions}`
-            : '';
           const isPartialAnalysis = ['queued', 'running'].includes(latest.status);
           if (isPartialAnalysis) knowledgeIndex.rebuild({ workflowId: latest.plan_id });
-          let rag = await ragService.answer(
-            `${content}\n分析目标：${(latest.plan.analysis || []).join('、') || latest.goal}${skillRule}${isPartialAnalysis ? `\n当前任务尚未完成，只能基于当前已入库的 ${documentCount} 个文档做阶段性分析。` : ''}`,
-            {
-              workflowId: latest.plan_id,
-              limit: 10,
-              analysisScope: { mode: 'quick', datasetProfile, partial: isPartialAnalysis },
-            },
-            onDelta,
-          );
-          ensureMessageNotAborted(signal);
-          if (!rag.sources.length) {
-            knowledgeIndex.rebuild({ workflowId: latest.plan_id });
-            rag = await ragService.answer(`${content}${skillRule}`, {
-              workflowId: latest.plan_id,
-              limit: 10,
-              analysisScope: { mode: 'quick', datasetProfile, partial: isPartialAnalysis },
-            }, onDelta);
-            ensureMessageNotAborted(signal);
-          }
-          agentRepository.addMessage(threadId, 'assistant', 'analysis', rag.answer, {
-            retrieval: 'hybrid_rag',
-            sources: rag.sources,
+          const report = await quickReportGenerator.generate({
+            workflowId: latest.plan_id,
+            workflowGoal: latest.goal,
+            reportName: analysisSkill?.name || '采集结果分析',
+            userRequest: content,
+            analysisGoals: latest.plan.analysis || [],
+            skillName: analysisSkill?.name,
+            skillInstructions: analysisSkill?.analysisInstructions,
+            datasetProfile,
             partial: isPartialAnalysis,
-            analysis_coverage: rag.coverage,
+            signal,
+            onRetry,
+            onDelta,
+          });
+          ensureMessageNotAborted(signal);
+          const analysisReport = analysisService.saveReport({
+            analyzerId: 'quick.report',
+            analyzerVersion: '1.0.0',
+            workflowId: latest.plan_id,
+            title: report.title,
+            content: report.answer,
+            metadata: {
+              datasetProfileReportId: datasetProfileReport.report_id,
+              coverage: report.coverage,
+              evidenceSelection: report.evidenceSelection,
+              sources: report.sources,
+            },
+          });
+          agentRepository.addMessage(threadId, 'assistant', 'analysis', report.answer, {
+            retrieval: 'stratified_hybrid_rag',
+            sources: report.sources,
+            partial: isPartialAnalysis,
+            analysis_coverage: report.coverage,
+            evidence_selection: report.evidenceSelection,
             dataset_profile_report_id: datasetProfileReport.report_id,
+            analysis_report_id: analysisReport.report_id,
           });
         } catch (error: any) {
           ensureMessageNotAborted(signal);

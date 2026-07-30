@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 9;
+export const DATABASE_SCHEMA_VERSION = 10;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');

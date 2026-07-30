@@ -11,6 +11,8 @@ export interface SourceCitationItem {
   excerpt?: string
   score?: number
   fetchedAt?: string
+  matchedQueries?: string[]
+  selectionReason?: 'high_relevance' | 'preferred_type' | 'platform_representative' | 'kind_representative'
 }
 
 interface CollapsibleSourcesBarProps {
@@ -28,6 +30,12 @@ export function CollapsibleSourcesBar({ sources, keywords = [], retrieval, onCit
   if (!sources || sources.length === 0) return null
 
   const validKeywords = Array.from(new Set((keywords || []).filter(Boolean))).slice(0, 8)
+  const reasonLabels: Record<string, string> = {
+    high_relevance: '高相关',
+    preferred_type: '目标类型',
+    platform_representative: '平台代表',
+    kind_representative: '类型代表',
+  }
 
   return (
     <div className="my-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 px-3 py-2 text-xs font-sans transition-all">
@@ -43,7 +51,9 @@ export function CollapsibleSourcesBar({ sources, keywords = [], retrieval, onCit
               ? `已实时检索，参考 ${sources.length} 个网页来源`
               : validKeywords.length > 0
               ? `已搜索 ${validKeywords.length} 个关键词，参考 ${sources.length} 篇资料`
-              : `已检索知识库，参考 ${sources.length} 篇资料`}
+              : retrieval === 'stratified_hybrid_rag'
+                ? `已分层检索知识库，参考 ${sources.length} 个独立文档`
+                : `已检索知识库，参考 ${sources.length} 篇资料`}
           </span>
         </span>
         {expanded ? (
@@ -77,6 +87,11 @@ export function CollapsibleSourcesBar({ sources, keywords = [], retrieval, onCit
                       {platformName}
                     </span>
                   )}
+                  {source.selectionReason ? (
+                    <span className="rounded bg-cyber-neon-cyan/10 px-1 py-0.5 text-[9px] text-cyber-neon-cyan shrink-0 leading-none">
+                      {reasonLabels[source.selectionReason] || source.selectionReason}
+                    </span>
+                  ) : null}
                   <div className="flex-1 min-w-0 flex items-center gap-1">
                     {source.sourceUrl ? (
                       <a

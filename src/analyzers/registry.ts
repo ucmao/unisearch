@@ -65,14 +65,32 @@ export class AnalysisService {
   async run(analyzerId: string, workflowId?: string, options: Record<string, unknown> = {}): Promise<any> {
     const analyzer = analyzerRegistry.get(analyzerId);
     const report = await analyzer.analyze(this.documents(workflowId), options);
-    const record = {
-      report_id: randomUUID(),
-      analyzer_id: analyzer.id,
-      analyzer_version: analyzer.version,
-      workflow_id: workflowId || null,
+    return this.saveReport({
+      analyzerId: analyzer.id,
+      analyzerVersion: analyzer.version,
+      workflowId,
       title: report.title,
       content: report.content,
       metadata: report.metadata,
+    });
+  }
+
+  saveReport(input: {
+    analyzerId: string;
+    analyzerVersion: string;
+    workflowId?: string;
+    title: string;
+    content: string;
+    metadata: Record<string, unknown>;
+  }): any {
+    const record = {
+      report_id: randomUUID(),
+      analyzer_id: input.analyzerId,
+      analyzer_version: input.analyzerVersion,
+      workflow_id: input.workflowId || null,
+      title: input.title,
+      content: input.content,
+      metadata: input.metadata,
       created_at: new Date().toISOString(),
     };
     this.db.prepare(`

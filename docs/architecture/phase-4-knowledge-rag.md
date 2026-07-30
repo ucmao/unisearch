@@ -53,11 +53,17 @@ Embedding Provider，不改变 Chunk、检索或 RAG API。
 
 Agent 对已完成任务执行“分析这些结果”时直接使用该混合检索链路，并把来源列表写入消息元数据。
 
+快速分析不再把单次 Top-K 片段直接交给模型。`EvidenceSelector` 根据数据集规模动态选择 12–30 个
+独立文档，将分析目标拆为多条查询，合并混合检索结果后按 Document 去重，并结合目标内容类型、
+平台代表性和内容类型代表性选取证据。`QuickReportGenerator` 将全量 Dataset Profile 与这些代表性
+证据分别交给模型，最后由程序统一拼接数据边界、统计覆盖和引用元数据。
+
 ## Analyzer
 
 Analyzer Registry 当前提供 `dataset.profile@1.0.0`，对 Workflow 的全部去重文档执行确定性统计，
 生成平台、内容类型、关键词、主体类型、时间范围、字段覆盖率、数值指标和数据质量概况；
 结果持久化到 `analysis_reports`，并作为快速分析报告的全量数字依据。
+最终快速报告也以 `quick.report@1.0.0` 持久化，并记录 Profile 报告 ID、证据选择策略和引用来源。
 
 ## Exporter
 

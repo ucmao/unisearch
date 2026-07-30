@@ -482,7 +482,9 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onPreviewIma
         const kwText = keywords.length > 0 ? keywords.map((k: string) => `“${k}”`).join('、、') : ''
         const sourceSummary = message.metadata?.retrieval === 'live_search'
           ? `已实时检索，参考 ${sources.length} 个网页来源 ›`
-          : `已检索知识库，参考 ${sources.length} 个知识片段 ›`
+          : message.metadata?.retrieval === 'stratified_hybrid_rag'
+            ? `已分层检索知识库，参考 ${sources.length} 个独立文档 ›`
+            : `已检索知识库，参考 ${sources.length} 个知识片段 ›`
         const listItems = sources.map((s: any, idx: number) => {
           const title = (s.title || '未命名资料').replace(/\r?\n/g, ' ')
           const link = s.sourceUrl ? `[${title}](${s.sourceUrl})` : `${title} [${s.id}]`
