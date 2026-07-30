@@ -874,9 +874,31 @@ export class AgentRepository {
     return platforms.length ? result.items.filter((item) => platforms.includes(item.platform)) : result.items;
   }
 
+  getThreadContents(threadId: string, limit = 100, platforms: string[] = []): any[] {
+    const analytics = new AnalyticsRepository(this.databaseProvider);
+    const result = analytics.queryDocuments({ thread_id: threadId, page: 1, page_size: limit });
+    return platforms.length ? result.items.filter((item) => platforms.includes(item.platform)) : result.items;
+  }
+
   getPlanStats(workflowId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {
     const rows = new AnalyticsRepository(this.databaseProvider)
       .queryDocuments({ workflow_id: workflowId, page: 1, page_size: 1000000 }).items;
+    const counts = new Map<string, { platform: string; platform_label: string; count: number }>();
+    for (const row of rows) {
+      const current = counts.get(row.platform) || {
+        platform: row.platform,
+        platform_label: platformLabel(row.platform),
+        count: 0,
+      };
+      current.count++;
+      counts.set(row.platform, current);
+    }
+    return { content_count: rows.length, by_platform: [...counts.values()].sort((a, b) => b.count - a.count) };
+  }
+
+  getThreadStats(threadId: string): { content_count: number; by_platform: Array<{ platform: string; platform_label: string; count: number }> } {
+    const rows = new AnalyticsRepository(this.databaseProvider)
+      .queryDocuments({ thread_id: threadId, page: 1, page_size: 1000000 }).items;
     const counts = new Map<string, { platform: string; platform_label: string; count: number }>();
     for (const row of rows) {
       const current = counts.get(row.platform) || {

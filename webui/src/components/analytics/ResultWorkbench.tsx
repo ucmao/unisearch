@@ -342,11 +342,9 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
       >
         <div
           onMouseDown={startResizing}
-          className="group absolute left-0 top-0 bottom-0 z-50 w-2 cursor-col-resize hover:bg-cyber-neon-cyan/40"
+          className={`absolute -left-[3px] top-0 bottom-0 z-50 w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${isResizing ? 'bg-cyber-neon-cyan/35' : ''}`}
           title="拖动调整抽屉宽度"
-        >
-          <div className="h-full w-0.5 mx-auto bg-transparent transition-colors group-hover:bg-cyber-neon-cyan" />
-        </div>
+        />
         {document ? (
           <>
             {/* 顶栏 Header */}
@@ -707,41 +705,41 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
         const isTaskSelected = scope === `thread:${task.thread_id}`
         return (
           <div key={task.thread_id} className={`rounded-lg border p-2 transition-all ${isTaskSelected ? 'border-cyber-neon-cyan/40 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle bg-cyber-bg-panel/20'}`}>
-            <div className="group flex items-center gap-1">
+            <div className={`group flex items-center justify-between rounded-md px-2 py-1.5 transition-colors ${isTaskSelected ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary font-medium hover:bg-cyber-neon-cyan/20' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'}`}>
               <button
                 type="button"
                 onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setMobileScopeOpen(false) }}
-                className={`min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-xs font-medium transition-colors ${isTaskSelected ? 'text-cyber-text-primary' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70'}`}
+                className="min-w-0 flex-1 truncate text-left text-xs font-medium focus:outline-none"
               >
                 {task.task_title || task.thread_id}
               </button>
-              <div className="opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
                 <DeleteConfirmDialog
                   title="删除整个任务及其采集数据？"
                   description="该操作会物理删除任务下所有执行、文档来源和日志。"
                   onConfirm={() => deleteScope('task', task.thread_id)}
-                  trigger={<Button variant="ghost" size="icon" className="h-7 w-7 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
+                  trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
                 />
               </div>
             </div>
-            <div className="ml-2 space-y-1 border-l border-cyber-border-subtle pl-2">
+            <div className="ml-2 space-y-1 border-l border-cyber-border-subtle pl-2 mt-1">
               {task.rounds.map((round) => {
                 const isRoundSelected = scope === `plan:${round.plan_id}`
                 return (
-                  <div key={round.plan_id} className="group flex items-center gap-1">
+                  <div key={round.plan_id} className={`group flex items-center justify-between rounded px-2 py-1 transition-colors ${isRoundSelected ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary font-medium hover:bg-cyber-neon-cyan/20' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'}`}>
                     <button
                       type="button"
                       onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }}
-                      className={`min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-[11px] transition-colors ${isRoundSelected ? 'font-medium text-cyber-text-primary bg-cyber-neon-cyan/10' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary'}`}
+                      className="min-w-0 flex-1 truncate text-left text-[11px] focus:outline-none"
                     >
                       {round.round_title || round.plan_id}
                     </button>
-                    <div className="opacity-0 transition-opacity group-hover:opacity-100">
+                    <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
                       <DeleteConfirmDialog
                         title="删除该采集轮次？"
                         description="该轮次下的执行和文档来源将被物理删除。"
                         onConfirm={() => deleteScope('round', round.plan_id)}
-                        trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
+                        trigger={<Button variant="ghost" size="icon" className="h-5 w-5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
                       />
                     </div>
                   </div>
@@ -853,11 +851,9 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
           {!sidebarCollapsed && (
             <div
               onMouseDown={startResizing}
-              className="group absolute -right-1 top-0 bottom-0 z-10 w-2 cursor-col-resize hover:bg-cyber-neon-cyan/30"
+              className={`absolute -right-[3px] top-0 bottom-0 z-20 w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${isResizing ? 'bg-cyber-neon-cyan/35' : ''}`}
               title="拖动调整侧栏宽度"
-            >
-              <div className="h-full w-0.5 mx-auto bg-transparent transition-colors group-hover:bg-cyber-neon-cyan" />
-            </div>
+            />
           )}
         </aside>
 

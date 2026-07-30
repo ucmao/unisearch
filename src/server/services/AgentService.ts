@@ -332,11 +332,18 @@ export class AgentService {
         referenceMap.set(reference.plan_id, selected);
       }
     }
-    const autoPlanId = includePlanId || agentRepository.getLatestPlan(thread.thread_id)?.plan_id;
-    if (autoPlanId && !referenceMap.has(autoPlanId)) {
-      const targetPlan = agentRepository.getPlan(autoPlanId);
-      if (targetPlan && ['completed', 'partially_completed'].includes(targetPlan.status)) {
-        referenceMap.set(autoPlanId, new Set());
+    const allPlans = agentRepository.listPlans(thread.thread_id);
+    if (includePlanId) {
+      const targetPlan = agentRepository.getPlan(includePlanId);
+      if (targetPlan && ['completed', 'partially_completed'].includes(targetPlan.status) && !referenceMap.has(includePlanId)) {
+        referenceMap.set(includePlanId, new Set());
+      }
+    }
+    if (referenceMap.size === 0) {
+      for (const plan of allPlans) {
+        if (['completed', 'partially_completed'].includes(plan.status)) {
+          referenceMap.set(plan.plan_id, new Set());
+        }
       }
     }
 
@@ -857,28 +864,30 @@ export class AgentService {
     }
 
     if (decision.action === 'analyze' || (latest && ['queued', 'running', 'completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
-      if (!latest || !['queued', 'running', 'completed', 'partially_completed'].includes(latest.status)) {
+      const allThreadPlans = agentRepository.listPlans(threadId);
+      const hasActiveOrCompletedPlan = allThreadPlans.some((p) => ['queued', 'running', 'completed', 'partially_completed'].includes(p.status));
+      if (!hasActiveOrCompletedPlan && !latest) {
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前还没有已完成的采集结果可以分析。', { action: 'chat' });
         return agentRepository.getThread(threadId);
       }
-      // Prefer the specialised analysis request whenever this plan has records.
-      // `collectMaterials` is also used for normal chat and includes the whole
-      // conversation, which makes some compatible models overlook the records
-      // and answer as if they had no access to the completed task.
-      const datasetProfileReport = await analysisService.run('dataset.profile', latest.plan_id);
+      // Prefer the specialised thread-level dataset profile and report generation.
+      const datasetProfileReport = await analysisService.run('dataset.profile', undefined, { threadId });
       const datasetProfile = datasetProfileReport.metadata.datasetProfile;
       const documentCount = datasetProfile.documentCount;
       if (documentCount) {
         try {
-          const analysisSkill = skillRegistry.find(latest.plan.skillId);
-          const isPartialAnalysis = ['queued', 'running'].includes(latest.status);
-          if (isPartialAnalysis) knowledgeIndex.rebuild({ workflowId: latest.plan_id });
+          const analysisSkill = skillRegistry.find(latest?.plan?.skillId);
+          const isPartialAnalysis = allThreadPlans.some((p) => ['queued', 'running'].includes(p.status));
+          knowledgeIndex.rebuild({ threadId });
+          const threadGoals = Array.from(new Set(allThreadPlans.map((p) => p.goal).filter(Boolean))).join('；');
+          const threadAnalysisGoals = Array.from(new Set(allThreadPlans.flatMap((p) => p.plan?.analysis || [])));
           const report = await quickReportGenerator.generate({
-            workflowId: latest.plan_id,
-            workflowGoal: latest.goal,
+            threadId,
+            workflowId: latest?.plan_id,
+            workflowGoal: threadGoals || latest?.goal || content,
             reportName: analysisSkill?.name || '采集结果分析',
             userRequest: content,
-            analysisGoals: latest.plan.analysis || [],
+            analysisGoals: threadAnalysisGoals.length ? threadAnalysisGoals : (latest?.plan?.analysis || []),
             skillName: analysisSkill?.name,
             skillInstructions: analysisSkill?.analysisInstructions,
             datasetProfile,
@@ -891,7 +900,7 @@ export class AgentService {
           const analysisReport = analysisService.saveReport({
             analyzerId: 'quick.report',
             analyzerVersion: '1.0.0',
-            workflowId: latest.plan_id,
+            workflowId: latest?.plan_id,
             title: report.title,
             content: report.answer,
             metadata: {

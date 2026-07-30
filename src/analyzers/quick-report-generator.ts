@@ -16,7 +16,8 @@ export interface QuickAnalysisCoverage {
 }
 
 export interface QuickReportRequest {
-  workflowId: string;
+  threadId?: string;
+  workflowId?: string;
   workflowGoal: string;
   reportName: string;
   userRequest: string;
@@ -106,6 +107,7 @@ export class QuickReportGenerator {
 
   async generate(request: QuickReportRequest): Promise<QuickReportResult> {
     const selection = this.selector.select({
+      threadId: request.threadId,
       workflowId: request.workflowId,
       workflowGoal: request.workflowGoal,
       userRequest: request.userRequest,
