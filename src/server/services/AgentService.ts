@@ -134,7 +134,7 @@ export function normalizePlan(
     千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',
     文心: 'wenxin', 文心一言: 'wenxin', 文心言: 'wenxin', 文小言: 'wenxin',
-    黑猫: 'heimao', 黑猫投诉: 'heimao', 智联: 'zhaopin', 智联招聘: 'zhaopin',
+    黑猫: 'heimao', 黑猫投诉: 'heimao', 智联: 'zhaopin', 智联招聘: 'zhaopin', 前程无忧: 'job51', '51job': 'job51', 猎聘: 'liepin', 猎聘网: 'liepin',
     'AI HOT': 'aihot', AI热点: 'aihot', AI热榜: 'aihot',
   };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])

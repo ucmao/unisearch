@@ -36,6 +36,8 @@ const ENTITY_ICONS: Record<string, any> = {
   so360: Compass,
   sogou: Search,
   zhaopin: Briefcase,
+  job51: Briefcase,
+  liepin: Briefcase,
   heimao: ShieldAlert,
   media_parser: Link2,
   deepseek: Brain,

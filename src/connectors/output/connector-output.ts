@@ -35,6 +35,8 @@ const OUTPUTS: Record<string, OutputDefinition> = {
   emitDoubaoResult: { source: 'doubao', kind: 'ai_answer' },
   emitQwenResult: { source: 'qwen', kind: 'ai_answer' },
   emitZhaopinResult: { source: 'zhaopin', kind: 'job' },
+  emitJob51Result: { source: 'job51', kind: 'job' },
+  emitLiepinResult: { source: 'liepin', kind: 'job' },
   emitHeimaoResult: { source: 'heimao', kind: 'complaint' },
   emitAiHotItem: { source: 'aihot', kind: 'article' },
   emitArxivPaper: { source: 'arxiv', kind: 'article' },
@@ -201,6 +203,8 @@ class ConnectorOutput {
     return this.emit('emitSearchEngineResult', item, platform);
   };
   emitZhaopinResult = (item: Payload) => this.emit('emitZhaopinResult', item);
+  emitJob51Result = (item: Payload) => this.emit('emitJob51Result', item);
+  emitLiepinResult = (item: Payload) => this.emit('emitLiepinResult', item);
   emitHeimaoResult = (item: Payload) => this.emit('emitHeimaoResult', item);
   emitAiHotItem = (item: Payload) => this.emit('emitAiHotItem', item);
   emitArxivPaper = (item: Payload) => this.emit('emitArxivPaper', item);
