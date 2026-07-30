@@ -17,7 +17,10 @@ function capability(platform: string, capabilityId = 'keyword_search'): Connecto
 }
 
 test('depth budgets never exceed the capability ceiling that would reject the run', () => {
-  for (const manifest of ['xhs', 'douyin', 'bili', 'weibo', 'zhihu', 'tieba', 'kuaishou', 'baidu', 'bing', 'zhaopin', 'heimao']) {
+  for (const manifest of [
+    'xhs', 'douyin', 'bili', 'weibo', 'zhihu', 'tieba', 'kuaishou',
+    'baidu', 'bing', 'zhaopin', 'job51', 'liepin', 'boss', 'heimao',
+  ]) {
     for (const depth of ['quick', 'standard', 'deep'] as const) {
       const target = capability(manifest);
       const preset = resolveDepthPreset(target, depth);
@@ -34,7 +37,10 @@ test('depth budgets never exceed the capability ceiling that would reject the ru
         login_type: 'qrcode',
         crawler_type: 'search',
         keywords: '测试',
-        connector_options: { max_items: preset.maxItems },
+        connector_options: {
+          max_items: preset.maxItems,
+          ...(manifest === 'boss' ? { authorization_reference: 'BOSS-OFFICIAL-TEST-001' } : {}),
+        },
       } as any));
     }
   }

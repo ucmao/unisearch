@@ -37,6 +37,7 @@ const OUTPUTS: Record<string, OutputDefinition> = {
   emitZhaopinResult: { source: 'zhaopin', kind: 'job' },
   emitJob51Result: { source: 'job51', kind: 'job' },
   emitLiepinResult: { source: 'liepin', kind: 'job' },
+  emitBossResult: { source: 'boss', kind: 'job' },
   emitHeimaoResult: { source: 'heimao', kind: 'complaint' },
   emitAiHotItem: { source: 'aihot', kind: 'article' },
   emitArxivPaper: { source: 'arxiv', kind: 'article' },
@@ -205,6 +206,7 @@ class ConnectorOutput {
   emitZhaopinResult = (item: Payload) => this.emit('emitZhaopinResult', item);
   emitJob51Result = (item: Payload) => this.emit('emitJob51Result', item);
   emitLiepinResult = (item: Payload) => this.emit('emitLiepinResult', item);
+  emitBossResult = (item: Payload) => this.emit('emitBossResult', item);
   emitHeimaoResult = (item: Payload) => this.emit('emitHeimaoResult', item);
   emitAiHotItem = (item: Payload) => this.emit('emitAiHotItem', item);
   emitArxivPaper = (item: Payload) => this.emit('emitArxivPaper', item);

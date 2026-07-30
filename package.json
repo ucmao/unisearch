@@ -7,6 +7,7 @@
   "main": "dist/main/index.js",
   "scripts": {
     "test:agent": "node tests/run-agent-tests.mjs",
+    "probe:boss:cdp": "node --import tsx scratch/probe_boss_cdp.ts",
     "webui:build": "cd webui && npm run build",
     "build:backend": "tsup",
     "electron:dev": "npm run build:backend && electron .",

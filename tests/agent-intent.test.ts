@@ -98,8 +98,34 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
-    'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'zhaopin', 'job51', 'liepin',
+    'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
   ]);
+});
+
+test('BOSS 直聘 aliases require explicit platform context and preserve ordinary English Boss', () => {
+  assert.deepEqual(inferResearchPlatforms('在 BOSS直聘 搜索 Java 后端'), ['boss']);
+  assert.deepEqual(inferResearchPlatforms('在 BOSS 直聘上找产品经理'), ['boss']);
+  assert.deepEqual(inferResearchPlatforms('用 boss 搜索上海数据分析师'), ['boss']);
+  assert.deepEqual(inferResearchPlatforms('采集 https://www.zhipin.com/web/geek/job?query=Java'), ['boss']);
+  assert.deepEqual(inferResearchPlatforms('所有招聘平台'), ['boss', 'zhaopin', 'job51', 'liepin']);
+  assert.deepEqual(inferResearchKeywords('在 BOSS直聘 搜索 Java 后端'), ['Java 后端']);
+  assert.equal(localIntentDecision('在 BOSS直聘 搜索 Java 后端').action, 'create_plan');
+
+  for (const message of ['How do I talk to my Boss?', 'Boss Baby 电影怎么样？', 'Boss 招聘员工要注意什么？']) {
+    assert.deepEqual(inferResearchPlatforms(message), [], message);
+    assert.equal(localIntentDecision(message).action, 'chat', message);
+  }
+});
+
+test('BOSS 直聘 planner aliases normalize to the registered boss connector', () => {
+  const { normalizePlan } = require('../src/server/services/AgentService');
+  for (const alias of ['boss', 'BOSS', 'Boss', 'BOSS直聘', 'BOSS 直聘', 'zhipin.com']) {
+    const plan = normalizePlan(
+      { platforms: [alias], keywords: ['Java 后端'] },
+      '在 BOSS直聘搜索 Java 后端',
+    );
+    assert.deepEqual(plan.platforms, ['boss'], alias);
+  }
 });
 
 test('arXiv requests select the academic connector and remove the platform name from keywords', () => {
@@ -246,6 +272,9 @@ test('negative platform exclusion directives filter out specified platforms', ()
   assert.deepEqual(inferExcludedPlatforms('不要采集黑猫投诉，关键词：易拓'), ['heimao']);
   assert.deepEqual(inferExcludedPlatforms('排除小红书和抖音'), ['xhs', 'douyin']);
   assert.deepEqual(inferExcludedPlatforms('黑猫投诉除外'), ['heimao']);
+  assert.deepEqual(inferExcludedPlatforms('不要采集 BOSS直聘'), ['boss']);
+  assert.deepEqual(inferExcludedPlatforms('排除 boss 和智联招聘'), ['boss', 'zhaopin']);
+  assert.deepEqual(inferExcludedPlatforms('zhipin.com 除外'), ['boss']);
 
   const skill = skillRegistry.get('brand-geo-risk-monitor');
   const plan = normalizePlan(

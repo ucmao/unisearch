@@ -13,6 +13,7 @@ const platformDomains: Record<string, string[]> = {
   weibo: ['weibo.com', 'weibo.cn'],
   tieba: ['tieba.baidu.com'],
   zhihu: ['zhihu.com'],
+  boss: ['zhipin.com'],
   zhaopin: ['zhaopin.com'],
   job51: ['51job.com'],
   liepin: ['liepin.com'],
@@ -20,10 +21,14 @@ const platformDomains: Record<string, string[]> = {
   github_repositories: ['github.com'],
 }
 
+function containsDomain(input: string, domain: string): boolean {
+  const escaped = domain.split('.').join('\\.')
+  return new RegExp(`(?:^|[^a-z0-9.-])(?:[a-z0-9-]+\\.)*${escaped}(?=$|[^a-z0-9.-])`, 'i').test(input)
+}
+
 export function detectPlatform(input: string): string | null {
-  const normalized = input.toLowerCase()
   const matches = Object.entries(platformDomains)
-    .filter(([, domains]) => domains.some((domain) => normalized.includes(domain)))
+    .filter(([, domains]) => domains.some((domain) => containsDomain(input, domain)))
     .map(([platform]) => platform)
 
   if (matches.length === 1) return matches[0]
@@ -53,6 +58,14 @@ const platformPatterns: Record<string, {
       /arxiv\.org\/(?:abs|pdf)\/((?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z]{2})?\/\d{7})(?:v\d+)?)(?:\.pdf)?/i,
     ],
     creator: [],
+  },
+  boss: {
+    video: [
+      /(?:^|\/\/)(?:[\w-]+\.)*zhipin\.com\/job_detail\/([a-zA-Z0-9_~-]+)(?:\.html)?/i,
+    ],
+    creator: [
+      /(?:^|\/\/)(?:[\w-]+\.)*zhipin\.com\/(?:gongsi|companys?)\/([a-zA-Z0-9_~-]+)(?:\.html)?/i,
+    ],
   },
   zhaopin: {
     video: [

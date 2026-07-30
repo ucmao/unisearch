@@ -135,7 +135,8 @@ export function normalizePlan(
     千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',
     文心: 'wenxin', 文心一言: 'wenxin', 文心言: 'wenxin', 文小言: 'wenxin',
-    黑猫: 'heimao', 黑猫投诉: 'heimao', 智联: 'zhaopin', 智联招聘: 'zhaopin', 前程无忧: 'job51', '51job': 'job51', 猎聘: 'liepin', 猎聘网: 'liepin',
+    黑猫: 'heimao', 黑猫投诉: 'heimao', boss: 'boss', Boss: 'boss', BOSS: 'boss', BOSS直聘: 'boss', 'BOSS 直聘': 'boss', 'zhipin.com': 'boss',
+    智联: 'zhaopin', 智联招聘: 'zhaopin', 前程无忧: 'job51', '51job': 'job51', 猎聘: 'liepin', 猎聘网: 'liepin',
     'AI HOT': 'aihot', AI热点: 'aihot', AI热榜: 'aihot',
   };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
@@ -151,7 +152,7 @@ export function normalizePlan(
     // Models occasionally echo the merged clarification scaffold into a keyword,
     // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
     // through the deterministic subject extractor.
-    if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗).*(?:采集|搜索)/i.test(keyword)) {
+    if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|BOSS\s*直聘|zhipin\.com).*(?:采集|搜索)/i.test(keyword)) {
       return inferResearchKeywords(keyword);
     }
     return [keyword];

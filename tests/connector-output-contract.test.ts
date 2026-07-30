@@ -25,6 +25,24 @@ test('connector payloads are emitted as a versioned RawItem contract', () => {
   assert.deepEqual(item.metadata, {});
 });
 
+test('BOSS job payloads use the shared versioned job output contract', () => {
+  const item = buildRawItem('emitBossResult', {
+    job_id: 'boss-job-1',
+    job_name: '后端工程师',
+    company_name: '示例科技',
+    job_url: 'https://www.zhipin.com/job_detail/boss-job-1.html',
+    description: '负责统一搜索服务。',
+  });
+
+  assert.equal(item.id, 'boss:job:boss-job-1');
+  assert.equal(item.source, 'boss');
+  assert.equal(item.kind, 'job');
+  assert.equal(item.sourceItemId, 'boss-job-1');
+  assert.equal(item.sourceUrl, 'https://www.zhipin.com/job_detail/boss-job-1.html');
+  assert.equal(item.hints.title, '后端工程师');
+  assert.equal(item.hints.author, '示例科技');
+});
+
 test('comments are identified by their own id, not by their parent item id', () => {
   const build = (commentId: string) => buildRawItem('emitKuaishouComment', {
     comment_id: commentId,

@@ -29,9 +29,9 @@ function raw(source: string, kind: RawItemKind, payload: Record<string, any>) {
   });
 }
 
-test('all 29 registered connectors have an executable v2 mapping', () => {
+test('all 30 registered connectors have an executable v2 mapping', () => {
   const manifests = listConnectorManifests();
-  assert.equal(manifests.length, 29);
+  assert.equal(manifests.length, 30);
   assert.deepEqual(Object.keys(CONNECTOR_MAPPING_MATRIX).sort(), manifests.map((item) => item.id).sort());
   for (const manifest of manifests) {
     const document = mapRawItemToCanonicalDocument(raw(manifest.id, 'post', {
@@ -163,6 +163,26 @@ test('job mapper creates deterministic summary and queryable attributes', () => 
   assert.equal(document.rank, 2);
 });
 
+test('BOSS job mapper normalizes native job and company aliases', () => {
+  const document = mapRawItemToCanonicalDocument(buildRawItem('emitBossResult', {
+    job_id: 'boss-job-1', job_name: '平台工程师', brandId: 'brand-1', brandName: '示例公司',
+    salaryDesc: '30-45K', cityName: '北京', jobExperience: '5-10年', jobDegree: '本科',
+    description: '负责平台架构。', job_url: 'https://www.zhipin.com/job_detail/boss-job-1.html', rank: 3,
+    skills: ['TypeScript', 'Node.js'], welfare: ['五险一金'], company_industry: '企业服务',
+    company_stage: 'B轮', company_scale: '100-499人',
+  }));
+  assert.equal(document.subject.type, 'company');
+  assert.equal(document.subject.id, 'brand-1');
+  assert.equal(document.subject.name, '示例公司');
+  assert.equal(document.summary, '30-45K · 北京 · 5-10年 · 本科 · 示例公司');
+  assert.deepEqual(document.attributes, {
+    salary: '30-45K', city: '北京', experience: '5-10年', education: '本科',
+    skills: ['TypeScript', 'Node.js'], welfare: ['五险一金'], companyIndustry: '企业服务',
+    companyStage: 'B轮', companyScale: '100-499人',
+  });
+  assert.equal(document.rank, 3);
+});
+
 test('complaint mapper keeps status separate while including it in summary', () => {
   const document = mapRawItemToCanonicalDocument(buildRawItem('emitHeimaoResult', {
     content_id: 'complaint-1', title: '退款投诉', desc: '[投诉商家: 示例商家] [状态: 处理中] 商家拒绝退款。', merchant_name: '示例商家',
@@ -193,6 +213,11 @@ test('corrected manifests expose canonical fields for non-social families', () =
   assert.deepEqual(fields('zhaopin', 'keyword_search').filter((key) =>
     ['summary', 'salary', 'work_city', 'job_experience', 'education', 'rank'].includes(key)),
   ['summary', 'salary', 'work_city', 'job_experience', 'education', 'rank']);
+  assert.deepEqual(fields('boss', 'keyword_search').filter((key) =>
+    ['summary', 'salary', 'work_city', 'job_experience', 'education', 'rank', 'company_id', 'company_name',
+      'skills', 'welfare', 'company_industry', 'company_stage', 'company_scale'].includes(key)),
+  ['summary', 'salary', 'work_city', 'job_experience', 'education', 'rank', 'company_id', 'company_name',
+    'skills', 'welfare', 'company_industry', 'company_stage', 'company_scale']);
   assert.ok(fields('heimao', 'content_detail').includes('status'));
   assert.ok(fields('qwen', 'keyword_search').includes('citations'));
   assert.ok(fields('media_parser', 'url_resolve').includes('original_platform'));

@@ -35,6 +35,7 @@ const ENTITY_ICONS: Record<string, any> = {
   bing: Globe,
   so360: Compass,
   sogou: Search,
+  boss: Briefcase,
   zhaopin: Briefcase,
   job51: Briefcase,
   liepin: Briefcase,

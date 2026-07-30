@@ -58,6 +58,12 @@ export interface AppConfig {
   WEB_READER_TIMEOUT_MS: number;
   WEB_READER_CONCURRENCY: number;
 
+  /**
+   * Reference to the written BOSS authorization/partner agreement that permits
+   * this connector run. The BOSS runtime refuses to navigate without it.
+   */
+  BOSS_AUTHORIZATION_REFERENCE: string;
+
   // Platform specific lists
   XHS_CREATOR_ID_LIST: string[];
   DY_CREATOR_ID_LIST: string[];
@@ -140,6 +146,8 @@ export const DEFAULT_CONFIG: AppConfig = {
 
   WEB_READER_TIMEOUT_MS: 15000,
   WEB_READER_CONCURRENCY: 3,
+
+  BOSS_AUTHORIZATION_REFERENCE: '',
 
   XHS_CREATOR_ID_LIST: [],
   DY_CREATOR_ID_LIST: [],

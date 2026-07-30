@@ -1,0 +1,44 @@
+{
+  "code": 0,
+  "message": "success",
+  "zpData": {
+    "totalCount": 2,
+    "hasMore": false,
+    "jobList": [
+      {
+        "encryptJobId": "REDACTED_JOB_001",
+        "securityId": "REDACTED_SECURITY_001",
+        "jobName": "高级 Python 工程师（脱敏样例）",
+        "salaryDesc": "20-35K·14薪",
+        "cityName": "上海",
+        "areaDistrict": "浦东新区",
+        "businessDistrict": "示例园区",
+        "jobExperience": "3-5年",
+        "jobDegree": "本科",
+        "brandName": "示例科技（脱敏）",
+        "brandId": "REDACTED_BRAND_001",
+        "jobDesc": "负责离线数据服务开发。\n本记录仅用于解析器测试。",
+        "jobUrl": "/job_detail/REDACTED_JOB_001.html?securityId=REDACTED_SECURITY_001",
+        "skills": ["Python", "SQL", "Python"],
+        "welfareList": ["五险一金", "弹性工作"],
+        "companyIndustry": "企业服务",
+        "companyStage": "未披露",
+        "companyScale": "100-499人",
+        "publishTime": 1760000000
+      },
+      {
+        "encrypt_job_id": "REDACTED_JOB_002",
+        "job_name": "数据分析师（脱敏样例）",
+        "salary": "15-25K",
+        "location": "杭州 · 西湖区",
+        "labels": ["1-3年", "硕士", "数据分析"],
+        "company_name": "示例数据公司（脱敏）",
+        "description": "分析公开业务指标，不包含任何真实个人信息。",
+        "href": "https://www.zhipin.com/job_detail/REDACTED_JOB_002.html",
+        "skillsList": [{ "name": "SQL" }, { "name": "可视化" }],
+        "welfare": "带薪年假、餐补"
+      }
+    ]
+  }
+}
+
