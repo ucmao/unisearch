@@ -324,16 +324,10 @@ function SinglePassPacedThreeLineStream({ isRunning }: { isRunning: boolean }) {
 
 function ChatCrawlingStatusBanner({
   activePlan,
-  rightSidebarOpen,
-  onToggleRightSidebar,
-  onTriggerPulse,
   onStop,
   stopping,
 }: {
   activePlan: AgentPlan
-  rightSidebarOpen: boolean
-  onToggleRightSidebar: () => void
-  onTriggerPulse: () => void
   onStop: () => void
   stopping: boolean
 }) {
@@ -350,14 +344,6 @@ function ChatCrawlingStatusBanner({
   const contentCount = activePlan.stats?.content_count ?? 0
   const isPostProcessing = activePlan.status === 'running' && totalSteps > 0 && completedSteps === totalSteps
 
-  const handleClick = () => {
-    if (!rightSidebarOpen) {
-      onToggleRightSidebar()
-    } else {
-      onTriggerPulse()
-    }
-  }
-
   const isStreamActive = isRunning && !isPostProcessing
 
   return (
@@ -367,18 +353,12 @@ function ChatCrawlingStatusBanner({
           <Bot className="h-4 w-4 text-cyber-neon-cyan" />
         </div>
         <div className="flex items-center gap-2 py-1">
-          <button
-            type="button"
-            onClick={handleClick}
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-cyber-text-primary"
-            title={rightSidebarOpen ? '任务大盘已在右侧显示' : '点击展开右侧任务大盘'}
-          >
+          <div className="inline-flex items-center gap-1.5 text-cyber-text-secondary">
             <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
             <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
             <span className="text-cyber-border-default">·</span>
             <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
-            <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
-          </button>
+          </div>
           <button
             type="button"
             onClick={onStop}
@@ -658,16 +638,47 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [renameTitle, setRenameTitle] = useState('')
   const [deleteAnalyticsData, setDeleteAnalyticsData] = useState(true)
   const [terminalOpen, setTerminalOpen] = useState(false)
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(() => localStorage.getItem('unisearch-right-sidebar-open') !== 'false')
-  const [rightSidebarPulsing, setRightSidebarPulsing] = useState(false)
-  const triggerRightSidebarPulse = () => {
-    setRightSidebarPulsing(true)
-    window.setTimeout(() => setRightSidebarPulsing(false), 1200)
-  }
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(false)
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 300))
   const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
   const [activeResize, setActiveResize] = useState<'left' | 'terminal' | 'right' | null>(null)
+
+  const threadPanelStatesRef = useRef<Record<string, {
+    rightSidebarOpen: boolean
+    terminalOpen: boolean
+    rightSidebarWidth: number
+    terminalHeight: number
+  }>>({})
+
+  useEffect(() => {
+    if (!selectedId) {
+      setRightSidebarOpen(false)
+      setTerminalOpen(false)
+      return
+    }
+
+    const saved = threadPanelStatesRef.current[selectedId]
+    if (saved) {
+      setRightSidebarOpen(saved.rightSidebarOpen)
+      setTerminalOpen(saved.terminalOpen)
+      setRightSidebarWidth(saved.rightSidebarWidth)
+      setTerminalHeight(saved.terminalHeight)
+    } else {
+      const defaultRightWidth = storedPanelSize('unisearch-right-sidebar-width', 300)
+      const defaultTerminalHeight = storedPanelSize('unisearch-terminal-height', 220)
+      setRightSidebarOpen(false)
+      setTerminalOpen(false)
+      setRightSidebarWidth(defaultRightWidth)
+      setTerminalHeight(defaultTerminalHeight)
+      threadPanelStatesRef.current[selectedId] = {
+        rightSidebarOpen: false,
+        terminalOpen: false,
+        rightSidebarWidth: defaultRightWidth,
+        terminalHeight: defaultTerminalHeight,
+      }
+    }
+  }, [selectedId])
   const [petCelebrating, setPetCelebrating] = useState(false)
   const [activeCitation, setActiveCitation] = useState<SourceCitation | null>(null)
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false)
@@ -1246,12 +1257,36 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       return !current
     })
   }
+  const updateCurrentThreadPanelState = (patch: Partial<{ rightSidebarOpen: boolean; terminalOpen: boolean; rightSidebarWidth: number; terminalHeight: number }>) => {
+    if (!selectedId) return
+    const current = threadPanelStatesRef.current[selectedId] || {
+      rightSidebarOpen,
+      terminalOpen,
+      rightSidebarWidth,
+      terminalHeight,
+    }
+    threadPanelStatesRef.current[selectedId] = {
+      ...current,
+      ...patch,
+    }
+  }
+
   const toggleRightSidebar = () => {
     setRightSidebarOpen((current) => {
-      localStorage.setItem('unisearch-right-sidebar-open', String(!current))
-      return !current
+      const next = !current
+      updateCurrentThreadPanelState({ rightSidebarOpen: next })
+      return next
     })
   }
+
+  const toggleTerminal = () => {
+    setTerminalOpen((current) => {
+      const next = !current
+      updateCurrentThreadPanelState({ terminalOpen: next })
+      return next
+    })
+  }
+
   const openNewTask = () => {
     setInput('')
     setTerminalOpen(false)
@@ -1276,11 +1311,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     const next = Math.round(Math.min(380, Math.max(210, value)))
     setRightSidebarWidth(next)
     localStorage.setItem('unisearch-right-sidebar-width', String(next))
+    updateCurrentThreadPanelState({ rightSidebarWidth: next })
   }
   const updateTerminalHeight = (value: number) => {
     const next = Math.round(Math.min(480, Math.max(140, value)))
     setTerminalHeight(next)
     localStorage.setItem('unisearch-terminal-height', String(next))
+    updateCurrentThreadPanelState({ terminalHeight: next })
   }
   const beginResize = (event: ReactPointerEvent<HTMLDivElement>, target: 'left' | 'terminal' | 'right', onMove: (event: PointerEvent) => void) => {
     event.preventDefault()
@@ -1304,12 +1341,23 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
   return (
     <div ref={workspaceRef} className="flex h-full min-h-0 overflow-hidden">
+      {!threadsCollapsed && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs md:hidden"
+          onClick={toggleThreads}
+          aria-hidden="true"
+        />
+      )}
       <aside
-        className={`relative shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/70 ${threadsCollapsed ? 'hidden' : 'hidden md:flex'}`}
+        className={`shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-panel md:bg-cyber-bg-secondary/70 ${
+          threadsCollapsed
+            ? 'hidden'
+            : 'fixed inset-y-0 left-0 z-50 flex shadow-2xl md:relative md:z-auto md:shadow-none'
+        }`}
         style={{ width: leftSidebarWidth }}
       >
         <div className="flex h-11 shrink-0 items-center pl-[74px] px-2 app-drag">
-          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag" onClick={toggleThreads} title="收起任务栏">
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag" onClick={toggleThreads} title="收起任务栏">
             <PanelLeftClose className="h-4 w-4" />
           </Button>
         </div>
@@ -1358,7 +1406,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {threadMenuId ? <button type="button" className="fixed inset-0 z-30 cursor-default" onClick={() => setThreadMenuId(null)} aria-label="关闭任务菜单" /> : null}
             {filteredThreads.map((thread, index) => (
               <div key={thread.thread_id} className={`group relative ${threadMenuId === thread.thread_id ? 'z-40' : ''}`}>
-                <button type="button" onClick={() => setSelectedId(thread.thread_id)}
+                <button type="button" onClick={() => {
+                  setSelectedId(thread.thread_id)
+                  if (window.innerWidth < 768) {
+                    setThreadsCollapsed(true)
+                  }
+                }}
                   className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
                   <div className="flex items-center gap-2 pr-6"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
                   <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
@@ -1454,16 +1507,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 app-drag ${threadsCollapsed ? 'pl-[74px]' : 'pl-4 sm:pl-6'}`}>
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 app-drag ${threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6'}`}>
           <div className="flex items-center gap-1.5 min-w-0">
-            {threadsCollapsed && (
-              <div className="flex items-center gap-1.5 app-no-drag">
-                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">
-                  <PanelLeftOpen className="h-4 w-4" />
-                </Button>
-                <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
-              </div>
-            )}
+            <div className={`items-center gap-1.5 app-no-drag ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}>
+              <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
+            </div>
             <h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1>
           </div>
           <div className="flex items-center gap-1 app-no-drag">
@@ -1471,7 +1522,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {(isCollecting || browserWindowQuery.data?.can_open) && <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
+              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={() => toggleBrowserWindow.mutate()}
               disabled={toggleBrowserWindow.isPending}
               title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
@@ -1480,22 +1531,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             >
               {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
             </Button>}
-            <Button
+            {selectedId && <Button
               size="icon"
               variant="ghost"
-              className="md:hidden h-8 w-8 rounded-xl transition-all text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}
               onClick={openNewTask}
               disabled={create.isPending || createNewTask.isPending}
               title="新建任务"
               aria-label="新建任务"
             >
               {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}
-            </Button>
+            </Button>}
             {selectedId && <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${terminalOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
-              onClick={() => setTerminalOpen((open) => !open)}
+              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${terminalOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
+              onClick={toggleTerminal}
               title={terminalOpen ? '隐藏终端' : '显示终端'}
               aria-label={terminalOpen ? '隐藏终端' : '显示终端'}
               aria-pressed={terminalOpen}
@@ -1503,7 +1554,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             {selectedId && <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${rightSidebarOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
+              className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${rightSidebarOpen ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={toggleRightSidebar}
               title={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
               aria-label={rightSidebarOpen ? '隐藏当前任务栏' : '显示当前任务栏'}
@@ -1521,9 +1572,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 {activePlan && activePlan.status !== 'awaiting_confirmation' && (
                   <ChatCrawlingStatusBanner
                     activePlan={activePlan}
-                    rightSidebarOpen={rightSidebarOpen}
-                    onToggleRightSidebar={toggleRightSidebar}
-                    onTriggerPulse={triggerRightSidebarPulse}
                     onStop={() => stopPlan.mutate(activePlan.plan_id)}
                     stopping={stopPlan.isPending}
                   />
@@ -1724,7 +1772,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             </div>
           </main>
 
-          {rightSidebarOpen && selectedId && <aside className={`relative shrink-0 flex flex-col border-l border-cyber-border-subtle bg-cyber-bg-secondary/30 ${rightSidebarPulsing ? 'ring-2 ring-inset ring-cyber-neon-cyan/80 bg-cyber-neon-cyan/10 shadow-[0_0_25px_rgba(0,240,255,0.25)]' : ''}`} style={{ width: rightSidebarWidth }}>
+          {rightSidebarOpen && selectedId && <aside className="relative shrink-0 flex flex-col border-l border-cyber-border-subtle bg-cyber-bg-secondary/30" style={{ width: rightSidebarWidth }}>
             <div
               className={`absolute -left-[3px] top-0 z-20 h-full w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${activeResize === 'right' ? 'bg-cyber-neon-cyan/35' : ''}`}
               onPointerDown={(event) => beginResize(event, 'right', (moveEvent) => {
@@ -2032,7 +2080,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               platforms={terminalPlatforms}
               planStatus={activePlan?.status}
               docked
-              onClose={() => setTerminalOpen(false)}
+              onClose={toggleTerminal}
               threadId={selectedId}
             />
           </div>
