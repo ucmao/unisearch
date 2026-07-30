@@ -14,6 +14,7 @@ import { AnalysisService } from '../src/analyzers/registry';
 import { exporterRegistry } from '../src/exporters/registry';
 import { listProcessorCapabilities } from '../src/processor/capabilities';
 import { buildAnalysisBoundary, buildAnalysisCoverage, RagService } from '../src/knowledge/rag-service';
+import { profileDataset } from '../src/analyzers/dataset-profiler';
 
 function database() {
   const db = new Database(':memory:');
@@ -55,16 +56,54 @@ test('knowledge index chunks Documents and supports hybrid retrieval', async () 
   }
 });
 
-test('Analyzer persists an extractive report from canonical Documents', async () => {
+test('Analyzer persists a deterministic profile from all canonical Documents', async () => {
   const db = database();
   try {
     await seed(db);
-    const report = await new AnalysisService(() => db).run('extractive.summary');
-    assert.match(report.content, /共分析 1 篇资料/);
+    const report = await new AnalysisService(() => db).run('dataset.profile');
+    assert.match(report.content, /共对 1 个去重文档执行确定性统计/);
+    assert.equal(report.metadata.datasetProfile.documentCount, 1);
+    assert.equal(report.metadata.datasetProfile.distributions.platform.values[0].value, 'bing');
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM analysis_reports').get() as any).count, 1);
   } finally {
     db.close();
   }
+});
+
+test('Dataset Profiler covers generic dimensions, dynamic fields, metrics and quality', () => {
+  const first = mapRawItemToCanonicalDocument(buildRawItem('emitXhsNote', {
+    note_id: 'profile-note-1',
+    note_url: 'https://example.com/note-1',
+    title: '第一篇',
+    desc: '正文一',
+    nickname: '作者甲',
+    source_keyword: 'AI Agent',
+    liked_count: 100,
+    comment_count: 5,
+    time: '2026-07-01T00:00:00.000Z',
+  }));
+  const second = mapRawItemToCanonicalDocument(buildRawItem('emitXhsNote', {
+    note_id: 'profile-note-2',
+    title: '第二篇',
+    desc: '正文二',
+    nickname: '作者乙',
+    source_keyword: 'AI Agent',
+    liked_count: 300,
+    time: '2026-07-02T00:00:00.000Z',
+  }));
+  const profile = profileDataset([first, second]);
+
+  assert.equal(profile.documentCount, 2);
+  assert.deepEqual(profile.distributions.platform.values, [{ value: 'xhs', count: 2, percentage: 1 }]);
+  assert.equal(profile.distributions.keyword.values[0].value, 'AI Agent');
+  assert.equal(profile.fieldCoverage.sourceUrl.presentCount, 1);
+  assert.equal(profile.fieldCoverage.sourceUrl.coverageRate, 0.5);
+  assert.deepEqual(profile.metrics.likes.numeric, {
+    validCount: 2, min: 100, max: 300, mean: 200, median: 200, p25: 150, p75: 250,
+  });
+  assert.equal(profile.metrics.comments.presentCount, 1);
+  assert.equal(profile.metrics.comments.missingCount, 1);
+  assert.equal(profile.quality.missingSourceUrlCount, 1);
 });
 
 test('RAG returns ranked citations and an honest fallback without a model key', async () => {
@@ -95,7 +134,7 @@ test('quick analysis coverage distinguishes collected documents from reviewed ev
     { id: 'S3', documentId: 'doc-2', chunkId: 'chunk-3' },
   ] as any;
   const coverage = buildAnalysisCoverage(
-    { mode: 'quick', collectedDocumentCount: 212 },
+    { mode: 'quick', datasetProfile: { documentCount: 212 } as any },
     sources,
     '结论一 [S1]，结论二 [S3]，重复引用 [S2]。',
   );
@@ -103,16 +142,17 @@ test('quick analysis coverage distinguishes collected documents from reviewed ev
   assert.deepEqual(coverage, {
     mode: 'quick',
     collectedDocumentCount: 212,
+    statisticallyAnalyzedDocumentCount: 212,
     qualitativelyAnalyzedDocumentCount: 2,
     evidenceDocumentCount: 2,
     evidenceChunkCount: 3,
     citedDocumentCount: 2,
-    fullDatasetStatistics: false,
+    fullDatasetStatistics: true,
     partial: false,
   });
   assert.match(buildAnalysisBoundary(coverage), /已入库 \*\*212\*\* 个去重文档/);
   assert.match(buildAnalysisBoundary(coverage), /实际读取 \*\*2\*\* 个独立文档/);
-  assert.match(buildAnalysisBoundary(coverage), /尚未执行全量统计/);
+  assert.match(buildAnalysisBoundary(coverage), /全部文档均已参与确定性统计/);
 });
 
 test('quick RAG analysis tells the model the truthful evidence boundary', async () => {
@@ -122,21 +162,26 @@ test('quick RAG analysis tells the model the truthful evidence boundary', async 
     const index = new KnowledgeIndex(() => db);
     index.rebuild();
     let prompt = '';
+    let materials: any;
     const model = {
       getProfile: () => ({ apiKeyConfigured: true }),
-      converse: async (messages: Array<{ content: string }>) => {
+      converse: async (messages: Array<{ content: string }>, options: any) => {
         prompt = messages[0].content;
+        materials = options.materials;
         return '只确认当前证据支持的事实 [S1]。';
       },
     } as any;
     const result = await new RagService(index, model).answer('分析这些结果', {
       workflowId: undefined,
       limit: 12,
-      analysisScope: { mode: 'quick', collectedDocumentCount: 212 },
+      analysisScope: { mode: 'quick', datasetProfile: { documentCount: 212 } as any },
     });
 
     assert.match(prompt, /已入库 212 个去重文档/);
-    assert.match(prompt, /快速抽样分析，不是全量统计/);
+    assert.match(prompt, /全部文档均已参与程序化确定性统计/);
+    assert.match(prompt, /数量、比例、平台分布/);
+    assert.equal(materials.texts[0].label, '全部文档的确定性统计结果');
+    assert.match(materials.texts[0].content, /"documentCount":212/);
     assert.match(result.answer, /数据范围说明/);
     assert.equal(result.coverage?.collectedDocumentCount, 212);
     assert.equal(result.coverage?.qualitativelyAnalyzedDocumentCount, 1);

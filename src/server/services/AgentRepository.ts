@@ -618,16 +618,16 @@ export class AgentRepository {
         '["finalize-documents"]', 'success', '{}', 'queued', 2, 300000, ?, ?)
     `).run(id(), workflowId, now, now);
     let previousStep = 'index-documents';
-    if (plan.analysis?.length) {
+    if (skill.execution.autoAnalyzeOnCompletion || plan.analysis?.length) {
       this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
           dependency_policy, input_json, status, max_attempts, timeout_ms,
           created_at, updated_at
-        ) VALUES (?, ?, 'analyze-results', 'analyzer', 'analyzer.extractive.summary',
+        ) VALUES (?, ?, 'profile-dataset', 'analyzer', 'analyzer.dataset.profile',
           '["index-documents"]', 'success', ?, 'queued', 2, 300000, ?, ?)
       `).run(id(), workflowId, JSON.stringify({ goals: plan.analysis }), now, now);
-      previousStep = 'analyze-results';
+      previousStep = 'profile-dataset';
     }
     if (skill.execution.autoAnalyzeOnCompletion || plan.analysis?.length) {
       this.db.prepare(`

@@ -55,10 +55,15 @@ test('a business Skill id and version are persisted with its plan', () => {
     const businessAnalysis = db.prepare(
       "SELECT * FROM workflow_steps WHERE workflow_id=? AND step_key='business-analysis'",
     ).get(created.plan_id) as any;
+    const datasetProfile = db.prepare(
+      "SELECT * FROM workflow_steps WHERE workflow_id=? AND step_key='profile-dataset'",
+    ).get(created.plan_id) as any;
+    assert.ok(datasetProfile);
+    assert.equal(datasetProfile.uses_id, 'analyzer.dataset.profile');
     assert.ok(businessAnalysis);
     assert.equal(
       JSON.parse(businessAnalysis.depends_on_json)[0],
-      'analyze-results',
+      'profile-dataset',
     );
   } finally {
     db.close();

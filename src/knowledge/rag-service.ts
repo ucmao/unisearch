@@ -1,5 +1,6 @@
 import { knowledgeIndex, type KnowledgeSearchOptions } from './knowledge-index';
 import { modelService } from '../server/services/ModelService';
+import type { DatasetProfile } from '../analyzers/dataset-profiler';
 
 export interface RagAnswer {
   answer: string;
@@ -21,18 +22,19 @@ export interface RagAnswer {
 
 export interface AnalysisScope {
   mode: 'quick';
-  collectedDocumentCount: number;
+  datasetProfile: DatasetProfile;
   partial?: boolean;
 }
 
 export interface AnalysisCoverage {
   mode: 'quick';
   collectedDocumentCount: number;
+  statisticallyAnalyzedDocumentCount: number;
   qualitativelyAnalyzedDocumentCount: number;
   evidenceDocumentCount: number;
   evidenceChunkCount: number;
   citedDocumentCount: number;
-  fullDatasetStatistics: false;
+  fullDatasetStatistics: true;
   partial: boolean;
 }
 
@@ -63,12 +65,13 @@ export function buildAnalysisCoverage(
   );
   return {
     mode: scope.mode,
-    collectedDocumentCount: Math.max(0, Math.round(scope.collectedDocumentCount)),
+    collectedDocumentCount: scope.datasetProfile.documentCount,
+    statisticallyAnalyzedDocumentCount: scope.datasetProfile.documentCount,
     qualitativelyAnalyzedDocumentCount: documentIds.size,
     evidenceDocumentCount: documentIds.size,
     evidenceChunkCount: sources.length,
     citedDocumentCount: citedDocuments.size,
-    fullDatasetStatistics: false,
+    fullDatasetStatistics: true,
     partial: Boolean(scope.partial),
   };
 }
@@ -80,7 +83,7 @@ export function buildAnalysisBoundary(coverage: AnalysisCoverage): string {
     : `模型实际读取 **${coverage.qualitativelyAnalyzedDocumentCount}** 个独立文档（${coverage.evidenceChunkCount} 个知识片段），并未逐篇分析全部文档`;
   return [
     '> **数据范围说明**',
-    `> ${collectionState} **${coverage.collectedDocumentCount}** 个去重文档；本次为快速分析，${readScope}。当前阶段尚未执行全量统计；除入库总量外，报告中的数量、比例和分布仅描述本次读取的材料，不能视为全部数据的统计结果。`,
+    `> ${collectionState} **${coverage.collectedDocumentCount}** 个去重文档，全部文档均已参与确定性统计；本次为快速分析，${readScope}。报告中的数量、比例、分布和字段覆盖必须以全量统计为准；主题、观点、原因和建议属于代表性材料的定性归纳。`,
   ].join('\n');
 }
 
@@ -158,7 +161,12 @@ export class RagService {
     }
 
     const materials = {
-      texts: sources.map((source) => ({
+      texts: [
+        ...(analysisScope ? [{
+          label: '全部文档的确定性统计结果',
+          content: JSON.stringify(analysisScope.datasetProfile),
+        }] : []),
+        ...sources.map((source) => ({
         label: `[${source.id}] ${source.title}`,
         content: [
           source.excerpt,
@@ -168,14 +176,16 @@ export class RagService {
           source.keyword ? `关键词：${source.keyword}` : '',
           `来源：${source.sourceUrl || source.source}`,
         ].filter(Boolean).join('\n'),
-      })),
+        })),
+      ],
       images: [],
     };
     const scopeInstruction = analysisScope
       ? [
-          `本任务${analysisScope.partial ? '当前' : ''}已入库 ${analysisScope.collectedDocumentCount} 个去重文档。`,
+          `本任务${analysisScope.partial ? '当前' : ''}已入库 ${analysisScope.datasetProfile.documentCount} 个去重文档，全部文档均已参与程序化确定性统计。`,
           `你实际收到的是 ${new Set(sources.map((source) => source.documentId)).size} 个独立文档、${sources.length} 个知识片段。`,
-          '这是快速抽样分析，不是全量统计。不得声称逐篇分析了全部文档；不得把证据材料中的计数、比例或平台分布表述为全部数据的统计结果。',
+          '所有样本量、数量、比例、平台分布、内容类型、时间范围、字段覆盖和数值指标只能引用“全部文档的确定性统计结果”，不得根据代表性证据重新估算。',
+          '这是快速定性分析，不得声称逐篇定性分析了全部文档；主题、观点、原因、风险和建议必须限定为代表性证据支持的发现。',
         ].join('\n')
       : '';
     if (analysisScope && onDelta) {

@@ -15,6 +15,7 @@ import { exportService } from '../../exporters/registry';
 import { skillRegistry } from '../../skills/registry';
 import type { SkillDefinition } from '../../core/skills/types';
 import { liveSearchService, toLiveSourceCitations } from './LiveSearchService';
+import { analysisService } from '../../analyzers/registry';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -860,7 +861,9 @@ export class AgentService {
       // `collectMaterials` is also used for normal chat and includes the whole
       // conversation, which makes some compatible models overlook the records
       // and answer as if they had no access to the completed task.
-      const documentCount = agentRepository.getPlanStats(latest.plan_id).content_count;
+      const datasetProfileReport = await analysisService.run('dataset.profile', latest.plan_id);
+      const datasetProfile = datasetProfileReport.metadata.datasetProfile;
+      const documentCount = datasetProfile.documentCount;
       if (documentCount) {
         try {
           const analysisSkill = skillRegistry.find(latest.plan.skillId);
@@ -874,7 +877,7 @@ export class AgentService {
             {
               workflowId: latest.plan_id,
               limit: 10,
-              analysisScope: { mode: 'quick', collectedDocumentCount: documentCount, partial: isPartialAnalysis },
+              analysisScope: { mode: 'quick', datasetProfile, partial: isPartialAnalysis },
             },
             onDelta,
           );
@@ -884,7 +887,7 @@ export class AgentService {
             rag = await ragService.answer(`${content}${skillRule}`, {
               workflowId: latest.plan_id,
               limit: 10,
-              analysisScope: { mode: 'quick', collectedDocumentCount: documentCount, partial: isPartialAnalysis },
+              analysisScope: { mode: 'quick', datasetProfile, partial: isPartialAnalysis },
             }, onDelta);
             ensureMessageNotAborted(signal);
           }
@@ -893,6 +896,7 @@ export class AgentService {
             sources: rag.sources,
             partial: isPartialAnalysis,
             analysis_coverage: rag.coverage,
+            dataset_profile_report_id: datasetProfileReport.report_id,
           });
         } catch (error: any) {
           ensureMessageNotAborted(signal);

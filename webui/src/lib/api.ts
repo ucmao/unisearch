@@ -260,11 +260,12 @@ export interface AgentMessage {
 export interface AnalysisCoverage {
   mode: 'quick'
   collectedDocumentCount: number
+  statisticallyAnalyzedDocumentCount: number
   qualitativelyAnalyzedDocumentCount: number
   evidenceDocumentCount: number
   evidenceChunkCount: number
   citedDocumentCount: number
-  fullDatasetStatistics: false
+  fullDatasetStatistics: true
   partial: boolean
 }
 
