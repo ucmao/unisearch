@@ -13,8 +13,10 @@ import { KNOWLEDGE_PROJECTOR_VERSION, knowledgeProjector } from '../src/knowledg
 import { AnalysisService } from '../src/analyzers/registry';
 import { exporterRegistry } from '../src/exporters/registry';
 import { listProcessorCapabilities } from '../src/processor/capabilities';
-import { buildAnalysisBoundary, buildAnalysisCoverage, RagService } from '../src/knowledge/rag-service';
+import { RagService } from '../src/knowledge/rag-service';
 import { profileDataset } from '../src/analyzers/dataset-profiler';
+import { EvidenceSelector, decomposeEvidenceQueries, dynamicEvidenceDocumentLimit } from '../src/knowledge/evidence-selector';
+import { buildQuickAnalysisCoverage, buildQuickReportBoundary, QuickReportGenerator } from '../src/analyzers/quick-report-generator';
 
 function database() {
   const db = new Database(':memory:');
@@ -127,17 +129,52 @@ test('RAG returns ranked citations and an honest fallback without a model key', 
   }
 });
 
-test('quick analysis coverage distinguishes collected documents from reviewed evidence', () => {
-  const sources = [
+test('Evidence Selector dynamically sizes, deduplicates and prioritizes target document types', () => {
+  assert.equal(dynamicEvidenceDocumentLimit(0), 0);
+  assert.equal(dynamicEvidenceDocumentLimit(8), 8);
+  assert.equal(dynamicEvidenceDocumentLimit(212), 22);
+  assert.equal(dynamicEvidenceDocumentLimit(10_000), 30);
+  assert.deepEqual(decomposeEvidenceQueries({
+    workflowGoal: 'FDE 岗位市场调研',
+    userRequest: '分析这些结果',
+    analysisGoals: ['薪酬分布', '经验要求'],
+  }), ['薪酬分布', '经验要求', 'FDE 岗位市场调研']);
+
+  const results = Array.from({ length: 30 }, (_, index) => ({
+    chunkId: `chunk-${index}`,
+    documentId: `doc-${index}`,
+    title: `资料 ${index}`,
+    content: `资料正文 ${index}`,
+    source: index < 8 ? 'job51' : index < 15 ? 'liepin' : index < 23 ? 'xhs' : 'weibo',
+    kind: index < 15 ? 'job' : 'post',
+    subject: { type: index < 15 ? 'company' : 'creator' },
+    citations: [],
+    metadata: {},
+    score: 1 - index / 100,
+  })) as any[];
+  const selector = new EvidenceSelector({ search: () => [results[0], { ...results[0], chunkId: 'duplicate-chunk' }, ...results.slice(1)] } as any);
+  const selection = selector.select({
+    workflowId: 'workflow-1',
+    workflowGoal: 'FDE 岗位市场调研',
+    userRequest: '分析薪酬和岗位要求',
+    analysisGoals: ['薪酬分布', '经验要求'],
+    datasetProfile: { documentCount: 212 } as any,
+  });
+
+  assert.equal(selection.targetDocumentCount, 22);
+  assert.equal(selection.selectedDocumentCount, 22);
+  assert.equal(new Set(selection.evidence.map((item) => item.documentId)).size, 22);
+  assert.equal(selection.evidence.filter((item) => item.kind === 'job').length, 15);
+  assert.ok(selection.evidence.some((item) => item.selectionReason === 'platform_representative'));
+  assert.ok(selection.evidence.every((item) => item.matchedQueries.length === selection.queries.length));
+});
+
+test('quick analysis coverage distinguishes full statistics from representative evidence', () => {
+  const evidence = [
     { id: 'S1', documentId: 'doc-1', chunkId: 'chunk-1' },
-    { id: 'S2', documentId: 'doc-1', chunkId: 'chunk-2' },
-    { id: 'S3', documentId: 'doc-2', chunkId: 'chunk-3' },
+    { id: 'S2', documentId: 'doc-2', chunkId: 'chunk-2' },
   ] as any;
-  const coverage = buildAnalysisCoverage(
-    { mode: 'quick', datasetProfile: { documentCount: 212 } as any },
-    sources,
-    '结论一 [S1]，结论二 [S3]，重复引用 [S2]。',
-  );
+  const coverage = buildQuickAnalysisCoverage({ documentCount: 212 } as any, evidence, '结论一 [S1]，结论二 [S2]。');
 
   assert.deepEqual(coverage, {
     mode: 'quick',
@@ -145,50 +182,70 @@ test('quick analysis coverage distinguishes collected documents from reviewed ev
     statisticallyAnalyzedDocumentCount: 212,
     qualitativelyAnalyzedDocumentCount: 2,
     evidenceDocumentCount: 2,
-    evidenceChunkCount: 3,
+    evidenceChunkCount: 2,
     citedDocumentCount: 2,
     fullDatasetStatistics: true,
     partial: false,
   });
-  assert.match(buildAnalysisBoundary(coverage), /已入库 \*\*212\*\* 个去重文档/);
-  assert.match(buildAnalysisBoundary(coverage), /实际读取 \*\*2\*\* 个独立文档/);
-  assert.match(buildAnalysisBoundary(coverage), /全部文档均已参与确定性统计/);
+  assert.match(buildQuickReportBoundary(coverage), /已入库 \*\*212\*\* 个去重文档/);
+  assert.match(buildQuickReportBoundary(coverage), /分层选取的 \*\*2\*\* 个独立文档/);
+  assert.match(buildQuickReportBoundary(coverage), /全部参与确定性统计/);
 });
 
-test('quick RAG analysis tells the model the truthful evidence boundary', async () => {
-  const db = database();
-  try {
-    await seed(db);
-    const index = new KnowledgeIndex(() => db);
-    index.rebuild();
-    let prompt = '';
-    let materials: any;
-    const model = {
-      getProfile: () => ({ apiKeyConfigured: true }),
-      converse: async (messages: Array<{ content: string }>, options: any) => {
-        prompt = messages[0].content;
-        materials = options.materials;
-        return '只确认当前证据支持的事实 [S1]。';
+test('Quick Report Generator separates selection, generation and program-owned report assembly', async () => {
+  let prompt = '';
+  let materials: any;
+  let streamed = '';
+  const selection = {
+    targetDocumentCount: 22,
+    candidateDocumentCount: 40,
+    selectedDocumentCount: 2,
+    queries: ['薪酬分布', '经验要求'],
+    preferredKinds: ['job'],
+    byPlatform: { job51: 1, liepin: 1 },
+    byKind: { job: 2 },
+    evidence: [
+      {
+        id: 'S1', chunkId: 'chunk-1', documentId: 'doc-1', title: '岗位一', content: '薪资 20-30K',
+        source: 'job51', kind: 'job', subject: { type: 'company' }, score: 1,
+        matchedQueries: ['薪酬分布'], selectionReason: 'preferred_type',
       },
-    } as any;
-    const result = await new RagService(index, model).answer('分析这些结果', {
-      workflowId: undefined,
-      limit: 12,
-      analysisScope: { mode: 'quick', datasetProfile: { documentCount: 212 } as any },
-    });
+      {
+        id: 'S2', chunkId: 'chunk-2', documentId: 'doc-2', title: '岗位二', content: '要求 3-5 年经验',
+        source: 'liepin', kind: 'job', subject: { type: 'company' }, score: 0.9,
+        matchedQueries: ['经验要求'], selectionReason: 'platform_representative',
+      },
+    ],
+  } as any;
+  const model = {
+    getProfile: () => ({ apiKeyConfigured: true }),
+    converse: async (messages: Array<{ content: string }>, options: any) => {
+      prompt = messages[0].content;
+      materials = options.materials;
+      return '全量统计显示共有 212 条；代表性岗位显示相关要求 [S1][S2]。';
+    },
+  } as any;
+  const generator = new QuickReportGenerator({ select: () => selection } as any, model);
+  const result = await generator.generate({
+    workflowId: 'workflow-1',
+    workflowGoal: 'FDE 岗位市场调研',
+    reportName: '岗位调研报告',
+    userRequest: '分析薪酬与经验',
+    analysisGoals: ['薪酬分布', '经验要求'],
+    datasetProfile: { documentCount: 212 } as any,
+    onDelta: (delta) => { streamed += delta; },
+  });
 
-    assert.match(prompt, /已入库 212 个去重文档/);
-    assert.match(prompt, /全部文档均已参与程序化确定性统计/);
-    assert.match(prompt, /数量、比例、平台分布/);
-    assert.equal(materials.texts[0].label, '全部文档的确定性统计结果');
-    assert.match(materials.texts[0].content, /"documentCount":212/);
-    assert.match(result.answer, /数据范围说明/);
-    assert.equal(result.coverage?.collectedDocumentCount, 212);
-    assert.equal(result.coverage?.qualitativelyAnalyzedDocumentCount, 1);
-    assert.equal(result.coverage?.citedDocumentCount, 1);
-  } finally {
-    db.close();
-  }
+  assert.match(prompt, /只能使用“全部文档的确定性统计结果”/);
+  assert.equal(materials.texts[0].label, '全部文档的确定性统计结果');
+  assert.match(materials.texts[0].content, /"documentCount":212/);
+  assert.match(streamed, /数据范围说明/);
+  assert.match(result.answer, /^> \*\*数据范围说明\*\*/);
+  assert.equal(result.coverage.statisticallyAnalyzedDocumentCount, 212);
+  assert.equal(result.coverage.qualitativelyAnalyzedDocumentCount, 2);
+  assert.equal(result.coverage.citedDocumentCount, 2);
+  assert.equal(result.evidenceSelection.candidateDocumentCount, 40);
+  assert.equal(result.sources[0].selectionReason, 'preferred_type');
 });
 
 test('All registered knowledge exporters create portable artifacts', async () => {

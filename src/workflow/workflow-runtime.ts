@@ -9,9 +9,9 @@ import { workflowEngine, type WorkflowStepHandlerContext } from './workflow-engi
 import { knowledgeIndex } from '../knowledge/knowledge-index';
 import { analysisService } from '../analyzers/registry';
 import { exportService, exporterRegistry } from '../exporters/registry';
-import { ragService } from '../knowledge/rag-service';
 import { skillRegistry } from '../skills/registry';
 import type { DatasetProfile } from '../analyzers/dataset-profiler';
+import { quickReportGenerator } from '../analyzers/quick-report-generator';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -59,10 +59,6 @@ export class WorkflowRuntime {
 
     const analysisAction = isBusinessAnalysis ? 'auto_skill_analysis' : 'auto_plan_analysis';
     const reportName = isBusinessAnalysis ? skill?.name || '业务调研' : '采集结果';
-    const analysisRule = isBusinessAnalysis && skill?.analysisInstructions
-      ? `\n业务分析规则：${skill.analysisInstructions}`
-      : '';
-
     const existing = agentRepository.getThread(workflow.thread_id)?.messages?.some((message: any) =>
       ['auto_skill_analysis', 'auto_plan_analysis'].includes(message.metadata?.action)
         && message.metadata?.plan_id === workflow.plan_id,
@@ -77,28 +73,32 @@ export class WorkflowRuntime {
     if (!documentCount) return { skipped: true, reason: '没有可分析的数据', recordCount: 0 };
 
     try {
-      const goals = (workflow.plan.analysis || []).join('、') || workflow.goal;
-      let result = await ragService.answer(
-        `请生成本次“${reportName}”的最终分析报告。\n原任务：${workflow.goal}\n分析目标：${goals}${analysisRule}\n请先说明样本量和数据边界，再给出有来源支撑的发现、风险或机会，以及明确标记为建议的行动项。`,
-        {
-          workflowId: workflow.plan_id,
-          limit: 12,
-          analysisScope: { mode: 'quick', datasetProfile },
-        },
-      );
+      const analysisGoals = workflow.plan.analysis || [];
+      const result = await quickReportGenerator.generate({
+        workflowId: workflow.plan_id,
+        workflowGoal: workflow.goal,
+        reportName,
+        userRequest: `生成本次“${reportName}”的最终分析报告`,
+        analysisGoals,
+        skillName: skill?.name,
+        skillInstructions: isBusinessAnalysis ? skill?.analysisInstructions : undefined,
+        datasetProfile,
+        signal: context.signal,
+      });
       context.signal.throwIfAborted();
-      if (!result.sources.length) {
-        knowledgeIndex.rebuild({ workflowId: workflow.plan_id });
-        result = await ragService.answer(
-          `请根据已采集资料生成“${reportName}”报告，围绕以下目标分析：${goals}。${analysisRule}`,
-          {
-            workflowId: workflow.plan_id,
-            limit: 12,
-            analysisScope: { mode: 'quick', datasetProfile },
-          },
-        );
-        context.signal.throwIfAborted();
-      }
+      const analysisReport = analysisService.saveReport({
+        analyzerId: 'quick.report',
+        analyzerVersion: '1.0.0',
+        workflowId: workflow.plan_id,
+        title: result.title,
+        content: result.answer,
+        metadata: {
+          datasetProfileReportId,
+          coverage: result.coverage,
+          evidenceSelection: result.evidenceSelection,
+          sources: result.sources,
+        },
+      });
       const startTime = new Date(workflow.created_at || workflow.started_at || Date.now()).getTime();
       const endTime = Date.now();
       const totalSeconds = Math.max(1, Math.round((endTime - startTime) / 1000));
@@ -112,10 +112,12 @@ export class WorkflowRuntime {
         action: analysisAction,
         plan_id: workflow.plan_id,
         skill_id: skill?.id,
-        retrieval: 'hybrid_rag',
+        retrieval: 'stratified_hybrid_rag',
         sources: result.sources,
         analysis_coverage: result.coverage,
+        evidence_selection: result.evidenceSelection,
         dataset_profile_report_id: datasetProfileReportId,
+        analysis_report_id: analysisReport.report_id,
         total_duration_sec: totalSeconds,
         total_duration_formatted: formattedTotalTime,
       });
@@ -124,6 +126,7 @@ export class WorkflowRuntime {
         sourceCount: result.sources.length,
         coverage: result.coverage,
         datasetProfileReportId,
+        analysisReportId: analysisReport.report_id,
         totalDurationSec: totalSeconds,
       };
     } catch (error: any) {
