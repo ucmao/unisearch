@@ -202,13 +202,13 @@ export class Job51Crawler extends AbstractCrawler {
           continue;
         }
 
-        const parsedDetail = await this.page?.evaluate(() => {
+        const parsedDetail = (await this.page?.evaluate(() => {
           const title = document.querySelector('.tHeader h1, [class*="title"], h1')?.textContent?.trim() || '';
           const salary = document.querySelector('.tHeader strong, [class*="sal"], [class*="salary"]')?.textContent?.trim() || '';
           const company = document.querySelector('.cname, [class*="company"]')?.textContent?.trim() || '';
           const desc = document.querySelector('.bmsg.job_msg, [class*="job_msg"], [class*="job-desc"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
           return { title, salary, company, desc };
-        }) || {};
+        }) || {}) as { title: string; salary: string; company: string; desc: string };
 
         await connectorOutput.emitJob51Result({
           title: parsedDetail.title || '前程无忧职位详情',

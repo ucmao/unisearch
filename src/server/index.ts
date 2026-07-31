@@ -935,6 +935,14 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     return { status: 'ok', deleted: analyticsRepository.cleanupHistory(mode) };
   });
 
+  fastify.post('/api/data/storage/cleanup-threads', async (request, reply) => {
+    const { mode } = (request.body || {}) as { mode?: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads' };
+    if (!mode || !['empty_short', 'older_than_30_days_no_crawl', 'all_threads'].includes(mode)) {
+      return reply.status(400).send({ detail: '不支持的会话清理范围' });
+    }
+    return { status: 'ok', deleted: analyticsRepository.cleanupThreads(mode) };
+  });
+
   fastify.post('/api/data/analytics/runs/batch-delete', async (request, reply) => {
     const body = (request.body || {}) as { run_ids?: string[] };
     if (!Array.isArray(body.run_ids) || !body.run_ids.length) return reply.status(400).send({ detail: '请选择要移除的执行记录' });

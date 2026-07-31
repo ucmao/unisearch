@@ -158,7 +158,7 @@ export class WebReaderService {
     try {
       playwright = require('playwright');
     } catch (err: any) {
-      throw new ConnectorRuntimeError('ENVIRONMENT_ERROR', `Playwright 模块不可用: ${err.message}`, false);
+      throw new ConnectorRuntimeError('UNSUPPORTED_CAPABILITY', `Playwright 模块不可用: ${err.message}`, false);
     }
 
     const { connectToElectronChromium, getElectronCrawlerPage } = await import('../crawler/base/BaseCrawler');

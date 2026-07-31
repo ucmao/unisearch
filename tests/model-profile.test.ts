@@ -4,7 +4,21 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import axios from 'axios';
-import { isRetryableModelError, ModelService } from '../src/server/services/ModelService';
+import { buildRecentTurnContext, isRetryableModelError, ModelService } from '../src/server/services/ModelService';
+
+test('recent turn context gives current user priority while preserving follow-up references', () => {
+  const context = buildRecentTurnContext([
+    { role: 'user', content: '我周末想在福州找点吃的和玩的' },
+    { role: 'assistant', content: '可以帮你搜索福州好吃的，也可以看看好玩的。' },
+    { role: 'user', content: '有啥吃的呢' },
+  ]);
+
+  assert.match(context, /当前用户消息（最高优先级[^）]*）[\s\S]*有啥吃的呢/);
+  assert.match(context, /上一轮用户消息[\s\S]*我周末想在福州找点吃的和玩的/);
+  assert.match(context, /上一轮助手回复[\s\S]*好吃的/);
+  assert.match(context, /只有用户本轮明确选择后才算用户意图/);
+  assert.match(context, /真实任务状态以 current_plan_data 或后端数据为准/);
+});
 
 test('model retries only transient failures', () => {
   for (const status of [408, 425, 429, 500, 502, 503]) {
