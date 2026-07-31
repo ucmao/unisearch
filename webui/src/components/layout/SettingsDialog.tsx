@@ -549,6 +549,11 @@ export function SettingsDialog({
                                       : 'rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary'}>
                                       {memory.memory_key.startsWith('user_manual_') ? '手动添加' : '自动整理'}
                                     </span>
+                                    {memory.category ? (
+                                      <span className="rounded bg-cyber-bg-secondary px-2 py-0.5 text-[10px] font-medium text-cyber-text-muted">
+                                        {{ identity: '身份', preference: '偏好', context: '背景', rule: '规则' }[memory.category] || memory.category}
+                                      </span>
+                                    ) : null}
                                   </div>
                                   {editMemoryId === memory.memory_id ? (
                                     <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />

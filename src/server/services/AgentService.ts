@@ -1193,22 +1193,24 @@ export class AgentService {
   private describePlanStatus(plan: any): string {
     const stats = agentRepository.getPlanStats(plan.plan_id);
     const completed = plan.steps.filter((step: any) => step.status === 'completed').length;
+    const targetPlatforms = (plan.plan?.platforms || []).map((p: string) => LABELS[p] || p).join('、');
+    const targetInfo = targetPlatforms ? `（目标平台：${targetPlatforms}）` : '';
     const distribution = stats.by_platform.length
       ? `\n平台分布：${stats.by_platform.map((item) => `${item.platform_label || LABELS[item.platform] || item.platform} ${item.count} 条`).join('，')}。`
-      : '';
+      : targetPlatforms ? `\n目标平台：${targetPlatforms}（暂无成功入库条目）。` : '';
     const failureReasons = this.describeStepFailures(plan);
 
-    if (plan.status === 'awaiting_confirmation') return '当前计划还在等待确认，尚未开始采集，所以已入库 0 条内容。';
-    if (plan.status === 'queued') return `任务正在排队，目前已入库 ${stats.content_count} 条内容。${distribution}`.trim();
-    if (plan.status === 'running') return `任务仍在采集中，目前已入库 ${stats.content_count} 条内容，已完成 ${completed}/${plan.steps.length} 个采集阶段。${distribution}`.trim();
+    if (plan.status === 'awaiting_confirmation') return `当前计划${targetInfo}还在等待确认，尚未开始采集，所以已入库 0 条内容。`;
+    if (plan.status === 'queued') return `任务正在排队${targetInfo}，目前已入库 ${stats.content_count} 条内容。${distribution}`.trim();
+    if (plan.status === 'running') return `任务仍在采集中${targetInfo}，目前已入库 ${stats.content_count} 条内容，已完成 ${completed}/${plan.steps.length} 个采集阶段。${distribution}`.trim();
     if (plan.status === 'completed' && stats.content_count === 0) {
-      return '任务状态显示已完成，但实际入库为 0 条内容。这通常表示爬虫进程正常退出了，但没有搜到结果或数据没有成功写入；建议查看采集控制台日志。';
+      return `本次任务${targetInfo}已完成，实际入库为 0 条内容。这通常表示搜索无匹配结果或数据未能写入；建议查看采集控制台日志。`.trim();
     }
-    if (plan.status === 'completed') return `本次任务已完成，共采集到 ${stats.content_count} 条内容。${distribution}`.trim();
-    if (plan.status === 'partially_completed') return `本次任务部分完成，共采集到 ${stats.content_count} 条内容，成功 ${completed}/${plan.steps.length} 个采集阶段。${distribution}${failureReasons}`.trim();
-    if (plan.status === 'failed') return `本次任务执行失败，目前实际入库 ${stats.content_count} 条内容。${distribution}${failureReasons || '\n建议查看采集控制台日志后重试。'}`.trim();
-    if (plan.status === 'stopped') return `任务已停止，停止前共入库 ${stats.content_count} 条内容。${distribution}`.trim();
-    return `当前任务状态为 ${plan.status}，已入库 ${stats.content_count} 条内容。${distribution}`.trim();
+    if (plan.status === 'completed') return `本次任务${targetInfo}已完成，共采集到 ${stats.content_count} 条内容。${distribution}`.trim();
+    if (plan.status === 'partially_completed') return `本次任务${targetInfo}部分完成，共采集到 ${stats.content_count} 条内容，成功 ${completed}/${plan.steps.length} 个采集阶段。${distribution}${failureReasons}`.trim();
+    if (plan.status === 'failed') return `本次任务${targetInfo}执行失败，目前实际入库 ${stats.content_count} 条内容。${distribution}${failureReasons || '\n建议查看采集控制台日志后重试。'}`.trim();
+    if (plan.status === 'stopped') return `任务已停止${targetInfo}，停止前共入库 ${stats.content_count} 条内容。${distribution}`.trim();
+    return `当前任务状态为 ${plan.status}${targetInfo}，已入库 ${stats.content_count} 条内容。${distribution}`.trim();
   }
 
   executePlan(planId: string) {
@@ -1287,6 +1289,57 @@ export class AgentService {
           && !step.output?.skipped,
       );
       if (autoAnalyzed) continue;
+
+      if (['completed', 'partially_completed'].includes(status) && totalItems > 0 && final.plan?.analysis?.length) {
+        const existingReport = agentRepository.getThread(final.thread_id)?.messages?.some((message: any) =>
+          message.kind === 'analysis' && message.metadata?.plan_id === final.plan_id,
+        );
+        if (!existingReport) {
+          try {
+            const datasetProfileReport = await analysisService.run('dataset.profile', undefined, { threadId: final.thread_id });
+            const datasetProfile = datasetProfileReport.metadata.datasetProfile;
+            if (datasetProfile?.documentCount) {
+              const analysisSkill = skillRegistry.find(final.plan.skillId);
+              knowledgeIndex.rebuild({ threadId: final.thread_id });
+              const report = await quickReportGenerator.generate({
+                threadId: final.thread_id,
+                workflowId: final.plan_id,
+                workflowGoal: final.goal,
+                reportName: analysisSkill?.name || '采集结果分析',
+                userRequest: `分析本次“${final.goal}”的采集结果`,
+                analysisGoals: final.plan.analysis,
+                skillName: analysisSkill?.name,
+                skillInstructions: analysisSkill?.analysisInstructions,
+                datasetProfile,
+              });
+              const analysisReport = analysisService.saveReport({
+                analyzerId: 'quick.report',
+                analyzerVersion: '1.0.0',
+                workflowId: final.plan_id,
+                title: report.title,
+                content: report.answer,
+                metadata: {
+                  datasetProfileReportId: datasetProfileReport.report_id,
+                  coverage: report.coverage,
+                  evidenceSelection: report.evidenceSelection,
+                  sources: report.sources,
+                },
+              });
+              agentRepository.addMessage(final.thread_id, 'assistant', 'analysis', report.answer, {
+                plan_id: final.plan_id,
+                retrieval: 'stratified_hybrid_rag',
+                sources: report.sources,
+                dataset_profile_report_id: datasetProfileReport.report_id,
+                analysis_report_id: analysisReport.report_id,
+              });
+              continue;
+            }
+          } catch (e) {
+            console.error('[AgentService] Auto analysis on completion failed:', e);
+          }
+        }
+      }
+
       const text = status === 'completed'
         ? `采集完成：${completed} 个平台均已成功，共采集到 ${totalItems} 条数据。你可以继续问我“分析这些结果”，或前往结果看板查看和导出。`
         : `采集已结束：${completed} 个平台成功，${connectorSteps.length - completed} 个平台失败或停止，共采集到 ${totalItems} 条数据。成功数据仍可分析，也可以重试失败步骤。`;
