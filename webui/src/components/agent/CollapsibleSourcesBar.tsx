@@ -40,6 +40,9 @@ export function CollapsibleSourcesBar({ sources = [], keywords = [], retrieval, 
     if (retrieval === 'live_search') {
       return `已实时检索，参考 ${sources.length} 篇资料`
     }
+    if (retrieval === 'direct_web_read') {
+      return `已读取网页，参考 ${sources.length} 篇资料`
+    }
     // 计算数量呈现：若有全量大盘 totalDocs 且大盘数大于精读数，显示斜杠形式 (如 12/30)，否则降级为单数字 (如 12)
     const docStat = totalDocs > readDocs ? `${readDocs}/${totalDocs}` : `${readDocs}`
 

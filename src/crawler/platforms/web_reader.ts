@@ -5,8 +5,8 @@ import { webReaderService, type WebReaderParsedArticle } from '../../services/we
 
 function extractUrls(input: string): string[] {
   if (!input) return [];
-  const matches = input.match(/https?:\/\/[^\s,，;；"'\(\)\<\>\[\]]+/g) || [];
-  return [...new Set(matches.map((url) => url.trim()))];
+  const matches = input.match(/https?:\/\/[^\s,，;；"'\(\)\<\>\[\]{}]+/g) || [];
+  return [...new Set(matches.map((url) => url.trim().replace(/[.，;；!！?？。)\\]]+$/, '')).filter((url) => /^https?:\/\/\w+/i.test(url)))];
 }
 
 export type { WebReaderParsedArticle } from '../../services/web-reader-service';
@@ -21,7 +21,7 @@ export class WebReaderCrawler extends AbstractCrawler {
       console.warn('[WebReader] No valid HTTP/HTTPS URLs found in input.');
       return;
     }
-    console.log(`[WebReader] Starting content extraction for ${urls.length} target URL(s)...`);
+    console.log(`[WebReader] Starting hybrid content extraction for ${urls.length} target URL(s)...`);
     let nextIndex = 0;
     const concurrency = Math.max(1, Math.min(Number(activeConfig.WEB_READER_CONCURRENCY || 3), urls.length));
     await Promise.all(Array.from({ length: concurrency }, async () => {
@@ -30,11 +30,28 @@ export class WebReaderCrawler extends AbstractCrawler {
         const url = urls[index];
         console.log(`[WebReader] [${index + 1}/${urls.length}] Fetching & parsing: ${url}`);
         try {
-          const article: WebReaderParsedArticle = await webReaderService.read(url, {
-            timeoutMs: Number(activeConfig.WEB_READER_TIMEOUT_MS || 15_000),
-          });
-          await connectorOutput.emitWebReaderResult({ ...article, source_keyword: url });
-          console.log(`[WebReader] Successfully extracted: "${article.title}" (${article.description.length} chars)`);
+          const articles = await this.executeHybrid<WebReaderParsedArticle>(
+            async () => {
+              const article = await webReaderService.read(url, {
+                timeoutMs: Number(activeConfig.WEB_READER_TIMEOUT_MS || 15_000),
+              });
+              if (!article.description || article.description.trim().length < 50) {
+                throw new Error('HTTP 模式抓取正文过短 (可能为 JS 渲染页面)，触发 Playwright 浏览器兜底');
+              }
+              return [article];
+            },
+            async () => {
+              const article = await webReaderService.readWithBrowser(url, {
+                timeoutMs: Number(activeConfig.WEB_READER_TIMEOUT_MS || 25_000),
+              });
+              return article ? [article] : [];
+            }
+          );
+
+          for (const article of articles) {
+            await connectorOutput.emitWebReaderResult({ ...article, source_keyword: url });
+            console.log(`[WebReader] Successfully extracted: "${article.title}" (${article.description.length} chars)`);
+          }
         } catch (error: any) {
           console.error(`[WebReader] Failed to process URL "${url}": ${error.message}`);
         }

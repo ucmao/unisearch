@@ -149,6 +149,50 @@ export class WebReaderService {
     return this.parse(html, finalUrl);
   }
 
+  async readWithBrowser(rawUrl: string, options: WebReaderOptions = {}): Promise<WebReaderParsedArticle> {
+    const url = await normalizePublicWebUrl(rawUrl);
+    options.signal?.throwIfAborted();
+    console.log(`[WebReader] [Browser Fallback] Opening Playwright browser for: ${url}`);
+
+    let playwright: any;
+    try {
+      playwright = require('playwright');
+    } catch (err: any) {
+      throw new ConnectorRuntimeError('ENVIRONMENT_ERROR', `Playwright 模块不可用: ${err.message}`, false);
+    }
+
+    const { connectToElectronChromium, getElectronCrawlerPage } = await import('../crawler/base/BaseCrawler');
+    const browserContext = await connectToElectronChromium(playwright);
+    let page: any = null;
+    let createdPage = false;
+
+    try {
+      try {
+        page = await getElectronCrawlerPage(browserContext, 'web_reader', 3);
+      } catch {
+        page = await browserContext.newPage();
+        createdPage = true;
+      }
+
+      const timeoutMs = Math.max(2_000, Math.min(options.timeoutMs || 25_000, 45_000));
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+
+      // Wait briefly for main content container or text to render
+      await page.waitForSelector('article, main, body', { timeout: 5000 }).catch(() => {});
+
+      const finalUrl = page.url() || url;
+      const html = await page.content();
+      if (!html || !html.trim()) {
+        throw new ConnectorRuntimeError('PAGE_STRUCTURE_CHANGED', `浏览器未获取到有效 HTML 内容: ${finalUrl}`, true);
+      }
+      return this.parse(html, finalUrl);
+    } finally {
+      if (createdPage && page && !page.isClosed()) {
+        await page.close().catch(() => {});
+      }
+    }
+  }
+
   parse(html: string, url: string): WebReaderParsedArticle {
     const $ = cheerio.load(html);
     $('script, style, noscript, iframe, svg, header, footer, nav, form, aside, button, input, .ad, .ads, .advertisement, #comments, .comments, .header, .footer, .sidebar, .menu, .nav').remove();

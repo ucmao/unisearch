@@ -90,6 +90,9 @@ export interface AppConfig {
 export const DEFAULT_CONFIG: AppConfig = {
   PLATFORM: 'xhs',
   KEYWORDS: '编程副业,编程兼职',
+  SPECIFIED_IDS: '',
+  CREATOR_IDS: '',
+  TARGET_URLS: '',
   LOGIN_TYPE: 'qrcode',
   COOKIES: '',
   CRAWLER_TYPE: 'search',
@@ -199,6 +202,25 @@ export function applyConfig(updates: any): AppConfig {
 
   if (updates.enable_comments !== undefined) {
     mappedUpdates.ENABLE_GET_COMMENTS = updates.enable_comments;
+  }
+
+  if (updates.specified_ids !== undefined) {
+    const rawVal = typeof updates.specified_ids === 'string'
+      ? updates.specified_ids
+      : Array.isArray(updates.specified_ids) ? updates.specified_ids.join(',') : String(updates.specified_ids);
+    mappedUpdates.SPECIFIED_IDS = rawVal;
+  }
+  if (updates.creator_ids !== undefined) {
+    const rawVal = typeof updates.creator_ids === 'string'
+      ? updates.creator_ids
+      : Array.isArray(updates.creator_ids) ? updates.creator_ids.join(',') : String(updates.creator_ids);
+    mappedUpdates.CREATOR_IDS = rawVal;
+  }
+  if (updates.target_urls !== undefined) {
+    const rawVal = typeof updates.target_urls === 'string'
+      ? updates.target_urls
+      : Array.isArray(updates.target_urls) ? updates.target_urls.join(',') : String(updates.target_urls);
+    mappedUpdates.TARGET_URLS = rawVal;
   }
 
   // Handle platform specific creator/specified list inputs
