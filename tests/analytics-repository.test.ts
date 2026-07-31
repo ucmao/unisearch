@@ -91,3 +91,29 @@ test('task hierarchy merges multiple workflows under one AI thread', async () =>
     db.close();
   }
 });
+
+test('storageSummary reports thread and message counts, cleanupThreads removes matching empty/historical threads', async () => {
+  const { db, repository: repo } = repository();
+  try {
+    const now = new Date().toISOString();
+    // Thread 1: Empty thread with 1 welcome message
+    db.prepare("INSERT INTO agent_threads (thread_id, title, created_at, updated_at) VALUES ('t1', 'empty', ?, ?)").run(now, now);
+    db.prepare("INSERT INTO agent_messages (message_id, thread_id, role, content, created_at) VALUES ('m1', 't1', 'assistant', 'hi', ?)").run(now);
+
+    // Thread 2: Thread with crawl run
+    await insertRun(db, 'run-t2', 't2');
+
+    // Storage summary should show thread_records: 2, message_records: 1 (m1)
+    const summary = repo.storageSummary();
+    assert.equal(summary.thread_records, 2);
+    assert.ok(summary.message_records >= 1);
+
+    // Cleanup empty_short should delete t1 and keep t2
+    const deleted = repo.cleanupThreads('empty_short');
+    assert.equal(deleted, 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id='t1'").get() as any).count, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id='t2'").get() as any).count, 1);
+  } finally {
+    db.close();
+  }
+});

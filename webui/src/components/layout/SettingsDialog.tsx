@@ -87,6 +87,7 @@ export function SettingsDialog({
   const [showApiKey, setShowApiKey] = useState(false)
   const [editMemoryId, setEditMemoryId] = useState<string | null>(null)
   const [editMemoryContent, setEditMemoryContent] = useState('')
+  const [storageTab, setStorageTab] = useState<'crawl' | 'threads'>('crawl')
   const [isAddingMemory, setIsAddingMemory] = useState(false)
   const [newMemoryContent, setNewMemoryContent] = useState('')
   const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
@@ -211,7 +212,18 @@ export function SettingsDialog({
       queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
-      toast.success(`已清理 ${data.deleted} 个看板执行记录`)
+      toast.success(data.deleted > 0 ? `已清理 ${data.deleted} 个看板执行记录及底座数据` : '已完成底座采集数据与文档清理')
+    },
+    onError: (error) => toast.error(getError(error)),
+  })
+  const cleanupThreads = useMutation({
+    mutationFn: (mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads') => dataApi.cleanupThreads(mode),
+    onSuccess: ({ data }) => {
+      queryClient.invalidateQueries({ queryKey: ['storage-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-threads'] })
+      queryClient.invalidateQueries({ queryKey: ['agent-thread'] })
+      queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
+      toast.success(`已清理 ${data.deleted} 个对话会话`)
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -403,37 +415,119 @@ export function SettingsDialog({
                 ) : null}
               </div>
             ) : activeSection === 'storage' ? (
-              <div className="mx-auto max-w-2xl">
+              <div className="mx-auto max-w-2xl space-y-5">
                 <DialogHeader>
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">存储管理</DialogTitle>
-                  <DialogDescription>管理和清理本地采集的执行履历、日志与平台原始文档。物理删除后不可恢复。</DialogDescription>
+                  <DialogDescription>管理和清理本地采集的执行履历、底层文档与对话会话数据。物理删除后不可恢复。</DialogDescription>
                 </DialogHeader>
+
+                {/* 便签页切换子导航 */}
+                <div className="flex border-b border-cyber-border-subtle gap-2 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => setStorageTab('crawl')}
+                    className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      storageTab === 'crawl'
+                        ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/30 font-semibold'
+                        : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary'
+                    }`}
+                  >
+                    采集存储
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStorageTab('threads')}
+                    className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                      storageTab === 'threads'
+                        ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/30 font-semibold'
+                        : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary'
+                    }`}
+                  >
+                    会话历史
+                  </button>
+                </div>
+
                 {storageQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在统计本地数据…</div>
                 ) : storageQuery.data ? (
-                  <div className="mt-7 space-y-5">
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      {[
-                        ['执行记录', storageQuery.data.analytics_runs],
-                        ['看板内容', storageQuery.data.analytics_records],
-                        ['执行日志', storageQuery.data.log_records],
-                        ['平台原始数据', storageQuery.data.raw_records],
-                      ].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4"><p className="text-[10px] text-cyber-text-muted">{label}</p><p className="mt-1 text-xl font-semibold text-cyber-text-primary">{Number(value || 0).toLocaleString('zh-CN')}</p></div>)}
-                    </div>
-                    <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
-                      {[
-                        { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理所有状态为失败或未采集到任何有效内容的孤立执行与日志。', confirm: '清理失败或空结果执行？' },
-                        { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的所有历史执行履历、采集文档与相关日志。', confirm: '清理 30 天前的执行历史？' },
-                        { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底物理清空所有已结束任务的执行履历与底座所有采集数据。', confirm: '彻底清空全部历史数据？' },
-                      ].map((item) => <div key={item.mode} className="flex items-center justify-between gap-5 py-4"><div><p className="text-sm font-medium text-cyber-text-primary">{item.title}</p><p className="mt-1 text-xs text-cyber-text-muted">{item.detail}</p></div><DeleteConfirmDialog
-                        trigger={<Button size="sm" variant={item.mode === 'all' ? 'destructive' : 'outline'} disabled={cleanupStorage.isPending}>清理</Button>}
-                        title={item.confirm}
-                        description="所选范围内的看板执行履历、日志以及底层关联的所有物理文档数据将一并彻底物理清除。"
-                        confirmLabel="确认清理"
-                        onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
-                      /></div>)}
-                    </div>
-                    <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">提示：删除或清理执行历史时，系统会依托外键级联同步物理清除不再被引用的底层文档数据，有效释放本地 SQLite 空间。</p>
+                  <div>
+                    {storageTab === 'crawl' ? (
+                      /* 便签 1：采集底座与看板存储 */
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                          {[
+                            ['执行记录', storageQuery.data.analytics_runs],
+                            ['看板内容', storageQuery.data.analytics_records],
+                            ['执行日志', storageQuery.data.log_records],
+                            ['平台原始数据', storageQuery.data.raw_records],
+                          ].map(([label, value]) => (
+                            <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4">
+                              <p className="text-[10px] text-cyber-text-muted">{label}</p>
+                              <p className="mt-1 text-xl font-semibold text-cyber-text-primary">{Number(value || 0).toLocaleString('zh-CN')}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
+                          {[
+                            { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理所有状态为失败或未采集到任何有效内容的孤立执行与日志。', confirm: '清理失败或空结果执行？' },
+                            { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的所有历史执行履历、采集文档与相关日志。', confirm: '清理 30 天前的执行历史？' },
+                            { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底物理清空所有已结束任务的执行履历与底座所有采集数据。', confirm: '彻底清空全部历史数据？' },
+                          ].map((item) => (
+                            <div key={item.mode} className="flex items-center justify-between gap-5 py-3.5">
+                              <div>
+                                <p className="text-sm font-medium text-cyber-text-primary">{item.title}</p>
+                                <p className="mt-0.5 text-xs text-cyber-text-muted">{item.detail}</p>
+                              </div>
+                              <DeleteConfirmDialog
+                                trigger={<Button size="sm" variant={item.mode === 'all' ? 'destructive' : 'outline'} disabled={cleanupStorage.isPending}>清理</Button>}
+                                title={item.confirm}
+                                description="所选范围内的看板执行履历、日志以及底层关联的所有物理文档数据将一并彻底物理清除。"
+                                confirmLabel="确认清理"
+                                onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">提示：删除或清理执行历史时，系统依托外键级联同步物理清除不再被引用的底层文档，有效释放本地 SQLite 空间。</p>
+                      </div>
+                    ) : (
+                      /* 便签 2：对话与会话管理 */
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
+                          {[
+                            ['会话总数', storageQuery.data.thread_records || 0],
+                            ['消息总数', storageQuery.data.message_records || 0],
+                          ].map(([label, value]) => (
+                            <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4">
+                              <p className="text-[10px] text-cyber-text-muted">{label}</p>
+                              <p className="mt-1 text-xl font-semibold text-cyber-text-primary">{Number(value || 0).toLocaleString('zh-CN')}</p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
+                          {[
+                            { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 3 条且未产生任何采集任务的测试与离散对话。', confirm: '清理空会话与零星问答？' },
+                            { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无采集关联的历史对话', detail: '清理 30 天前更新且未关联任何看板采集任务的历史对话。', confirm: '清理 30 天前无采集关联的历史对话？' },
+                            { mode: 'all_threads' as const, title: '清空所有历史对话', detail: '彻底物理清空侧边栏所有历史对话会话（正在运行任务的对话除外）。', confirm: '彻底清空所有历史对话？' },
+                          ].map((item) => (
+                            <div key={item.mode} className="flex items-center justify-between gap-5 py-3.5">
+                              <div>
+                                <p className="text-sm font-medium text-cyber-text-primary">{item.title}</p>
+                                <p className="mt-0.5 text-xs text-cyber-text-muted">{item.detail}</p>
+                              </div>
+                              <DeleteConfirmDialog
+                                trigger={<Button size="sm" variant={item.mode === 'all_threads' ? 'destructive' : 'outline'} disabled={cleanupThreads.isPending}>清理</Button>}
+                                title={item.confirm}
+                                description="所选范围内的对话记录与侧边栏历史会话将彻底物理删除。注意：AI 从对话中积累的长期记忆偏好仍将保留在【记忆】板块中。"
+                                confirmLabel="确认清理"
+                                onConfirm={() => cleanupThreads.mutateAsync(item.mode)}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">提示：对话清理仅清除聊天记录与侧边栏列表，已在【记忆】模块中保存的用户个人偏好与背景信息不会受到任何影响。</p>
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>

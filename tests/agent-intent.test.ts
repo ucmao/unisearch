@@ -18,6 +18,8 @@ test('reading or summarizing explicit web URLs uses the transient web reader', (
     '读取网页正文 https://example.com/report',
     '帮我概括一下 https://example.com/a?from=test。',
     '看看这个网页讲了什么：https://example.com/page',
+    'https://www.xhby.net/content/s6a5792dae4b0fc8825158242.html，告诉我科莱特的aigc课程亮点',
+    'https://example.com/product 这个产品有哪些核心优势？',
   ]) {
     assert.equal(isDirectWebReadRequest(message), true, message);
     assert.equal(localIntentDecision(message).action, 'direct_web_read', message);

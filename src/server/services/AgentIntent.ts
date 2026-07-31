@@ -49,7 +49,7 @@ const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.
 const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:RSS|Atom|订阅源).*(?:新闻|更新|文章|资讯)|(?:GitHub|AI HOT|AI热点|AI热榜).*(?:趋势|热门|仓库|项目|热点|日报|资讯)|(?:去|到|在)?(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\s*直聘|(?:[\w-]+\.)*zhipin\.com)(?:上|里)?(?:搜|找|查|问|看看|读取)/i;
 const BOSS_STRONG_MENTION = /(?:BOSS\s*直聘|(?:^|[^\w.-])(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b)/i;
 const BOSS_CONTEXTUAL_MENTION = /(?:在|去|到|从|用|通过|打开|访问)\s*@?\bboss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))|(?:^|[\s，。；;、@])boss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))/i;
-const DIRECT_WEB_READ = /阅读|读取|阅读全文|查看(?:一下)?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)?|看看?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)|网页正文|正文内容|总结|概括|归纳|解读/i;
+const DIRECT_WEB_READ = /阅读|读取|阅读全文|查看(?:一下)?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)?|看看?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)|网页正文|正文内容|总结|概括|归纳|解读|告诉我|介绍(?:一下)?|(?:是什么|有哪些|怎么样|如何|为何|为什么|是否|能否|亮点|核心|重点|主要内容)/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
   'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',

@@ -189,13 +189,13 @@ export class LiepinCrawler extends AbstractCrawler {
           continue;
         }
 
-        const parsedDetail = await this.page?.evaluate(() => {
+        const parsedDetail = (await this.page?.evaluate(() => {
           const title = document.querySelector('.job-title-box, h1, [class*="job-title"]')?.textContent?.trim() || '';
           const salary = document.querySelector('.job-salary, [class*="salary"]')?.textContent?.trim() || '';
           const company = document.querySelector('.company-name, [class*="company-name"]')?.textContent?.trim() || '';
           const desc = document.querySelector('.job-intro-container, [class*="job-intro"], [class*="desc"]')?.textContent?.replace(/\s+/g, ' ').trim() || '';
           return { title, salary, company, desc };
-        }) || {};
+        }) || {}) as { title: string; salary: string; company: string; desc: string };
 
         await connectorOutput.emitLiepinResult({
           title: parsedDetail.title || '猎聘职位详情',

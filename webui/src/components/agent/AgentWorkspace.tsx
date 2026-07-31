@@ -525,7 +525,7 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
           />
         ) : null}
         {isUser
-          ? <div className="whitespace-pre-wrap text-sm leading-6 text-cyber-text-primary">{renderMentionText(cleanContent)}</div>
+          ? <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-cyber-text-primary">{renderMentionText(cleanContent)}</div>
           : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />

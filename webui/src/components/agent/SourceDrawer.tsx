@@ -70,7 +70,7 @@ export function SourceDrawer({ isOpen, onClose, citation }: SourceDrawerProps) {
               <CheckCircle2 className="h-3 w-3" /> 已验证落库
             </span>
           </div>
-          <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/80 p-3 text-xs leading-relaxed text-cyber-text-secondary font-mono whitespace-pre-wrap">
+          <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/80 p-3 text-xs leading-relaxed text-cyber-text-secondary font-mono whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             {citation.excerpt || '无摘录内容'}
           </div>
         </div>

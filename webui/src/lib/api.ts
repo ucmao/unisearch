@@ -210,6 +210,8 @@ export interface StorageSummary {
   analytics_records: number
   log_records: number
   raw_records: number
+  thread_records: number
+  message_records: number
 }
 
 /** 由后端从 CONNECTOR_MANIFESTS 下发；平台名称在前端不再有第二份拷贝。 */
@@ -463,6 +465,8 @@ export const dataApi = {
   getStorageSummary: () => api.get<StorageSummary>('/data/storage/summary'),
   cleanupStorage: (mode: 'failed_empty' | 'older_than_30_days' | 'all') =>
     api.post<{ status: string; deleted: number }>('/data/storage/cleanup', { mode }),
+  cleanupThreads: (mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads') =>
+    api.post<{ status: string; deleted: number }>('/data/storage/cleanup-threads', { mode }),
   getAnalyticsExportUrl: (params: {
     run_id?: string
     workflow_id?: string

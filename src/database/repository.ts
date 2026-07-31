@@ -340,17 +340,74 @@ export class AnalyticsRepository {
       analytics_records: count('documents'),
       log_records: count('crawl_run_logs'),
       raw_records: count('document_sources'),
+      thread_records: count('agent_threads'),
+      message_records: count('agent_messages'),
     };
   }
 
   cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all'): number {
+    if (mode === 'all') {
+      return (this.db.transaction(() => {
+        const running = Number((this.db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE status='running'").get() as any).count);
+        if (running) throw new Error('请先停止正在运行的采集任务');
+        const deletedRuns = this.db.prepare("DELETE FROM crawl_runs WHERE status!='running'").changes;
+        this.db.prepare('DELETE FROM document_sources').run();
+        this.db.prepare('DELETE FROM documents').run();
+        this.db.prepare('DELETE FROM crawl_run_logs').run();
+        this.db.prepare('DELETE FROM search_discoveries').run();
+        return deletedRuns;
+      }))();
+    }
+
     const predicate = mode === 'failed_empty'
       ? "status!='running' AND (status='failed' OR item_count=0)"
-      : mode === 'older_than_30_days'
-        ? "status!='running' AND started_at < datetime('now','-30 days')"
-        : "status!='running'";
+      : "status!='running' AND started_at < datetime('now','-30 days')";
     const ids = this.db.prepare(`SELECT run_id FROM crawl_runs WHERE ${predicate}`).all() as Array<{ run_id: string }>;
-    return this.deleteRuns(ids.map((item) => item.run_id));
+    const runIds = ids.map((item) => item.run_id);
+    let deleted = 0;
+    if (runIds.length) {
+      deleted = this.deleteRuns(runIds);
+    }
+    this.db.prepare('DELETE FROM documents WHERE document_id NOT IN (SELECT document_id FROM document_sources)').run();
+    return deleted;
+  }
+
+  cleanupThreads(mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads'): number {
+    let whereClause = '';
+    if (mode === 'empty_short') {
+      whereClause = `
+        (SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id) < 3
+        AND NOT EXISTS (SELECT 1 FROM crawl_runs r WHERE r.thread_id = t.thread_id)
+      `;
+    } else if (mode === 'older_than_30_days_no_crawl') {
+      whereClause = `
+        t.updated_at < datetime('now', '-30 days')
+        AND NOT EXISTS (SELECT 1 FROM crawl_runs r WHERE r.thread_id = t.thread_id)
+      `;
+    } else {
+      whereClause = '1=1';
+    }
+
+    const candidateThreads = this.db.prepare(`
+      SELECT t.thread_id FROM agent_threads t
+      WHERE ${whereClause}
+      AND NOT EXISTS (
+        SELECT 1 FROM workflow_runs w
+        WHERE w.thread_id = t.thread_id AND w.status IN ('queued', 'running', 'waiting_for_user')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM crawl_runs cr
+        WHERE cr.thread_id = t.thread_id AND cr.status = 'running'
+      )
+    `).all() as Array<{ thread_id: string }>;
+
+    if (!candidateThreads.length) return 0;
+
+    const threadIds = candidateThreads.map((row) => row.thread_id);
+    return (this.db.transaction(() => {
+      const placeholders = threadIds.map(() => '?').join(',');
+      return this.db.prepare(`DELETE FROM agent_threads WHERE thread_id IN (${placeholders})`).run(...threadIds).changes;
+    }))();
   }
 
   private deleteScope(column: 'thread_id' | 'workflow_id', values: string[]): number {

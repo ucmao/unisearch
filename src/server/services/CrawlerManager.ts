@@ -19,6 +19,7 @@ export interface ItemPreview {
   author?: string;
   url?: string;
   fetched_at?: string;
+  run_id?: string;
 }
 
 export interface LogEntry {
