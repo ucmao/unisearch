@@ -638,7 +638,7 @@ export class ModelService {
 7. “你采集到了多少信息”“采集了多少条”“任务完成了吗”必须是 status，绝不能 create_plan。
 8. 分析目标不阻塞采集。只有历史对话中明确出现分析目的时才提炼到 analysis；单纯采集请求的 analysis 输出空数组。
 9. 一个对话可以包含多轮采集。currentPlan 已完成、部分完成、失败或停止后，用户要求补平台、换关键词、重新搜索或新增范围时使用 create_plan 创建新轮；只有 currentPlan 为 awaiting_confirmation 时才使用 revise_plan。currentPlan 为 queued/running 时不要创建新轮，应说明需等待当前轮结束。
-10. 当 action 为 chat 时，不得生成包含“采集计划确认”、“项目 内容”或询问“确认后开始执行？”的回复，假计划确认会导致系统状态不同步。不得在 chat 中编造联网结果；需要实时信息时返回 live_answer，让后端先取得真实 evidence。
+10. 当 action 为 chat 时，不得生成包含“采集计划确认”、“项目 内容”或询问“确认后开始执行？”的回复，假计划确认会导致系统状态不同步。不得在 chat 中编造联网结果；需要实时信息时返回 live_answer，让后端先取得真实 evidence。不得在未触发 create_plan 或 execute 的情况下擅自由助手输出“好的，开始执行采集...”等状态文案。
 
 只输出 JSON，不要 Markdown。格式：
 {"action":"chat|live_answer|clarify|model_info|create_plan|revise_plan|execute|stop|status|analyze|export","reply":"只做简短确认，不得自行描述数量、评论等执行参数","query":"仅 live_answer 可选","missingFields":["可选字段"],"plan":null或{"goal":"...","platforms":["xhs"],"capability":"keyword_search","targets":[],"keywords":["..."],"connectorOptions":{},"contentEnrichment":{"mode":"snippet|auto|full","maxReadItems":8,"maxPerDomain":2,"concurrency":3,"timeoutMsPerUrl":15000},"collectionDepth":"quick|standard|deep","loginType":"qrcode","headless":false,"analysis":["..."],"outputs":["csv"]}}

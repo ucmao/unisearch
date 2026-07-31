@@ -347,32 +347,27 @@ function ChatCrawlingStatusBanner({
   const isStreamActive = isRunning && !isPostProcessing
 
   return (
-    <div className={`relative text-xs text-cyber-text-muted transition-all duration-300 ${isStreamActive ? 'pb-14' : 'pb-0'}`}>
-      <div className="flex items-center gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
-          <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+    <div className={`relative mt-2.5 text-xs text-cyber-text-muted transition-all duration-300 ${isStreamActive ? 'pb-14' : 'pb-0'}`}>
+      <div className="flex items-center gap-2 py-1">
+        <div className="inline-flex items-center gap-1.5 text-cyber-text-secondary">
+          <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
+          <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+          <span className="text-cyber-border-default">·</span>
+          <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
         </div>
-        <div className="flex items-center gap-2 py-1">
-          <div className="inline-flex items-center gap-1.5 text-cyber-text-secondary">
-            <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-            <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
-            <span className="text-cyber-border-default">·</span>
-            <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
-          </div>
-          <button
-            type="button"
-            onClick={onStop}
-            disabled={stopping}
-            className="inline-flex items-center gap-1 rounded-md border border-cyber-border-default px-1.5 py-0.5 text-[10px] text-cyber-text-muted transition-colors hover:border-cyber-neon-pink/60 hover:text-cyber-neon-pink disabled:opacity-40"
-            title="中止本次采集"
-          >
-            {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-2.5 w-2.5 fill-current" />}
-            中止
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onStop}
+          disabled={stopping}
+          className="inline-flex items-center gap-1 rounded-md border border-cyber-border-default px-1.5 py-0.5 text-[10px] text-cyber-text-muted transition-colors hover:border-cyber-neon-pink/60 hover:text-cyber-neon-pink disabled:opacity-40 shrink-0"
+          title="中止本次采集"
+        >
+          {stopping ? <Loader2 className="h-3 w-3 animate-spin" /> : <Square className="h-2.5 w-2.5 fill-current" />}
+          中止
+        </button>
       </div>
 
-      <div className="absolute top-9 left-0 z-10 pointer-events-none w-full">
+      <div className="absolute top-9 left-0 right-0 z-10 pointer-events-none">
         <SinglePassPacedThreeLineStream isRunning={isStreamActive} />
       </div>
     </div>
@@ -426,10 +421,14 @@ function renderMentionText(text: string) {
   return parts.length > 0 ? parts : text
 }
 
-function MessageBubble({ message, plan, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
+function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
+  activePlan?: AgentPlan | null
+  onStopPlan?: () => void
+  stoppingPlan?: boolean
+  isPlanInitiator?: boolean
   onDeletePair: () => Promise<unknown>
   deletingPair: boolean
   onRegenerate?: () => Promise<unknown>
@@ -440,6 +439,7 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onRegenerate
   onCitationClick?: (sourceId: string) => void
 }) {
   const isUser = message.role === 'user'
+  const isTargetPlanMessage = !isUser && isPlanInitiator && activePlan && activePlan.status !== 'awaiting_confirmation' && ['queued', 'running'].includes(activePlan.status)
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
     try {
@@ -527,6 +527,13 @@ function MessageBubble({ message, plan, onDeletePair, deletingPair, onRegenerate
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
+        {isTargetPlanMessage && activePlan && onStopPlan ? (
+          <ChatCrawlingStatusBanner
+            activePlan={activePlan}
+            onStop={onStopPlan}
+            stopping={Boolean(stoppingPlan)}
+          />
+        ) : null}
         <div className={`mt-1.5 flex items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
           <p className="text-[9px] text-cyber-text-muted">{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
           <div className="flex items-center opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
@@ -1193,6 +1200,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setInput('')
     setAttachments([])
     setTaskReferences([])
+    if (activePlan && ['queued', 'running'].includes(activePlan.status)) {
+      stopPlan.mutate(activePlan.plan_id)
+    }
     send.mutate({ id: selectedId, content, attachmentIds, references, message })
   }
 
@@ -1202,7 +1212,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setIsStoppingMessage(true)
     sendAbortControllerRef.current?.abort()
     agentApi.stopMessage(threadId)
-      .then(({ data }) => toast.success(data.stopped ? '已停止生成' : '生成已结束'))
       .catch((error) => toast.error(getError(error)))
       .finally(() => {
         setIsStoppingMessage(false)
@@ -1249,6 +1258,20 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     }
     return null
   }, [threadQuery.data?.messages])
+  const planInitiatorMessageId = useMemo(() => {
+    if (!activePlan || !['queued', 'running'].includes(activePlan.status)) return null
+    const msgs = threadQuery.data?.messages || []
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (m.role === 'assistant' && (m.metadata?.action === 'execute' || m.metadata?.plan_id === activePlan.plan_id)) {
+        return m.message_id
+      }
+    }
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'assistant') return msgs[i].message_id
+    }
+    return null
+  }, [activePlan, threadQuery.data?.messages])
   const hasStreamingAnswer = Boolean(threadQuery.data?.messages.some((message) => message.metadata?.streaming))
   const isThinking = ((send.isPending && send.variables?.id === selectedId) || (regenerate.isPending && regenerate.variables?.threadId === selectedId)) && !hasStreamingAnswer
   const toggleThreads = () => {
@@ -1568,14 +1591,25 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => <MessageBubble key={message.message_id} message={message} plan={activePlan} deletingPair={removeMessagePair.isPending || send.isPending || regenerate.isPending} onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} onRegenerate={() => regenerate.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })} regenerating={regenerate.isPending && regenerate.variables?.messageId === message.message_id} disabled={send.isPending || regenerate.isPending} isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId} onPreviewImage={(url) => setPreviewImageUrl(url)} onCitationClick={handleCitationClick} />)}
-                {activePlan && activePlan.status !== 'awaiting_confirmation' && (
-                  <ChatCrawlingStatusBanner
+                {threadQuery.data?.messages.map((message) => (
+                  <MessageBubble
+                    key={message.message_id}
+                    message={message}
+                    plan={activePlan}
                     activePlan={activePlan}
-                    onStop={() => stopPlan.mutate(activePlan.plan_id)}
-                    stopping={stopPlan.isPending}
+                    onStopPlan={() => activePlan && stopPlan.mutate(activePlan.plan_id)}
+                    stoppingPlan={stopPlan.isPending}
+                    isPlanInitiator={message.message_id === planInitiatorMessageId}
+                    deletingPair={removeMessagePair.isPending || send.isPending || regenerate.isPending}
+                    onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })}
+                    onRegenerate={() => regenerate.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })}
+                    regenerating={regenerate.isPending && regenerate.variables?.messageId === message.message_id}
+                    disabled={send.isPending || regenerate.isPending}
+                    isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId}
+                    onPreviewImage={(url) => setPreviewImageUrl(url)}
+                    onCitationClick={handleCitationClick}
                   />
-                )}
+                ))}
                 {isThinking && (
                   <ThinkingIndicator retryState={aiRetryState} progress={aiProgress} />
                 )}
@@ -1699,11 +1733,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         if (isHandled) return
                         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                           e.preventDefault()
+                          if (send.isPending || isPlanRunning) return
                           submit()
                         }
                       }}
                       onPaste={handlePaste}
-                      placeholder={!selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
+                      placeholder={isPlanRunning ? '正在采集与分析中，点击右下角按钮可中止任务…' : !selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
                       className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
                       spellCheck={false}
                     />
@@ -1731,7 +1766,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
                     // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
                     const mode = send.isPending ? 'stop-message'
-                      : (isPlanRunning && !input.trim()) ? 'stop-plan'
+                      : isPlanRunning ? 'stop-plan'
                         : 'send'
                     const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
                     const busy = mode === 'stop-message' ? isStoppingMessage : mode === 'stop-plan' ? stopPlan.isPending : create.isPending
