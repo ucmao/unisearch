@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { hasResearchSubject, inferResearchKeywords, inferResearchPlatforms, isSimpleConversation, localIntentDecision } from '../src/server/services/AgentIntent';
+import { extractWebUrls, hasResearchSubject, inferResearchKeywords, inferResearchPlatforms, isDirectWebReadRequest, isSimpleConversation, localIntentDecision } from '../src/server/services/AgentIntent';
 
 test('direct link parsing requests route to direct_parse', () => {
   for (const message of [
@@ -10,6 +10,30 @@ test('direct link parsing requests route to direct_parse', () => {
   ]) {
     assert.equal(localIntentDecision(message).action, 'direct_parse', message);
   }
+});
+
+test('reading or summarizing explicit web URLs uses the transient web reader', () => {
+  for (const message of [
+    '请阅读这个 URL，总结告诉我：https://news.example.com/article/1',
+    '读取网页正文 https://example.com/report',
+    '帮我概括一下 https://example.com/a?from=test。',
+    '看看这个网页讲了什么：https://example.com/page',
+  ]) {
+    assert.equal(isDirectWebReadRequest(message), true, message);
+    assert.equal(localIntentDecision(message).action, 'direct_web_read', message);
+  }
+  assert.deepEqual(
+    extractWebUrls('总结 https://example.com/a。再阅读 https://example.org/b?x=1！'),
+    ['https://example.com/a', 'https://example.org/b?x=1'],
+  );
+  assert.equal(localIntentDecision('总结一下今天的讨论').action, 'chat');
+});
+
+test('an explicitly mentioned web reader keeps the persistent connector workflow', () => {
+  const decision = localIntentDecision('@通用网页阅读器 阅读并总结 https://example.com/article', {
+    mentionedConnectors: ['web_reader'],
+  });
+  assert.equal(decision.action, 'create_plan');
 });
 
 test('greetings stay conversational and never create a plan', () => {

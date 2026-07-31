@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ContentEnrichmentOptions, type ResearchPlan } from './AgentRepository';
-import { hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
@@ -16,6 +16,7 @@ import type { SkillDefinition } from '../../core/skills/types';
 import { liveSearchService, toLiveSourceCitations } from './LiveSearchService';
 import { analysisService } from '../../analyzers/registry';
 import { quickReportGenerator } from '../../analyzers/quick-report-generator';
+import { directWebReadService, directWebSourceCitations } from './DirectWebReadService';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -565,6 +566,46 @@ export class AgentService {
         error: 'unconfigured',
       });
       return agentRepository.getThread(threadId);
+    }
+
+    if (localDecision.action === 'direct_web_read') {
+      const urls = extractWebUrls(content);
+      try {
+        onStatus?.({ phase: 'web_search', message: '正在读取网页正文…' });
+        const result = await directWebReadService.read(urls, {
+          timeoutMs: 20_000,
+          signal,
+        });
+        ensureMessageNotAborted(signal);
+        const updatedThread = agentRepository.getThread(threadId);
+        const messages = conversationMessages(updatedThread);
+        onStatus?.({ phase: 'reasoning', message: '正在总结网页内容…' });
+        const answer = (await modelService.answerWithWebPages(messages, result.articles, {
+          onRetry,
+          signal,
+          onDelta,
+        })).trim();
+        ensureMessageNotAborted(signal);
+        if (!answer) throw new Error('模型没有返回文本内容');
+        agentRepository.addMessage(threadId, 'assistant', 'text', answer, {
+          action: 'direct_web_read',
+          retrieval: 'direct_web_read',
+          sources: directWebSourceCitations(result.articles),
+          failed_urls: result.failures,
+        });
+        this.scheduleThreadTitle(threadId);
+        this.scheduleMemoryCapture(threadId, content);
+        return agentRepository.getThread(threadId);
+      } catch (error: any) {
+        ensureMessageNotAborted(signal);
+        agentRepository.addMessage(threadId, 'assistant', 'status', `网页读取或总结失败：${error.message || '未知错误'}`, {
+          action: 'direct_web_read_error',
+          retrieval: 'direct_web_read',
+          urls,
+          error: error.message || '未知错误',
+        });
+        return agentRepository.getThread(threadId);
+      }
     }
 
     let decision: AgentDecision;

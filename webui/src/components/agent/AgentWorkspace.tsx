@@ -446,12 +446,15 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
       let contentToCopy = message.content.replace(/\n\s*---\s*\n\s*##?\s*📚?\s*(?:参考资料|资料来源|References|来源列表)[\s\S]*$/, '').trim()
       const sources = message.metadata?.sources
       if (Array.isArray(sources) && sources.length > 0) {
-        const keywords = message.metadata?.retrieval === 'live_search'
+        const isTransientWeb = ['live_search', 'direct_web_read'].includes(message.metadata?.retrieval)
+        const keywords = isTransientWeb
           ? []
           : message.metadata?.keywords || plan?.plan?.keywords || []
         const kwText = keywords.length > 0 ? keywords.map((k: string) => `“${k}”`).join('、、') : ''
         const sourceSummary = message.metadata?.retrieval === 'live_search'
           ? `已实时检索，参考 ${sources.length} 个网页来源 ›`
+          : message.metadata?.retrieval === 'direct_web_read'
+            ? `已读取网页，参考 ${sources.length} 个网页来源 ›`
           : message.metadata?.retrieval === 'stratified_hybrid_rag'
             ? `已分层检索知识库，参考 ${sources.length} 个独立文档 ›`
             : `已检索知识库，参考 ${sources.length} 个知识片段 ›`
@@ -515,7 +518,7 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
         {!isUser && (message.metadata?.analysis_coverage || (Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0)) ? (
           <CollapsibleSourcesBar
             sources={message.metadata?.sources}
-            keywords={message.metadata?.retrieval === 'live_search' ? [] : message.metadata?.keywords || plan?.plan?.keywords}
+            keywords={['live_search', 'direct_web_read'].includes(message.metadata?.retrieval) ? [] : message.metadata?.keywords || plan?.plan?.keywords}
             retrieval={message.metadata?.retrieval}
             coverage={message.metadata?.analysis_coverage as AnalysisCoverage}
             onCitationClick={onCitationClick}

@@ -785,7 +785,7 @@ const webReader: ConnectorManifest = {
     required: false, methods: ['none'],
     description: '无需登录，直接抓取公开网页。',
   },
-  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  runtime: { engine: 'hybrid', isolatedProcess: true, supportsHeadless: true },
   capabilities: [
     {
       id: 'content_detail', label: '网页正文解析', description: '输入单个或多个网页链接，提取抓取其完整文章正文、标题与元数据。', runtimeMode: 'detail',
