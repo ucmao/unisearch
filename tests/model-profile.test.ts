@@ -97,12 +97,12 @@ test('public model profile checks do not decrypt the stored API key', () => {
       profiles: {
         minimax: {
           baseUrl: 'https://api.minimaxi.com/v1',
-          model: 'MiniMax-M3',
+          model: 'MiniMax-M2.7-highspeed',
           temperature: 0.2,
           timeoutMs: 120000,
           apiKeyEncrypted: 'encrypted-key',
         },
-        deepseek: { baseUrl: 'https://api.deepseek.com', model: 'DeepSeek-V4-Flash', temperature: 0.2, timeoutMs: 120000 },
+        deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash', temperature: 0.2, timeoutMs: 120000 },
         custom: { baseUrl: '', model: '', temperature: 0.2, timeoutMs: 120000 },
       },
     }));

@@ -376,7 +376,7 @@ export class AnalyticsRepository {
     let whereClause = '';
     if (mode === 'empty_short') {
       whereClause = `
-        (SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id) < 3
+        (SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id) < 6
         AND NOT EXISTS (SELECT 1 FROM crawl_runs r WHERE r.thread_id = t.thread_id)
       `;
     } else if (mode === 'older_than_30_days_no_crawl') {
