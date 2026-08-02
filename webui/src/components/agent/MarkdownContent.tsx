@@ -6,7 +6,40 @@ function safeHref(value: string) {
   return /^(?:https?:\/\/|mailto:)/i.test(value) ? value : undefined
 }
 
-function parseCitationGroup(innerText: string): string[] {
+export function compressConsecutiveCitations(text: string, maxValidId: number = 500): string {
+  if (!text) return text
+  // 匹配连续出现的角标块，如 [S1] [S2] [S3] 或 （S1）（S2）
+  const pattern = /(?:(?:\[\s*S?\d+\s*\]|（\s*S?\d+\s*）)\s*){2,}/gi
+
+  return text.replace(pattern, (match) => {
+    const matches = [...match.matchAll(/S?(\d+)/gi)]
+    if (matches.length < 2) return match
+
+    const numbers = matches.map((m) => parseInt(m[1], 10)).filter((n) => !isNaN(n) && n > 0 && n <= maxValidId)
+    if (numbers.length < 2) return match
+
+    const unique = Array.from(new Set(numbers)).sort((a, b) => a - b)
+    const ranges: string[] = []
+    let start = unique[0]
+    let prev = unique[0]
+
+    for (let i = 1; i < unique.length; i++) {
+      const curr = unique[i]
+      if (curr === prev + 1) {
+        prev = curr
+      } else {
+        ranges.push(start === prev ? `[S${start}]` : `[S${start}-S${prev}]`)
+        start = curr
+        prev = curr
+      }
+    }
+    ranges.push(start === prev ? `[S${start}]` : `[S${start}-S${prev}]`)
+
+    return ranges.join(' ')
+  })
+}
+
+function parseCitationGroup(innerText: string, maxValidId: number = 500): string[] {
   const parts = innerText.split(/[\s,;/&、，]+/).filter(Boolean)
   const result: string[] = []
 
@@ -15,17 +48,18 @@ function parseCitationGroup(innerText: string): string[] {
     if (rangeMatch) {
       const start = parseInt(rangeMatch[1], 10)
       const end = parseInt(rangeMatch[2], 10)
-      if (!isNaN(start) && !isNaN(end) && end >= start && end - start <= 20) {
+      if (!isNaN(start) && !isNaN(end) && end >= start && end - start <= 50 && end <= maxValidId) {
         for (let i = start; i <= end; i++) {
           result.push(`S${i}`)
         }
-      } else {
-        result.push(`S${start}`, `S${end}`)
       }
     } else {
       const singleMatch = part.match(/^S?(\d+)$/i)
       if (singleMatch) {
-        result.push(`S${singleMatch[1]}`)
+        const num = parseInt(singleMatch[1], 10)
+        if (!isNaN(num) && num > 0 && num <= maxValidId) {
+          result.push(`S${num}`)
+        }
       }
     }
   }
@@ -33,49 +67,111 @@ function parseCitationGroup(innerText: string): string[] {
   return Array.from(new Set(result))
 }
 
-function renderCitationButton(
-  sourceId: string,
+function renderCitationGroup(
+  citationIds: string[],
   keyPrefix: string,
   platformLabels: Record<string, string>,
   sources?: SourceCitationItem[],
   onCitationClick?: (sourceId: string) => void
 ) {
-  const matchedSource = (sources || []).find((s) => {
-    const sid = (s.id || '').toUpperCase()
-    return sid === sourceId || sid === sourceId.replace(/^S/i, '')
-  })
-  const platformName = matchedSource?.source
-    ? platformLabels[matchedSource.source] || matchedSource.source
-    : undefined
-  const tooltipText = matchedSource
-    ? `[${platformName || '资料'}] ${matchedSource.title || '未命名资料'}`
-    : `查看 [${sourceId}] 出处`
+  if (citationIds.length === 0) return null
+
+  const numbers = citationIds
+    .map((id) => parseInt(id.replace(/\D/g, ''), 10))
+    .filter((n) => !isNaN(n))
+    .sort((a, b) => a - b)
+
+  if (numbers.length === 0) return null
+
+  // 按连续数字分组
+  const continuousGroups: number[][] = []
+  let currentGroup: number[] = [numbers[0]]
+
+  for (let i = 1; i < numbers.length; i++) {
+    const prev = numbers[i - 1]
+    const curr = numbers[i]
+    if (curr === prev + 1) {
+      currentGroup.push(curr)
+    } else {
+      continuousGroups.push(currentGroup)
+      currentGroup = [curr]
+    }
+  }
+  continuousGroups.push(currentGroup)
 
   return (
-    <button
-      key={keyPrefix}
-      type="button"
-      onClick={() => {
-        if (matchedSource?.sourceUrl) {
-          window.open(matchedSource.sourceUrl, '_blank')
+    <Fragment key={keyPrefix}>
+      {continuousGroups.map((group, groupIdx) => {
+        const groupCitationIds = group.map((n) => `S${n}`)
+        const start = group[0]
+        const end = group[group.length - 1]
+        const labelText = group.length === 1 ? `[S${start}]` : `[S${start}-S${end}]`
+
+        const tooltipLines: string[] = []
+        if (group.length === 1) {
+          const sid = `S${start}`
+          const matchedSource = (sources || []).find((s) => {
+            const sidKey = (s.id || '').toUpperCase()
+            return sidKey === sid || sidKey === String(start)
+          })
+          const platformName = matchedSource?.source
+            ? platformLabels[matchedSource.source] || matchedSource.source
+            : undefined
+          tooltipLines.push(
+            matchedSource
+              ? `[${platformName || '资料'}] ${matchedSource.title || '未命名资料'}`
+              : `查看 [${sid}] 出处`
+          )
         } else {
-          onCitationClick?.(sourceId)
+          tooltipLines.push(`${labelText} 共引用 ${group.length} 个出处：`)
+          groupCitationIds.slice(0, 10).forEach((sid) => {
+            const matchedSource = (sources || []).find((s) => {
+              const sidKey = (s.id || '').toUpperCase()
+              return sidKey === sid || sidKey === sid.replace(/^S/i, '')
+            })
+            const title = matchedSource?.title || '未命名资料'
+            tooltipLines.push(`• [${sid}] ${title}`)
+          })
+          if (group.length > 10) {
+            tooltipLines.push(`... 等共 ${group.length} 项`)
+          }
         }
-      }}
-      className="mx-0.5 inline-flex items-center justify-center font-mono text-[10px] text-cyber-neon-cyan/85 hover:text-cyber-neon-cyan hover:underline decoration-cyber-neon-cyan/50 transition-colors font-normal align-baseline cursor-pointer"
-      title={tooltipText}
-    >
-      [{sourceId}]
-    </button>
+
+        return (
+          <button
+            key={`${keyPrefix}-grp-${groupIdx}`}
+            type="button"
+            onClick={() => {
+              const firstSid = `S${start}`
+              const matchedSource = (sources || []).find((s) => {
+                const sidKey = (s.id || '').toUpperCase()
+                return sidKey === firstSid || sidKey === String(start)
+              })
+              if (matchedSource?.sourceUrl) {
+                window.open(matchedSource.sourceUrl, '_blank')
+              } else {
+                onCitationClick?.(firstSid)
+              }
+            }}
+            className="mx-0.5 inline-flex items-center justify-center font-mono text-[10px] text-cyber-neon-cyan/85 hover:text-cyber-neon-cyan hover:underline decoration-cyber-neon-cyan/50 transition-colors font-normal align-baseline cursor-pointer"
+            title={tooltipLines.join('\n')}
+          >
+            {labelText}
+          </button>
+        )
+      })}
+    </Fragment>
   )
 }
 
 function inlineMarkdown(
-  text: string,
+  rawText: string,
   platformLabels: Record<string, string>,
   sources?: SourceCitationItem[],
   onCitationClick?: (sourceId: string) => void
 ): ReactNode[] {
+  const maxValidId = sources && sources.length > 0 ? Math.max(sources.length + 10, 50) : 500
+  const text = compressConsecutiveCitations(rawText, maxValidId)
   // Chinese prose commonly follows a URL without a space. Treat full-width
   // punctuation as a boundary so the link does not swallow the rest of a line.
   const pattern = /(<br\s*\/?>|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>"'\(\)（），。；：！？、【】《》「」『』]+|\[\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*\]|（\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*）|\bS\d+(?:[、,，]\s*S?\d+)+|\bS\d+[:：]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`)/gi
@@ -135,28 +231,35 @@ function inlineMarkdown(
       )
     } else if ((token.startsWith('[') && token.endsWith(']')) || (token.startsWith('（') && token.endsWith('）'))) {
       const inner = token.slice(1, -1).trim()
-      const citationIds = parseCitationGroup(inner)
+      const citationIds = parseCitationGroup(inner, maxValidId)
       if (citationIds.length > 0) {
-        citationIds.forEach((sid, idx) => {
-          nodes.push(renderCitationButton(sid, `${index}-citation-${sid}-${idx}`, platformLabels, sources, onCitationClick))
-        })
+        nodes.push(renderCitationGroup(citationIds, `${index}-citation-${citationIds.join('-')}`, platformLabels, sources, onCitationClick))
       } else {
-        nodes.push(token)
+        // 检查是否是伪来源角标（如 100021）
+        const numMatch = inner.match(/^S?(\d+)$/i)
+        if (numMatch && parseInt(numMatch[1], 10) > maxValidId) {
+          // 伪角标静默隐藏，不渲染在正文中
+        } else {
+          nodes.push(token)
+        }
       }
     } else if (/^\bS\d+(?:[、,，]\s*S?\d+)+$/i.test(token)) {
-      const citationIds = parseCitationGroup(token)
+      const citationIds = parseCitationGroup(token, maxValidId)
       if (citationIds.length > 0) {
-        citationIds.forEach((sid, idx) => {
-          nodes.push(renderCitationButton(sid, `${index}-citation-${sid}-${idx}`, platformLabels, sources, onCitationClick))
-        })
+        nodes.push(renderCitationGroup(citationIds, `${index}-citation-${citationIds.join('-')}`, platformLabels, sources, onCitationClick))
       } else {
         nodes.push(token)
       }
     } else if (/^\bS\d+[:：]$/i.test(token)) {
       const sid = token.slice(0, -1).toUpperCase()
       const colon = token.slice(-1)
-      nodes.push(renderCitationButton(sid, `${index}-citation-${sid}`, platformLabels, sources, onCitationClick))
-      nodes.push(colon + ' ')
+      const citationIds = parseCitationGroup(sid, maxValidId)
+      if (citationIds.length > 0) {
+        nodes.push(renderCitationGroup([sid], `${index}-citation-${sid}`, platformLabels, sources, onCitationClick))
+        nodes.push(colon + ' ')
+      } else {
+        nodes.push(token)
+      }
     } else if (token.startsWith('***')) {
       nodes.push(<strong key={`${index}-strong-italic`} className="font-semibold italic text-cyber-text-primary">{token.slice(3, -3)}</strong>)
     } else if (token.startsWith('**')) {

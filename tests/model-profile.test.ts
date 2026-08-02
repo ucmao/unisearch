@@ -173,6 +173,59 @@ test('model conversation streams visible deltas and hides reasoning blocks', asy
   }
 });
 
+test('thread title generation gives reasoning models enough output space and uses a short retry policy', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-title-'));
+  const configPath = path.join(directory, 'model-profile.json');
+  const originalPost = axios.post;
+
+  try {
+    const service = new ModelService(configPath);
+    service.saveProfile({ provider: 'minimax', baseUrl: 'https://title.example', model: 'MiniMax-M2.7-highspeed', apiKey: 'secret' });
+    let requestBody: any;
+    (axios as any).post = async (_url: string, body: any) => {
+      requestBody = body;
+      return { data: { choices: [{ message: { content: '巴黎圣母院简介' } }] } };
+    };
+
+    const title = await service.generateThreadTitle([{ role: 'user', content: '你知道巴黎圣母院吗' }]);
+
+    assert.equal(title, '巴黎圣母院简介');
+    assert.equal(requestBody.max_tokens, 1024);
+    assert.equal(requestBody.reasoning_split, true);
+  } finally {
+    (axios as any).post = originalPost;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('model retry attempts do not exceed the configured total', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-retry-'));
+  const configPath = path.join(directory, 'model-profile.json');
+  const originalPost = axios.post;
+
+  try {
+    const service = new ModelService(configPath);
+    service.saveProfile({ provider: 'custom', baseUrl: 'https://retry.example', model: 'retry-model', apiKey: 'secret' });
+    let calls = 0;
+    (axios as any).post = async () => {
+      calls += 1;
+      return { data: { choices: [{ message: { content: '' } }] } };
+    };
+
+    await assert.rejects(
+      (service as any).chat([{ role: 'user', content: '测试' }], 80, false, undefined, undefined, undefined, {
+        maxAttempts: 2,
+        retryBaseDelayMs: 0,
+      }),
+      /模型没有返回文本内容/,
+    );
+    assert.equal(calls, 2);
+  } finally {
+    (axios as any).post = originalPost;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('model conversation always receives active memories as user context', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-memory-'));
   const configPath = path.join(directory, 'model-profile.json');

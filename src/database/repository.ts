@@ -350,7 +350,7 @@ export class AnalyticsRepository {
       return (this.db.transaction(() => {
         const running = Number((this.db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE status='running'").get() as any).count);
         if (running) throw new Error('请先停止正在运行的采集任务');
-        const deletedRuns = this.db.prepare("DELETE FROM crawl_runs WHERE status!='running'").changes;
+        const deletedRuns = this.db.prepare("DELETE FROM crawl_runs WHERE status!='running'").run().changes;
         this.db.prepare('DELETE FROM document_sources').run();
         this.db.prepare('DELETE FROM documents').run();
         this.db.prepare('DELETE FROM crawl_run_logs').run();
@@ -373,16 +373,26 @@ export class AnalyticsRepository {
   }
 
   cleanupThreads(mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads'): number {
+    // A crawl task alone does not make a conversation worth retaining. Failed
+    // or zero-result runs have no linked primary documents and should be
+    // treated the same as conversations that never started a crawl.
+    const noCollectedData = `NOT EXISTS (
+      SELECT 1
+      FROM crawl_runs r
+      JOIN document_sources s ON s.run_id = r.run_id
+      JOIN documents d ON d.document_id = s.document_id
+      WHERE r.thread_id = t.thread_id AND d.kind != 'comment'
+    )`;
     let whereClause = '';
     if (mode === 'empty_short') {
       whereClause = `
         (SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id) < 6
-        AND NOT EXISTS (SELECT 1 FROM crawl_runs r WHERE r.thread_id = t.thread_id)
+        AND ${noCollectedData}
       `;
     } else if (mode === 'older_than_30_days_no_crawl') {
       whereClause = `
         t.updated_at < datetime('now', '-30 days')
-        AND NOT EXISTS (SELECT 1 FROM crawl_runs r WHERE r.thread_id = t.thread_id)
+        AND ${noCollectedData}
       `;
     } else {
       whereClause = '1=1';

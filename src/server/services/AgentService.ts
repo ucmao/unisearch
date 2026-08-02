@@ -1184,7 +1184,12 @@ export class AgentService {
       action: autoStart ? 'execute' : decision.action,
       auto_started: autoStart,
     });
-    if (!latest) agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
+    // 计划只负责提供默认标题兜底，不覆盖用户首句或已经生成的会话标题。
+    // 平台信息属于任务元数据，放在标题中会让同一平台的任务高度雷同。
+    const currentThread = agentRepository.getThread(threadId);
+    if (!latest && currentThread?.title_source === 'default') {
+      agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
+    }
     return agentRepository.getThread(threadId);
   }
 

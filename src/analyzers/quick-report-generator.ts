@@ -55,9 +55,28 @@ export interface QuickReportResult {
 
 function citedSourceIds(answer: string, sourceIds: Set<string>): Set<string> {
   const cited = new Set<string>();
-  for (const match of answer.matchAll(/\[(S\d+)\]/gi)) {
-    const id = match[1].toUpperCase();
-    if (sourceIds.has(id)) cited.add(id);
+  for (const match of answer.matchAll(/\[([^\]]+)\]/gi)) {
+    const inner = match[1].trim();
+    const parts = inner.split(/[\s,;/&、，]+/).filter(Boolean);
+    for (const part of parts) {
+      const rangeMatch = part.match(/^S?(\d+)\s*[-–—]\s*S?(\d+)$/i);
+      if (rangeMatch) {
+        const start = parseInt(rangeMatch[1], 10);
+        const end = parseInt(rangeMatch[2], 10);
+        if (!isNaN(start) && !isNaN(end) && end >= start && end - start <= 50) {
+          for (let i = start; i <= end; i++) {
+            const id = `S${i}`;
+            if (sourceIds.has(id)) cited.add(id);
+          }
+        }
+      } else {
+        const singleMatch = part.match(/^S?(\d+)$/i);
+        if (singleMatch) {
+          const id = `S${singleMatch[1]}`.toUpperCase();
+          if (sourceIds.has(id)) cited.add(id);
+        }
+      }
+    }
   }
   return cited;
 }
@@ -178,7 +197,7 @@ export class QuickReportGenerator {
           '',
           '写作规则：',
           '1. 样本量、数量、比例、平台和类型分布、时间范围、字段覆盖、缺失率及数值指标，只能使用“全部文档的确定性统计结果”。',
-          '2. 主题、观点、原因、风险、机会和建议只能根据代表性证据归纳，并在关键事实后标注 [S1] 格式来源。',
+          '2. 主题、观点、原因、风险、机会和建议只能根据代表性证据归纳，并在关键事实后标注 [S1] 格式来源。引用编号只能使用 [S1] 开始的有效证据编号，严禁把行业代码、数据主键或原始数字（如 100021）当作来源编号标注。',
           '3. 不得声称逐篇阅读了全部文档，不得根据代表性证据重新估算总体比例，不得补造资料中没有的字段。',
           '4. 明确区分数据发现、证据不足和建议；不要重复输出数据范围说明，也不要自行添加参考资料列表。',
         ].filter(Boolean).join('\n'),

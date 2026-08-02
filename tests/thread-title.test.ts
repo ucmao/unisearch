@@ -15,10 +15,10 @@ test('fallback titles remove conversational lead-ins and sensitive values', () =
   assert.equal(Array.from(sanitizeThreadTitle('这是一个非常非常非常非常非常非常非常长的任务名称')).length <= 24, true);
 });
 
-test('plan titles include a single platform when the goal does not name it', () => {
+test('plan titles use the topic without forcing a platform prefix', () => {
   assert.equal(titleFromPlan({
     goal: '扫地机器人口碑调研', platforms: ['xhs'], keywords: ['扫地机器人'],
     collectionDepth: 'standard', loginType: 'qrcode', headless: false,
     analysis: ['用户观点'], outputs: ['csv'],
-  }), '小红书·扫地机器人');
+  }), '扫地机器人');
 });

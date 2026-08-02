@@ -92,7 +92,7 @@ test('task hierarchy merges multiple workflows under one AI thread', async () =>
   }
 });
 
-test('storageSummary reports thread and message counts, cleanupThreads removes matching empty/historical threads', async () => {
+test('storageSummary reports thread and message counts, cleanupThreads removes threads without collected data', async () => {
   const { db, repository: repo } = repository();
   try {
     const now = new Date().toISOString();
@@ -113,6 +113,61 @@ test('storageSummary reports thread and message counts, cleanupThreads removes m
     assert.equal(deleted, 1);
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id='t1'").get() as any).count, 0);
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id='t2'").get() as any).count, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test('cleanupThreads removes failed and zero-result crawl threads but keeps threads with primary data', async () => {
+  const { db, repository: repo } = repository();
+  try {
+    const threads = [
+      ['zero-result', 'failed'],
+      ['failed', 'failed'],
+      ['comments-only', 'completed'],
+      ['with-data', 'completed'],
+    ] as const;
+    const now = new Date().toISOString();
+    for (const [threadId] of threads) {
+      db.prepare('INSERT INTO agent_threads (thread_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)')
+        .run(threadId, threadId, now, now);
+      db.prepare('INSERT INTO agent_messages (message_id, thread_id, role, content, created_at) VALUES (?, ?, \'user\', \'采集请求\', ?)')
+        .run(`message-${threadId}`, threadId, now);
+    }
+    const zero = { thread_id: 'zero-result' };
+    const failed = { thread_id: 'failed' };
+    const commentsOnly = { thread_id: 'comments-only' };
+    const withData = { thread_id: 'with-data' };
+
+    const insertCrawlRun = (runId: string, threadId: string, status: string) => {
+      db.prepare(`
+        INSERT INTO crawl_runs
+          (run_id, thread_id, task_title, task_name, platform, crawler_type, status, started_at)
+        VALUES (?, ?, ?, ?, 'xhs', 'search', ?, datetime('now'))
+      `).run(runId, threadId, runId, runId, status);
+    };
+    for (const [threadId, status] of threads) insertCrawlRun(`run-${threadId}`, threadId, status);
+
+    await new DocumentEngine(() => db).ingest(buildRawItem('emitXhsNote', {
+      note_id: 'primary-data', title: '有效数据', desc: '正文', note_url: 'https://example.com/primary-data', nickname: '用户',
+    }), 'run-with-data');
+    await new DocumentEngine(() => db).ingest(buildRawItem('emitXhsComment', {
+      note_id: 'comment-only', title: '评论', desc: '评论正文', note_url: 'https://example.com/comment-only', nickname: '用户',
+    }), 'run-comments-only');
+
+    assert.equal(repo.cleanupThreads('empty_short'), 3);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id=?').get(withData.thread_id) as any).count, 1);
+
+    db.prepare('INSERT INTO agent_threads (thread_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)')
+      .run('old-empty', 'old-empty', '2020-01-01T00:00:00.000Z', '2020-01-01T00:00:00.000Z');
+    db.prepare('INSERT INTO agent_messages (message_id, thread_id, role, content, created_at) VALUES (?, ?, \'user\', \'历史采集请求\', ?)')
+      .run('message-old-empty', 'old-empty', '2020-01-01T00:00:00.000Z');
+    insertCrawlRun('run-old-empty', 'old-empty', 'failed');
+    db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?')
+      .run('2020-01-01T00:00:00.000Z', withData.thread_id);
+    assert.equal(repo.cleanupThreads('older_than_30_days_no_crawl'), 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id=?').get('old-empty') as any).count, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_threads WHERE thread_id=?').get(withData.thread_id) as any).count, 1);
   } finally {
     db.close();
   }
