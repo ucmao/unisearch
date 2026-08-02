@@ -523,8 +523,8 @@ export function SettingsDialog({
                         </div>
                         <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
                           {[
-                            { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 6 条且未产生任何采集任务的对话。', confirm: '清理空会话与零星问答？' },
-                            { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无采集关联的历史对话', detail: '清理 30 天前更新且未关联任何采集任务的历史对话。', confirm: '清理 30 天前无采集关联的历史对话？' },
+                            { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 6 条且未采集到有效数据的对话。', confirm: '清理空会话与零星问答？' },
+                            { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无有效采集数据的历史对话', detail: '清理 30 天前更新且未采集到有效数据的历史对话。', confirm: '清理 30 天前无有效采集数据的历史对话？' },
                             { mode: 'all_threads' as const, title: '清空所有历史对话', detail: '彻底物理清空侧边栏所有历史对话会话（正在运行任务的对话除外）。', confirm: '彻底清空所有历史对话？' },
                           ].map((item) => (
                             <div key={item.mode} className="flex items-center justify-between gap-5 py-4">

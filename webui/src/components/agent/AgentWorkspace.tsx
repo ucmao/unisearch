@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -2178,57 +2179,71 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           <DialogFooter><Button onClick={() => setTaskPickerOpen(false)}>完成{taskReferences.length ? `（已选 ${taskReferences.length}）` : ''}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={Boolean(previewImageUrl)} onOpenChange={(open) => { if (!open) setPreviewImageUrl(null) }}>
-        <DialogContent hideClose overlayClassName="!bg-black/60 !backdrop-blur-sm" className="fixed left-0 top-0 z-50 h-screen w-screen max-w-none max-h-none translate-x-0 translate-y-0 flex items-center justify-center !border-none !bg-transparent !shadow-none !backdrop-blur-none focus:outline-none focus-visible:outline-none">
-          {/* 右上角固定操作按钮组（下载 + 关闭） */}
-          <div className="absolute top-5 right-6 z-50 flex items-center gap-2.5">
-            {previewImageUrl ? (
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!previewImageUrl) return
-                  try {
-                    const res = await fetch(previewImageUrl)
-                    const blob = await res.blob()
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    const ext = blob.type.split('/')[1] || 'png'
-                    a.download = `image-preview-${Date.now()}.${ext}`
-                    document.body.appendChild(a)
-                    a.click()
-                    document.body.removeChild(a)
-                    URL.revokeObjectURL(url)
-                  } catch {
-                    window.open(previewImageUrl, '_blank')
-                  }
-                }}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100/90 text-slate-900 shadow-xl backdrop-blur-sm transition-transform hover:scale-105 hover:bg-white active:scale-95 cursor-pointer"
-                title="下载图片"
-                aria-label="下载图片"
-              >
-                <Download className="h-4 w-4 stroke-[2.2]" />
-              </button>
-            ) : null}
+      {/* 图片全屏预览 — 纯 Portal，完全绕开 Radix Dialog 的 focus-trap 和 overlay 事件拦截 */}
+      {previewImageUrl && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
+          className="flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          {/* 右上角按钮组 */}
+          <div
+            style={{ position: 'absolute', top: 20, right: 24, zIndex: 10000 }}
+            className="flex items-center gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 下载按钮 */}
             <button
               type="button"
-              onClick={() => setPreviewImageUrl(null)}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100/90 text-slate-900 shadow-xl backdrop-blur-sm transition-transform hover:scale-105 hover:bg-white active:scale-95 cursor-pointer"
+              className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-none bg-slate-100/90 text-slate-900 shadow-2xl backdrop-blur-md transition-all select-none hover:scale-110 hover:bg-white active:scale-95 focus:outline-none"
+              onClick={async (e) => {
+                e.stopPropagation()
+                if (!previewImageUrl) return
+                try {
+                  const res = await fetch(previewImageUrl)
+                  const blob = await res.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  const ext = blob.type.split('/')[1] || 'png'
+                  a.download = `image-preview-${Date.now()}.${ext}`
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                  URL.revokeObjectURL(url)
+                } catch {
+                  window.open(previewImageUrl, '_blank')
+                }
+              }}
+              title="下载图片"
+              aria-label="下载图片"
+            >
+              <Download style={{ width: 20, height: 20, pointerEvents: 'none', cursor: 'pointer', display: 'block', flexShrink: 0 }} />
+            </button>
+            {/* 关闭按钮 */}
+            <button
+              type="button"
+              className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-none bg-slate-100/90 text-slate-900 shadow-2xl backdrop-blur-md transition-all select-none hover:scale-110 hover:bg-white active:scale-95 focus:outline-none"
+              onClick={(e) => {
+                e.stopPropagation()
+                setPreviewImageUrl(null)
+              }}
               title="关闭预览"
               aria-label="关闭预览"
             >
-              <X className="h-4 w-4 stroke-[2.2]" />
+              <X style={{ width: 20, height: 20, pointerEvents: 'none', cursor: 'pointer', display: 'block', flexShrink: 0 }} />
             </button>
           </div>
-
-          {/* 纯粹图片居中展示 */}
+          {/* 图片 */}
           <img
-            src={previewImageUrl || ''}
+            src={previewImageUrl}
             alt="图片预览"
             className="max-h-[85vh] max-w-[90vw] rounded-xl object-contain shadow-2xl select-none"
+            onClick={(e) => e.stopPropagation()}
           />
-        </DialogContent>
-      </Dialog>
+        </div>,
+        document.body
+      )}
 
       {/* 知识库导出二次确认弹窗 (高对比度深色文本) */}
       <Dialog open={!!exportConfirmPlatform} onOpenChange={(open) => !open && setExportConfirmPlatform(null)}>

@@ -1,5 +1,4 @@
 import type { ResearchPlan } from './AgentRepository';
-import { platformLabel } from '../../connectors/registry';
 
 const GENERIC_MESSAGE = /^(?:你?好(?:呀|啊|哇|哦|喔|哟|嘛)?|您好|哈[喽啰罗]|嗨|hi|hello|hey|在吗|有人吗|测试(?:一下)?|开始|继续|谢谢|多谢|ok|好的|嗯+|哦+)[!！,.，。?？~～\s\p{Emoji_Presentation}\p{Extended_Pictographic}]*$/iu;
 
@@ -44,10 +43,5 @@ export function titleFromPlan(plan: ResearchPlan): string {
       .replace(/^(?:在[\s\S]*?(?:中|上)?\s*(?:搜索|采集|检索|查找)|采集|搜索|检索|查找)\s*(?:关键词[:："“']*)?/i, '')
       .trim();
   }
-  let goal = sanitizeThreadTitle(topic || plan.goal || '', 24);
-  const platforms = (plan.platforms || []).map(platformLabel);
-  if (platforms.length === 1 && goal && !goal.includes(platforms[0])) {
-    goal = sanitizeThreadTitle(`${platforms[0]}·${goal}`, 24);
-  }
-  return goal || '新建情报任务';
+  return sanitizeThreadTitle(topic || plan.goal || '', 24) || '新建情报任务';
 }
