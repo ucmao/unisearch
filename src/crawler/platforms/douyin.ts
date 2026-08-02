@@ -1,4 +1,4 @@
-import { BrowserContext, Page } from 'playwright';
+import { BrowserContext, Page, Response as PlaywrightResponse } from 'playwright';
 import {
   AbstractCrawler,
   connectToElectronChromium,
@@ -19,6 +19,102 @@ interface DouyinSearchCapture {
   bodyError: string;
 }
 
+export function extractDouyinAwemeId(value: string): string {
+  const text = String(value || '');
+  return text.match(/(?:\/video\/|\/note\/|\/item\/|\/aweme\/)(\d{8,})/i)?.[1]
+    || text.match(/[?&#](?:modal_id|aweme_id|item_id)=(\d{8,})/i)?.[1]
+    || '';
+}
+
+export function decodeHttpChunkedText(value: string): string | null {
+  const source = Buffer.from(String(value || ''), 'utf8');
+  const chunks: Buffer[] = [];
+  let offset = 0;
+  let decodedAny = false;
+
+  while (offset < source.length) {
+    const lineFeed = source.indexOf(0x0a, offset);
+    if (lineFeed < 0) return null;
+    let lineEnd = lineFeed;
+    if (lineEnd > offset && source[lineEnd - 1] === 0x0d) lineEnd--;
+    const sizeLine = source.subarray(offset, lineEnd).toString('ascii').trim();
+    const match = sizeLine.match(/^([0-9a-f]+)(?:;.*)?$/i);
+    if (!match) return null;
+
+    const size = Number.parseInt(match[1], 16);
+    if (!Number.isFinite(size)) return null;
+    offset = lineFeed + 1;
+    if (size === 0) return decodedAny ? Buffer.concat(chunks).toString('utf8') : '';
+    if (offset + size > source.length) return null;
+
+    chunks.push(source.subarray(offset, offset + size));
+    decodedAny = true;
+    offset += size;
+    if (source[offset] === 0x0d) offset++;
+    if (source[offset] === 0x0a) offset++;
+  }
+
+  return decodedAny ? Buffer.concat(chunks).toString('utf8') : null;
+}
+
+export function cleanHttpChunkedJson(raw: string): string {
+  let text = String(raw || '').trim();
+  // Strip leading chunk hex headers if present (e.g. "1b5e4 {" or "1b5e4\r\n{")
+  text = text.replace(/^[0-9a-fA-F]{1,8}\s+/, '').replace(/^[0-9a-fA-F]{1,8}\r?\n/, '');
+  // Strip trailing chunk zero
+  text = text.replace(/\r?\n0\r?\n[\s\S]*$/, '');
+  // Remove all intermediate HTTP chunk size lines like \r\n1f40\r\n or \n1f40\n or \r\n1f40 {
+  text = text.replace(/\r?\n[0-9a-fA-F]{1,8}\s*\r?\n/g, '').replace(/\r?\n[0-9a-fA-F]{1,8}\s+/g, '');
+  return text;
+}
+
+export function parseDouyinSearchBody(value: string): any | null {
+  const rawText = String(value || '');
+  const text = rawText.trim();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text);
+  } catch {}
+
+  const dechunked = decodeHttpChunkedText(rawText);
+  if (dechunked !== null) {
+    try {
+      return JSON.parse(dechunked);
+    } catch {}
+  }
+
+  const cleaned = cleanHttpChunkedJson(rawText);
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+
+  const candidates = [cleaned, dechunked || '', text];
+  for (const cand of candidates) {
+    if (!cand) continue;
+    const start = cand.indexOf('{');
+    const end = cand.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      const slice = cand.slice(start, end + 1);
+      try {
+        return JSON.parse(slice);
+      } catch {}
+      try {
+        const cleanedSlice = slice.replace(/\r?\n[0-9a-fA-F]{1,8}\r?\n/g, '').replace(/\r?\n[0-9a-fA-F]{1,8}\s+/g, '');
+        return JSON.parse(cleanedSlice);
+      } catch {}
+    }
+  }
+
+  return null;
+}
+
+export function describeDouyinSearchBody(value: string): string {
+  const text = String(value || '');
+  const prefix = text.slice(0, 80).replace(/[\r\n\t]+/g, ' ');
+  return `bytes=${Buffer.byteLength(text, 'utf8')}, prefix=${JSON.stringify(prefix)}`;
+}
+
 // Douyin serves the search feed from several endpoints depending on the page
 // build (`.../general/search/single/`, `.../search/item/`, and the newer
 // `.../general/search/stream/`). Matching the family instead of exact paths
@@ -37,14 +133,93 @@ export class DouyinCrawler extends AbstractCrawler {
   private searchResponseWaiters: Array<(capture: DouyinSearchCapture) => void> = [];
   private searchListenerAttached = false;
 
+  private async installPageSearchCapture(): Promise<void> {
+    // Electron's CDP target may report a response but reject Network.getResponseBody
+    // after the page has consumed it. Capture a clone inside the page before that
+    // happens, while still letting Douyin's original request run unchanged.
+    await this.page!.addInitScript(() => {
+      const marker = /\/aweme\/v1\/web\/[^?]*search[^?]*\//i;
+      const key = '__unisearchDouyinSearchBodies';
+      const push = (entry: any) => {
+        const buffer = ((window as any)[key] ||= []);
+        buffer.push(entry);
+        if (buffer.length > 20) buffer.splice(0, buffer.length - 20);
+      };
+
+      const originalFetch = window.fetch.bind(window) as (...args: any[]) => Promise<Response>;
+      window.fetch = async (...args: any[]) => {
+        const response = await originalFetch(...args);
+        const url = String(args[0]?.url || args[0] || '');
+        if (marker.test(url)) {
+          void response.clone().text().then((body) => push({ url, status: response.status, body })).catch(() => {});
+        }
+        return response;
+      };
+
+      const originalOpen: any = XMLHttpRequest.prototype.open;
+      const originalSend: any = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.open = function(this: XMLHttpRequest, method: string, url: string, async = true, username?: string, password?: string) {
+        (this as any).__unisearchUrl = String(url);
+        return originalOpen.call(this, method, url, async, username, password);
+      } as typeof XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.send = function(this: XMLHttpRequest, ...args: any[]) {
+        this.addEventListener('load', () => {
+          const url = String((this as any).__unisearchUrl || '');
+          if (marker.test(url)) push({ url, status: this.status, body: this.responseText });
+        });
+        return originalSend.apply(this, args as any);
+      };
+    });
+  }
+
+  private async readPageSearchPayload(): Promise<any | null> {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const entry = await this.page!.evaluate(() => {
+        const key = '__unisearchDouyinSearchBodies';
+        const buffer = ((window as any)[key] || []) as Array<{ body?: string }>;
+        const item = buffer.shift();
+        return item?.body || null;
+      }).catch(() => null);
+      if (entry) {
+        return parseDouyinSearchBody(entry);
+      }
+      await this.page!.waitForTimeout(100);
+    }
+    return null;
+  }
+
+  private async replaySignedSearchRequest(response: PlaywrightResponse): Promise<any | null> {
+    if (!this.browserContext) return null;
+    const sourceHeaders = await response.request().allHeaders().catch(() => response.request().headers());
+    const headers: Record<string, string> = {};
+    for (const [name, value] of Object.entries(sourceHeaders)) {
+      if (/^(?:host|connection|content-length|accept-encoding)$/i.test(name)) continue;
+      if (name.startsWith(':')) continue;
+      headers[name] = value;
+    }
+
+    const replay = await this.browserContext.request.get(response.url(), {
+      headers,
+      timeout: 20000,
+      failOnStatusCode: false,
+    });
+    const rawBody = await replay.text();
+    const data = parseDouyinSearchBody(rawBody);
+    if (data) {
+      console.log(`[DY] Recovered search JSON by replaying the page-signed request (HTTP ${replay.status()}).`);
+      return data;
+    }
+    console.warn(`[DY] Page-signed search replay was unreadable (HTTP ${replay.status()}; ${describeDouyinSearchBody(rawBody)}).`);
+    return null;
+  }
+
   public async start(): Promise<void> {
     console.log('[DY] Starting Douyin crawler (Electron CDP mode)...');
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'douyin');
 
-
-
+    await this.installPageSearchCapture();
 
     await this.page.goto('https://www.douyin.com', { waitUntil: 'domcontentloaded' });
     await this.handleLogin();
@@ -194,7 +369,23 @@ export class DouyinCrawler extends AbstractCrawler {
       void (async () => {
         let capture: DouyinSearchCapture;
         try {
-          capture = { ok: response.ok(), status: response.status(), data: await response.json(), bodyError: '' };
+          // Electron CDP can expose HTTP chunk framing in the response body
+          // (for example "b025\\n{...}"). Playwright's response.json() then
+          // fails before our framing cleanup gets a chance to run. Read text
+          // first and parse it with the same tolerant parser used by the page
+          // capture fallback.
+          const rawBody = await response.text();
+          let data = parseDouyinSearchBody(rawBody);
+          if (!data) {
+            data = await this.replaySignedSearchRequest(response).catch((error: any) => {
+              console.warn(`[DY] Page-signed search replay failed: ${error.message || String(error)}`);
+              return null;
+            });
+          }
+          capture = {
+            ok: response.ok(), status: response.status(), data,
+            bodyError: data ? '' : `抖音搜索响应不是有效 JSON（${describeDouyinSearchBody(rawBody)}）`,
+          };
         } catch (error: any) {
           capture = {
             ok: response.ok(), status: response.status(), data: null,
@@ -333,18 +524,26 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   private async collectRenderedSearchItems(): Promise<any[]> {
-    return this.page!.locator('a[href*="/video/"], a[href*="/note/"]').evaluateAll((links) => {
+    return this.page!.locator('a, [data-aweme-id], [data-id], [data-e2e], div[data-url]').evaluateAll((nodes) => {
       const seen = new Set<string>();
-      return links.flatMap((link) => {
-        const href = (link as HTMLAnchorElement).href;
-        const id = href.match(/\/(?:video|note)\/(\d+)/)?.[1] || '';
+      return nodes.flatMap((node) => {
+        const element = node as HTMLElement;
+        const href = (element as HTMLAnchorElement).href || '';
+        const raw = [href, element.getAttribute('data-aweme-id') || '', element.getAttribute('data-id') || '',
+          element.getAttribute('data-e2e') || '', element.getAttribute('data-url') || '',
+          (element.outerHTML || '').slice(0, 500)].join(' ');
+        const id = raw.match(/(?:\/video\/|\/note\/|\/item\/|\/aweme\/)(\d{8,})/i)?.[1]
+          || raw.match(/[?&#](?:modal_id|aweme_id|item_id)=(\d{8,})/i)?.[1]
+          || raw.match(/\b(7\d{18})\b/)?.[1]
+          || (element.getAttribute('data-aweme-id') || '').match(/\d{8,}/)?.[0]
+          || '';
         if (!id || seen.has(id)) return [];
         seen.add(id);
-        const img = link.querySelector('img') as HTMLImageElement | null;
-        const text = (link.textContent || img?.alt || '').trim();
-        return [{ aweme_id: id, aweme_type: href.includes('/note/') ? 'note' : 'video', title: text, desc: text,
+        const img = element.querySelector('img') as HTMLImageElement | null;
+        const text = (element.textContent || img?.alt || '').trim();
+        return [{ aweme_id: id, aweme_type: /\/note\//i.test(raw) ? 'note' : 'video', title: text, desc: text,
           create_time: 0, creator_hash: '', nickname: '', liked_count: 0, collected_count: 0,
-          comment_count: 0, share_count: 0, aweme_url: href, cover_url: img?.src || '',
+          comment_count: 0, share_count: 0, aweme_url: href || `https://www.douyin.com/video/${id}`, cover_url: img?.src || '',
           video_download_url: '', music_download_url: '', note_download_url: '' }];
       });
     });
@@ -383,12 +582,22 @@ export class DouyinCrawler extends AbstractCrawler {
         };
         mergeVideos(this.searchItemsFromPayload(postsRes));
 
+        if (videoMap.size === 0 && capture?.bodyError) {
+          mergeVideos(this.searchItemsFromPayload(await this.readPageSearchPayload()));
+        }
+
         // Some page versions hydrate results without exposing the JSON response to
         // Playwright. Keep a DOM fallback so that this is not reported as a fake zero.
         if (videoMap.size === 0) {
-          await this.page!.locator('a[href*="/video/"], a[href*="/note/"]').first()
-            .waitFor({ state: 'attached', timeout: 8000 }).catch(() => {});
-          mergeVideos(await this.collectRenderedSearchItems());
+          const cardTarget = this.page!.locator('a[href*="/video/"], a[href*="/note/"], [data-aweme-id]');
+          await cardTarget.first().waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
+
+          const endTime = Date.now() + 5000;
+          while (videoMap.size === 0 && Date.now() < endTime) {
+            mergeVideos(await this.collectRenderedSearchItems());
+            if (videoMap.size > 0) break;
+            await this.page!.waitForTimeout(500);
+          }
         }
 
         if (videoMap.size === 0) {
