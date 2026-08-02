@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,8 +35,8 @@ const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
 ]
 
 const MODEL_PROVIDER_DEFAULTS = {
-  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M3' },
-  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'DeepSeek-V4-Flash' },
+  minimax: { baseUrl: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2.7-highspeed' },
+  deepseek: { baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-flash' },
   custom: { baseUrl: '', model: '' },
 } satisfies Record<ModelProfile['provider'], { baseUrl: string; model: string }>
 
@@ -87,7 +87,7 @@ export function SettingsDialog({
   const [showApiKey, setShowApiKey] = useState(false)
   const [editMemoryId, setEditMemoryId] = useState<string | null>(null)
   const [editMemoryContent, setEditMemoryContent] = useState('')
-  const [storageTab, setStorageTab] = useState<'crawl' | 'threads'>('crawl')
+  const [storageTab, setStorageTab] = useState<'crawl' | 'threads'>('threads')
   const [isAddingMemory, setIsAddingMemory] = useState(false)
   const [newMemoryContent, setNewMemoryContent] = useState('')
   const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
@@ -338,11 +338,19 @@ export function SettingsDialog({
                     </div>
                     <label className="block space-y-1.5">
                       <span className="text-xs text-cyber-text-secondary">API Base URL</span>
-                      <Input value={form.baseUrl || ''} onChange={(event) => setForm({ ...form, baseUrl: event.target.value })} placeholder="https://api.example.com/v1" />
+                      <Input
+                        value={form.baseUrl || ''}
+                        onChange={(event) => setForm({ ...form, baseUrl: event.target.value })}
+                        placeholder="https://api.example.com/v1"
+                      />
                     </label>
                     <label className="block space-y-1.5">
                       <span className="text-xs text-cyber-text-secondary">模型名称</span>
-                      <Input value={form.model || ''} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="模型 ID" />
+                      <Input
+                        value={form.model || ''}
+                        onChange={(event) => setForm({ ...form, model: event.target.value })}
+                        placeholder="模型 ID"
+                      />
                     </label>
                     <label className="block space-y-1.5">
                       <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
@@ -397,7 +405,7 @@ export function SettingsDialog({
                   <div className="mt-7 flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                     <div>
                       <div className="text-sm font-medium text-cyber-text-primary">全局平台并发数</div>
-                      <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。默认 3，设备性能充足时可提高到 5。</div>
+                      <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。</div>
                     </div>
                     <Select
                       value={String(runtimeSettingsQuery.data.maxConcurrentCrawlers)}
@@ -422,44 +430,45 @@ export function SettingsDialog({
                 </DialogHeader>
 
                 {/* 便签页切换子导航 */}
-                <div className="flex border-b border-cyber-border-subtle gap-2 pb-2">
-                  <button
-                    type="button"
-                    onClick={() => setStorageTab('crawl')}
-                    className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                      storageTab === 'crawl'
-                        ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/30 font-semibold'
-                        : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary'
-                    }`}
-                  >
-                    采集存储
-                  </button>
+                <div className="grid grid-cols-2 gap-2.5">
                   <button
                     type="button"
                     onClick={() => setStorageTab('threads')}
-                    className={`px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs transition-colors ${
                       storageTab === 'threads'
-                        ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/30 font-semibold'
-                        : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary'
+                        ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold'
+                        : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'
                     }`}
                   >
-                    会话历史
+                    <MessageSquare className="h-4 w-4" />
+                    <span>会话历史</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStorageTab('crawl')}
+                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs transition-colors ${
+                      storageTab === 'crawl'
+                        ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold'
+                        : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'
+                    }`}
+                  >
+                    <Database className="h-4 w-4" />
+                    <span>采集存储</span>
                   </button>
                 </div>
 
                 {storageQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在统计本地数据…</div>
                 ) : storageQuery.data ? (
-                  <div>
+                  <div className="mt-5">
                     {storageTab === 'crawl' ? (
                       /* 便签 1：采集底座与看板存储 */
-                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <div className="space-y-5">
+                        <div className="grid grid-cols-3 gap-3">
                           {[
-                            ['执行记录', storageQuery.data.analytics_runs],
-                            ['看板内容', storageQuery.data.analytics_records],
-                            ['执行日志', storageQuery.data.log_records],
-                            ['平台原始数据', storageQuery.data.raw_records],
+                            ['执行任务', storageQuery.data.analytics_runs],
+                            ['采集数据', storageQuery.data.raw_records || storageQuery.data.analytics_records || 0],
+                            ['运行日志', storageQuery.data.log_records],
                           ].map(([label, value]) => (
                             <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4">
                               <p className="text-[10px] text-cyber-text-muted">{label}</p>
@@ -469,30 +478,38 @@ export function SettingsDialog({
                         </div>
                         <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
                           {[
-                            { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理所有状态为失败或未采集到任何有效内容的孤立执行与日志。', confirm: '清理失败或空结果执行？' },
-                            { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的所有历史执行履历、采集文档与相关日志。', confirm: '清理 30 天前的执行历史？' },
-                            { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底物理清空所有已结束任务的执行履历与底座所有采集数据。', confirm: '彻底清空全部历史数据？' },
+                            { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理失败或空结果执行数据。', confirm: '清理失败或空结果执行？' },
+                            { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的执行历史数据。', confirm: '清理 30 天前的执行历史？' },
+                            { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底物理清空所有已结束任务的执行日志与采集数据。', confirm: '彻底清空全部历史数据？' },
                           ].map((item) => (
-                            <div key={item.mode} className="flex items-center justify-between gap-5 py-3.5">
+                            <div key={item.mode} className="flex items-center justify-between gap-5 py-4">
                               <div>
                                 <p className="text-sm font-medium text-cyber-text-primary">{item.title}</p>
                                 <p className="mt-0.5 text-xs text-cyber-text-muted">{item.detail}</p>
                               </div>
                               <DeleteConfirmDialog
-                                trigger={<Button size="sm" variant={item.mode === 'all' ? 'destructive' : 'outline'} disabled={cleanupStorage.isPending}>清理</Button>}
+                                trigger={
+                                  <Button
+                                    size="sm"
+                                    variant={item.mode === 'all' ? 'destructive' : 'outline'}
+                                    className={`h-8 ${item.mode === 'all' ? 'border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20 hover:text-cyber-neon-pink' : ''}`}
+                                    disabled={cleanupStorage.isPending}
+                                  >
+                                    {item.mode === 'all' ? '清空' : '清理'}
+                                  </Button>
+                                }
                                 title={item.confirm}
-                                description="所选范围内的看板执行履历、日志以及底层关联的所有物理文档数据将一并彻底物理清除。"
+                                description="所选范围内的看板执行履历、日志以及底层关联的所有物理文档数据将一并彻底物理清除，有效释放本地空间。"
                                 confirmLabel="确认清理"
                                 onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
                               />
                             </div>
                           ))}
                         </div>
-                        <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">提示：删除或清理执行历史时，系统依托外键级联同步物理清除不再被引用的底层文档，有效释放本地 SQLite 空间。</p>
                       </div>
                     ) : (
                       /* 便签 2：对话与会话管理 */
-                      <div className="space-y-4">
+                      <div className="space-y-5">
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
                           {[
                             ['会话总数', storageQuery.data.thread_records || 0],
@@ -506,26 +523,34 @@ export function SettingsDialog({
                         </div>
                         <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
                           {[
-                            { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 3 条且未产生任何采集任务的测试与离散对话。', confirm: '清理空会话与零星问答？' },
-                            { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无采集关联的历史对话', detail: '清理 30 天前更新且未关联任何看板采集任务的历史对话。', confirm: '清理 30 天前无采集关联的历史对话？' },
+                            { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 6 条且未产生任何采集任务的对话。', confirm: '清理空会话与零星问答？' },
+                            { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无采集关联的历史对话', detail: '清理 30 天前更新且未关联任何采集任务的历史对话。', confirm: '清理 30 天前无采集关联的历史对话？' },
                             { mode: 'all_threads' as const, title: '清空所有历史对话', detail: '彻底物理清空侧边栏所有历史对话会话（正在运行任务的对话除外）。', confirm: '彻底清空所有历史对话？' },
                           ].map((item) => (
-                            <div key={item.mode} className="flex items-center justify-between gap-5 py-3.5">
+                            <div key={item.mode} className="flex items-center justify-between gap-5 py-4">
                               <div>
                                 <p className="text-sm font-medium text-cyber-text-primary">{item.title}</p>
                                 <p className="mt-0.5 text-xs text-cyber-text-muted">{item.detail}</p>
                               </div>
                               <DeleteConfirmDialog
-                                trigger={<Button size="sm" variant={item.mode === 'all_threads' ? 'destructive' : 'outline'} disabled={cleanupThreads.isPending}>清理</Button>}
+                                trigger={
+                                  <Button
+                                    size="sm"
+                                    variant={item.mode === 'all_threads' ? 'destructive' : 'outline'}
+                                    className={`h-8 ${item.mode === 'all_threads' ? 'border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20 hover:text-cyber-neon-pink' : ''}`}
+                                    disabled={cleanupThreads.isPending}
+                                  >
+                                    {item.mode === 'all_threads' ? '清空' : '清理'}
+                                  </Button>
+                                }
                                 title={item.confirm}
-                                description="所选范围内的对话记录与侧边栏历史会话将彻底物理删除。注意：AI 从对话中积累的长期记忆偏好仍将保留在【记忆】板块中。"
+                                description="所选范围内的对话记录与侧边栏历史会话将彻底物理删除。注意：【记忆】模块中保存的用户个人偏好与背景信息不受影响。"
                                 confirmLabel="确认清理"
                                 onConfirm={() => cleanupThreads.mutateAsync(item.mode)}
                               />
                             </div>
                           ))}
                         </div>
-                        <p className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 px-3 py-2 text-xs leading-5 text-cyber-text-muted">提示：对话清理仅清除聊天记录与侧边栏列表，已在【记忆】模块中保存的用户个人偏好与背景信息不会受到任何影响。</p>
                       </div>
                     )}
                   </div>

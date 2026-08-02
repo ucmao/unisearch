@@ -499,13 +499,9 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
                   <img
                     src={imgUrl}
                     alt={attachment.file_name}
-                    className="max-h-56 max-w-xs rounded-lg object-contain transition-transform hover:scale-[1.02] cursor-pointer"
+                    className="max-h-64 max-w-xs rounded-lg object-contain transition-transform hover:scale-[1.02] cursor-pointer"
                     onClick={() => onPreviewImage?.(imgUrl)}
                   />
-                  <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-cyber-text-muted">
-                    <span className="truncate max-w-[140px]">{attachment.file_name}</span>
-                    {attachment.size_bytes ? <span>{(attachment.size_bytes / 1024).toFixed(0)}KB</span> : null}
-                  </div>
                 </div>
               )
             }
@@ -1438,9 +1434,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     setThreadsCollapsed(true)
                   }
                 }}
-                  className={`w-full rounded-lg px-3 py-2.5 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
-                  <div className="flex items-center gap-2 pr-6"><span className="min-w-0 flex-1 truncate text-xs font-medium">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
-                  <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
+                  className={`w-full rounded-lg px-3 py-2 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
+                  <div className="flex items-center gap-2 pr-6"><span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
                     <span className="min-w-0 flex-1 truncate">
                       {['running', 'queued'].includes(thread.plan_status || '') ? (
                         <span className="font-medium text-cyber-neon-green">⚡ 任务采集分析中...</span>
@@ -1463,7 +1459,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     event.stopPropagation();
                     setThreadMenuId((current) => current === thread.thread_id ? null : thread.thread_id);
                   }}
-                  className={`absolute right-1.5 top-2 z-40 flex h-6 w-6 items-center justify-center rounded-md transition-colors ${threadMenuId === thread.thread_id
+                  className={`absolute right-1.5 top-1.5 z-40 flex h-6 w-6 items-center justify-center rounded-md transition-colors ${threadMenuId === thread.thread_id
                     ? 'bg-white/70 text-cyber-text-primary opacity-100 shadow-sm ring-1 ring-black/5 dark:bg-white/15'
                     : thread.pinned_at
                       ? 'opacity-100 text-cyber-neon-cyan hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10'
@@ -1502,7 +1498,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   >
                     <label className="flex items-center gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
                       <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                      <span className="font-medium text-cyber-text-primary">同时彻底删除该任务的全部采集数据及看板记录</span>
+                      <span className="font-medium text-cyber-text-primary">同时彻底删除该任务的全部采集数据</span>
                     </label>
                   </DeleteConfirmDialog>
                 </div>
@@ -2183,10 +2179,54 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         </DialogContent>
       </Dialog>
       <Dialog open={Boolean(previewImageUrl)} onOpenChange={(open) => { if (!open) setPreviewImageUrl(null) }}>
-        <DialogContent className="max-w-4xl border-cyber-border-default bg-cyber-bg-panel p-2 sm:rounded-2xl">
-          <div className="relative flex items-center justify-center overflow-hidden rounded-xl bg-black/60 p-2">
-            <img src={previewImageUrl || ''} alt="图片预览" className="max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl" />
+        <DialogContent hideClose overlayClassName="!bg-black/60 !backdrop-blur-sm" className="fixed left-0 top-0 z-50 h-screen w-screen max-w-none max-h-none translate-x-0 translate-y-0 flex items-center justify-center !border-none !bg-transparent !shadow-none !backdrop-blur-none focus:outline-none focus-visible:outline-none">
+          {/* 右上角固定操作按钮组（下载 + 关闭） */}
+          <div className="absolute top-5 right-6 z-50 flex items-center gap-2.5">
+            {previewImageUrl ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!previewImageUrl) return
+                  try {
+                    const res = await fetch(previewImageUrl)
+                    const blob = await res.blob()
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    const ext = blob.type.split('/')[1] || 'png'
+                    a.download = `image-preview-${Date.now()}.${ext}`
+                    document.body.appendChild(a)
+                    a.click()
+                    document.body.removeChild(a)
+                    URL.revokeObjectURL(url)
+                  } catch {
+                    window.open(previewImageUrl, '_blank')
+                  }
+                }}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100/90 text-slate-900 shadow-xl backdrop-blur-sm transition-transform hover:scale-105 hover:bg-white active:scale-95 cursor-pointer"
+                title="下载图片"
+                aria-label="下载图片"
+              >
+                <Download className="h-4 w-4 stroke-[2.2]" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setPreviewImageUrl(null)}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100/90 text-slate-900 shadow-xl backdrop-blur-sm transition-transform hover:scale-105 hover:bg-white active:scale-95 cursor-pointer"
+              title="关闭预览"
+              aria-label="关闭预览"
+            >
+              <X className="h-4 w-4 stroke-[2.2]" />
+            </button>
           </div>
+
+          {/* 纯粹图片居中展示 */}
+          <img
+            src={previewImageUrl || ''}
+            alt="图片预览"
+            className="max-h-[85vh] max-w-[90vw] rounded-xl object-contain shadow-2xl select-none"
+          />
         </DialogContent>
       </Dialog>
 
