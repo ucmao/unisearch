@@ -1,4 +1,5 @@
 import { activeConfig } from '../../tools/config';
+import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
 
 export type TargetKind = 'detail' | 'creator';
 
@@ -14,6 +15,45 @@ export function creatorItemLimit(): number | null {
 
 export function creatorLimitReached(count: number, limit = creatorItemLimit()): boolean {
   return limit !== null && count >= limit;
+}
+
+/**
+ * Over-fetch a few pages so duplicates, recommendations and filtered cards do
+ * not make a request for N unique items stop at the theoretical minimum page.
+ */
+export function searchPageBudget(
+  target: number,
+  expectedPageSize: number,
+  extraPages = 5,
+  absoluteCeiling = 100,
+): number {
+  const safeTarget = Math.max(1, Math.floor(Number(target) || 1));
+  const safePageSize = Math.max(1, Math.floor(Number(expectedPageSize) || 1));
+  return Math.min(absoluteCeiling, Math.max(1, Math.ceil(safeTarget / safePageSize) + extraPages));
+}
+
+/** Make the reason for a clean search exit visible instead of calling every exit a full success. */
+export function reportKeywordSearchCompletion(
+  platform: string,
+  keyword: string,
+  collected: number,
+  target: number,
+  detail = '',
+): void {
+  if (collected >= target) {
+    connectorEventEmitter.send({
+      type: 'progress',
+      current: collected,
+      total: target,
+      message: `${platform} 关键词“${keyword}”已达到用户数量上限：${collected}/${target} 条。`,
+    });
+    return;
+  }
+  connectorEventEmitter.send({
+    type: 'warning',
+    code: 'PARTIAL_RESULT',
+    message: `${platform} 关键词“${keyword}”采集到 ${collected}/${target} 条${detail ? `；${detail}` : ''}。`,
+  });
 }
 
 export function configuredTargets(platform: string, kind: TargetKind): string[] {

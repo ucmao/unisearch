@@ -10,7 +10,15 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import {
+  configuredTargets,
+  creatorItemLimit,
+  creatorLimitReached,
+  firstMatch,
+  reportKeywordSearchCompletion,
+  resolveRedirect,
+  searchPageBudget,
+} from '../base/connectorHelpers';
 
 interface DouyinSearchCapture {
   ok: boolean;
@@ -623,7 +631,10 @@ export class DouyinCrawler extends AbstractCrawler {
         // Douyin search is infinite-scroll. Keep scrolling and capture each signed
         // next-page response until the configured item limit is reached.
         const targetCount = activeConfig.CRAWLER_MAX_NOTES_COUNT;
-        const maxScrolls = Math.min(30, Math.max(2, Math.ceil(targetCount / 10) + 2));
+        // Leave room for duplicate/recommendation cards. A target of 300 used
+        // to receive only the exact theoretical 30 scrolls and often stopped
+        // short even when the platform still had results.
+        const maxScrolls = searchPageBudget(targetCount, 10, 8, 80);
         let stalledScrolls = 0;
         for (let scroll = 0; videoMap.size < targetCount && scroll < maxScrolls; scroll++) {
           const before = videoMap.size;
@@ -648,6 +659,7 @@ export class DouyinCrawler extends AbstractCrawler {
             console.log(`[DY] Loaded more search results: ${videoMap.size}/${targetCount}`);
           }
           if (stalledScrolls >= 2) break;
+          if (nextCapture?.data && Number(nextCapture.data.has_more) === 0) break;
         }
 
         const videos = Array.from(videoMap.values()).slice(0, targetCount);
@@ -686,6 +698,8 @@ export class DouyinCrawler extends AbstractCrawler {
           count++;
         }
         console.log(`[DY] Persisted ${count} video records before comment enrichment.`);
+        reportKeywordSearchCompletion('抖音', keyword, count, targetCount,
+          stalledScrolls >= 2 ? '连续两次滚动没有新增唯一内容' : '平台搜索流已停止返回新内容');
 
         if (activeConfig.ENABLE_GET_COMMENTS) {
           let processedComments = 0;

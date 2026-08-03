@@ -10,7 +10,15 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import {
+  configuredTargets,
+  creatorItemLimit,
+  creatorLimitReached,
+  firstMatch,
+  reportKeywordSearchCompletion,
+  resolveRedirect,
+  searchPageBudget,
+} from '../base/connectorHelpers';
 import { isExplicitKuaishouAuthFailure, summarizeKuaishouGraphqlFailure } from './kuaishouAuth';
 
 // Kuaishou reports timestamps in milliseconds, but a few legacy fields still come back in seconds.
@@ -527,18 +535,24 @@ export class KuaishouCrawler extends AbstractCrawler {
         }
         if (nativeCards.length) console.log(`[KS] Native search page collected ${nativeCards.length} cards.`);
         let pageNumber = Math.max(1, activeConfig.START_PAGE || 1);
+        let pcursor = String(pageNumber);
         let searchSessionId = '';
-        const maxPages = Math.max(1, Math.ceil(activeConfig.CRAWLER_MAX_NOTES_COUNT / 20));
+        const maxPages = searchPageBudget(activeConfig.CRAWLER_MAX_NOTES_COUNT, 20, 6, 40);
+        const seenCursors = new Set<string>();
+        let stagnantPages = 0;
         try {
-          if (videos.length) {
-            console.log('[KS] Skipping legacy GraphQL search because native search cards are available.');
-          } else {
           for (let requestIndex = 0; requestIndex < maxPages && videos.length < activeConfig.CRAWLER_MAX_NOTES_COUNT; requestIndex++) {
+            if (seenCursors.has(pcursor)) {
+              console.warn(`[KS] Search cursor repeated (${pcursor}); stopping to avoid a loop.`);
+              break;
+            }
+            seenCursors.add(pcursor);
+            const before = videos.length;
             const result = await this.graphql<any>(
               'visionSearchPhoto',
               'visionSearchPhoto',
               KS_SEARCH_QUERY,
-              { keyword, pcursor: String(pageNumber), page: 'search', searchSessionId },
+              { keyword, pcursor, page: 'search', searchSessionId },
               `搜索“${keyword}”`,
               (payload) => payload?.result === 1,
             );
@@ -550,11 +564,13 @@ export class KuaishouCrawler extends AbstractCrawler {
               seenIds.add(record.video_id);
               videos.push(record);
             }
-            if (!feeds.length) break;
+            stagnantPages = videos.length === before ? stagnantPages + 1 : 0;
             searchSessionId = result.searchSessionId || searchSessionId;
+            const nextCursor = String(result.pcursor || '');
+            if (!feeds.length || !nextCursor || nextCursor === 'no_more' || stagnantPages >= 2) break;
+            pcursor = nextCursor;
             pageNumber++;
             await this.humanDelay(this.page!);
-          }
           }
         } catch (error: any) {
           console.warn(`[KS] GraphQL search unavailable for “${keyword}”: ${error.message}. Falling back to visible search cards.`);
@@ -579,6 +595,8 @@ export class KuaishouCrawler extends AbstractCrawler {
 
           await this.humanDelay(this.page!);
         }
+        reportKeywordSearchCompletion('快手', keyword, count, activeConfig.CRAWLER_MAX_NOTES_COUNT,
+          '平台游标结束、连续页面无新增或接口被风控');
       } catch (err: any) {
         console.error(`[KS] Search error for keyword ${keyword}:`, err.message);
         failures.push(`"${keyword}": ${err.message}`);

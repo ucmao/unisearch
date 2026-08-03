@@ -9,6 +9,7 @@ import {
   creatorItemLimit,
   creatorLimitReached,
   firstMatch,
+  reportKeywordSearchCompletion,
   resolveRedirect,
   stripHtml,
 } from '../base/connectorHelpers';
@@ -154,6 +155,8 @@ export class BilibiliCrawler extends AbstractCrawler {
           await this.ingestSeed(seed, keyword);
           await this.humanDelay(this.page!);
         }
+        reportKeywordSearchCompletion('哔哩哔哩', keyword, seeds.length, activeConfig.CRAWLER_MAX_NOTES_COUNT,
+          '平台已返回末页或搜索接口提前停止');
       } catch (err: any) {
         console.error(`[BILI] Search error for keyword ${keyword}:`, err.message);
       }

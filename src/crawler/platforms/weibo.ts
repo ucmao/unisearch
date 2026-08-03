@@ -2,10 +2,16 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
-
-/** Search pages return ~10-15 posts each; this caps paging when CRAWLER_MAX_NOTES_COUNT is large. */
-const WEIBO_SEARCH_MAX_PAGES = 10;
+import {
+  configuredTargets,
+  creatorItemLimit,
+  creatorLimitReached,
+  firstMatch,
+  reportKeywordSearchCompletion,
+  resolveRedirect,
+  searchPageBudget,
+  stripHtml,
+} from '../base/connectorHelpers';
 
 export class WeiboCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -110,6 +116,8 @@ export class WeiboCrawler extends AbstractCrawler {
           await this.storeStatus(status, trimmed);
           await this.humanDelay(this.page!);
         }
+        reportKeywordSearchCompletion('微博', trimmed, statuses.length, activeConfig.CRAWLER_MAX_NOTES_COUNT,
+          '平台已返回空页、重复页或访客验证未解除');
       } catch (err: any) {
         console.error(`[WEIBO] Search error for keyword ${trimmed}:`, err.message);
       }
@@ -128,7 +136,9 @@ export class WeiboCrawler extends AbstractCrawler {
 
     const collected: any[] = [];
     const seen = new Set<string>();
-    for (let pageNo = 1; pageNo <= WEIBO_SEARCH_MAX_PAGES; pageNo++) {
+    const maxPages = searchPageBudget(activeConfig.CRAWLER_MAX_NOTES_COUNT, 10, 5, 60);
+    let stagnantPages = 0;
+    for (let pageNo = 1; pageNo <= maxPages; pageNo++) {
       let batch = await this.fetchMobileSearchPage(containerId, pageNo);
       if (batch === null) {
         // Visitor challenge served instead of JSON — reload the page to redo the handshake.
@@ -141,6 +151,7 @@ export class WeiboCrawler extends AbstractCrawler {
       }
       if (!batch.length) break;
 
+      const before = collected.length;
       for (const mblog of batch) {
         const noteId = String(mblog.mid || mblog.id || '');
         if (!noteId || seen.has(noteId)) continue;
@@ -148,6 +159,8 @@ export class WeiboCrawler extends AbstractCrawler {
         collected.push(await this.normalizeMobileStatus(mblog));
         if (collected.length >= activeConfig.CRAWLER_MAX_NOTES_COUNT) return collected;
       }
+      stagnantPages = collected.length === before ? stagnantPages + 1 : 0;
+      if (stagnantPages >= 2) break;
       await this.humanDelay(this.page!);
     }
     return collected;

@@ -61,6 +61,13 @@ test('search paginates until the requested amount is reached', async () => {
   assert.deepEqual(harness.requestedPn, [1, 2, 3]);
 });
 
+test('search can walk fifteen pages to satisfy a 300-item request', async () => {
+  const harness = await runSearch(byPage(400), { maxItems: 300 });
+  assert.equal(harness.ingested.length, 300);
+  assert.equal(harness.requestedPn.length, 15);
+  assert.deepEqual(harness.requestedPn, Array.from({ length: 15 }, (_, index) => index + 1));
+});
+
 test('search stops at the end of the result set instead of looping', async () => {
   const harness = await runSearch(byPage(23), { maxItems: 100 });
   assert.equal(harness.ingested.length, 23);

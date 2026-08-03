@@ -2,7 +2,15 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, creatorItemLimit, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
+import {
+  configuredTargets,
+  creatorItemLimit,
+  firstMatch,
+  reportKeywordSearchCompletion,
+  resolveRedirect,
+  searchPageBudget,
+  stripHtml,
+} from '../base/connectorHelpers';
 
 export class ZhihuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -111,6 +119,8 @@ export class ZhihuCrawler extends AbstractCrawler {
 
           await this.humanDelay(this.page!);
         }
+        reportKeywordSearchCompletion('知乎', keyword, count, targetCount,
+          '平台已返回末页或连续滚动没有新增唯一内容');
       } catch (err: any) {
         console.error(`[ZHIHU] Search error for keyword ${keyword}:`, err.message);
       }
@@ -126,6 +136,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     const page = this.page!;
     const collected: any[] = [];
     const seen = new Set<string>();
+    let reachedEnd = false;
 
     const onResponse = async (response: any) => {
       if (!response.url().includes('/api/v4/search_v3')) return;
@@ -141,6 +152,7 @@ export class ZhihuCrawler extends AbstractCrawler {
         seen.add(record.content_id);
         collected.push(record);
       }
+      if (payload?.paging?.is_end === true) reachedEnd = true;
     };
 
     page.on('response', onResponse);
@@ -150,11 +162,14 @@ export class ZhihuCrawler extends AbstractCrawler {
       await page.waitForTimeout(3000);
 
       let stagnantRounds = 0;
-      while (collected.length < targetCount && stagnantRounds < 3) {
+      let scrolls = 0;
+      const maxScrolls = searchPageBudget(targetCount, 10, 10, 80);
+      while (collected.length < targetCount && stagnantRounds < 5 && !reachedEnd && scrolls < maxScrolls) {
         const before = collected.length;
         await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
         await page.waitForTimeout(2000);
         stagnantRounds = collected.length > before ? 0 : stagnantRounds + 1;
+        scrolls++;
       }
     } finally {
       page.off('response', onResponse);

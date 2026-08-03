@@ -8,7 +8,14 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import {
+  configuredTargets,
+  creatorItemLimit,
+  creatorLimitReached,
+  firstMatch,
+  reportKeywordSearchCompletion,
+  resolveRedirect,
+} from '../base/connectorHelpers';
 import { XhsSigner } from '../base/xhsSigner';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
@@ -254,9 +261,13 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         let count = 0;
         let pageIndex = 1;
         const targetCount = activeConfig.CRAWLER_MAX_NOTES_COUNT || 20;
+        const seenNoteIds = new Set<string>();
+        let pagesWithoutNewNotes = 0;
+        let hasMore = searchResult.data?.has_more !== false && searchResult.data?.has_more !== 0;
 
         let currentNotes = notes;
         while (currentNotes.length > 0 && count < targetCount) {
+          const before = count;
           console.log(`[XHS] Processing page ${pageIndex} (${currentNotes.length} notes, collected ${count}/${targetCount})...`);
           for (const item of currentNotes) {
             if (count >= targetCount) break;
@@ -264,7 +275,8 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
 
             const card = item.note_card || item;
             const noteId = item.id || item.note_id || card.note_id;
-            if (!noteId) continue;
+            if (!noteId || seenNoteIds.has(String(noteId))) continue;
+            seenNoteIds.add(String(noteId));
 
             const user = card.user || item.user || {};
             const interactInfo = card.interact_info || item.interact_info || {};
@@ -308,10 +320,16 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           }
 
           if (count >= targetCount) break;
+          pagesWithoutNewNotes = count === before ? pagesWithoutNewNotes + 1 : 0;
+          if (!hasMore || pagesWithoutNewNotes >= 2) break;
 
           pageIndex++;
-          currentNotes = await this.fetchSearchPage(keyword, pageIndex, count, targetCount);
+          const nextPage = await this.fetchSearchPage(keyword, pageIndex, count, targetCount);
+          currentNotes = nextPage.items;
+          hasMore = nextPage.hasMore;
         }
+        reportKeywordSearchCompletion('小红书', keyword, count, targetCount,
+          hasMore ? '连续页面没有新增唯一内容或翻页请求中断' : '平台已返回当前可见末页');
       } catch (err: any) {
         console.error(`[XHS] Error searching keyword ${keyword}:`, err.message);
         throw err;
@@ -329,7 +347,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     pageIndex: number,
     collected: number,
     targetCount: number,
-  ): Promise<any[]> {
+  ): Promise<{ items: any[]; hasMore: boolean }> {
     const bodyTemplate = this.signer?.getSearchBodyTemplate();
     if (this.signer?.hasTemplate() && bodyTemplate) {
       try {
@@ -340,7 +358,10 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           method: 'POST',
           body: { ...bodyTemplate, keyword, page: pageIndex },
         });
-        return payload?.data?.items || [];
+        return {
+          items: payload?.data?.items || [],
+          hasMore: payload?.data?.has_more !== false && payload?.data?.has_more !== 0,
+        };
       } catch (error: any) {
         console.warn(`[XHS] Signed search pagination failed, falling back to scrolling: ${error.message}`);
       }
@@ -356,10 +377,13 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         this.page!.evaluate(() => window.scrollBy(0, 3000)),
       ]);
       const nextData = await nextResponse.json();
-      return nextData.data?.items || [];
+      return {
+        items: nextData.data?.items || [],
+        hasMore: nextData.data?.has_more !== false && nextData.data?.has_more !== 0,
+      };
     } catch {
       console.log('[XHS] No further search pages returned or scroll timeout.');
-      return [];
+      return { items: [], hasMore: false };
     }
   }
 
