@@ -28,6 +28,7 @@ export interface AppConfig {
   
   START_PAGE: number;
   CRAWLER_MAX_NOTES_COUNT: number;
+  JOB_LOCATION: string;
   MAX_CONCURRENCY_NUM: number;
   
   ENABLE_GET_MEIDAS: boolean;
@@ -120,6 +121,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 
   START_PAGE: 1,
   CRAWLER_MAX_NOTES_COUNT: 15,
+  JOB_LOCATION: '',
   MAX_CONCURRENCY_NUM: 1,
   
   ENABLE_GET_MEIDAS: false,
