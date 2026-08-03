@@ -1149,6 +1149,10 @@ export class AgentService {
           : `${label}${detail ? `（${detail}）` : ''}`;
       }
       scopeLine = `\n范围：${depthSummary}`;
+      const locations = Array.from(new Set(overrides
+        .map((option) => String(option?.location || '').trim())
+        .filter(Boolean)));
+      if (locations.length) scopeLine += `\n地域：${locations.join('、')}`;
       if (plan.contentEnrichment.mode !== 'snippet') {
         const modeLabel = plan.contentEnrichment.mode === 'full' ? '尽量阅读全文' : '自动深度阅读';
         scopeLine += `\n正文：${modeLabel}，搜索结果去重后最多读取 ${plan.contentEnrichment.maxReadItems} 个网页，每域名最多 ${plan.contentEnrichment.maxPerDomain} 个`;

@@ -8,6 +8,8 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
+import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -49,17 +51,22 @@ export class Job51Crawler extends AbstractCrawler {
       return;
     }
 
-    const maxItems = Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20);
-    console.log(`[51Job] Starting job keyword search for ${keywords.length} keyword(s), limit ${maxItems} per keyword...`);
+    const maxItems = jobItemLimit(activeConfig.CRAWLER_MAX_NOTES_COUNT);
+    const startPage = Math.max(1, Math.floor(Number(activeConfig.START_PAGE) || 1));
+    const location = String(activeConfig.JOB_LOCATION || '').trim();
+    console.log(`[51Job] Starting job keyword search for ${keywords.length} keyword(s), location "${location || '全国'}", limit ${maxItems} per keyword...`);
 
     for (const keyword of keywords) {
       console.log(`[51Job] Searching for keyword: "${keyword}"...`);
-      let pageNum = 1;
+      let pageNum = startPage;
       let count = 0;
+      let scannedPages = 0;
+      let stalledPages = 0;
+      const seen = new Set<string>();
+      const maxPages = searchPageBudget(maxItems, 20, 5, 100);
 
-      while (count < maxItems && pageNum <= 5) {
-        const safeKw = encodeURIComponent(keyword);
-        const searchUrl = `https://we.51job.com/pc/search?keyword=${safeKw}&searchType=2&pageCode=${pageNum}`;
+      while (count < maxItems && scannedPages < maxPages) {
+        const searchUrl = buildJobSearchUrl('job51', keyword, pageNum, location);
         console.log(`[51Job] Navigating to page ${pageNum}: ${searchUrl}`);
 
         try {
@@ -107,6 +114,7 @@ export class Job51Crawler extends AbstractCrawler {
               const compEl = el.querySelector('.cname, [class*="cname"], [class*="comp-name"]');
               const salEl = el.querySelector('.sal, [class*="sal"], [class*="salary"]');
               const linkEl = el.querySelector('a[href*="jobs.51job.com"]') || el.querySelector('a');
+              const cityEl = el.querySelector('.d.at, [class*="workarea"], [class*="job-area"], [class*="location"]');
               const href = (linkEl as HTMLAnchorElement)?.href || '';
 
               return {
@@ -114,7 +122,7 @@ export class Job51Crawler extends AbstractCrawler {
                 title: nameEl?.textContent?.trim() || '',
                 company_name: compEl?.textContent?.trim() || '',
                 salary: salEl?.textContent?.trim() || '',
-                work_city: '',
+                work_city: cityEl?.textContent?.trim() || '',
                 job_experience: '',
                 education: '',
                 content_url: href,
@@ -128,8 +136,12 @@ export class Job51Crawler extends AbstractCrawler {
             break;
           }
 
+          const beforePage = count;
           for (const item of extracted) {
             if (count >= maxItems) break;
+            const itemId = String(item.content_id || item.content_url || `${item.title}|${item.company_name}|${item.work_city}`);
+            if (seen.has(itemId)) continue;
+            seen.add(itemId);
 
             await connectorOutput.emitJob51Result({
               title: item.title || '前程无忧职位',
@@ -150,13 +162,19 @@ export class Job51Crawler extends AbstractCrawler {
           }
 
           console.log(`[51Job] Extracted ${count}/${maxItems} jobs for "${keyword}".`);
-          if (extracted.length < 10) break;
+          stalledPages = count === beforePage ? stalledPages + 1 : 0;
+          if (stalledPages >= 2) {
+            console.log(`[51Job] Two consecutive pages produced no new jobs for "${keyword}". Stopping pagination.`);
+            break;
+          }
           pageNum++;
+          scannedPages++;
         } catch (err: any) {
           console.error(`[51Job] Error scanning search page ${pageNum} for "${keyword}": ${err.message}`);
           break;
         }
       }
+      reportKeywordSearchCompletion('前程无忧', keyword, count, maxItems, '平台结果已结束、重复或访问受限');
     }
 
     console.log('[51Job] Job search execution completed.');

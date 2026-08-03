@@ -8,6 +8,8 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
+import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -49,18 +51,23 @@ export class LiepinCrawler extends AbstractCrawler {
       return;
     }
 
-    const maxItems = Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20);
-    console.log(`[Liepin] Starting job keyword search for ${keywords.length} keyword(s), limit ${maxItems} per keyword...`);
+    const maxItems = jobItemLimit(activeConfig.CRAWLER_MAX_NOTES_COUNT);
+    const startPage = Math.max(1, Math.floor(Number(activeConfig.START_PAGE) || 1));
+    const location = String(activeConfig.JOB_LOCATION || '').trim();
+    console.log(`[Liepin] Starting job keyword search for ${keywords.length} keyword(s), location "${location || '全国'}", limit ${maxItems} per keyword...`);
 
     for (const keyword of keywords) {
       console.log(`[Liepin] Searching for keyword: "${keyword}"...`);
-      let pageNum = 0;
+      let pageNum = startPage;
       let count = 0;
+      let scannedPages = 0;
+      let stalledPages = 0;
+      const seen = new Set<string>();
+      const maxPages = searchPageBudget(maxItems, 40, 5, 100);
 
-      while (count < maxItems && pageNum < 5) {
-        const safeKw = encodeURIComponent(keyword);
-        const searchUrl = `https://www.liepin.com/zhaopin/?key=${safeKw}&currentPage=${pageNum}`;
-        console.log(`[Liepin] Navigating to page ${pageNum + 1}: ${searchUrl}`);
+      while (count < maxItems && scannedPages < maxPages) {
+        const searchUrl = buildJobSearchUrl('liepin', keyword, pageNum, location);
+        console.log(`[Liepin] Navigating to page ${pageNum}: ${searchUrl}`);
 
         try {
           await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -91,6 +98,7 @@ export class LiepinCrawler extends AbstractCrawler {
               const expMatch = spans.find((s) => s.includes('经验') || s.includes('年') || s.includes('应届'));
               const eduMatch = spans.find((s) => s.includes('大专') || s.includes('本科') || s.includes('硕士') || s.includes('博士') || s.includes('学历不限'));
               const compEl = card.querySelector('.company-name, [class*="company-name"], [class*="comp"]');
+              const cityEl = card.querySelector('.job-dq-box, [class*="job-area"], [class*="job-city"], [class*="location"]');
 
               // Extract jobId from URL (e.g. /job/1976807335.shtml)
               const jobIdMatch = href.match(/\/job\/(\d+)\.shtml/);
@@ -101,7 +109,7 @@ export class LiepinCrawler extends AbstractCrawler {
                 title: titleEl?.textContent?.trim() || '猎聘职位',
                 company_name: compEl?.textContent?.trim() || '',
                 salary: salaryMatch || '',
-                work_city: '',
+                work_city: cityEl?.textContent?.trim() || '',
                 job_experience: expMatch || '',
                 education: eduMatch || '',
                 content_url: href,
@@ -111,12 +119,16 @@ export class LiepinCrawler extends AbstractCrawler {
           });
 
           if (!extracted || extracted.length === 0) {
-            console.log(`[Liepin] No job items extracted on page ${pageNum + 1} for "${keyword}".`);
+            console.log(`[Liepin] No job items extracted on page ${pageNum} for "${keyword}".`);
             break;
           }
 
+          const beforePage = count;
           for (const item of extracted) {
             if (count >= maxItems) break;
+            const itemId = String(item.content_id || item.content_url || `${item.title}|${item.company_name}|${item.work_city}`);
+            if (seen.has(itemId)) continue;
+            seen.add(itemId);
 
             await connectorOutput.emitLiepinResult({
               title: item.title || '猎聘职位',
@@ -137,13 +149,19 @@ export class LiepinCrawler extends AbstractCrawler {
           }
 
           console.log(`[Liepin] Extracted ${count}/${maxItems} jobs for "${keyword}".`);
-          if (extracted.length < 10) break;
+          stalledPages = count === beforePage ? stalledPages + 1 : 0;
+          if (stalledPages >= 2) {
+            console.log(`[Liepin] Two consecutive pages produced no new jobs for "${keyword}". Stopping pagination.`);
+            break;
+          }
           pageNum++;
+          scannedPages++;
         } catch (err: any) {
-          console.error(`[Liepin] Error scanning search page ${pageNum + 1} for "${keyword}": ${err.message}`);
+          console.error(`[Liepin] Error scanning search page ${pageNum} for "${keyword}": ${err.message}`);
           break;
         }
       }
+      reportKeywordSearchCompletion('猎聘', keyword, count, maxItems, '平台结果已结束、重复或访问受限');
     }
 
     console.log('[Liepin] Job search execution completed.');

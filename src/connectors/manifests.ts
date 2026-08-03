@@ -678,12 +678,20 @@ const jobPlatform = (
   capabilities: [
     {
       id: 'keyword_search', label: '岗位关键词搜索', description: `在${name}按关键词搜索招聘岗位信息。`, runtimeMode: 'search',
-      budgetModel: 'scroll_count',
-      depthBudget: { quick: 20, standard: 50, deep: 150 },
+      budgetModel: 'true_pagination',
+      depthBudget: { quick: 20, standard: 100, deep: 500 },
       inputFields: [
         {
+          key: 'location', label: '工作地域', description: '按城市或地区筛选岗位；支持常用城市中文名，也可填写平台原生地域代码。留空时使用全国或平台默认地域。',
+          type: 'string', default: '', runtimeConfigKey: 'job_location',
+        },
+        {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的岗位数。',
-          type: 'number', default: 20, min: 1, max: 200, runtimeConfigKey: 'crawler_max_notes_count',
+          type: 'number', default: 20, min: 1, max: 500, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+        {
+          key: 'start_page', label: '起始页', description: '从指定结果页开始采集，可用于分段或断点续采。',
+          type: 'number', default: 1, min: 1, max: 100, runtimeConfigKey: 'start_page',
         },
       ],
       outputType: `${id}_job_list`, outputFields: [
@@ -699,7 +707,7 @@ const jobPlatform = (
         { key: 'rank', label: '搜索排名', type: 'number' },
         { key: 'content_url', label: '职位详情链接', type: 'string' },
         { key: 'published_at', label: '发布时间', type: 'number' },
-      ], limitations: ['依靠公开 SERP 与网页全量 HTML/JSON 全局变量。'],
+      ], limitations: ['依靠公开 SERP 与网页全量 HTML/JSON 全局变量。', '最多采集 500 条；实际数量仍受平台可见结果、登录状态、风控和去重影响。'],
     },
     {
       id: 'content_detail', label: '职位详情解析', description: `根据 ID 或完整链接解析${name}职位详细 JD 描述及精准发布时间。`, runtimeMode: 'detail',

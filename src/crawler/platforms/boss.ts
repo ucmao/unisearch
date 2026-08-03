@@ -16,6 +16,8 @@ import {
   parseBossSearchPayload,
   type BossJobRecord,
 } from './bossParsing';
+import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 const SEARCH_RESPONSE_PATTERN = /\/wapi\/zpgeek\/search\/joblist(?:\.json)?(?:[?#]|$)/i;
 
@@ -146,8 +148,10 @@ export class BossCrawler extends AbstractCrawler {
       return;
     }
 
-    const maxItems = Math.max(1, Math.min(200, Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20)));
-    console.log(`[BOSS] Starting search for ${keywords.length} keyword(s), limit ${maxItems} per keyword...`);
+    const maxItems = jobItemLimit(activeConfig.CRAWLER_MAX_NOTES_COUNT);
+    const startPage = Math.max(1, Math.floor(Number(activeConfig.START_PAGE) || 1));
+    const location = String(activeConfig.JOB_LOCATION || '').trim();
+    console.log(`[BOSS] Starting search for ${keywords.length} keyword(s), location "${location || '平台默认'}", limit ${maxItems} per keyword...`);
 
     for (const keyword of keywords) {
       if (!this.page || this.page.isClosed()) break;
@@ -175,10 +179,14 @@ export class BossCrawler extends AbstractCrawler {
       this.page.on('response', onResponse);
 
       try {
-        let pageNum = 1;
-        while (collected.size < maxItems && pageNum <= 5) {
+        let pageNum = startPage;
+        let scannedPages = 0;
+        let stalledPages = 0;
+        const maxPages = searchPageBudget(maxItems, 30, 5, 100);
+        while (collected.size < maxItems && scannedPages < maxPages) {
           if (!this.page || this.page.isClosed()) break;
-          const searchUrl = `https://www.zhipin.com/web/geek/job?query=${encodeURIComponent(keyword)}&page=${pageNum}`;
+          const beforePage = collected.size;
+          const searchUrl = buildJobSearchUrl('boss', keyword, pageNum, location);
           console.log(`[BOSS] Navigating to search page ${pageNum}: ${searchUrl}`);
 
           await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
@@ -201,13 +209,26 @@ export class BossCrawler extends AbstractCrawler {
             collected.set(job.content_id, job);
           }
 
-          if (domJobs.length === 0 && collected.size === 0) {
+          if (domJobs.length === 0 && collected.size === beforePage) {
+            stalledPages++;
+          } else if (collected.size === beforePage) {
+            stalledPages++;
+          } else {
+            stalledPages = 0;
+          }
+
+          if (collected.size === 0) {
             console.log(`[BOSS] No jobs found on page ${pageNum} for "${keyword}". Stopping pagination.`);
+            break;
+          }
+          if (stalledPages >= 2) {
+            console.log(`[BOSS] Two consecutive pages produced no new jobs for "${keyword}". Stopping pagination.`);
             break;
           }
 
           if (collected.size >= maxItems) break;
           pageNum++;
+          scannedPages++;
         }
       } finally {
         if (this.page && !this.page.isClosed()) {
@@ -221,6 +242,7 @@ export class BossCrawler extends AbstractCrawler {
         await this.emitJob(jobs[index], keyword, index + 1);
       }
       console.log(`[BOSS] Search successfully emitted ${jobs.length} job(s) for "${keyword}".`);
+      reportKeywordSearchCompletion('BOSS直聘', keyword, jobs.length, maxItems, '平台结果已结束、重复或访问受限');
     }
 
     console.log('[BOSS] Job search execution completed.');

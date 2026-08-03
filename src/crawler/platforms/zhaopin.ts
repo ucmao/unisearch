@@ -8,6 +8,8 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
+import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { buildJobSearchUrl, jobItemLimit, resolveJobLocation } from './jobSearch';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -49,17 +51,22 @@ export class ZhaopinCrawler extends AbstractCrawler {
       return;
     }
 
-    const maxItems = Number(activeConfig.CRAWLER_MAX_NOTES_COUNT || 20);
-    console.log(`[Zhaopin] Starting job keyword search for ${keywords.length} keyword(s) via built-in browser, limit ${maxItems} per keyword...`);
+    const maxItems = jobItemLimit(activeConfig.CRAWLER_MAX_NOTES_COUNT);
+    const startPage = Math.max(1, Math.floor(Number(activeConfig.START_PAGE) || 1));
+    const location = String(activeConfig.JOB_LOCATION || '').trim();
+    console.log(`[Zhaopin] Starting job keyword search for ${keywords.length} keyword(s), location "${location || '全国'}", limit ${maxItems} per keyword...`);
 
     for (const keyword of keywords) {
       console.log(`[Zhaopin] Searching for keyword: "${keyword}"...`);
-      let pageNum = 1;
+      let pageNum = startPage;
       let count = 0;
+      let scannedPages = 0;
+      let stalledPages = 0;
+      const seen = new Set<string>();
+      const maxPages = searchPageBudget(maxItems, 20, 5, 100);
 
-      while (count < maxItems && pageNum <= 5) {
-        const safeKw = encodeURIComponent(keyword.toLowerCase());
-        const searchUrl = `https://www.zhaopin.com/sou/jl538/kw${safeKw}/p${pageNum}`;
+      while (count < maxItems && scannedPages < maxPages) {
+        const searchUrl = buildJobSearchUrl('zhaopin', keyword, pageNum, location);
         console.log(`[Zhaopin] Built-in browser navigating to page ${pageNum}: ${searchUrl}`);
 
         try {
@@ -136,7 +143,9 @@ export class ZhaopinCrawler extends AbstractCrawler {
 
           // Method 4 Fallback: Query parameter URL fallback (e.g. https://sou.zhaopin.com/?kw=...)
           if (jobList.length === 0) {
-            const fallbackUrl = `https://sou.zhaopin.com/?kw=${encodeURIComponent(keyword)}&p=${pageNum}`;
+            const fallbackParams = new URLSearchParams({ kw: keyword, p: String(pageNum) });
+            if (location) fallbackParams.set('jl', resolveJobLocation('zhaopin', location));
+            const fallbackUrl = `https://sou.zhaopin.com/?${fallbackParams.toString()}`;
             console.log(`[Zhaopin] Path URL returned 0 items, attempting fallback URL: ${fallbackUrl}`);
             await this.page.goto(fallbackUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
             await this.humanDelay(this.page, 3);
@@ -152,6 +161,7 @@ export class ZhaopinCrawler extends AbstractCrawler {
             break;
           }
 
+          const beforePage = count;
           for (const item of jobList) {
             if (count >= maxItems) break;
 
@@ -163,7 +173,9 @@ export class ZhaopinCrawler extends AbstractCrawler {
             const education = item.eduLevel || item.eduLevelFormat || item.education || '';
             const rawUrl = item.positionUrl || item.positionURL || (item.number ? `https://www.zhaopin.com/jobdetail/${item.number}.htm` : '');
             const jobUrl = rawUrl ? rawUrl.split('?')[0] : '';
-            const jobId = item.number || item.jobId || jobUrl;
+            const jobId = String(item.number || item.jobId || jobUrl || `${jobName}|${companyName}|${workCity}`);
+            if (seen.has(jobId)) continue;
+            seen.add(jobId);
 
             await connectorOutput.emitZhaopinResult({
               title: jobName,
@@ -184,13 +196,19 @@ export class ZhaopinCrawler extends AbstractCrawler {
           }
 
           console.log(`[Zhaopin] Extracted ${count}/${maxItems} jobs for "${keyword}".`);
-          if (jobList.length < 10) break;
+          stalledPages = count === beforePage ? stalledPages + 1 : 0;
+          if (stalledPages >= 2) {
+            console.log(`[Zhaopin] Two consecutive pages produced no new jobs for "${keyword}". Stopping pagination.`);
+            break;
+          }
           pageNum++;
+          scannedPages++;
         } catch (err: any) {
           console.error(`[Zhaopin] Error scanning search page ${pageNum} for "${keyword}": ${err.message}`);
           break;
         }
       }
+      reportKeywordSearchCompletion('智联招聘', keyword, count, maxItems, '平台结果已结束、重复或访问受限');
     }
 
     console.log('[Zhaopin] Job search execution completed via built-in browser.');
