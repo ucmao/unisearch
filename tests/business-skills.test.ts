@@ -19,6 +19,20 @@ test('a business Skill applies deterministic platform and analysis defaults', ()
   assert.deepEqual(plan.outputs, ['csv']);
 });
 
+test('creator profile Skill documents an executable target contract for all seven social platforms', () => {
+  const skill = skillRegistry.get('creator-profile-collection');
+
+  assert.equal(skill.mentionable, true);
+  assert.equal(skill.category, 'business');
+  assert.equal(skill.defaults?.capability, 'creator_profile');
+  assert.deepEqual(skill.defaults?.platforms, []);
+  assert.deepEqual(
+    skill.targetGuidance.map((item) => item.platform),
+    ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'],
+  );
+  assert.ok(skill.targetGuidance.every((item) => item.accepted.length && item.examples.length));
+});
+
 test('an explicitly mentioned Connector overrides a Skill default platform set', () => {
   const skill = skillRegistry.get('sales-course-intelligence');
   const plan = normalizePlan({

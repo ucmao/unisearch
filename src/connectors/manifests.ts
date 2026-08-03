@@ -1,4 +1,5 @@
 import type { ConnectorCapability, ConnectorManifest, ConnectorOutputField } from './types';
+import { creatorTargetDescription } from './creator-targets';
 
 const BASE_OUTPUTS: ConnectorOutputField[] = [
   { key: 'content_id', label: '平台内容 ID', type: 'string', required: true },
@@ -59,8 +60,8 @@ const targetField = (label: string) => ({
   type: 'string_list' as const, required: true, runtimeConfigKey: 'specified_ids',
 });
 
-const creatorField = (label: string) => ({
-  key: 'creator_ids', label, description: '支持主体 ID 或主页链接，多个目标使用逗号或换行分隔。',
+const creatorField = (platform: string, label: string) => ({
+  key: 'creator_ids', label, description: `${creatorTargetDescription(platform)}多个目标使用逗号或换行分隔。`,
   type: 'string_list' as const, required: true, runtimeConfigKey: 'creator_ids',
 });
 
@@ -106,7 +107,7 @@ function capabilities(
       id: 'creator_profile', label: `${nouns.creator}主页`, description: `采集${name}${nouns.creator}主页可见内容。`, runtimeMode: 'creator',
       budgetModel: 'single_target',
       inputFields: [
-        creatorField(`${nouns.creator} ID 或主页`),
+        creatorField(id, `${nouns.creator} ID 或主页`),
         {
           key: 'max_items', label: '最大作品数量',
           description: '每个主页最多采集的公开作品数；填写 0 表示持续翻页直到平台返回末页。',

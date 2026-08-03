@@ -1,4 +1,5 @@
 import { skillDefinitionSchema, type SkillDefinition, type SkillDefinitionInput } from '../core/skills/types';
+import { CREATOR_TARGET_GUIDANCE } from '../connectors/creator-targets';
 
 export class SkillRegistry {
   private readonly skills = new Map<string, SkillDefinition>();
@@ -80,6 +81,48 @@ skillRegistry.register({
     autoAnalyzeOnCompletion: false,
   },
   limitations: ['只读取公开可访问的 HTML 网页。', '搜索结果与正文读取均受站点反爬和网络状态影响。'],
+});
+
+skillRegistry.register({
+  id: 'creator-profile-collection',
+  version: '1.0.0',
+  name: '创作者主页采集',
+  description: '按平台主页链接或账号标识采集七个社交媒体平台的创作者公开作品；主页链接可识别平台，裸 ID 必须同时说明平台。',
+  category: 'business',
+  icon: 'users',
+  mentionable: true,
+  inputs: [
+    { key: 'platforms', required: true, description: '至少选择或说明一个平台；提供可识别域名的主页链接时可自动判断。' },
+    { key: 'targets', required: true, description: '创作者主页链接或平台账号标识；多个目标逐行填写，裸 ID 必须与平台对应。' },
+    { key: 'maxItems', required: false, description: '每个主页最多采集的公开作品数；0 表示持续翻页到平台返回末页。' },
+    { key: 'collectComments', required: false, description: '是否同时采集作品下当前可见的评论与回复。' },
+  ],
+  targetGuidance: CREATOR_TARGET_GUIDANCE,
+  workflow: {
+    connectorCapabilities: ['creator_profile'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['csv', 'markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    // 不默认勾选七个平台。链接域名或用户明确选择的平台才是执行范围，
+    // 避免把一个平台的裸 ID/主页链接广播给其他六个平台。
+    platforms: [],
+    capability: 'creator_profile',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['csv'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: false,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    '七个平台均依赖各自登录态，只采集当前账号可见的公开内容。',
+    '不同平台的裸 ID 可能重名或格式相似；未说明平台时不能可靠自动分配。',
+    '平台页面、接口或风控调整后，链接解析与翻页能力可能需要升级 Connector。',
+  ],
 });
 
 const BUSINESS_WORKFLOW = {

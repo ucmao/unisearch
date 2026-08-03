@@ -233,6 +233,14 @@ export interface SkillDefinition {
   icon: string
   mentionable: boolean
   inputs: Array<{ key: string; required: boolean; description: string }>
+  targetGuidance: Array<{
+    platform: string
+    label: string
+    accepted: string[]
+    preferred: string
+    examples: string[]
+    notes: string[]
+  }>
   defaults?: {
     platforms: string[]
     capability: string

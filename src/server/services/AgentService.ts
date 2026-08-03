@@ -84,6 +84,7 @@ function skillPlanningContext(skill: SkillDefinition | null): string {
     name: skill.name,
     description: skill.description,
     requiredInputs: skill.inputs.filter((input) => input.required),
+    targetGuidance: skill.targetGuidance,
     defaults: skill.defaults,
     limitations: skill.limitations,
   });

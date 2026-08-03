@@ -13,6 +13,14 @@ export const skillDefinitionSchema = z.object({
     required: z.boolean().default(false),
     description: z.string().default(''),
   }).strict()),
+  targetGuidance: z.array(z.object({
+    platform: z.string().min(1),
+    label: z.string().min(1),
+    accepted: z.array(z.string().min(1)).min(1),
+    preferred: z.string().min(1),
+    examples: z.array(z.string().min(1)).min(1),
+    notes: z.array(z.string().min(1)).default([]),
+  }).strict()).default([]),
   workflow: z.object({
     connectorCapabilities: z.array(z.string()).default([]),
     itemProcessors: z.array(z.string()).default([]),
