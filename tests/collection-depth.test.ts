@@ -53,6 +53,36 @@ test('budgets differ per connector family instead of one flat number', () => {
   assert.ok(social > searchEngine, '搜索引擎的深度预算应低于社交平台');
 });
 
+test('public search engines accept explicit targets through 500 but reject larger runs', () => {
+  for (const platform of ['baidu', 'bing', 'so360', 'sogou', 'toutiao']) {
+    const manifest = getConnectorManifest(platform);
+    const field = manifest?.capabilities[0].inputFields.find((item) => item.key === 'max_items');
+    assert.equal(field?.label, '每关键词目标结果数');
+    assert.equal(field?.max, 500);
+    const request = {
+      platform,
+      connector_id: platform,
+      capability: 'keyword_search' as const,
+      login_type: 'none' as const,
+      crawler_type: 'search' as const,
+      keywords: '测试',
+      start_page: 1,
+      enable_comments: false,
+      cookies: '',
+      headless: true,
+      loop_execution: false,
+    };
+    assert.doesNotThrow(() => normalizeConnectorRequest({
+      ...request,
+      connector_options: { max_items: 500 },
+    }));
+    assert.throws(() => normalizeConnectorRequest({
+      ...request,
+      connector_options: { max_items: 501 },
+    }), /must be <= 500/);
+  }
+});
+
 test('depth is reported as not applicable where it changes nothing', () => {
   // AI Q&A: one keyword always yields exactly one answer.
   assert.equal(depthIsMeaningful(capability('deepseek')), false);

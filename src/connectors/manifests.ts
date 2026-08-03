@@ -176,13 +176,15 @@ const searchEngine = (
     {
       id: 'keyword_search', label: '关键词全网搜索', description: `在${name}上按关键词进行网页搜索并提取结果摘要。`, runtimeMode: 'search',
       budgetModel: 'true_pagination',
-      // SERP tails degrade into ads and near-duplicates, and most engines stop
-      // serving useful results well before 100, so depth stays deliberately low.
+      // SERP tails degrade into ads and near-duplicates, so the presets stay
+      // deliberately low even though an explicit large research task may ask
+      // the connector to keep paging further.
       depthBudget: { quick: 10, standard: 30, deep: 80 },
       inputFields: [
         {
-          key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的搜索结果条目数。',
-          type: 'number', default: 15, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+          key: 'max_items', label: '每关键词目标结果数',
+          description: '每个平台、每个关键词期望采集的搜索结果数；受结果耗尽、重复内容和平台限制影响，实际数量可能不足。',
+          type: 'number', default: 15, min: 1, max: 500, runtimeConfigKey: 'crawler_max_notes_count',
         },
         {
           key: 'start_page', label: '起始页', description: '从第几页开始采集，可用于跳过前若干页或断点续采。仅真实分页采集的连接器支持。',
@@ -199,7 +201,11 @@ const searchEngine = (
         { key: 'published_at', label: '发布时间', type: 'number' },
         { key: 'rank', label: '结果排名', type: 'number' },
         { key: 'images', label: '结果图片', type: 'string_list' },
-      ], limitations: ['依靠公开 SERP 搜索结果 HTML。', '不受用户登录态限制。'],
+      ], limitations: [
+        '依靠公开 SERP 搜索结果 HTML，不承诺一定达到目标数量。',
+        '超过 100 条属于大批量任务，耗时、重复结果和平台限制风险会明显增加。',
+        '不受用户登录态限制。',
+      ],
     },
   ],
 });
