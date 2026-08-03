@@ -3,6 +3,54 @@ import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } fr
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
+import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+
+export const SEARCH_ENGINE_ITEM_LIMIT = 500;
+export const SEARCH_ENGINE_BATCH_SIZE = 100;
+const SEARCH_ENGINE_STAGNANT_PAGE_LIMIT = 2;
+
+/**
+ * Search result cards frequently contain tracking fragments and parameters.
+ * Normalize only known tracking noise so distinct result pages remain distinct.
+ */
+export function canonicalSearchResultUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = '';
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:utm_.+|from|source|src|spm|ref|referrer|tracking_id)$/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    return url.toString();
+  } catch {
+    return value.trim();
+  }
+}
+
+export function searchEnginePageBudget(target: number, expectedPageSize = 10): number {
+  // Extra pages compensate for ads, invalid cards and duplicates. The hard
+  // ceiling still bounds a malformed or endlessly repeating SERP.
+  return searchPageBudget(target, expectedPageSize, 5, 60);
+}
+
+async function pauseAfterCompletedBatch(
+  platform: string,
+  keyword: string,
+  collected: number,
+  target: number,
+  nextBoundary: number,
+): Promise<number> {
+  if (target <= SEARCH_ENGINE_BATCH_SIZE || collected < nextBoundary || collected >= target) return nextBoundary;
+  console.log(`[${platform}] 关键词“${keyword}”已完成 ${collected}/${target} 条，批次间暂停以降低平台压力...`);
+  await sleep(1500);
+  return nextBoundary + SEARCH_ENGINE_BATCH_SIZE;
+}
+
+function reportSearchFinished(platform: string, keyword: string, collected: number, target: number, reason: string): void {
+  reportKeywordSearchCompletion(platform, keyword, collected, target, reason);
+  console.log(`[${platform}] 关键词“${keyword}”结束：目标 ${target} 条，实际 ${collected} 条；${reason}`);
+}
 
 function cleanText(str: string): string {
   if (!str) return '';
@@ -55,11 +103,15 @@ export class BaiduCrawler extends AbstractCrawler {
     const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
     const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
     const startPage = activeConfig.START_PAGE || 1;
-    const maxPages = Math.ceil(maxItems / 10);
+    const maxPages = searchEnginePageBudget(maxItems);
 
     for (const keyword of keywords) {
       console.log(`[BAIDU] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
       let totalRank = 0;
+      let stagnantPages = 0;
+      let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
+      let stopReason = '已达到平台分页预算';
+      const seen = new Set<string>();
 
       for (let page = startPage; page < startPage + maxPages; page++) {
         if (totalRank >= maxItems) break;
@@ -80,24 +132,21 @@ export class BaiduCrawler extends AbstractCrawler {
 
           if (containers.length === 0) {
             console.log(`[BAIDU] No items found on page ${page}. Stopping pagination.`);
+            stopReason = `第 ${page} 页没有返回搜索结果`;
             break;
           }
 
           const drafts: Array<{
             title: string; encryptedUrl: string; snippet: string; publisher: string;
-            publishTime: string; images: string[]; rank: number;
+            publishTime: string; images: string[];
           }> = [];
           for (let i = 0; i < containers.length; i++) {
-            if (totalRank >= maxItems) break;
-
             const $item = $(containers[i]);
             const $titleLink = $item.find('h3 a').first();
             const encryptedUrl = $titleLink.attr('href') || '';
             const title = cleanText($titleLink.text());
 
             if (!title || !encryptedUrl) continue;
-
-            totalRank++;
 
             let snippet = cleanText(
               $item.find('.c-abstract, .content-right, .c-span-last, .c-font-normal, [class*="content-"]').first().text() ||
@@ -123,7 +172,6 @@ export class BaiduCrawler extends AbstractCrawler {
               publisher,
               publishTime: timeMatch ? timeMatch[1] : '',
               images,
-              rank: totalRank,
             });
           }
 
@@ -131,7 +179,14 @@ export class BaiduCrawler extends AbstractCrawler {
             ...draft,
             realUrl: await resolveRealUrl(draft.encryptedUrl),
           }));
+          let pageAdded = 0;
           for (const draft of resolvedDrafts) {
+            if (totalRank >= maxItems) break;
+            const dedupeKey = canonicalSearchResultUrl(draft.realUrl || draft.encryptedUrl);
+            if (!dedupeKey || seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
+            totalRank++;
+            pageAdded++;
             await connectorOutput.emitSearchEngineResult({
               search_engine: 'baidu',
               title: draft.title,
@@ -141,20 +196,28 @@ export class BaiduCrawler extends AbstractCrawler {
               publisher: draft.publisher,
               publish_time: draft.publishTime,
               images: draft.images,
-              search_rank: draft.rank,
+              search_rank: totalRank,
               source_keyword: keyword,
             });
 
-            console.log(`[BAIDU] [P${page} #${draft.rank}/${maxItems}] ${draft.title} -> ${draft.realUrl}`);
+            console.log(`[BAIDU] [P${page} #${totalRank}/${maxItems}] ${draft.title} -> ${draft.realUrl}`);
           }
 
-          if (drafts.length === 0) break;
+          stagnantPages = pageAdded === 0 ? stagnantPages + 1 : 0;
+          if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+            stopReason = `连续 ${stagnantPages} 页没有新增有效链接`;
+            break;
+          }
+          nextBatchBoundary = await pauseAfterCompletedBatch('BAIDU', keyword, totalRank, maxItems, nextBatchBoundary);
           if (totalRank < maxItems) await sleep(500);
         } catch (err: any) {
           console.error(`[BAIDU] Search failed on page ${page} for "${keyword}": ${err.message}`);
+          stopReason = `第 ${page} 页请求失败：${err.message}`;
           break;
         }
       }
+      if (totalRank >= maxItems) stopReason = '已达到用户设置的目标数量';
+      reportSearchFinished('百度', keyword, totalRank, maxItems, stopReason);
     }
   }
 
@@ -177,8 +240,11 @@ export interface BingSearchResultItem {
 
 export class BingCrawler extends AbstractCrawler {
   private async searchViaHttp(keyword: string, maxItems: number, startPage: number): Promise<BingSearchResultItem[]> {
-    const maxPages = Math.ceil(maxItems / 10);
+    const maxPages = searchEnginePageBudget(maxItems);
     const results: BingSearchResultItem[] = [];
+    const seen = new Set<string>();
+    let stagnantPages = 0;
+    let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
 
     for (let page = startPage; page < startPage + maxPages; page++) {
       if (results.length >= maxItems) break;
@@ -207,6 +273,9 @@ export class BingCrawler extends AbstractCrawler {
           const title = cleanText($titleLink.text());
 
           if (!title || !pageUrl) continue;
+          const dedupeKey = canonicalSearchResultUrl(pageUrl);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
           pageCount++;
 
           let snippet = cleanText(
@@ -235,7 +304,9 @@ export class BingCrawler extends AbstractCrawler {
           });
         }
 
-        if (pageCount === 0) break;
+        stagnantPages = pageCount === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) break;
+        nextBatchBoundary = await pauseAfterCompletedBatch('BING', keyword, results.length, maxItems, nextBatchBoundary);
         await sleep(800);
       } catch (err: any) {
         console.error(`[BING] [HTTP] Page ${page} failed: ${err.message}`);
@@ -249,13 +320,16 @@ export class BingCrawler extends AbstractCrawler {
   private async searchViaBrowser(keyword: string, maxItems: number, startPage: number): Promise<BingSearchResultItem[]> {
     console.log(`[BING] [Browser Fallback] Initializing Playwright browser page for keyword "${keyword}"...`);
     const results: BingSearchResultItem[] = [];
+    const seen = new Set<string>();
+    let stagnantPages = 0;
+    let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
 
     try {
       const playwright = require('playwright');
       const browserContext = await connectToElectronChromium(playwright);
       const page = await getElectronCrawlerPage(browserContext, 'bing');
 
-      const maxPages = Math.ceil(maxItems / 10);
+      const maxPages = searchEnginePageBudget(maxItems);
       for (let p = startPage; p < startPage + maxPages; p++) {
         if (results.length >= maxItems) break;
 
@@ -285,6 +359,9 @@ export class BingCrawler extends AbstractCrawler {
           const title = cleanText($titleLink.text());
 
           if (!title || !pageUrl) continue;
+          const dedupeKey = canonicalSearchResultUrl(pageUrl);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
           pageCount++;
 
           let snippet = cleanText(
@@ -313,7 +390,9 @@ export class BingCrawler extends AbstractCrawler {
           });
         }
 
-        if (pageCount === 0) break;
+        stagnantPages = pageCount === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) break;
+        nextBatchBoundary = await pauseAfterCompletedBatch('BING', keyword, results.length, maxItems, nextBatchBoundary);
         await this.humanDelay(page, 2);
       }
     } catch (err: any) {
@@ -354,6 +433,8 @@ export class BingCrawler extends AbstractCrawler {
 
         console.log(`[BING] [#${rank}/${maxItems}] ${item.title} -> ${item.url}`);
       }
+      reportSearchFinished('必应', keyword, rank, maxItems,
+        rank >= maxItems ? '已达到用户设置的目标数量' : '平台已无更多有效结果或分页请求提前结束');
     }
   }
 
@@ -370,11 +451,15 @@ export class So360Crawler extends AbstractCrawler {
     const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
     const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
     const startPage = activeConfig.START_PAGE || 1;
-    const maxPages = Math.ceil(maxItems / 10);
+    const maxPages = searchEnginePageBudget(maxItems);
 
     for (const keyword of keywords) {
       console.log(`[360] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
       let totalRank = 0;
+      let stagnantPages = 0;
+      let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
+      let stopReason = '已达到平台分页预算';
+      const seen = new Set<string>();
 
       for (let page = startPage; page < startPage + maxPages; page++) {
         if (totalRank >= maxItems) break;
@@ -389,24 +474,21 @@ export class So360Crawler extends AbstractCrawler {
 
           if (containers.length === 0) {
             console.log(`[360] No items found on page ${page}. Stopping pagination.`);
+            stopReason = `第 ${page} 页没有返回搜索结果`;
             break;
           }
 
           const drafts: Array<{
             title: string; encryptedUrl: string; snippet: string; publisher: string;
-            publishTime: string; images: string[]; rank: number;
+            publishTime: string; images: string[];
           }> = [];
           for (let i = 0; i < containers.length; i++) {
-            if (totalRank >= maxItems) break;
-
             const $item = $(containers[i]);
             const $titleLink = $item.find('h3.res-title a, h3 a').first();
             const encryptedUrl = $titleLink.attr('href') || '';
             const title = cleanText($titleLink.text());
 
             if (!title || !encryptedUrl) continue;
-
-            totalRank++;
 
             let snippet = cleanText(
               $item.find('.res-desc, .res-rich, p.res-desc').first().text()
@@ -431,7 +513,6 @@ export class So360Crawler extends AbstractCrawler {
               publisher,
               publishTime: timeMatch ? timeMatch[1] : '',
               images,
-              rank: totalRank,
             });
           }
 
@@ -439,7 +520,14 @@ export class So360Crawler extends AbstractCrawler {
             ...draft,
             realUrl: await resolveRealUrl(draft.encryptedUrl),
           }));
+          let pageAdded = 0;
           for (const draft of resolvedDrafts) {
+            if (totalRank >= maxItems) break;
+            const dedupeKey = canonicalSearchResultUrl(draft.realUrl || draft.encryptedUrl);
+            if (!dedupeKey || seen.has(dedupeKey)) continue;
+            seen.add(dedupeKey);
+            totalRank++;
+            pageAdded++;
             await connectorOutput.emitSearchEngineResult({
               search_engine: 'so360',
               title: draft.title,
@@ -449,20 +537,28 @@ export class So360Crawler extends AbstractCrawler {
               publisher: draft.publisher,
               publish_time: draft.publishTime,
               images: draft.images,
-              search_rank: draft.rank,
+              search_rank: totalRank,
               source_keyword: keyword,
             });
 
-            console.log(`[360] [P${page} #${draft.rank}/${maxItems}] ${draft.title} -> ${draft.realUrl}`);
+            console.log(`[360] [P${page} #${totalRank}/${maxItems}] ${draft.title} -> ${draft.realUrl}`);
           }
 
-          if (drafts.length === 0) break;
+          stagnantPages = pageAdded === 0 ? stagnantPages + 1 : 0;
+          if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+            stopReason = `连续 ${stagnantPages} 页没有新增有效链接`;
+            break;
+          }
+          nextBatchBoundary = await pauseAfterCompletedBatch('360', keyword, totalRank, maxItems, nextBatchBoundary);
           if (totalRank < maxItems) await sleep(500);
         } catch (err: any) {
           console.error(`[360] Search failed on page ${page} for "${keyword}": ${err.message}`);
+          stopReason = `第 ${page} 页请求失败：${err.message}`;
           break;
         }
       }
+      if (totalRank >= maxItems) stopReason = '已达到用户设置的目标数量';
+      reportSearchFinished('360 搜索', keyword, totalRank, maxItems, stopReason);
     }
   }
 
@@ -591,9 +687,11 @@ export class ToutiaoCrawler extends AbstractCrawler {
   }
 
   private async searchViaHttp(keyword: string, maxItems: number, startPage: number): Promise<ToutiaoSearchResultItem[]> {
-    const maxPages = Math.ceil(maxItems / TOUTIAO_RESULTS_PER_PAGE);
+    const maxPages = searchEnginePageBudget(maxItems, TOUTIAO_RESULTS_PER_PAGE);
     const results: ToutiaoSearchResultItem[] = [];
     const seen = new Set<string>();
+    let stagnantPages = 0;
+    let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
     let searchId = '';
 
     // Pagination needs the search_id minted by page 0, so a non-default start
@@ -643,18 +741,19 @@ export class ToutiaoCrawler extends AbstractCrawler {
         let pageCount = 0;
         for (const item of parsed.items) {
           if (results.length >= maxItems) break;
-          if (seen.has(item.url)) continue;
-          seen.add(item.url);
+          const dedupeKey = canonicalSearchResultUrl(item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
           results.push(item);
           pageCount++;
         }
 
-        // Results came back but every one was already collected: the tail has
-        // started repeating, so there is nothing further to page into.
-        if (pageCount === 0) {
-          console.log(`[TOUTIAO] [HTTP] Page ${page} only repeated earlier results. Stopping pagination.`);
+        stagnantPages = pageCount === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+          console.log(`[TOUTIAO] [HTTP] ${stagnantPages} consecutive pages only repeated earlier results. Stopping pagination.`);
           break;
         }
+        nextBatchBoundary = await pauseAfterCompletedBatch('TOUTIAO', keyword, results.length, maxItems, nextBatchBoundary);
         await sleep(1000);
       } catch (err: any) {
         console.error(`[TOUTIAO] [HTTP] Page ${page} failed: ${err.message}`);
@@ -669,6 +768,8 @@ export class ToutiaoCrawler extends AbstractCrawler {
     console.log(`[TOUTIAO] [Browser Fallback] Initializing Playwright browser page for keyword "${keyword}"...`);
     const results: ToutiaoSearchResultItem[] = [];
     const seen = new Set<string>();
+    let stagnantPages = 0;
+    let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
     let searchId = '';
 
     try {
@@ -688,7 +789,7 @@ export class ToutiaoCrawler extends AbstractCrawler {
         await this.humanDelay(page, 2);
       }
 
-      const maxPages = Math.ceil(maxItems / TOUTIAO_RESULTS_PER_PAGE);
+      const maxPages = searchEnginePageBudget(maxItems, TOUTIAO_RESULTS_PER_PAGE);
       for (let p = startPage; p < startPage + maxPages; p++) {
         if (results.length >= maxItems) break;
 
@@ -705,16 +806,19 @@ export class ToutiaoCrawler extends AbstractCrawler {
         let pageCount = 0;
         for (const item of parsed.items) {
           if (results.length >= maxItems) break;
-          if (seen.has(item.url)) continue;
-          seen.add(item.url);
+          const dedupeKey = canonicalSearchResultUrl(item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
           results.push(item);
           pageCount++;
         }
 
-        if (pageCount === 0) {
-          console.log(`[TOUTIAO] [Browser Fallback] No new items on page ${p}.`);
+        stagnantPages = pageCount === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+          console.log(`[TOUTIAO] [Browser Fallback] ${stagnantPages} consecutive pages returned no new items.`);
           break;
         }
+        nextBatchBoundary = await pauseAfterCompletedBatch('TOUTIAO', keyword, results.length, maxItems, nextBatchBoundary);
         await this.humanDelay(page, 2);
       }
     } catch (err: any) {
@@ -755,6 +859,8 @@ export class ToutiaoCrawler extends AbstractCrawler {
 
         console.log(`[TOUTIAO] [#${rank}/${maxItems}] ${item.title} -> ${item.url}`);
       }
+      reportSearchFinished('头条搜索', keyword, rank, maxItems,
+        rank >= maxItems ? '已达到用户设置的目标数量' : '平台已无更多有效结果或分页请求提前结束');
     }
   }
 
@@ -771,11 +877,15 @@ export class SogouCrawler extends AbstractCrawler {
     const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
     const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
     const startPage = activeConfig.START_PAGE || 1;
-    const maxPages = Math.ceil(maxItems / 10);
+    const maxPages = searchEnginePageBudget(maxItems);
 
     for (const keyword of keywords) {
       console.log(`[SOGOU] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
       let totalRank = 0;
+      let stagnantPages = 0;
+      let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
+      let stopReason = '已达到平台分页预算';
+      const seen = new Set<string>();
 
       for (let page = startPage; page < startPage + maxPages; page++) {
         if (totalRank >= maxItems) break;
@@ -881,16 +991,26 @@ export class SogouCrawler extends AbstractCrawler {
 
         if (pageItems.length === 0) {
           console.log(`[SOGOU] No items found on page ${page}. Stopping pagination.`);
+          stopReason = `第 ${page} 页没有返回搜索结果`;
           break;
         }
 
-        const currentPageItems = pageItems.slice(0, Math.max(0, maxItems - totalRank));
+        // Resolve the whole page before applying the remaining target. Cutting
+        // the raw cards first lets duplicates consume the final slots and can
+        // falsely report a stagnant page while later cards are still unique.
+        const currentPageItems = pageItems;
         const resolvedItems = await mapWithConcurrency(currentPageItems, 4, async (item) => ({
           item,
           realUrl: await resolveRealUrl(item.url),
         }));
+        let pageAdded = 0;
         for (const { item, realUrl } of resolvedItems) {
+          if (totalRank >= maxItems) break;
+          const dedupeKey = canonicalSearchResultUrl(realUrl || item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
           totalRank++;
+          pageAdded++;
           await connectorOutput.emitSearchEngineResult({
             search_engine: 'sogou',
             title: item.title,
@@ -907,8 +1027,16 @@ export class SogouCrawler extends AbstractCrawler {
           console.log(`[SOGOU] [P${page} #${totalRank}/${maxItems}] ${item.title} -> ${realUrl}`);
         }
 
+        stagnantPages = pageAdded === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+          stopReason = `连续 ${stagnantPages} 页没有新增有效链接`;
+          break;
+        }
+        nextBatchBoundary = await pauseAfterCompletedBatch('SOGOU', keyword, totalRank, maxItems, nextBatchBoundary);
         if (totalRank < maxItems) await sleep(600);
       }
+      if (totalRank >= maxItems) stopReason = '已达到用户设置的目标数量';
+      reportSearchFinished('搜狗搜索', keyword, totalRank, maxItems, stopReason);
     }
   }
 

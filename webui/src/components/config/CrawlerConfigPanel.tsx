@@ -11,6 +11,7 @@ import type { ConnectorCapability, ConnectorInputField, ConnectorManifest } from
 
 type FieldProps = { label: string; hint?: string; children: ReactNode }
 const EMPTY_CONNECTOR_OPTIONS: Record<string, unknown> = {}
+const PUBLIC_SEARCH_ENGINE_IDS = new Set(['baidu', 'bing', 'so360', 'sogou', 'toutiao'])
 
 function Field({ label, hint, children }: FieldProps) {
   return (
@@ -116,6 +117,7 @@ export function CrawlerConfigPanel() {
   const updateConfig = useCrawlerStore((state) => state.updateConfig)
   const statuses = useCrawlerStore((state) => state.statuses)
   const selectedPlatforms = useCrawlerStore((state) => state.selectedPlatforms)
+  const connectorOptions = useCrawlerStore((state) => state.connectorOptions)
   const platformCookies = useCrawlerStore((state) => state.platformCookies)
   const setPlatformCookie = useCrawlerStore((state) => state.setPlatformCookie)
   const { data: allConnectors = [] } = useConnectors()
@@ -126,6 +128,28 @@ export function CrawlerConfigPanel() {
   const capabilities = useMemo(() => capabilityIntersection(selectedConnectors), [selectedConnectors])
   const selectedCapability = capabilities.find((capability) => capability.id === config.capability) || capabilities[0]
   const isDisabled = Object.values(statuses).some((status) => status === 'running' || status === 'stopping')
+  const searchEstimate = useMemo(() => {
+    if (selectedCapability?.id !== 'keyword_search') return null
+    const connectors = selectedConnectors.filter((connector) => PUBLIC_SEARCH_ENGINE_IDS.has(connector.id))
+    if (!connectors.length) return null
+    const keywordCount = config.keywords.split(',').map((keyword) => keyword.trim()).filter(Boolean).length
+    const targets = connectors.map((connector) => {
+      const capability = connector.capabilities.find((item) => item.id === 'keyword_search')
+      const fallback = Number(capability?.inputFields.find((field) => field.key === 'max_items')?.default || 15)
+      const configured = Number(connectorOptions[connector.id]?.max_items)
+      return Number.isFinite(configured) && configured > 0 ? configured : fallback
+    })
+    const total = keywordCount * targets.reduce((sum, target) => sum + target, 0)
+    const uniformTarget = targets.every((target) => target === targets[0]) ? targets[0] : null
+    return {
+      platformCount: connectors.length,
+      keywordCount,
+      targets,
+      uniformTarget,
+      total,
+      isLarge: targets.some((target) => target > 100),
+    }
+  }, [config.keywords, connectorOptions, selectedCapability?.id, selectedConnectors])
 
   useEffect(() => {
     if (!selectedCapability || config.capability === selectedCapability.id) return
@@ -200,6 +224,26 @@ export function CrawlerConfigPanel() {
                   </section>
                 )
               })}
+              {searchEstimate ? (
+                <div className={`rounded-lg border p-3 ${searchEstimate.isLarge ? 'border-cyber-neon-orange/40 bg-cyber-neon-orange/5' : 'border-cyber-neon-cyan/30 bg-cyber-neon-cyan/5'}`}>
+                  <p className="text-[10px] font-mono font-medium text-cyber-text-primary">搜索数量预估</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-cyber-text-secondary">
+                    {searchEstimate.keywordCount === 0
+                      ? '添加关键词后显示理论结果总量。'
+                      : searchEstimate.uniformTarget !== null
+                        ? `${searchEstimate.platformCount} 个平台 × ${searchEstimate.keywordCount} 个关键词 × 每词 ${searchEstimate.uniformTarget} 条，理论最多 ${searchEstimate.total} 条搜索结果。`
+                        : `${searchEstimate.platformCount} 个平台 × ${searchEstimate.keywordCount} 个关键词，按各平台目标合计理论最多 ${searchEstimate.total} 条搜索结果。`}
+                  </p>
+                  <p className="mt-1 text-[9px] leading-relaxed text-cyber-text-muted">
+                    这是目标数量，不是完成承诺；结果耗尽、重复内容和平台限制都可能使实际数量不足。搜索平台采集摘要，Agent 正文读取会在跨平台去重后另行执行。
+                  </p>
+                  {searchEstimate.isLarge ? (
+                    <p className="mt-2 text-[9px] leading-relaxed text-cyber-neon-orange">
+                      当前包含超过 100 条的单平台目标，属于大批量任务，预计耗时和触发平台限制的风险会明显增加。
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           ) : <p className="rounded-lg border border-dashed border-cyber-border-subtle p-4 text-center text-[10px] text-cyber-text-muted">请先选择平台</p>}
         </TabsContent>

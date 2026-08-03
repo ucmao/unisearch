@@ -50,6 +50,8 @@ const ICON_MAP: { [key: string]: any } = {
   'rss': Rss,
 }
 
+const PUBLIC_SEARCH_ENGINE_IDS = new Set(['baidu', 'bing', 'so360', 'sogou', 'toutiao'])
+
 
 export function CrawlerSearchHeader() {
   const { t } = useTranslation('config')
@@ -161,6 +163,17 @@ export function CrawlerSearchHeader() {
         toast.error(`请填写 ${platformLabels[missingCookiePlatform] || missingCookiePlatform} 的 Cookie`)
         return
       }
+    }
+
+    const largeSearchTargets = selectedPlatforms
+      .filter((platform) => PUBLIC_SEARCH_ENGINE_IDS.has(platform))
+      .map((platform) => Number(connectorOptions[platform]?.max_items))
+      .filter((target) => Number.isFinite(target) && target > 100)
+    if (largeSearchTargets.length > 0) {
+      const confirmed = window.confirm(
+        '当前包含超过 100 条的单平台、单关键词目标。大批量搜索可能耗时较长，并可能因重复结果、结果耗尽或平台限制而少于目标数量。是否继续？',
+      )
+      if (!confirmed) return
     }
 
     const taskId = crypto.randomUUID().replace(/-/g, '')
