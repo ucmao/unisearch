@@ -2,6 +2,20 @@ import { activeConfig } from '../../tools/config';
 
 export type TargetKind = 'detail' | 'creator';
 
+/**
+ * Creator collection uses zero as "no item ceiling". Keyword search keeps its
+ * existing positive default, while profile crawlers can walk until the platform
+ * reports the end of the feed.
+ */
+export function creatorItemLimit(): number | null {
+  const value = Number(activeConfig.CRAWLER_MAX_NOTES_COUNT);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+
+export function creatorLimitReached(count: number, limit = creatorItemLimit()): boolean {
+  return limit !== null && count >= limit;
+}
+
 export function configuredTargets(platform: string, kind: TargetKind): string[] {
   const suffix = kind === 'detail' ? 'SPECIFIED_ID_LIST' : 'CREATOR_ID_LIST';
   const value = activeConfig[`${platform.toUpperCase()}_${suffix}`];

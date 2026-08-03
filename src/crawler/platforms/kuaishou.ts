@@ -10,7 +10,7 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 import { isExplicitKuaishouAuthFailure, summarizeKuaishouGraphqlFailure } from './kuaishouAuth';
 
 // Kuaishou reports timestamps in milliseconds, but a few legacy fields still come back in seconds.
@@ -834,12 +834,18 @@ export class KuaishouCrawler extends AbstractCrawler {
 
   /** Returns null when the profile operation is unusable, so the caller can fall back. */
   private async listCreatorWorksViaGraphql(creatorId: string): Promise<any[] | null> {
-    const limit = Math.max(1, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+    const limit = creatorItemLimit();
     const records: any[] = [];
     const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
     let pcursor = '';
     try {
-      while (records.length < limit) {
+      while (!creatorLimitReached(records.length, limit)) {
+        if (seenCursors.has(pcursor)) {
+          console.warn(`[KS] Creator cursor repeated (${pcursor || '<first>'}); stopping to avoid a loop.`);
+          break;
+        }
+        seenCursors.add(pcursor);
         const result = await this.graphql<any>(
           'visionProfilePhotoList',
           'visionProfilePhotoList',
@@ -850,7 +856,7 @@ export class KuaishouCrawler extends AbstractCrawler {
         );
         const feeds = result.feeds as any[];
         for (const feed of feeds) {
-          if (records.length >= limit) break;
+          if (creatorLimitReached(records.length, limit)) break;
           const record = this.mapFeed(feed, `创作者:${creatorId}`);
           if (!record || seenIds.has(record.video_id)) continue;
           seenIds.add(record.video_id);
@@ -870,9 +876,24 @@ export class KuaishouCrawler extends AbstractCrawler {
   private async scrapeCreatorWorksFromPage(creatorId: string): Promise<void> {
     await this.page!.goto(`https://www.kuaishou.com/profile/${encodeURIComponent(creatorId)}`, { waitUntil: 'domcontentloaded' });
     await this.page!.waitForTimeout(2200);
-    const ids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/short-video/"]'))
-      .map((link) => link.getAttribute('href')?.match(/\/short-video\/([^/?#]+)/)?.[1] || '').filter(Boolean));
-    const unique = [...new Set(ids)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+    const limit = creatorItemLimit();
+    const ids = new Set<string>();
+    let stagnantRounds = 0;
+    while (!creatorLimitReached(ids.size, limit) && stagnantRounds < 4) {
+      const visible = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/short-video/"]'))
+        .map((link) => link.getAttribute('href')?.match(/\/short-video\/([^/?#]+)/)?.[1] || '').filter(Boolean));
+      const before = ids.size;
+      for (const id of visible) {
+        ids.add(id);
+        if (creatorLimitReached(ids.size, limit)) break;
+      }
+      stagnantRounds = ids.size > before ? 0 : stagnantRounds + 1;
+      if (!creatorLimitReached(ids.size, limit)) {
+        await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await this.page!.waitForTimeout(1400);
+      }
+    }
+    const unique = [...ids];
     console.log(`[KS] Creator ${creatorId}: discovered ${unique.length} works`);
     for (const id of unique) await this.fetchVideoDetail(id, `创作者:${creatorId}`);
   }

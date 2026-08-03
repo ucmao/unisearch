@@ -10,7 +10,7 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 
 interface DouyinSearchCapture {
   ok: boolean;
@@ -120,6 +120,7 @@ export function describeDouyinSearchBody(value: string): string {
 // `.../general/search/stream/`). Matching the family instead of exact paths
 // keeps the crawler alive across their A/B rollouts.
 const DOUYIN_SEARCH_ENDPOINT = /\/aweme\/v1\/web\/[^?]*search[^?]*\//i;
+const DOUYIN_CREATOR_ENDPOINT = /\/aweme\/v1\/web\/aweme\/post\//i;
 
 export class DouyinCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -856,13 +857,64 @@ export class DouyinCrawler extends AbstractCrawler {
     for (const target of configuredTargets('douyin', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const secUid = firstMatch(resolved, [/\/user\/([^/?#]+)/i, /[?&]sec_uid=([^&#]+)/i]);
-      await this.page!.goto(`https://www.douyin.com/user/${encodeURIComponent(secUid)}`, { waitUntil: 'domcontentloaded' });
-      await this.page!.waitForTimeout(2500);
-      const ids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/"]'))
-        .map((link) => link.getAttribute('href')?.match(/\/video\/(\d+)/)?.[1] || '').filter(Boolean));
-      const unique = [...new Set(ids)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      const unique = await this.collectCreatorAwemeIds(secUid);
       console.log(`[DY] Creator ${secUid}: discovered ${unique.length} works`);
       for (const id of unique) await this.fetchAwemeDetail(id, `创作者:${secUid}`);
     }
+  }
+
+  /**
+   * Let the real profile page sign its lazy-load requests, and harvest both the
+   * structured responses and rendered links until the feed reaches its end.
+   */
+  private async collectCreatorAwemeIds(secUid: string): Promise<string[]> {
+    const limit = creatorItemLimit();
+    const ids = new Set<string>();
+    let terminalSeen = false;
+    const pending = new Set<Promise<void>>();
+    const capture = (response: PlaywrightResponse) => {
+      if (!DOUYIN_CREATOR_ENDPOINT.test(response.url())) return;
+      const task = (async () => {
+        try {
+          const payload = parseDouyinSearchBody(await response.text());
+          for (const aweme of payload?.aweme_list || []) {
+            const id = String(aweme?.aweme_id || '');
+            if (id && !creatorLimitReached(ids.size, limit)) ids.add(id);
+          }
+          if (Number(payload?.has_more || 0) === 0) terminalSeen = true;
+        } catch {
+          // DOM extraction below remains available when CDP drops a body.
+        }
+      })();
+      pending.add(task);
+      void task.finally(() => pending.delete(task));
+    };
+    this.page!.on('response', capture);
+    try {
+      await this.page!.goto(`https://www.douyin.com/user/${encodeURIComponent(secUid)}`, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(2500);
+      let stagnantRounds = 0;
+      while (!terminalSeen && !creatorLimitReached(ids.size, limit) && stagnantRounds < 5) {
+        if (pending.size) await Promise.allSettled([...pending]);
+        const visible = await this.page!.evaluate(() => Array.from(
+          document.querySelectorAll('a[href*="/video/"], a[href*="/note/"]'),
+        ).map((link) => link.getAttribute('href')?.match(/\/(?:video|note)\/(\d+)/)?.[1] || '').filter(Boolean));
+        const before = ids.size;
+        for (const id of visible) {
+          ids.add(id);
+          if (creatorLimitReached(ids.size, limit)) break;
+        }
+        stagnantRounds = ids.size > before ? 0 : stagnantRounds + 1;
+        if (!terminalSeen && !creatorLimitReached(ids.size, limit)) {
+          await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          await this.page!.waitForTimeout(1600);
+        }
+      }
+      if (pending.size) await Promise.allSettled([...pending]);
+    } finally {
+      this.page!.off('response', capture);
+    }
+    const collected = [...ids];
+    return limit === null ? collected : collected.slice(0, limit);
   }
 }

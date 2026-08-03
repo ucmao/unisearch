@@ -8,7 +8,7 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 import { XhsSigner } from '../base/xhsSigner';
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
@@ -533,16 +533,97 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     for (const target of configuredTargets('xhs', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const creatorId = firstMatch(resolved, [/\/user\/profile\/([^/?#]+)/i, /[?&]user_id=([^&#]+)/i]);
-      await this.page!.goto(`${indexUrl}/user/profile/${encodeURIComponent(creatorId)}`, { waitUntil: 'domcontentloaded' });
+      const xsecToken = resolved.match(/[?&]xsec_token=([^&#]+)/i)?.[1] || '';
+      const xsecSource = resolved.match(/[?&]xsec_source=([^&#]+)/i)?.[1] || 'pc_user';
+      const profileUrl = `${indexUrl}/user/profile/${encodeURIComponent(creatorId)}`
+        + `${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=${encodeURIComponent(xsecSource)}` : ''}`;
+      await this.page!.goto(profileUrl, { waitUntil: 'domcontentloaded' });
       await this.page!.waitForTimeout(2200);
-      const notes = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/explore/"]')).map((link) => {
-        const href = link.getAttribute('href') || '';
-        return { href, id: href.match(/\/explore\/([^/?#]+)/)?.[1] || '' };
-      }).filter((item) => item.id));
-      const unique = [...new Map(notes.map((note) => [note.id, note])).values()].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+
+      let unique = await this.listCreatorNotesViaApi(creatorId, xsecToken, xsecSource);
+      if (unique === null) {
+        console.warn(`[XHS] Creator API unavailable for ${creatorId}; falling back to profile scrolling.`);
+        unique = await this.listCreatorNotesViaDom();
+      }
       console.log(`[XHS] Creator ${creatorId}: discovered ${unique.length} works`);
       for (const note of unique) await this.fetchNoteDetail(note.href, `创作者:${creatorId}`);
     }
+  }
+
+  /** Cursor through the signed creator feed until it reports has_more=false. */
+  private async listCreatorNotesViaApi(
+    creatorId: string,
+    xsecToken: string,
+    xsecSource: string,
+  ): Promise<Array<{ id: string; href: string }> | null> {
+    if (!this.signer?.hasTemplate()) return null;
+    const limit = creatorItemLimit();
+    const notes = new Map<string, { id: string; href: string }>();
+    const seenCursors = new Set<string>();
+    let cursor = '';
+    try {
+      while (!creatorLimitReached(notes.size, limit)) {
+        if (seenCursors.has(cursor)) {
+          console.warn(`[XHS] Creator cursor repeated (${cursor || '<first>'}); stopping to avoid a loop.`);
+          break;
+        }
+        seenCursors.add(cursor);
+        const query = new URLSearchParams({
+          num: '30', cursor, user_id: creatorId,
+          image_formats: 'jpg,webp,avif', xsec_token: xsecToken, xsec_source: xsecSource,
+        });
+        const payload = await this.signer.request<any>({
+          host: this.apiHost,
+          path: `/api/sns/web/v1/user_posted?${query.toString()}`,
+        });
+        const batch = payload?.data?.notes || [];
+        const before = notes.size;
+        for (const item of batch) {
+          const id = String(item.note_id || item.id || '');
+          if (!id) continue;
+          const token = String(item.xsec_token || '');
+          notes.set(id, {
+            id,
+            href: `${this.indexUrl}/explore/${id}`
+              + `${token ? `?xsec_token=${encodeURIComponent(token)}&xsec_source=pc_user` : ''}`,
+          });
+          if (creatorLimitReached(notes.size, limit)) break;
+        }
+        const hasMore = Boolean(payload?.data?.has_more);
+        const nextCursor = String(payload?.data?.cursor || '');
+        if (!hasMore || !batch.length || notes.size === before || !nextCursor) break;
+        cursor = nextCursor;
+        await this.humanDelay(this.page!);
+      }
+      return [...notes.values()];
+    } catch (error: any) {
+      console.warn(`[XHS] Creator pagination failed: ${error.message}`);
+      return notes.size ? [...notes.values()] : null;
+    }
+  }
+
+  /** Browser-driven fallback; the page itself signs every lazy-load request. */
+  private async listCreatorNotesViaDom(): Promise<Array<{ id: string; href: string }>> {
+    const limit = creatorItemLimit();
+    const notes = new Map<string, { id: string; href: string }>();
+    let stagnantRounds = 0;
+    while (!creatorLimitReached(notes.size, limit) && stagnantRounds < 4) {
+      const visible = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/explore/"]')).map((link) => {
+        const href = link.getAttribute('href') || '';
+        return { href, id: href.match(/\/explore\/([^/?#]+)/)?.[1] || '' };
+      }).filter((item) => item.id));
+      const before = notes.size;
+      for (const note of visible) {
+        notes.set(note.id, note);
+        if (creatorLimitReached(notes.size, limit)) break;
+      }
+      stagnantRounds = notes.size > before ? 0 : stagnantRounds + 1;
+      if (!creatorLimitReached(notes.size, limit)) {
+        await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await this.page!.waitForTimeout(1400);
+      }
+    }
+    return [...notes.values()];
   }
 
   /**
