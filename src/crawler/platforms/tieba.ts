@@ -2,8 +2,14 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
-import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
+import {
+  configuredTargets,
+  creatorItemLimit,
+  creatorLimitReached,
+  firstMatch,
+  reportKeywordSearchCompletion,
+  resolveRedirect,
+} from '../base/connectorHelpers';
 
 // Tieba's own search stops serving useful results well before this; the cap only
 // exists so a query that keeps answering identical pages cannot loop forever.
@@ -181,13 +187,8 @@ export class TiebaCrawler extends AbstractCrawler {
         }
 
         const posts = [...collected.values()];
-        if (posts.length < target) {
-          connectorEventEmitter.send({
-            type: 'warning',
-            code: 'PARTIAL_RESULT',
-            message: `贴吧关键词“${keyword}”只找到 ${posts.length} 条结果（目标 ${target} 条），可能是该词在贴吧的结果本就有限。`,
-          });
-        }
+        reportKeywordSearchCompletion('百度贴吧', keyword, posts.length, target,
+          '平台已返回当前可见末页或连续页面没有新增唯一内容');
         await this.ingestSearchResults(posts, keyword);
       } catch (err: any) {
         console.error(`[TIEBA] Search error for keyword ${keyword}:`, err.message);
