@@ -3,7 +3,15 @@ import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, not
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { BiliWbiSigner } from '../base/biliWbiSigner';
-import { asAbsoluteUrl, configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
+import {
+  asAbsoluteUrl,
+  configuredTargets,
+  creatorItemLimit,
+  creatorLimitReached,
+  firstMatch,
+  resolveRedirect,
+  stripHtml,
+} from '../base/connectorHelpers';
 
 const SEARCH_API = 'https://api.bilibili.com/x/web-interface/wbi/search/type';
 const SPACE_API = 'https://api.bilibili.com/x/space/wbi/arc/search';
@@ -397,11 +405,12 @@ export class BilibiliCrawler extends AbstractCrawler {
 
   /** Paged creator archive through the signed API — the primary path. */
   private async creatorVideosViaApi(mid: string): Promise<BiliVideoSeed[]> {
-    const limit = activeConfig.CRAWLER_MAX_NOTES_COUNT;
+    const limit = creatorItemLimit();
     const seeds: BiliVideoSeed[] = [];
     const seen = new Set<string>();
 
-    for (let pageNum = 1; seeds.length < limit && pageNum <= MAX_API_PAGES; pageNum++) {
+    for (let pageNum = 1; !creatorLimitReached(seeds.length, limit); pageNum++) {
+      const before = seeds.length;
       const data = await this.signer!.get(SPACE_API, {
         mid,
         ps: API_PAGE_SIZE,
@@ -417,9 +426,13 @@ export class BilibiliCrawler extends AbstractCrawler {
         if (!seed || seen.has(seed.video_id)) continue;
         seen.add(seed.video_id);
         seeds.push(seed);
-        if (seeds.length >= limit) break;
+        if (creatorLimitReached(seeds.length, limit)) break;
       }
       const total = Number(data?.page?.count || 0);
+      if (seeds.length === before) {
+        console.warn(`[BILI] Creator page ${pageNum} added no new videos; stopping to avoid a pagination loop.`);
+        break;
+      }
       if (vlist.length < API_PAGE_SIZE || pageNum * API_PAGE_SIZE >= total) break;
       await this.humanDelay(this.page!);
     }
@@ -451,11 +464,25 @@ export class BilibiliCrawler extends AbstractCrawler {
   private async creatorVideosViaDom(mid: string): Promise<BiliVideoSeed[]> {
     await this.page!.goto(`https://space.bilibili.com/${encodeURIComponent(mid)}/video`, { waitUntil: 'domcontentloaded' });
     await this.page!.waitForTimeout(2500);
-    const bvids = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/BV"]'))
-      .map((link) => link.getAttribute('href')?.match(/\/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '')
-      .filter(Boolean));
-    return [...new Set(bvids)]
-      .slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT)
+    const limit = creatorItemLimit();
+    const bvids = new Set<string>();
+    let stagnantRounds = 0;
+    while (!creatorLimitReached(bvids.size, limit) && stagnantRounds < 4) {
+      const visible = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/video/BV"]'))
+        .map((link) => link.getAttribute('href')?.match(/\/video\/(BV[a-zA-Z0-9]+)/)?.[1] || '')
+        .filter(Boolean));
+      const before = bvids.size;
+      for (const bvid of visible) {
+        bvids.add(bvid);
+        if (creatorLimitReached(bvids.size, limit)) break;
+      }
+      stagnantRounds = bvids.size > before ? 0 : stagnantRounds + 1;
+      if (!creatorLimitReached(bvids.size, limit)) {
+        await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await this.page!.waitForTimeout(1200);
+      }
+    }
+    return [...bvids]
       .map((bvid) => ({
         video_id: bvid,
         aid: '',

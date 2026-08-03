@@ -2,7 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect } from '../base/connectorHelpers';
+import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect } from '../base/connectorHelpers';
 import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
 
 // Tieba's own search stops serving useful results well before this; the cap only
@@ -601,18 +601,71 @@ export class TiebaCrawler extends AbstractCrawler {
 
   public async getSubjectsAndThreads(): Promise<void> {
     for (const target of configuredTargets('tieba', 'creator')) {
-      const isUser = /home\/main|portrait=|un=/.test(target);
       const resolved = /^https?:\/\//i.test(target) ? await resolveRedirect(this.page!, target) : target;
+      const isUser = /home\/main|portrait=|[?&](?:un|id)=/.test(resolved);
       const url = isUser
         ? resolved
         : `https://tieba.baidu.com/f?kw=${encodeURIComponent(firstMatch(resolved, [/[?&]kw=([^&#]+)/i]).replace(/吧$/, ''))}`;
-      await this.page!.goto(url, { waitUntil: 'domcontentloaded' });
-      await this.page!.waitForTimeout(1800);
-      const links = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/p/"]'))
-        .map((link) => link.getAttribute('href')?.match(/\/p\/(\d+)/)?.[1] || '').filter(Boolean));
-      const unique = [...new Set(links)].slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT);
+      const unique = await this.collectSubjectThreadIds(url, isUser);
       console.log(`[TIEBA] Subject ${target}: discovered ${unique.length} threads`);
       for (const id of unique) await this.getThreadDetail(id, `主体:${target}`);
     }
+  }
+
+  /** Harvest the signed profile/forum feed while the real page paginates it. */
+  private async collectSubjectThreadIds(url: string, isUser: boolean): Promise<string[]> {
+    const limit = creatorItemLimit();
+    const ids = new Set<string>();
+    let terminalSeen = false;
+    const pending = new Set<Promise<void>>();
+    const capture = (response: any) => {
+      const responseUrl = response.url();
+      const matches = isUser
+        ? responseUrl.includes('/c/u/feed/myThread') || responseUrl.includes('/home/get/getthread')
+        : responseUrl.includes('/c/f/frs/page_pc');
+      if (!matches) return;
+      const task = (async () => {
+        try {
+          const payload = await response.json();
+          const visit = (value: any) => {
+            if (!value || typeof value !== 'object') return;
+            const threadId = String(value.thread_id || value.tid || '');
+            if (/^\d+$/.test(threadId) && !creatorLimitReached(ids.size, limit)) ids.add(threadId);
+            if (Array.isArray(value)) value.forEach(visit);
+            else Object.values(value).forEach(visit);
+          };
+          visit(payload?.data || payload);
+          if (payload?.data && Number(payload.data.has_more || 0) === 0) terminalSeen = true;
+        } catch {}
+      })();
+      pending.add(task);
+      void task.finally(() => pending.delete(task));
+    };
+    this.page!.on('response', capture);
+    try {
+      await this.page!.goto(url, { waitUntil: 'domcontentloaded' });
+      await this.page!.waitForTimeout(2200);
+      let stagnantRounds = 0;
+      while (!terminalSeen && !creatorLimitReached(ids.size, limit) && stagnantRounds < 5) {
+        if (pending.size) await Promise.allSettled([...pending]);
+        const visible = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/p/"]'))
+          .map((link) => link.getAttribute('href')?.match(/\/p\/(\d+)/)?.[1] || '').filter(Boolean));
+        const before = ids.size;
+        for (const id of visible) {
+          ids.add(id);
+          if (creatorLimitReached(ids.size, limit)) break;
+        }
+        stagnantRounds = ids.size > before ? 0 : stagnantRounds + 1;
+        if (!terminalSeen && !creatorLimitReached(ids.size, limit)) {
+          await this.page!.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+          await this.page!.waitForTimeout(1400);
+        }
+      }
+      if (pending.size) await Promise.allSettled([...pending]);
+    } finally {
+      this.page!.off('response', capture);
+    }
+    const collected = [...ids];
+    return limit === null ? collected : collected.slice(0, limit);
   }
 }

@@ -2,7 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
+import { configuredTargets, creatorItemLimit, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 export class ZhihuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -173,7 +173,9 @@ export class ZhihuCrawler extends AbstractCrawler {
     if (!contentId || entry?.type === 'search_query' || entry?.type === 'relevant_query') return null;
 
     const rawType = String(object.type || '');
-    const type = rawType === 'article' ? 'article' : rawType === 'question' ? 'question' : 'answer';
+    const type = rawType === 'article' ? 'article'
+      : rawType === 'question' ? 'question'
+        : rawType === 'zvideo' || rawType === 'video' ? 'video' : 'answer';
     const question = object.question || {};
     const author = object.author || {};
     const body = stripHtml(object.content || object.excerpt || '');
@@ -184,6 +186,8 @@ export class ZhihuCrawler extends AbstractCrawler {
       content_text: body,
       content_url: type === 'article'
         ? `https://zhuanlan.zhihu.com/p/${contentId}`
+        : type === 'video'
+          ? `https://www.zhihu.com/zvideo/${contentId}`
         : type === 'question'
           ? `https://www.zhihu.com/question/${contentId}`
           : `https://www.zhihu.com/question/${question.id || ''}/answer/${contentId}`,
@@ -291,7 +295,9 @@ export class ZhihuCrawler extends AbstractCrawler {
   }
 
   private async getContentComments(contentId: string, contentType: string): Promise<void> {
-    const resource = contentType === 'article' ? 'articles' : contentType === 'question' ? 'questions' : 'answers';
+    const resource = contentType === 'article' ? 'articles'
+      : contentType === 'question' ? 'questions'
+        : contentType === 'video' ? 'zvideos' : 'answers';
     const url = `https://www.zhihu.com/api/v4/${resource}/${encodeURIComponent(contentId)}/root_comments?order=normal&limit=${activeConfig.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES}&offset=0&status=open`;
     try {
       const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
@@ -324,7 +330,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     for (const target of configuredTargets('zhihu', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const token = firstMatch(resolved, [/\/people\/([^/?#]+)/i, /[?&]url_token=([^&#]+)/i]);
-      const limit = activeConfig.CRAWLER_MAX_NOTES_COUNT || 20;
+      const limit = creatorItemLimit();
 
       // The member endpoints already return full records, so one paged request
       // replaces the old "scrape a screenful of links, then hit the detail API
@@ -332,11 +338,13 @@ export class ZhihuCrawler extends AbstractCrawler {
       const records = [
         ...await this.fetchCreatorRecords(token, 'answers', limit),
         ...await this.fetchCreatorRecords(token, 'articles', limit),
-      ].slice(0, limit);
+        ...await this.fetchCreatorRecords(token, 'zvideos', limit),
+      ].sort((left, right) => Number(right.created_time || 0) - Number(left.created_time || 0));
+      const selected = limit === null ? records : records.slice(0, limit);
 
-      if (records.length) {
-        console.log(`[ZHIHU] Creator ${token}: collected ${records.length} contents via member API`);
-        for (const record of records) {
+      if (selected.length) {
+        console.log(`[ZHIHU] Creator ${token}: collected ${selected.length} contents via member API`);
+        for (const record of selected) {
           await connectorOutput.emitZhihuContent(record);
           if (activeConfig.ENABLE_GET_COMMENTS) await this.getContentComments(record.content_id, record.content_type);
           await this.humanDelay(this.page!);
@@ -349,17 +357,24 @@ export class ZhihuCrawler extends AbstractCrawler {
       await this.page!.waitForTimeout(1800);
       const links = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/answer/"], a[href*="zhuanlan.zhihu.com/p/"]'))
         .map((link) => link.getAttribute('href') || '').filter(Boolean));
-      const unique = [...new Set(links)].slice(0, limit);
+      const allLinks = [...new Set(links)];
+      const unique = limit === null ? allLinks : allLinks.slice(0, limit);
       console.log(`[ZHIHU] Creator ${token}: discovered ${unique.length} contents`);
       for (const link of unique) await this.fetchContentDetail(link, `作者:${token}`);
     }
   }
 
   /** Page through /api/v4/members/{token}/{answers|articles}. */
-  private async fetchCreatorRecords(token: string, resource: 'answers' | 'articles', limit: number): Promise<any[]> {
+  private async fetchCreatorRecords(
+    token: string,
+    resource: 'answers' | 'articles' | 'zvideos',
+    limit: number | null,
+  ): Promise<any[]> {
     const include = resource === 'answers'
       ? 'data[*].content,excerpt,voteup_count,comment_count,created_time,updated_time,question.title,author.url_token'
-      : 'data[*].content,excerpt,voteup_count,comment_count,created,updated,author.url_token';
+      : resource === 'articles'
+        ? 'data[*].content,excerpt,voteup_count,comment_count,created,updated,author.url_token'
+        : 'data[*].title,description,play_count,voteup_count,comment_count,published_at,author.url_token';
     const records: any[] = [];
 
     // Zhihu's member API is served from the site origin, so an in-page fetch
@@ -369,7 +384,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     }
 
     let offset = 0;
-    while (records.length < limit) {
+    while (limit === null || records.length < limit) {
       const url = `https://www.zhihu.com/api/v4/members/${encodeURIComponent(token)}/${resource}`
         + `?include=${encodeURIComponent(include)}&offset=${offset}&limit=20&sort_by=created`;
       let payload: any;
@@ -383,7 +398,8 @@ export class ZhihuCrawler extends AbstractCrawler {
       if (!Array.isArray(batch) || batch.length === 0) break;
 
       for (const item of batch) {
-        const record = this.buildSearchRecord({ object: { ...item, type: resource === 'articles' ? 'article' : 'answer' } });
+        const type = resource === 'articles' ? 'article' : resource === 'zvideos' ? 'zvideo' : 'answer';
+        const record = this.buildSearchRecord({ object: { ...item, type } });
         if (record) records.push({ ...record, source_keyword: `作者:${token}` });
       }
 
@@ -391,6 +407,6 @@ export class ZhihuCrawler extends AbstractCrawler {
       offset += batch.length;
       await this.humanDelay(this.page!);
     }
-    return records.slice(0, limit);
+    return limit === null ? records : records.slice(0, limit);
   }
 }

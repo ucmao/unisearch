@@ -105,7 +105,15 @@ function capabilities(
     {
       id: 'creator_profile', label: `${nouns.creator}主页`, description: `采集${name}${nouns.creator}主页可见内容。`, runtimeMode: 'creator',
       budgetModel: 'single_target',
-      inputFields: [creatorField(`${nouns.creator} ID 或主页`), ...commentOptions()],
+      inputFields: [
+        creatorField(`${nouns.creator} ID 或主页`),
+        {
+          key: 'max_items', label: '最大作品数量',
+          description: '每个主页最多采集的公开作品数；填写 0 表示持续翻页直到平台返回末页。',
+          type: 'number', default: 0, min: 0, max: 100000, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+        ...commentOptions(),
+      ],
       outputType: `${id}_creator_content`, outputFields: outputs, limitations: commonLimits,
     },
     {

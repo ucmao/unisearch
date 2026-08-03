@@ -2,7 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
-import { configuredTargets, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
+import { configuredTargets, creatorItemLimit, creatorLimitReached, firstMatch, resolveRedirect, stripHtml } from '../base/connectorHelpers';
 
 /** Search pages return ~10-15 posts each; this caps paging when CRAWLER_MAX_NOTES_COUNT is large. */
 const WEIBO_SEARCH_MAX_PAGES = 10;
@@ -337,15 +337,62 @@ export class WeiboCrawler extends AbstractCrawler {
     for (const target of configuredTargets('weibo', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const uid = firstMatch(resolved, [/\/u\/(\d+)/i, /weibo\.com\/(\d+)/i, /[?&]uid=(\d+)/i, /^\s*(\d+)\s*$/]);
-      const url = `https://weibo.com/ajax/statuses/mymblog?uid=${encodeURIComponent(uid)}&page=1&feature=0`;
       try {
-        const result = await this.page!.evaluate(async (apiUrl) => (await fetch(apiUrl, { credentials: 'include' })).json(), url);
-        const statuses = result?.data?.list || [];
+        const statuses = await this.collectCreatorStatuses(uid);
         console.log(`[WEIBO] Creator ${uid}: discovered ${statuses.length} posts`);
-        for (const status of statuses.slice(0, activeConfig.CRAWLER_MAX_NOTES_COUNT)) await this.storeStatus(status, `用户:${uid}`);
+        for (const status of statuses) await this.storeStatus(status, `用户:${uid}`);
       } catch (error: any) {
         console.error(`[WEIBO] Failed to collect creator ${uid}: ${error.message}`);
       }
     }
+  }
+
+  /** Follow the mobile profile's since_id cursor until cardlistInfo reaches its end. */
+  private async collectCreatorStatuses(uid: string): Promise<any[]> {
+    const limit = creatorItemLimit();
+    const containerId = `107603${uid}`;
+    await this.page!.goto(`https://m.weibo.cn/u/${encodeURIComponent(uid)}`, { waitUntil: 'domcontentloaded' });
+    const statuses: any[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let sinceId = '';
+    let total = Number.POSITIVE_INFINITY;
+
+    while (!creatorLimitReached(statuses.length, limit) && statuses.length < total) {
+      if (seenCursors.has(sinceId)) {
+        console.warn(`[WEIBO] Creator cursor repeated (${sinceId || '<first>'}); stopping to avoid a loop.`);
+        break;
+      }
+      seenCursors.add(sinceId);
+      const query = new URLSearchParams({
+        jumpfrom: 'weibocom', type: 'uid', value: uid, containerid: containerId,
+      });
+      if (sinceId) query.set('since_id', sinceId);
+      const payload = await this.page!.evaluate(async (apiUrl) => {
+        const response = await fetch(apiUrl, {
+          credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        const body = await response.text();
+        return body.trim().startsWith('{') ? JSON.parse(body) : null;
+      }, `https://m.weibo.cn/api/container/getIndex?${query.toString()}`);
+      if (!payload || payload.ok !== 1) break;
+
+      const info = payload?.data?.cardlistInfo || {};
+      total = Number(info.total || total);
+      const before = statuses.length;
+      for (const card of payload?.data?.cards || []) {
+        const mblog = card?.mblog;
+        const id = String(mblog?.mid || mblog?.id || '');
+        if (!id || seenIds.has(id)) continue;
+        seenIds.add(id);
+        statuses.push(await this.normalizeMobileStatus(mblog));
+        if (creatorLimitReached(statuses.length, limit)) break;
+      }
+      const next = String(info.since_id || '');
+      if (statuses.length === before || !next || next === '0') break;
+      sinceId = next;
+      await this.humanDelay(this.page!);
+    }
+    return statuses;
   }
 }

@@ -31,7 +31,12 @@ export function getConnectorCapability(manifest: ConnectorManifest, request: Con
   if (request.crawler_type === 'search') {
     return manifest.capabilities.find((capability) => capability.id === 'keyword_search');
   }
-  return manifest.capabilities[0];
+  if (request.crawler_type === 'creator') {
+    return manifest.capabilities.find((capability) => capability.id === 'creator_profile');
+  }
+  return manifest.capabilities.find((capability) => capability.id === 'content_detail')
+    || manifest.capabilities.find((capability) => capability.id === 'url_resolve')
+    || manifest.capabilities[0];
 }
 
 export function normalizeConnectorRequest(input: ConnectorStartRequest): ConnectorStartRequest {
