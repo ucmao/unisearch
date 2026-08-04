@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   AlertTriangle, ArrowRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileText, Globe,
-  Loader2, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
+  Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type AnalysisCoverage } from '@/lib/api'
@@ -46,10 +46,11 @@ function getError(error: any) {
 
 function timeAgo(value: string) {
   const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000)
-  if (seconds < 60) return '刚刚'
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟前`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}小时前`
-  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit' }).format(new Date(value))
+  if (seconds < 60) return 'now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)}d`
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(value))
 }
 
 function formatElapsed(milliseconds: number) {
@@ -1379,22 +1380,24 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         }`}
         style={{ width: leftSidebarWidth }}
       >
-        <div className="flex h-11 shrink-0 items-center pl-[74px] px-2 app-drag">
-          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag" onClick={toggleThreads} title="收起任务栏">
+        <div className="flex h-9 shrink-0 items-center justify-end pl-[74px] pr-2 app-drag">
+          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 rounded-lg text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag" onClick={toggleThreads} title="收起任务栏">
             <PanelLeftClose className="h-4 w-4" />
           </Button>
         </div>
-        <div className="pb-2 pl-5 pr-3 pt-1 text-xl font-semibold tracking-tight text-cyber-text-primary">
-          UniSearch
+        <div className="pl-6 pr-3 pt-2 pb-2.5">
+          <span className="text-xl font-bold tracking-tight text-cyber-text-primary">
+            UniSearch
+          </span>
         </div>
-        <div className="px-2 pb-3">
-          <Button className="w-full justify-start gap-2" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">
+        <div className="px-2 pb-1.5">
+          <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">
             {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SquarePen className="h-4 w-4" />}新建任务
           </Button>
         </div>
         {!threadsCollapsed && <>
           <div className="mx-2 border-t border-cyber-border-subtle" />
-          <div className="flex items-center justify-between px-3 py-2">
+          <div className="flex items-center justify-between px-2.5 py-1">
             <span className="text-[11px] font-medium text-cyber-text-muted">任务</span>
             <button
               type="button"
@@ -1402,14 +1405,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 setThreadSearchOpen((open) => !open)
                 if (threadSearchOpen) setThreadSearchQuery('')
               }}
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary ${threadSearchOpen ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted'}`}
+              className={`flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary ${threadSearchOpen ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted'}`}
               aria-label={threadSearchOpen ? '关闭任务搜索' : '搜索任务'}
               title={threadSearchOpen ? '关闭搜索' : '搜索任务'}
             >
               <Search className="h-3.5 w-3.5" />
             </button>
           </div>
-          {threadSearchOpen && <div className="px-2 pb-2">
+          {threadSearchOpen && <div className="px-2 pb-1.5">
             <Input
               autoFocus
               value={threadSearchQuery}
@@ -1422,89 +1425,166 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               }}
               placeholder="搜索任务"
               aria-label="搜索任务"
-              className="h-8 text-xs"
+              className="h-7 text-xs"
             />
           </div>}
-          <div className="min-h-0 flex-1 flex flex-col gap-1 overflow-y-auto px-2 pb-3">
+          <div className="min-h-0 flex-1 flex flex-col gap-0.5 overflow-y-auto px-1.5 pb-1.5">
             {threadMenuId ? <button type="button" className="fixed inset-0 z-30 cursor-default" onClick={() => setThreadMenuId(null)} aria-label="关闭任务菜单" /> : null}
-            {filteredThreads.map((thread, index) => (
-              <div key={thread.thread_id} className={`group relative ${threadMenuId === thread.thread_id ? 'z-40' : ''}`}>
-                <button type="button" onClick={() => {
-                  setSelectedId(thread.thread_id)
-                  if (window.innerWidth < 768) {
-                    setThreadsCollapsed(true)
-                  }
-                }}
-                  className={`w-full rounded-lg px-3 py-2 text-left transition-colors ${selectedId === thread.thread_id ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary' : threadMenuId === thread.thread_id ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary' : 'text-cyber-text-secondary group-hover:bg-cyber-bg-tertiary/60'}`}>
-                  <div className="flex items-center gap-2 pr-6"><span className="min-w-0 flex-1 truncate text-sm font-medium leading-tight">{thread.title}</span>{thread.plan_status === 'running' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyber-neon-green" />}</div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-cyber-text-muted">
-                    <span className="min-w-0 flex-1 truncate">
-                      {['running', 'queued'].includes(thread.plan_status || '') ? (
-                        <span className="font-medium text-cyber-neon-green">⚡ 任务采集分析中...</span>
-                      ) : ['completed', 'partially_completed'].includes(thread.plan_status || '') ? (
-                        <span className="text-cyber-text-secondary">
-                          ✓ {thread.total_items ? `已采集 ${thread.total_items} 条数据` : '采集分析完成'}
-                        </span>
-                      ) : thread.plan_status === 'failed' ? (
-                        <span className="text-cyber-neon-pink">✕ 采集中断</span>
-                      ) : (
-                        thread.last_message || '暂无消息'
-                      )}
-                    </span>
-                    <span className="shrink-0 text-[9px] text-cyber-text-muted">{timeAgo(thread.updated_at)}</span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setThreadMenuId((current) => current === thread.thread_id ? null : thread.thread_id);
-                  }}
-                  className={`absolute right-1.5 top-1.5 z-40 flex h-6 w-6 items-center justify-center rounded-md transition-colors ${threadMenuId === thread.thread_id
-                    ? 'bg-white/70 text-cyber-text-primary opacity-100 shadow-sm ring-1 ring-black/5 dark:bg-white/15'
-                    : thread.pinned_at
-                      ? 'opacity-100 text-cyber-neon-cyan hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10'
-                      : 'opacity-0 hover:bg-white/60 hover:text-cyber-text-primary dark:hover:bg-white/10 focus:opacity-100 group-hover:opacity-100'
+            {filteredThreads.map((thread, index) => {
+              const isRunning = ['running', 'queued'].includes(thread.plan_status || '')
+              const isFailed = thread.plan_status === 'failed'
+              const hasData = Boolean(thread.total_items && thread.total_items > 0)
+              // Strictly display Database icon ONLY when non-zero items are collected
+              const isDataTask = hasData
+
+              return (
+                <div key={thread.thread_id} className={`group relative ${threadMenuId === thread.thread_id ? 'z-40' : ''}`}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(thread.thread_id)
+                      if (window.innerWidth < 768) {
+                        setThreadsCollapsed(true)
+                      }
+                    }}
+                    title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
+                    className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors ${
+                      selectedId === thread.thread_id
+                        ? 'bg-cyber-neon-cyan/15 font-medium text-cyber-text-primary border border-cyber-neon-cyan/20'
+                        : threadMenuId === thread.thread_id
+                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary'
+                          : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60 hover:text-cyber-text-primary'
                     }`}
-                  aria-label={`管理 ${thread.title}`}
-                  aria-haspopup="menu"
-                  aria-expanded={threadMenuId === thread.thread_id}
-                  title="任务操作"
-                >
-                  {threadMenuId === thread.thread_id ? (
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  ) : thread.pinned_at ? (
-                    <>
-                      <Pin className="h-3.5 w-3.5 block group-hover:hidden" />
-                      <MoreHorizontal className="h-3.5 w-3.5 hidden group-hover:block text-cyber-text-secondary" />
-                    </>
-                  ) : (
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  )}
-                </button>
-                <div role="menu" className={`${threadMenuId === thread.thread_id ? 'absolute' : 'hidden'} right-1.5 z-50 w-32 overflow-hidden rounded-lg border border-cyber-border-default bg-cyber-bg-panel py-1 shadow-xl ${filteredThreads.length > 2 && index >= filteredThreads.length - 2 ? 'bottom-8' : 'top-8'}`}>
-                  <button type="button" role="menuitem" disabled={pinThread.isPending} onClick={() => { setThreadMenuId(null); pinThread.mutate({ id: thread.thread_id, pinned: !thread.pinned_at }) }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary disabled:opacity-50">
-                    {thread.pinned_at ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}{thread.pinned_at ? '取消置顶' : '置顶'}
-                  </button>
-                  <button type="button" role="menuitem" onClick={() => { setThreadMenuId(null); setRenamingThread(thread); setRenameTitle(thread.title) }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
-                    <SquarePen className="h-3.5 w-3.5" />重命名
-                  </button>
-                  <div className="my-1 border-t border-cyber-border-subtle" />
-                  <DeleteConfirmDialog
-                    trigger={<button type="button" role="menuitem" disabled={remove.isPending} onClick={() => setThreadMenuId(null)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />删除</button>}
-                    title="删除这个任务？"
-                    description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
-                    confirmLabel="删除任务"
-                    onConfirm={() => remove.mutateAsync({ id: thread.thread_id, withData: deleteAnalyticsData })}
                   >
-                    <label className="flex items-center gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
-                      <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
-                      <span className="font-medium text-cyber-text-primary">同时彻底删除该任务的全部采集数据</span>
-                    </label>
-                  </DeleteConfirmDialog>
+                    {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}
+                    <div className="relative shrink-0 flex h-5 w-5 items-center justify-center text-cyber-text-muted/65">
+                      {isRunning ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-cyber-text-muted/80" />
+                      ) : isFailed ? (
+                        <AlertTriangle className="h-3.5 w-3.5 text-cyber-text-muted/75" />
+                      ) : isDataTask ? (
+                        <Database className="h-3.5 w-3.5 text-cyber-text-muted/65" />
+                      ) : (
+                        <MessageSquare className="h-3.5 w-3.5 text-cyber-text-muted/65" />
+                      )}
+                      {hasData ? (
+                        <span
+                          className="absolute -top-1 -right-2 flex h-3.5 min-w-[14px] items-center justify-center rounded-full bg-cyber-bg-panel px-1 font-mono text-[8.5px] font-medium text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-sm leading-none"
+                          title={`已采集 ${thread.total_items} 条数据`}
+                        >
+                          {thread.total_items && thread.total_items > 999
+                            ? `${(thread.total_items / 1000).toFixed(thread.total_items >= 10000 ? 0 : 1)}k`
+                            : thread.total_items}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {/* Task Title (Slightly larger 13.5px font) */}
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] leading-snug">
+                      {thread.title}
+                    </span>
+
+                    {/* Right Metadata Area */}
+                    <div className="shrink-0 flex items-center gap-1.5 ml-auto text-right">
+                      {/* Status Tag */}
+                      {isRunning ? (
+                        <span className="font-mono text-[9.5px] text-cyber-neon-green/80 animate-pulse shrink-0">
+                          running
+                        </span>
+                      ) : isFailed ? (
+                        <span className="font-mono text-[9.5px] text-cyber-text-muted/50 shrink-0">
+                          failed
+                        </span>
+                      ) : null}
+
+                      {/* Ultra-compact English Time (now, 1m, 5m, 2h, 1d) & Pin badge */}
+                      <div className={`flex items-center gap-1 shrink-0 ${threadMenuId === thread.thread_id ? 'hidden' : 'group-hover:hidden'}`}>
+                        {thread.pinned_at && <Pin className="h-3 w-3 text-cyber-neon-cyan/80" />}
+                        <span className="font-mono text-[10.5px] text-cyber-text-muted/65">{timeAgo(thread.updated_at)}</span>
+                      </div>
+
+                      {/* 3-Dots Action Button (Visible on hover OR menu open) */}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setThreadMenuId((current) => (current === thread.thread_id ? null : thread.thread_id))
+                        }}
+                        className={`items-center justify-center rounded-md p-1 transition-colors text-cyber-text-muted hover:bg-cyber-bg-panel hover:text-cyber-text-primary ${
+                          threadMenuId === thread.thread_id ? 'flex text-cyber-text-primary' : 'hidden group-hover:flex'
+                        }`}
+                        aria-label={`管理 ${thread.title}`}
+                        aria-haspopup="menu"
+                        aria-expanded={threadMenuId === thread.thread_id}
+                        title="任务操作"
+                      >
+                        <MoreHorizontal className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </button>
+
+                  <div
+                    role="menu"
+                    className={`${
+                      threadMenuId === thread.thread_id ? 'absolute' : 'hidden'
+                    } right-1.5 z-50 w-32 overflow-hidden rounded-lg border border-cyber-border-default bg-cyber-bg-panel py-1 shadow-xl ${
+                      filteredThreads.length > 2 && index >= filteredThreads.length - 2 ? 'bottom-8' : 'top-8'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={pinThread.isPending}
+                      onClick={() => {
+                        setThreadMenuId(null)
+                        pinThread.mutate({ id: thread.thread_id, pinned: !thread.pinned_at })
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary disabled:opacity-50"
+                    >
+                      {thread.pinned_at ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+                      {thread.pinned_at ? '取消置顶' : '置顶'}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setThreadMenuId(null)
+                        setRenamingThread(thread)
+                        setRenameTitle(thread.title)
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-text-secondary hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
+                    >
+                      <SquarePen className="h-3.5 w-3.5" />
+                      重命名
+                    </button>
+                    <div className="my-1 border-t border-cyber-border-subtle" />
+                    <DeleteConfirmDialog
+                      trigger={
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={remove.isPending}
+                          onClick={() => setThreadMenuId(null)}
+                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-cyber-neon-pink hover:bg-cyber-neon-pink/10 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          删除
+                        </button>
+                      }
+                      title="删除这个任务？"
+                      description="将删除这个任务及其全部对话、计划和附件，此操作无法撤销。"
+                      confirmLabel="删除任务"
+                      onConfirm={() => remove.mutateAsync({ id: thread.thread_id, withData: deleteAnalyticsData })}
+                    >
+                      <label className="flex items-center gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/60 p-3 text-left text-xs">
+                        <Checkbox checked={deleteAnalyticsData} onCheckedChange={setDeleteAnalyticsData} />
+                        <span className="font-medium text-cyber-text-primary">同时彻底删除该任务的全部采集数据</span>
+                      </label>
+                    </DeleteConfirmDialog>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {threadSearchQuery.trim() && !filteredThreads.length ? <p className="px-3 py-6 text-center text-[11px] text-cyber-text-muted">未找到匹配任务</p> : null}
           </div>
         </>}

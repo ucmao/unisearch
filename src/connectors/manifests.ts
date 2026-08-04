@@ -798,6 +798,18 @@ const complaintPlatform = (
         { key: 'published_at', label: '精确投诉时间', type: 'number' },
       ], limitations: ['依赖单条投诉网页 DOM/JSON 元数据。'],
     },
+    {
+      id: 'comments', label: '投诉进度与回复评论', description: `采集指定${name}投诉单的沟通进度、商家回复与补充评论。`, runtimeMode: 'detail',
+      budgetModel: 'single_target',
+      inputFields: [targetField('投诉单链接或 ID')], outputType: `${id}_comment`, outputFields: [
+        { key: 'comment_id', label: '节点/回复 ID', type: 'string', required: true },
+        { key: 'content_id', label: '投诉单 ID', type: 'string' },
+        { key: 'summary', label: '回复摘要', type: 'string' },
+        { key: 'content', label: '沟通与回复内容', type: 'string' },
+        { key: 'creator_name', label: '处理方/回复主体', type: 'string' },
+        { key: 'published_at', label: '回复时间', type: 'number' },
+      ], limitations: ['依赖公开投诉单处理节点与 DOM 解析。'],
+    },
   ],
 });
 

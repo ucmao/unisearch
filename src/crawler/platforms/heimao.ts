@@ -46,21 +46,48 @@ export class HeimaoCrawler extends AbstractCrawler {
   private async checkCaptchaOrLogin(): Promise<boolean> {
     if (!this.page) return false;
     const pageUrl = this.page.url();
-    const pageTitle = await this.page.title().catch(() => '');
-    const pageContent = await this.page.content().catch(() => '');
-
-    return (
-      pageTitle.includes('验证') ||
-      pageTitle.includes('登录') ||
+    if (
       pageUrl.includes('passport.sina') ||
       pageUrl.includes('passport.weibo') ||
-      pageUrl.includes('login.sina') ||
-      pageContent.includes('sec-captcha') ||
-      pageContent.includes('slider') ||
-      pageContent.includes('geetest') ||
-      pageContent.includes('passport-login') ||
-      pageContent.includes('请先登录')
-    );
+      pageUrl.includes('login.sina')
+    ) {
+      return true;
+    }
+
+    const pageTitle = await this.page.title().catch(() => '');
+    if (
+      pageTitle.includes('新浪通行证') ||
+      pageTitle.includes('微博登录') ||
+      pageTitle.includes('安全验证') ||
+      pageTitle === '登录'
+    ) {
+      return true;
+    }
+
+    // Check for visible captcha or login modal elements in DOM
+    const isBlockedInDom = await this.page.evaluate(() => {
+      const isVisible = (el: Element | null) => {
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+
+      const captchaEl = document.querySelector('.sec-captcha, .geetest_holder, .geetest_popup, iframe[src*="passport.sina"], #passport_login_box');
+      if (captchaEl && isVisible(captchaEl)) return true;
+
+      const hasSearchContent = !!document.querySelector('a[href*="/complaint/view/"], .m-list, .ts-list, .search-list');
+      if (hasSearchContent) return false;
+
+      const bodyText = document.body ? document.body.innerText || '' : '';
+      if (bodyText.includes('请先登录新浪账号') || bodyText.includes('请先登录微博') || bodyText.includes('请先进行安全验证')) {
+        return true;
+      }
+
+      return false;
+    }).catch(() => false);
+
+    return isBlockedInDom;
   }
 
   private async handleLoginOrVerificationIfNeeded(keyword: string): Promise<void> {
@@ -142,22 +169,67 @@ export class HeimaoCrawler extends AbstractCrawler {
                 seen.add(contentId);
 
                 const card = linkEl.closest('li, div[class*="item"], div[class*="card"], div[class*="box"], article, tr') || linkEl.parentElement || linkEl;
-                const titleEl = card.querySelector('.ts-title, .title, h3, h4, a.title, .tit, .ts-name, [class*="title"]') || linkEl;
-                const merchantEl = card.querySelector('.ts-target, .merchant, .shop, .target, .ts-name, .s-target, [class*="target"], [class*="merchant"]');
+
+                // 1. Meta / Date text (.ts-name is author/time line like "2026-06-07 于黑猫投诉平台发起")
+                const metaNameEl = card.querySelector('.ts-name, .s-name, [class*="name"]');
+                const metaText = metaNameEl ? (metaNameEl.innerText || metaNameEl.textContent || '').trim() : '';
+
+                let publishedAt = '';
+                const dateMatch = metaText.match(/\d{4}-\d{2}-\d{2}/) || (card.innerText || '').match(/\d{4}-\d{2}-\d{2}/);
+                if (dateMatch) {
+                  publishedAt = dateMatch[0];
+                }
+
+                // 2. Real title: Filter candidate title elements (exclude .ts-name and date/origin strings)
+                let title = '';
+                const titleCandidates = Array.from(card.querySelectorAll('h1, h2, h3, h4, .ts-title, .ts-tit, a.title, a.tit, .title, [class*="title"], [class*="tit"]'));
+                for (const cand of titleCandidates) {
+                  if ((cand as HTMLElement).classList.contains('ts-name')) continue;
+                  const txt = ((cand as HTMLElement).innerText || (cand as HTMLElement).textContent || '').trim();
+                  if (txt && !txt.includes('于黑猫投诉平台发起') && !/^\d{4}-\d{2}-\d{2}/.test(txt) && txt.length > 2) {
+                    title = txt;
+                    break;
+                  }
+                }
+
+                // Fallback scan links/text inside card if title is missing or invalid
+                if (!title || title.includes('于黑猫投诉平台发起') || /^\d{4}-\d{2}-\d{2}/.test(title)) {
+                  const cardLinks = Array.from(card.querySelectorAll('a[href*="/complaint/view/"], a'));
+                  for (const l of cardLinks) {
+                    const txt = ((l as HTMLElement).innerText || (l as HTMLElement).textContent || '').trim();
+                    if (txt && !txt.includes('于黑猫投诉平台发起') && !/^\d{4}-\d{2}-\d{2}/.test(txt) && txt.length > 2) {
+                      title = txt;
+                      break;
+                    }
+                  }
+                }
+
+                if (!title) title = '黑猫投诉事项';
+
+                const merchantEl = card.querySelector('.ts-target, .merchant, .shop, .target, .s-target, [class*="target"], [class*="merchant"]');
                 const statusEl = card.querySelector('.ts-status, .status, .state, .tag, .s-status, [class*="status"]');
-                const timeEl = card.querySelector('.ts-time, .time, .date, .s-time, [class*="time"]');
                 const descEl = card.querySelector('.ts-desc, .desc, p, .summary, [class*="desc"]');
 
-                const title = (titleEl ? titleEl.innerText || titleEl.textContent || '' : linkEl.innerText || '').trim();
+                let description = descEl ? (descEl.innerText || descEl.textContent || '').trim() : title;
+                if (description === title) {
+                  const pEls = Array.from(card.querySelectorAll('p, div'));
+                  for (const p of pEls) {
+                    const txt = ((p as HTMLElement).innerText || (p as HTMLElement).textContent || '').trim();
+                    if (txt && txt !== title && !txt.includes('于黑猫投诉平台发起') && txt.length > 15) {
+                      description = txt;
+                      break;
+                    }
+                  }
+                }
 
                 items.push({
                   content_id: contentId,
-                  title: title || '黑猫投诉事项',
-                  description: (descEl ? descEl.innerText || descEl.textContent || '' : title).trim(),
+                  title: title,
+                  description: description,
                   creator_name: merchantEl ? (merchantEl.innerText || merchantEl.textContent || '').trim() : '黑猫涉诉商家',
                   status: statusEl ? (statusEl.innerText || statusEl.textContent || '').trim() : '',
                   content_url: href.startsWith('http') ? href : `https://tousu.sina.com.cn${href}`,
-                  published_at: timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '',
+                  published_at: publishedAt,
                 });
               });
 
@@ -166,12 +238,6 @@ export class HeimaoCrawler extends AbstractCrawler {
                 const nodes = Array.from(document.querySelectorAll('.ts-list .ts-item, .m-list .item, .search-list li, .ts-item, li[data-id], .ts-m-list li, .m-product-list li, .ts-card, div[class*="item"], div[class*="complaint"], div[class*="card"]'));
                 nodes.forEach((node: any) => {
                   const linkEl = node.querySelector('a[href*="/complaint/view/"]') || node.querySelector('a');
-                  const titleEl = node.querySelector('.ts-title, .title, h3, h4, a.title, .tit, .ts-name, [class*="title"]') || linkEl;
-                  const merchantEl = node.querySelector('.ts-target, .merchant, .shop, .target, .ts-name, .s-target');
-                  const statusEl = node.querySelector('.ts-status, .status, .state, .tag, .s-status');
-                  const timeEl = node.querySelector('.ts-time, .time, .date, .s-time');
-                  const descEl = node.querySelector('.ts-desc, .desc, p, .summary');
-
                   const href = linkEl ? linkEl.getAttribute('href') || '' : '';
                   let contentId = '';
                   const match = href.match(/\/complaint\/view\/(\d+)/);
@@ -182,17 +248,49 @@ export class HeimaoCrawler extends AbstractCrawler {
                   if (!contentId || seen.has(contentId)) return;
                   seen.add(contentId);
 
-                  const title = titleEl ? (titleEl.innerText || titleEl.textContent || '').trim() : '';
-                  if (!title && !contentId) return;
+                  const metaNameEl = node.querySelector('.ts-name, .s-name');
+                  const metaText = metaNameEl ? (metaNameEl.innerText || metaNameEl.textContent || '').trim() : '';
+
+                  let publishedAt = '';
+                  const dateMatch = metaText.match(/\d{4}-\d{2}-\d{2}/) || (node.innerText || '').match(/\d{4}-\d{2}-\d{2}/);
+                  if (dateMatch) publishedAt = dateMatch[0];
+
+                  let title = '';
+                  const titleCandidates = Array.from(node.querySelectorAll('h1, h2, h3, h4, .ts-title, .ts-tit, a.title, a.tit, .title, [class*="title"], [class*="tit"]'));
+                  for (const cand of titleCandidates) {
+                    if ((cand as HTMLElement).classList.contains('ts-name')) continue;
+                    const txt = ((cand as HTMLElement).innerText || (cand as HTMLElement).textContent || '').trim();
+                    if (txt && !txt.includes('于黑猫投诉平台发起') && !/^\d{4}-\d{2}-\d{2}/.test(txt) && txt.length > 2) {
+                      title = txt;
+                      break;
+                    }
+                  }
+
+                  if (!title || title.includes('于黑猫投诉平台发起') || /^\d{4}-\d{2}-\d{2}/.test(title)) {
+                    const cardLinks = Array.from(node.querySelectorAll('a[href*="/complaint/view/"], a'));
+                    for (const l of cardLinks) {
+                      const txt = ((l as HTMLElement).innerText || (l as HTMLElement).textContent || '').trim();
+                      if (txt && !txt.includes('于黑猫投诉平台发起') && !/^\d{4}-\d{2}-\d{2}/.test(txt) && txt.length > 2) {
+                        title = txt;
+                        break;
+                      }
+                    }
+                  }
+
+                  if (!title) title = '黑猫投诉事项';
+
+                  const merchantEl = node.querySelector('.ts-target, .merchant, .shop, .target, .s-target');
+                  const statusEl = node.querySelector('.ts-status, .status, .state, .tag, .s-status');
+                  const descEl = node.querySelector('.ts-desc, .desc, p, .summary');
 
                   items.push({
                     content_id: contentId || `heimao_${Math.random().toString(36).substring(2, 9)}`,
-                    title: title || '黑猫投诉事项',
+                    title: title,
                     description: (descEl ? descEl.innerText || descEl.textContent || '' : title).trim(),
                     creator_name: merchantEl ? (merchantEl.innerText || merchantEl.textContent || '').trim() : '黑猫涉诉商家',
                     status: statusEl ? (statusEl.innerText || statusEl.textContent || '').trim() : '',
                     content_url: href.startsWith('http') ? href : href ? `https://tousu.sina.com.cn${href}` : '',
-                    published_at: timeEl ? (timeEl.innerText || timeEl.textContent || '').trim() : '',
+                    published_at: publishedAt,
                   });
                 });
               }
@@ -376,22 +474,51 @@ export class HeimaoCrawler extends AbstractCrawler {
           const statusEl = document.querySelector('.ts-status, .status-name, .state');
           const timeEl = document.querySelector('.ts-time, .pub-time, .date');
 
+          // Extract progression timeline & merchant replies / consumer supplements / comments
+          const timelineNodes = Array.from(document.querySelectorAll('.ts-step, .ts-step-item, .u-reply-item, .timeline-item, .m-timeline li, .m-progress li, .ts-progress li, ul.u-step-list li, .ts-detail-step, div[class*="step"], div[class*="timeline"], div[class*="reply"]'));
+          const timeline: Array<{ role: string; time: string; content: string }> = [];
+
+          timelineNodes.forEach((node: any, idx: number) => {
+            const roleEl = node.querySelector('.ts-step-title, .role, .name, .title, strong, h4, h5, .step-name');
+            const timeElNode = node.querySelector('.ts-step-time, .time, .date, .pub-time, span.time');
+            const contentElNode = node.querySelector('.ts-step-content, .content, .desc, .text, p, .u-txt');
+
+            const role = roleEl ? (roleEl.innerText || roleEl.textContent || '').trim() : `沟通节点 ${idx + 1}`;
+            const timeStr = timeElNode ? (timeElNode.innerText || timeElNode.textContent || '').trim() : '';
+            const contentStr = contentElNode ? (contentElNode.innerText || contentElNode.textContent || '').trim() : (node.innerText || '').trim();
+
+            if (contentStr && contentStr !== role && !timeline.some(t => t.content === contentStr)) {
+              timeline.push({
+                role: role || '黑猫沟通节点',
+                time: timeStr,
+                content: contentStr,
+              });
+            }
+          });
+
           return {
             title: titleEl ? (titleEl as HTMLElement).innerText.trim() : '黑猫投诉单',
             desc: descEl ? (descEl as HTMLElement).innerText.trim() : '',
             merchant: merchantEl ? (merchantEl as HTMLElement).innerText.trim() : '涉诉商家',
             status: statusEl ? ((statusEl as HTMLElement).innerText || statusEl.textContent || '').trim() : '',
             time: timeEl ? (timeEl as HTMLElement).innerText.trim() : '',
+            timeline,
           };
         });
 
         const idMatch = url.match(/\/complaint\/view\/(\d+)/);
         const complaintId = idMatch ? idMatch[1] : target;
 
+        let formattedTimeline = '';
+        if (detail.timeline && detail.timeline.length > 0) {
+          formattedTimeline = '\n\n【投诉进度与回复过程】:\n' + detail.timeline.map((item, idx) => `${idx + 1}. ${item.time ? `[${item.time}] ` : ''}${item.role}: ${item.content}`).join('\n');
+        }
+
+        // Emit complaint detail
         await connectorOutput.emitHeimaoResult({
           content_id: complaintId,
           title: detail.title,
-          desc: `[被投诉方: ${detail.merchant}] ${detail.status ? `[状态: ${detail.status}] ` : ''}${detail.desc}`,
+          desc: `[被投诉方: ${detail.merchant}] ${detail.status ? `[状态: ${detail.status}] ` : ''}${detail.desc}${formattedTimeline}`,
           creator_name: detail.merchant || '黑猫涉诉商家',
           merchant_name: detail.merchant || '黑猫涉诉商家',
           status: detail.status || '',
@@ -400,6 +527,27 @@ export class HeimaoCrawler extends AbstractCrawler {
           published_at: detail.time || '',
           publish_time: Date.now(),
         });
+
+        // Emit individual comment / timeline reply items
+        if (detail.timeline && detail.timeline.length > 0) {
+          for (let i = 0; i < detail.timeline.length; i++) {
+            const item = detail.timeline[i];
+            await connectorOutput.emitHeimaoResult({
+              comment_id: `${complaintId}_c_${i + 1}`,
+              content_id: complaintId,
+              title: `[${item.role}] 投诉沟通回复`,
+              summary: item.content.slice(0, 100),
+              content: item.content,
+              description: item.content,
+              creator_name: item.role,
+              published_at: item.time,
+              content_url: url,
+              publish_time: Date.now(),
+            });
+          }
+        }
+
+        console.log(`[Heimao] Parsed detail successfully for complaint ID: ${complaintId}, extracted ${detail.timeline.length} reply/progress comments.`);
 
         console.log(`[Heimao] Parsed detail successfully for complaint ID: ${complaintId}`);
       } catch (err: any) {
