@@ -9,6 +9,7 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
+import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -122,7 +123,7 @@ export class HeimaoCrawler extends AbstractCrawler {
         await this.handleLoginOrVerificationIfNeeded(keyword);
 
         let scrollAttempts = 0;
-        const maxScrolls = Math.min(Math.ceil(maxItems / 5) + 3, 15);
+        const maxScrolls = searchPageBudget(maxItems, 5, 8, 100);
 
         while (collectedItems.length < maxItems && scrollAttempts < maxScrolls) {
           let rawItems: any[] = [];
@@ -224,48 +225,57 @@ export class HeimaoCrawler extends AbstractCrawler {
         console.warn(`[Heimao] Browser search scan interrupted for "${keyword}": ${err.message}`);
       }
 
-      // Fallback Strategy: If browser page search extracted 0 items, query public company main_search & feed APIs
-      if (collectedItems.length === 0) {
-        console.log(`[Heimao] Browser search returned 0 items for "${keyword}". Triggering public API fallback...`);
-        try {
-          // 1. Fetch matching merchants / companies via main_search API
-          const mainSearchUrl = `https://tousu.sina.com.cn/api/company/main_search?keyword=${safeKw}&page=1&page_size=${maxItems}`;
-          const res = await systemHttpClient.get(mainSearchUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-              'Referer': 'https://tousu.sina.com.cn/',
-              'X-Requested-With': 'XMLHttpRequest',
-            },
-            timeout: 10000,
-          });
+      // Fallback Strategy: If browser page search extracted fewer items than maxItems, query public company main_search & feed APIs
+      if (collectedItems.length < maxItems) {
+        console.log(`[Heimao] Browser search collected ${collectedItems.length}/${maxItems} items for "${keyword}". Triggering public API fallback...`);
+        let page = 1;
+        while (collectedItems.length < maxItems && page <= 5) {
+          try {
+            const fetchSize = Math.min(maxItems - collectedItems.length, 50);
+            const mainSearchUrl = `https://tousu.sina.com.cn/api/company/main_search?keyword=${safeKw}&page=${page}&page_size=${fetchSize}`;
+            const res = await systemHttpClient.get(mainSearchUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://tousu.sina.com.cn/',
+                'X-Requested-With': 'XMLHttpRequest',
+              },
+              timeout: 10000,
+            });
 
-          if (res.data?.result?.status?.code === 0 && res.data?.result?.data?.lists) {
-            const companies = res.data.result.data.lists;
-            for (const co of companies) {
-              const coId = co.uid || co.id || `co_${Math.random().toString(36).substring(2, 9)}`;
-              if (seenIds.has(coId)) continue;
-              seenIds.add(coId);
+            if (res.data?.result?.status?.code === 0 && res.data?.result?.data?.lists) {
+              const companies = res.data.result.data.lists;
+              if (!companies || companies.length === 0) break;
+              for (const co of companies) {
+                const coId = co.uid || co.id || `co_${Math.random().toString(36).substring(2, 9)}`;
+                if (seenIds.has(coId)) continue;
+                seenIds.add(coId);
 
-              collectedItems.push({
-                content_id: coId,
-                title: `[涉诉商家] ${co.title || co.name || keyword}`,
-                description: `黑猫投诉涉诉商家: ${co.title || co.name} (UID: ${coId})。关键词: ${keyword}`,
-                creator_name: co.title || co.name || '黑猫涉诉商家',
-                status: '涉诉主体',
-                content_url: `https://tousu.sina.com.cn/company/view/?couid=${coId}`,
-                published_at: '',
-              });
-              if (collectedItems.length >= maxItems) break;
+                collectedItems.push({
+                  content_id: coId,
+                  title: `[涉诉商家] ${co.title || co.name || keyword}`,
+                  description: `黑猫投诉涉诉商家: ${co.title || co.name} (UID: ${coId})。关键词: ${keyword}`,
+                  creator_name: co.title || co.name || '黑猫涉诉商家',
+                  status: '涉诉主体',
+                  content_url: `https://tousu.sina.com.cn/company/view/?couid=${coId}`,
+                  published_at: '',
+                });
+                if (collectedItems.length >= maxItems) break;
+              }
+              page++;
+            } else {
+              break;
             }
+          } catch (apiErr: any) {
+            console.warn(`[Heimao] API fallback warning for "${keyword}": ${apiErr.message}`);
+            break;
           }
-        } catch (apiErr: any) {
-          console.warn(`[Heimao] API fallback warning for "${keyword}": ${apiErr.message}`);
         }
 
-        // 2. Fetch public complaint feed as additional fallback if needed
-        if (collectedItems.length < maxItems) {
+        let feedPage = 1;
+        while (collectedItems.length < maxItems && feedPage <= 10) {
           try {
-            const feedUrl = `https://tousu.sina.com.cn/api/index/feed?type=1&page=1&page_size=${maxItems}`;
+            const fetchSize = Math.min(maxItems - collectedItems.length, 50);
+            const feedUrl = `https://tousu.sina.com.cn/api/index/feed?type=1&page=${feedPage}&page_size=${fetchSize}`;
             const resFeed = await systemHttpClient.get(feedUrl, {
               headers: {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -276,6 +286,7 @@ export class HeimaoCrawler extends AbstractCrawler {
 
             if (resFeed.data?.result?.status?.code === 0 && resFeed.data?.result?.data?.lists) {
               const feedLists = resFeed.data.result.data.lists;
+              if (!feedLists || feedLists.length === 0) break;
               for (const feedItem of feedLists) {
                 const main = feedItem.main || feedItem;
                 const cId = main.sn || main.id || `feed_${Math.random().toString(36).substring(2, 9)}`;
@@ -293,9 +304,13 @@ export class HeimaoCrawler extends AbstractCrawler {
                 });
                 if (collectedItems.length >= maxItems) break;
               }
+              feedPage++;
+            } else {
+              break;
             }
           } catch (feedErr: any) {
             console.warn(`[Heimao] Feed fallback warning: ${feedErr.message}`);
+            break;
           }
         }
       }
@@ -318,6 +333,14 @@ export class HeimaoCrawler extends AbstractCrawler {
         });
         totalCollected++;
       }
+
+      reportKeywordSearchCompletion(
+        '黑猫投诉',
+        keyword,
+        totalCollected,
+        maxItems,
+        totalCollected < maxItems ? '平台可用公开结果已提取完毕或需要验证登录' : undefined,
+      );
 
       console.log(`[Heimao] Completed search for "${keyword}", stored ${totalCollected} complaint notes.`);
     }
