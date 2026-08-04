@@ -110,7 +110,10 @@ export function CommandPopover({
       <div className="px-3 pt-1.5 pb-1 text-xs font-normal text-slate-400 dark:text-slate-500 select-none">
         {triggerType === '@' ? '技能' : '快捷指令'}
       </div>
-      <div ref={containerRef} className="max-h-64 overflow-y-auto space-y-0.5 scrollbar-thin">
+      <div
+        ref={containerRef}
+        className={`${triggerType === '@' ? 'max-h-[10.375rem]' : 'max-h-64'} overflow-y-auto space-y-0.5 scrollbar-thin`}
+      >
         {items.map((item, index) => {
           const isSelected = index === selectedIndex
           const IconComponent = ENTITY_ICONS[item.key] || CATEGORY_ICONS[item.category] || Sparkles

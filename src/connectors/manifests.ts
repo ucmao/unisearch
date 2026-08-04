@@ -765,11 +765,11 @@ const complaintPlatform = (
     {
       id: 'keyword_search', label: '投诉关键词搜索', description: `在${name}按关键词搜索消费投诉事件与问题列表。`, runtimeMode: 'search',
       budgetModel: 'scroll_count',
-      depthBudget: { quick: 20, standard: 50, deep: 150 },
+      depthBudget: { quick: 20, standard: 50, deep: 200 },
       inputFields: [
         {
           key: 'max_items', label: '最大采集数量', description: '每个关键词最多入库的投诉单数。',
-          type: 'number', default: 20, min: 1, max: 200, runtimeConfigKey: 'crawler_max_notes_count',
+          type: 'number', default: 20, min: 1, max: 500, runtimeConfigKey: 'crawler_max_notes_count',
         },
       ],
       outputType: `${id}_complaint_list`, outputFields: [
