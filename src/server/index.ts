@@ -18,6 +18,7 @@ import { agentAttachmentService } from './services/AgentAttachmentService';
 import { planIdsForRunningCrawlers, type RunningCrawlerState } from './services/StopScope';
 import type { AppConfig } from '../tools/config';
 import { listConnectorManifests } from '../connectors/registry';
+import { getBrowserDataDir } from '../tools/runtimePaths';
 import type { ConnectorStartRequest } from '../connectors/types';
 import { processorWorkerExecutor } from '../processor/processor-worker-executor';
 import { listProcessorCapabilities } from '../processor/capabilities';
@@ -268,6 +269,53 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         { value: 'creator', label: '创作者主页' },
       ],
     };
+  });
+
+  fastify.post('/api/config/auth/clear', async (request, reply) => {
+    const body = (request.body as { platform?: string } | undefined) || {};
+    const platform = body.platform?.trim();
+
+    const crawlerStatus = crawlerManager.getStatus();
+    if (platform) {
+      const state = crawlerStatus.platform_states?.[platform];
+      if (state?.status === 'running') {
+        return reply.code(400).send({ detail: `请先停止【${platform}】平台的采集任务再清空凭证` });
+      }
+    } else {
+      const isRunning = crawlerStatus.status === 'running' || Object.values(crawlerStatus.platform_states || {}).some((s: any) => s?.status === 'running');
+      if (isRunning) {
+        return reply.code(400).send({ detail: '请先停止当前正在运行的采集任务再清空身份凭证' });
+      }
+    }
+
+    const browserDataDir = getBrowserDataDir();
+    try {
+      if (!fs.existsSync(browserDataDir)) {
+        await fs.promises.mkdir(browserDataDir, { recursive: true });
+        return { status: 'ok', message: '已成功清空登录身份与状态缓存' };
+      }
+
+      if (platform) {
+        const entries = await fs.promises.readdir(browserDataDir, { withFileTypes: true });
+        let deletedCount = 0;
+        for (const entry of entries) {
+          if (entry.isDirectory() && entry.name.toLowerCase().includes(platform.toLowerCase())) {
+            await fs.promises.rm(path.join(browserDataDir, entry.name), { recursive: true, force: true });
+            deletedCount++;
+          }
+        }
+        return {
+          status: 'ok',
+          message: deletedCount > 0 ? `已成功清空【${platform}】平台的登录身份与缓存数据` : `未找到【${platform}】平台的本地登录缓存`,
+        };
+      } else {
+        await fs.promises.rm(browserDataDir, { recursive: true, force: true });
+        await fs.promises.mkdir(browserDataDir, { recursive: true });
+        return { status: 'ok', message: '已成功清空所有采集平台的登录身份与状态缓存' };
+      }
+    } catch (err: any) {
+      return reply.code(500).send({ detail: `清空登录身份凭证失败: ${err?.message || '文件系统异常'}` });
+    }
   });
 
   // Local conversational agent routes

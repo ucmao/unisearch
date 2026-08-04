@@ -385,7 +385,7 @@ export class AgentRepository {
   getRuntimeSettings(): RuntimeSettings {
     const row = this.db.prepare('SELECT * FROM agent_runtime_settings WHERE id=1').get() as any;
     return {
-      maxConcurrentCrawlers: Math.max(1, Math.min(5, Number(row?.max_concurrent_crawlers) || 3)),
+      maxConcurrentCrawlers: Math.max(1, Math.min(8, Number(row?.max_concurrent_crawlers) || 3)),
     };
   }
 
@@ -393,7 +393,7 @@ export class AgentRepository {
     const current = this.getRuntimeSettings();
     const parsed = Number(input.maxConcurrentCrawlers ?? current.maxConcurrentCrawlers);
     const normalized = Number.isFinite(parsed) ? Math.round(parsed) : current.maxConcurrentCrawlers;
-    const maxConcurrentCrawlers = Math.max(1, Math.min(5, normalized));
+    const maxConcurrentCrawlers = Math.max(1, Math.min(8, normalized));
     this.db.prepare('UPDATE agent_runtime_settings SET max_concurrent_crawlers=?, updated_at=? WHERE id=1')
       .run(maxConcurrentCrawlers, new Date().toISOString());
     return this.getRuntimeSettings();

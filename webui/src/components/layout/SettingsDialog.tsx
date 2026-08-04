@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { agentApi, dataApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
+import { agentApi, configApi, dataApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
 import { useThemeStore } from '@/store/themeStore'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
@@ -90,6 +90,7 @@ export function SettingsDialog({
   const [storageTab, setStorageTab] = useState<'crawl' | 'threads'>('threads')
   const [isAddingMemory, setIsAddingMemory] = useState(false)
   const [newMemoryContent, setNewMemoryContent] = useState('')
+  const [selectedPlatformToClear, setSelectedPlatformToClear] = useState<string>('')
   const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
   const dialogOpen = open ?? internalOpen
 
@@ -115,6 +116,11 @@ export function SettingsDialog({
   const runtimeSettingsQuery = useQuery({
     queryKey: ['agent-runtime-settings'],
     queryFn: async () => (await agentApi.getRuntimeSettings()).data,
+    enabled: dialogOpen && activeSection === 'collection',
+  })
+  const platformsQuery = useQuery({
+    queryKey: ['config-platforms'],
+    queryFn: async () => (await configApi.getPlatforms()).data.platforms,
     enabled: dialogOpen && activeSection === 'collection',
   })
   const memoriesQuery = useQuery({
@@ -396,29 +402,111 @@ export function SettingsDialog({
             ) : activeSection === 'collection' ? (
               <div className="mx-auto max-w-2xl">
                 <DialogHeader>
-                  <DialogTitle className="font-sans text-xl text-cyber-text-primary">采集</DialogTitle>
-                  <DialogDescription>控制整个应用同时运行的平台采集数量。</DialogDescription>
+                  <DialogTitle className="font-sans text-xl text-cyber-text-primary">采集设置</DialogTitle>
+                  <DialogDescription>控制全局采集并发数，并管理各平台的登录身份凭证与状态。</DialogDescription>
                 </DialogHeader>
                 {runtimeSettingsQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取采集设置…</div>
                 ) : runtimeSettingsQuery.data ? (
-                  <div className="mt-7 flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
-                    <div>
-                      <div className="text-sm font-medium text-cyber-text-primary">全局平台并发数</div>
-                      <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。</div>
+                  <div className="mt-7 space-y-4">
+                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                      <div>
+                        <div className="text-sm font-medium text-cyber-text-primary">全局平台并发数</div>
+                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。</div>
+                      </div>
+                      <Select
+                        value={String(runtimeSettingsQuery.data.maxConcurrentCrawlers)}
+                        onValueChange={(value) => saveRuntimeSettings.mutate({ maxConcurrentCrawlers: Number(value) })}
+                        disabled={saveRuntimeSettings.isPending}
+                      >
+                        <SelectTrigger className="h-9 w-28 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="全局平台并发数">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <Select
-                      value={String(runtimeSettingsQuery.data.maxConcurrentCrawlers)}
-                      onValueChange={(value) => saveRuntimeSettings.mutate({ maxConcurrentCrawlers: Number(value) })}
-                      disabled={saveRuntimeSettings.isPending}
-                    >
-                      <SelectTrigger className="h-9 w-28 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="全局平台并发数">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {[1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+
+                    <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                      <div>
+                        <div className="text-sm font-medium text-cyber-text-primary">登录身份与凭证</div>
+                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">
+                          清空各平台或所有平台在本地保存的无头浏览器 Cookie、Session 会话及自动化状态缓存。
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-cyber-border-subtle/60 pt-4">
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={selectedPlatformToClear}
+                            onValueChange={setSelectedPlatformToClear}
+                          >
+                            <SelectTrigger className="h-9 w-44 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                              <SelectValue placeholder="选择指定平台..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(platformsQuery.data || []).map((p) => (
+                                <SelectItem key={p.value} value={p.value} className="text-xs">
+                                  {p.label} ({p.value})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <DeleteConfirmDialog
+                            trigger={
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 shrink-0 gap-1.5 border-cyber-border-subtle text-cyber-text-secondary hover:text-cyber-text-primary px-3 text-xs"
+                                disabled={!selectedPlatformToClear}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                清空指定平台凭证
+                              </Button>
+                            }
+                            title={`清空【${platformsQuery.data?.find(p => p.value === selectedPlatformToClear)?.label || selectedPlatformToClear}】凭证`}
+                            description="确定要清空该平台的登录凭证吗？此操作将删除该平台本地保存的浏览器 Session 与 Cookie 登录缓存，下一次发起采集该平台时需要重新扫码登录。"
+                            confirmLabel="确认清空"
+                            onConfirm={async () => {
+                              try {
+                                const res = await configApi.clearAuthCredentials(selectedPlatformToClear)
+                                toast.success(res.data.message || '已成功清空该平台登录凭证')
+                              } catch (err: any) {
+                                toast.error(getError(err))
+                                throw err
+                              }
+                            }}
+                          />
+                        </div>
+
+                        <DeleteConfirmDialog
+                          trigger={
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="h-9 shrink-0 gap-1.5 px-3.5 text-xs font-medium"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              清空所有凭证
+                            </Button>
+                          }
+                          title="清空所有登录身份验证"
+                          description="确定要清空所有平台的登录身份凭证吗？此操作将清除本地保存的所有浏览器 Cookie 及 Session 登录状态。下次发起采集时相关平台将需要重新扫码登录。此操作不会删除数据库中已保存的历史数据。"
+                          confirmLabel="确认清空所有"
+                          onConfirm={async () => {
+                            try {
+                              const res = await configApi.clearAuthCredentials()
+                              toast.success(res.data.message || '已成功清空所有登录凭证')
+                            } catch (err: any) {
+                              toast.error(getError(err))
+                              throw err
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                 ) : null}
               </div>

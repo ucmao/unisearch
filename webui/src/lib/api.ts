@@ -511,6 +511,7 @@ export const configApi = {
       login_types: ConfigOption[]
       crawler_types: ConfigOption[]
     }>('/config/options'),
+  clearAuthCredentials: (platform?: string) => api.post<{ status: string; message: string }>('/config/auth/clear', { platform }),
 }
 
 export const agentApi = {
