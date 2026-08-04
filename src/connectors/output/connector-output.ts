@@ -112,7 +112,9 @@ function buildRawItem(outputType: string, payload: Payload, sourceOverride?: str
   const definition = OUTPUTS[outputType];
   if (!definition) throw new Error(`Unsupported connector output type: ${outputType}`);
   const source = sourceOverride || (typeof definition.source === 'function' ? definition.source(payload) : definition.source);
-  const kind = outputType === 'emitMediaParsedResult' && Array.isArray(payload.images) && payload.images.length && !payload.video_url
+  const kind = payload.comment_id
+    ? 'comment'
+    : outputType === 'emitMediaParsedResult' && Array.isArray(payload.images) && payload.images.length && !payload.video_url
     ? 'image'
     : definition.kind;
   const sourceItemId = firstString(payload, kind === 'comment' ? COMMENT_ID_KEYS : SOURCE_ID_KEYS);
