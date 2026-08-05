@@ -51,6 +51,7 @@ export interface ServerWindowControls {
   showCrawlerWindow?: (platform?: string) => boolean;
   hideCrawlerWindow?: (platform?: string) => boolean;
   toggleCrawlerWindow?: (platform?: string) => boolean;
+  clearCrawlerSessionData?: (platform?: string) => Promise<void> | void;
 }
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
@@ -251,6 +252,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         category: connector.category,
         description: connector.description,
         capabilities: connector.capabilities.map((capability) => capability.id),
+        requiresAuth: Boolean(connector.auth?.methods?.some((m) => m === 'qrcode' || m === 'cookie')),
       })),
     };
   });
@@ -275,6 +277,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const body = (request.body as { platform?: string } | undefined) || {};
     const platform = body.platform?.trim();
 
+    if (platform && !listConnectorManifests().some((connector) => connector.id === platform)) {
+      return reply.code(400).send({ detail: `未知采集平台：${platform}` });
+    }
+
     const crawlerStatus = crawlerManager.getStatus();
     if (platform) {
       const state = crawlerStatus.platform_states?.[platform];
@@ -290,6 +296,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
     const browserDataDir = getBrowserDataDir();
     try {
+      await windowControls.clearCrawlerSessionData?.(platform);
+
       if (!fs.existsSync(browserDataDir)) {
         await fs.promises.mkdir(browserDataDir, { recursive: true });
         return { status: 'ok', message: '已成功清空登录身份与状态缓存' };
@@ -297,16 +305,15 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
       if (platform) {
         const entries = await fs.promises.readdir(browserDataDir, { withFileTypes: true });
-        let deletedCount = 0;
+        const profileNames = new Set([`${platform}_user_data_dir`, `cdp_${platform}_user_data_dir`]);
         for (const entry of entries) {
-          if (entry.isDirectory() && entry.name.toLowerCase().includes(platform.toLowerCase())) {
+          if (entry.isDirectory() && profileNames.has(entry.name)) {
             await fs.promises.rm(path.join(browserDataDir, entry.name), { recursive: true, force: true });
-            deletedCount++;
           }
         }
         return {
           status: 'ok',
-          message: deletedCount > 0 ? `已成功清空【${platform}】平台的登录身份与缓存数据` : `未找到【${platform}】平台的本地登录缓存`,
+          message: `已成功清空【${platform}】平台的登录身份与缓存数据`,
         };
       } else {
         await fs.promises.rm(browserDataDir, { recursive: true, force: true });
@@ -839,22 +846,18 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.post('/api/crawler/control', async (request, reply) => {
-    const body = request.body as { platform: string; action: 'skip' | 'show_browser' };
+    const body = request.body as { platform: string; action: 'show_browser' };
     if (!body || !body.platform) {
       return reply.status(400).send({ detail: 'Missing platform parameter' });
     }
-    if (body.action === 'skip') {
-      const success = await crawlerManager.skip(body.platform);
-      return { status: 'ok', success, message: `Skipped platform ${body.platform}` };
+    if (body.action !== 'show_browser') {
+      return reply.status(400).send({ detail: 'Unsupported crawler control action' });
     }
-    if (body.action === 'show_browser') {
-      const success = windowControls.showCrawlerWindow?.(body.platform) ?? false;
-      if (!success) {
-        return reply.status(503).send({ detail: '内置采集浏览器仅可在桌面应用中打开' });
-      }
-      return { status: 'ok', success: true, message: 'Crawler browser opened' };
+    const success = windowControls.showCrawlerWindow?.(body.platform) ?? false;
+    if (!success) {
+      return reply.status(503).send({ detail: '内置采集浏览器仅可在桌面应用中打开' });
     }
-    return reply.status(400).send({ detail: 'Unsupported crawler control action' });
+    return { status: 'ok', success: true, message: 'Crawler browser opened' };
   });
 
   fastify.get('/api/crawler/events', (request, reply) => {
@@ -883,10 +886,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       reply.raw.write(`event: manual_verification_success\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
-    const onSkipped = (data: any) => {
-      reply.raw.write(`event: skipped\ndata: ${JSON.stringify(data)}\n\n`);
-    };
-
     const onCrawlerFinished = (data: any) => {
       reply.raw.write(`event: crawler_finished\ndata: ${JSON.stringify(data)}\n\n`);
     };
@@ -896,7 +895,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     crawlerManager.on('login_success', onLoginSuccess);
     crawlerManager.on('manual_verification_required', onManualVerification);
     crawlerManager.on('manual_verification_success', onManualVerificationSuccess);
-    crawlerManager.on('skipped', onSkipped);
     crawlerManager.on('crawler_finished', onCrawlerFinished);
 
     request.raw.on('close', () => {
@@ -905,7 +903,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       crawlerManager.off('login_success', onLoginSuccess);
       crawlerManager.off('manual_verification_required', onManualVerification);
       crawlerManager.off('manual_verification_success', onManualVerificationSuccess);
-      crawlerManager.off('skipped', onSkipped);
       crawlerManager.off('crawler_finished', onCrawlerFinished);
     });
   });

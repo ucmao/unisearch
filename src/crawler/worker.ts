@@ -61,19 +61,6 @@ async function run(): Promise<void> {
   );
   outputOpen = true;
   
-  // Register IPC control listeners
-  process.on('message', async (msg: any) => {
-    if (msg && msg.type === 'SKIP_CONNECTOR') {
-      console.log(`[Worker] Received SKIP_CONNECTOR request for platform ${activeConfig.PLATFORM}. Terminating task gracefully.`);
-      if (outputOpen) {
-        outputOpen = false;
-        await connectorOutput.close({ status: 'cancelled' });
-      }
-      await cleanup();
-      process.exit(0);
-    }
-  });
-
   // Register graceful exit handlers
 
   process.on('SIGTERM', async () => {

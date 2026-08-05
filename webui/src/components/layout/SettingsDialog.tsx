@@ -446,7 +446,7 @@ export function SettingsDialog({
                               <SelectValue placeholder="选择指定平台..." />
                             </SelectTrigger>
                             <SelectContent>
-                              {(platformsQuery.data || []).map((p) => (
+                              {(platformsQuery.data || []).filter((p) => p.requiresAuth !== false).map((p) => (
                                 <SelectItem key={p.value} value={p.value} className="text-xs">
                                   {p.label} ({p.value})
                                 </SelectItem>

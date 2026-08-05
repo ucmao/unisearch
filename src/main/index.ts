@@ -5,7 +5,8 @@ import net from 'net';
 import { randomInt } from 'crypto';
 import { startServer, stopServer } from '../server';
 import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../tools/browserIdentity';
-import { platformLabel } from '../connectors/registry';
+import { platformLabel, listConnectorManifests } from '../connectors/registry';
+import { clearCrawlerCredentialSessions } from '../tools/authCredentials';
 import { fitWindowBoundsToDisplays, loadWindowState, saveWindowState } from './windowState';
 import type { SavedWindowState } from './windowState';
 
@@ -648,6 +649,19 @@ app.on('before-quit', () => {
   if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) persistWindowState('crawler', crawlerHubWindow);
 });
 
+export async function clearCrawlerSessionData(platform?: string): Promise<void> {
+  const { session } = require('electron');
+  const platformIds = platform
+    ? [platform]
+    : listConnectorManifests().map((connector) => connector.id);
+
+  await clearCrawlerCredentialSessions(
+    platformIds,
+    (partitionName) => session.fromPartition(partitionName),
+    closeCrawlerTab,
+  );
+}
+
 app.on('ready', async () => {
   try {
     process.env.UNISEARCH_RESOURCES_DIR = app.isPackaged ? process.resourcesPath : app.getAppPath();
@@ -669,6 +683,7 @@ app.on('ready', async () => {
       showCrawlerWindow,
       hideCrawlerWindow,
       toggleCrawlerWindow,
+      clearCrawlerSessionData,
     });
     console.log('[Electron] Fastify server started successfully. Launching UI.');
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ExternalLink, LogIn, ShieldAlert, SkipForward, X } from 'lucide-react'
+import { ExternalLink, LogIn, ShieldAlert, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 
@@ -54,24 +54,22 @@ export const CrawlerAuthNotice: React.FC = () => {
     eventSource.addEventListener('manual_verification_required', onManualVerification)
     eventSource.addEventListener('login_success', onResolved)
     eventSource.addEventListener('manual_verification_success', onResolved)
-    eventSource.addEventListener('skipped', onResolved)
     eventSource.addEventListener('crawler_finished', onResolved)
     return () => eventSource.close()
   }, [])
 
-  const runAction = async (platform: string, action: 'show_browser' | 'skip') => {
-    const actionKey = `${action}:${platform}`
+  const showBrowser = async (platform: string) => {
+    const actionKey = `show_browser:${platform}`
     setLoadingAction(actionKey)
     try {
       const response = await fetch('/api/crawler/control', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform, action }),
+        body: JSON.stringify({ platform, action: 'show_browser' }),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      if (action === 'skip') setItems((current) => current.filter((item) => item.platform !== platform))
     } catch (error) {
-      console.error(`[CrawlerAuthNotice] Failed to ${action}:`, error)
+      console.error('[CrawlerAuthNotice] Failed to show browser:', error)
     } finally {
       setLoadingAction(null)
     }
@@ -107,10 +105,7 @@ export const CrawlerAuthNotice: React.FC = () => {
                 </div>
               </div>
               <div className="mt-3 flex justify-end gap-2">
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-[10px]" disabled={loadingAction === `skip:${item.platform}`} onClick={() => void runAction(item.platform, 'skip')}>
-                  <SkipForward className="h-3.5 w-3.5" />跳过平台
-                </Button>
-                <Button size="sm" variant="outline" className="h-7 border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 px-2 text-[10px] text-cyber-neon-cyan" disabled={loadingAction === `show_browser:${item.platform}`} onClick={() => void runAction(item.platform, 'show_browser')}>
+                <Button size="sm" variant="outline" className="h-7 border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 px-2 text-[10px] text-cyber-neon-cyan" disabled={loadingAction === `show_browser:${item.platform}`} onClick={() => void showBrowser(item.platform)}>
                   <ExternalLink className="h-3.5 w-3.5" />打开{platformName}
                 </Button>
               </div>

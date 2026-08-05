@@ -200,7 +200,7 @@ export class CrawlerTask {
         throw new Error('Worker subprocess stdin is unavailable');
       }
 
-      // Killing the worker (stop/skip) tears down these pipes; without an error
+          // Stopping the worker tears down these pipes; without an error
       // listener the resulting EPIPE bubbles up as an uncaught exception and
       // crashes the Electron main process.
       this.process.stdin.on('error', () => {});
@@ -442,7 +442,7 @@ export class CrawlerManager extends EventEmitter {
   public setMaxConcurrentTasks(value: number): number {
     const parsed = Number(value);
     const normalized = Number.isFinite(parsed) ? Math.round(parsed) : 3;
-    this.maxConcurrentTasks = Math.max(1, Math.min(5, normalized));
+    this.maxConcurrentTasks = Math.max(1, Math.min(8, normalized));
     return this.maxConcurrentTasks;
   }
 
@@ -542,34 +542,6 @@ export class CrawlerManager extends EventEmitter {
     if (activeTasks.length === 0) return false;
 
     await Promise.all(activeTasks.map((t) => t.stop(this)));
-    return true;
-  }
-
-  public async skip(platform: string): Promise<boolean> {
-    const task = this.tasks.get(platform);
-    if (!task || !task.process) return false;
-    this.addGlobalLog({
-      id: Date.now(),
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-      level: 'warning',
-      message: `收到用户指令，跳过平台 ${platform} 的抓取任务`,
-      platform,
-      run_id: task.currentRunId || undefined,
-      thread_id: task.config.thread_id || undefined,
-    });
-    let skipSent = false;
-    if (task.process.send && task.process.connected) {
-      try {
-        task.process.send({ type: 'SKIP_CONNECTOR' });
-        skipSent = true;
-      } catch {
-        // IPC channel already closed (worker exiting) — fall back to stopping.
-      }
-    }
-    if (!skipSent) {
-      await task.stop(this);
-    }
-    this.emit('skipped', { platform });
     return true;
   }
 

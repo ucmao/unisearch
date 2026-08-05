@@ -46,6 +46,8 @@ assert.equal(normalized.enable_comments, true);
 for (const manifest of listConnectorManifests()) {
   const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv' || manifest.id === 'github_repositories' || manifest.id === 'rss_news'
     ? ['keyword_search', 'content_detail']
+    : manifest.id === 'heimao'
+    ? ['keyword_search', 'content_detail', 'comments']
     : (manifest.category === 'web_search' || manifest.category === 'ai_web_qa')
     ? ['keyword_search']
     : manifest.id === 'web_reader'
@@ -103,6 +105,10 @@ const bossManifest = listConnectorManifests().find((manifest) => manifest.id ===
 assert.ok(bossManifest);
 assert.equal(bossManifest.name, 'BOSS直聘');
 assert.deepEqual(bossManifest.capabilities.map((capability) => capability.id), ['keyword_search', 'content_detail']);
+
+const heimaoManifest = listConnectorManifests().find((manifest) => manifest.id === 'heimao');
+assert.ok(heimaoManifest);
+assert.deepEqual(heimaoManifest.capabilities.map((capability) => capability.id), ['keyword_search', 'content_detail', 'comments']);
 
 const bossRequest = normalizeConnectorRequest({
   ...baseRequest,
