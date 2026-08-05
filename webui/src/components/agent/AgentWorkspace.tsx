@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileText, Globe,
+  AlertTriangle, ArrowRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
   Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
-  Sparkles, Square, SquarePen, Table2, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
+  Sparkles, Square, SquarePen, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type AnalysisCoverage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -423,6 +423,98 @@ function renderMentionText(text: string) {
   return parts.length > 0 ? parts : text
 }
 
+function getAttachmentCategoryInfo(name: string, kind?: string, mimeType?: string) {
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  if (['xlsx', 'xls', 'csv', 'tsv'].includes(ext) || kind === 'spreadsheet' || mimeType?.includes('spreadsheet') || mimeType?.includes('excel') || mimeType?.includes('csv')) {
+    return {
+      label: '电子表格',
+      type: 'spreadsheet' as const,
+    }
+  }
+  if (['txt', 'md', 'markdown', 'json', 'log', 'pdf', 'doc', 'docx'].includes(ext) || kind === 'text' || kind === 'document' || mimeType?.startsWith('text/')) {
+    return {
+      label: '文本文档',
+      type: 'text' as const,
+    }
+  }
+  return {
+    label: '文本文档',
+    type: 'text' as const,
+  }
+}
+
+function truncateMiddle(str: string, maxLength: number = 16): string {
+  if (!str) return ''
+  const clean = str.trim()
+  if (clean.length <= maxLength) return clean
+  const keepFront = Math.ceil((maxLength - 3) / 2)
+  const keepEnd = Math.floor((maxLength - 3) / 2)
+  return `${clean.slice(0, keepFront)}...${clean.slice(clean.length - keepEnd)}`
+}
+
+function AttachmentDisplayCard({
+  title,
+  categoryLabel,
+  type,
+  onRemove,
+  sizeBytes,
+  compact = false,
+}: {
+  title: string
+  categoryLabel: string
+  type: 'spreadsheet' | 'text' | 'data'
+  onRemove?: () => void
+  sizeBytes?: number
+  compact?: boolean
+}) {
+  const displayTitle = truncateMiddle(title, compact ? 14 : 16)
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-xl border border-cyber-border-subtle/70 bg-cyber-bg-panel/75 backdrop-blur-xs shadow-2xs transition-all hover:bg-cyber-bg-panel/90 hover:border-cyber-border-highlight ${
+        compact ? 'w-full px-2 py-1' : 'w-fit min-w-[160px] max-w-[230px] px-2.5 py-1.5'
+      }`}
+      title={title}
+    >
+      {type === 'spreadsheet' && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500 border border-emerald-500/25 dark:bg-emerald-500/20">
+          <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
+        </div>
+      )}
+      {type === 'text' && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-500 border border-blue-500/25 dark:bg-blue-500/20">
+          <FileText className="h-3.5 w-3.5 text-blue-500" />
+        </div>
+      )}
+      {type === 'data' && (
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-500 border border-cyan-500/25 dark:bg-cyan-500/20">
+          <Database className="h-3.5 w-3.5 text-cyan-500" />
+        </div>
+      )}
+      <div className="flex flex-1 flex-col min-w-0 justify-center text-left">
+        <span
+          className="truncate text-[11px] sm:text-xs font-medium text-cyber-text-primary leading-tight"
+        >
+          {displayTitle}
+        </span>
+        <span className="text-[10px] font-normal text-cyber-text-muted mt-0.5 leading-none">
+          {categoryLabel}
+          {sizeBytes ? ` · ${(sizeBytes / 1024).toFixed(0)}KB` : ''}
+        </span>
+      </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`移除 ${title}`}
+          className="rounded p-0.5 hover:bg-cyber-bg-tertiary text-cyber-text-muted hover:text-cyber-text-primary transition-colors"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  )
+}
+
 function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
@@ -441,6 +533,7 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
   onCitationClick?: (sourceId: string) => void
 }) {
   const isUser = message.role === 'user'
+  const platformLabels = usePlatformLabels()
   const isTargetPlanMessage = !isUser && isPlanInitiator && activePlan && activePlan.status !== 'awaiting_confirmation' && ['queued', 'running'].includes(activePlan.status)
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
@@ -491,27 +584,40 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
       <div className={`max-w-[780px] ${isUser ? 'rounded-2xl rounded-tr-sm bg-cyber-neon-cyan/12 px-4 py-3' : 'min-w-0 flex-1'}`}>
-        {isUser && (message.metadata?.attachments?.length || message.metadata?.task_references?.length) ? <div className="mb-2 flex flex-wrap justify-end gap-2">
+        {isUser && (message.metadata?.attachments?.length || message.metadata?.task_references?.length) ? <div className="mb-3 flex flex-col gap-2.5 items-end">
           {(message.metadata.attachments || []).map((attachment: AgentAttachment) => {
             const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
             const imgUrl = attachment.preview_url || agentApi.getAttachmentFileUrl(message.thread_id, attachment.attachment_id)
             if (isImage) {
               return (
-                <div key={attachment.attachment_id} className="overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel/80 p-1 group/img">
+                <div key={attachment.attachment_id} className="overflow-hidden rounded-xl border border-cyber-border-subtle/70 bg-cyber-bg-panel/75 backdrop-blur-xs p-1 shadow-2xs transition-all hover:bg-cyber-bg-panel/90 hover:border-cyber-border-highlight group/img">
                   <img
                     src={imgUrl}
                     alt={attachment.file_name}
-                    className="max-h-64 max-w-xs rounded-lg object-contain transition-transform hover:scale-[1.02] cursor-pointer"
+                    className="max-h-60 max-w-[230px] rounded-lg object-contain transition-transform hover:scale-[1.01] cursor-pointer"
                     onClick={() => onPreviewImage?.(imgUrl)}
                   />
                 </div>
               )
             }
+            const categoryInfo = getAttachmentCategoryInfo(attachment.file_name, attachment.kind, attachment.mime_type)
             return (
-              <span key={attachment.attachment_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-border-default bg-cyber-bg-panel/60 px-2 py-1 text-[10px] text-cyber-text-secondary"><Paperclip className="h-3 w-3 shrink-0" /><span className="truncate">{attachment.file_name}</span></span>
+              <AttachmentDisplayCard
+                key={attachment.attachment_id}
+                title={attachment.file_name}
+                categoryLabel={categoryInfo.label}
+                type={categoryInfo.type}
+              />
             )
           })}
-          {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => <span key={reference.plan_id} className="inline-flex max-w-52 items-center gap-1 rounded-md border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2 py-1 text-[10px] text-cyber-text-secondary"><Database className="h-3 w-3 shrink-0" /><span className="truncate">{reference.goal}</span></span>)}
+          {(message.metadata.task_references || []).map((reference: { plan_id: string; goal: string; platforms?: string[] }) => (
+            <AttachmentDisplayCard
+              key={reference.plan_id}
+              title={reference.goal}
+              categoryLabel={`引用数据${reference.platforms?.length ? ` · ${reference.platforms.map((p) => platformLabels[p] || p).join('/')}` : ''}`}
+              type="data"
+            />
+          ))}
         </div> : null}
         {!isUser && (message.metadata?.analysis_coverage || (Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0)) ? (
           <CollapsibleSourcesBar
@@ -1450,7 +1556,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
                     className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors ${
                       selectedId === thread.thread_id
-                        ? 'bg-cyber-neon-cyan/15 font-medium text-cyber-text-primary border border-cyber-neon-cyan/20'
+                        ? 'bg-cyber-neon-cyan/15 font-medium text-cyber-text-primary/80 border border-cyber-neon-cyan/20'
                         : threadMenuId === thread.thread_id
                           ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary'
                           : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60 hover:text-cyber-text-primary'
@@ -1736,42 +1842,52 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       <p className="text-[11px] text-cyber-text-muted">支持图片 (PNG/JPG/WebP/GIF) 与文本/表格 (TXT/MD/CSV/JSON/XLSX，≤ 8MB)</p>
                     </div>
                   ) : null}
-                  {attachments.length || taskReferences.length ? <div className="flex flex-wrap gap-2 px-3 pt-3">
+                  {attachments.length || taskReferences.length ? <div className="flex flex-col gap-2 px-3 pt-3">
                     {attachments.map((attachment) => {
                       const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
                       const imgUrl = attachment.preview_url || (selectedId ? agentApi.getAttachmentFileUrl(selectedId, attachment.attachment_id) : '')
                       if (isImage && imgUrl) {
                         return (
-                          <div key={attachment.attachment_id} className="relative flex max-w-64 items-center gap-2 rounded-xl border border-cyber-border-default bg-cyber-bg-secondary/80 p-1.5 transition-colors hover:border-cyber-neon-cyan/50">
+                          <div key={attachment.attachment_id} className="relative flex max-w-sm items-center gap-3 rounded-xl border border-cyber-border-default bg-cyber-bg-secondary/80 p-2 transition-colors hover:border-cyber-neon-cyan/50">
                             <img
                               src={imgUrl}
                               alt={attachment.file_name}
-                              className="h-10 w-10 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
+                              className="h-12 w-12 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
                               onClick={() => setPreviewImageUrl(imgUrl)}
                             />
                             <div className="min-w-0 flex-1">
                               <p className="truncate text-xs font-medium text-cyber-text-primary">{attachment.file_name}</p>
-                              <p className="text-[9px] text-cyber-text-muted">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
+                              <p className="text-[10px] text-cyber-text-muted">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
                             </div>
                             <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-1 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
-                              <X className="h-3.5 w-3.5 text-cyber-text-muted" />
+                              <X className="h-4 w-4 text-cyber-text-muted" />
                             </button>
                           </div>
                         )
                       }
+                      const categoryInfo = getAttachmentCategoryInfo(attachment.file_name, attachment.kind, attachment.mime_type)
                       return (
-                        <span key={attachment.attachment_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-border-default bg-cyber-bg-secondary px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
-                          {attachment.kind === 'spreadsheet' ? <Table2 className="h-3.5 w-3.5 shrink-0 text-cyber-neon-green" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted" />}
-                          <span className="truncate">{attachment.file_name}</span>
-                          <span className="text-[9px] text-cyber-text-muted">({(attachment.size_bytes / 1024).toFixed(0)}KB)</span>
-                          <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
-                        </span>
+                        <AttachmentDisplayCard
+                          key={attachment.attachment_id}
+                          title={attachment.file_name}
+                          categoryLabel={categoryInfo.label}
+                          type={categoryInfo.type}
+                          sizeBytes={attachment.size_bytes}
+                          compact
+                          onRemove={() => removeAttachment(attachment)}
+                        />
                       )
                     })}
-                    {taskReferences.map((reference) => <span key={reference.plan_id} className="inline-flex max-w-60 items-center gap-1.5 rounded-lg border border-cyber-neon-green/30 bg-cyber-neon-green/5 px-2.5 py-1.5 text-[11px] text-cyber-text-secondary">
-                      <Database className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{reference.goal}{reference.platforms.length ? ` · ${reference.platforms.map((platform) => platformLabels[platform] || platform).join('/')}` : ''}</span>
-                      <button type="button" onClick={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))} aria-label={`移除 ${reference.goal}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"><X className="h-3 w-3" /></button>
-                    </span>)}
+                    {taskReferences.map((reference) => (
+                      <AttachmentDisplayCard
+                        key={reference.plan_id}
+                        title={reference.goal}
+                        categoryLabel={`引用数据${reference.platforms.length ? ` · ${reference.platforms.map((platform) => platformLabels[platform] || platform).join('/')}` : ''}`}
+                        type="data"
+                        compact
+                        onRemove={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))}
+                      />
+                    ))}
                   </div> : null}
                   <CommandPopover
                     isOpen={mentionCommands.isOpen}
