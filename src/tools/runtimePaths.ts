@@ -16,7 +16,18 @@ export function resolveRuntimeResource(...segments: string[]): string {
 
 /** Root for crawler profiles and other mutable runtime state. */
 export function getRuntimeDataDir(): string {
-  return configuredDirectory('UNISEARCH_USER_DATA_DIR') || path.resolve(process.cwd(), 'data');
+  const configured = configuredDirectory('UNISEARCH_USER_DATA_DIR');
+  if (configured) return configured;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { app } = require('electron');
+    if (app && typeof app.getPath === 'function') {
+      return path.join(app.getPath('userData'), 'data');
+    }
+  } catch {}
+
+  return path.resolve(process.cwd(), 'data');
 }
 
 export function getBrowserDataDir(): string {

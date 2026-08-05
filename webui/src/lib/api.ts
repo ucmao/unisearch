@@ -222,6 +222,7 @@ export interface Platform {
   category?: string
   description?: string
   capabilities?: string[]
+  requiresAuth?: boolean
 }
 
 export interface SkillDefinition {

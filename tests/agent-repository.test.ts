@@ -110,6 +110,24 @@ test('automatic titles stop changing after a manual rename', () => {
   }
 });
 
+test('renaming a task preserves its recent ordering', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const older = repo.createThread('较早任务');
+    const newer = repo.createThread('较新任务');
+    const olderUpdatedAt = '2026-01-01T00:00:00.000Z';
+    db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?').run(olderUpdatedAt, older.thread_id);
+    db.prepare('UPDATE agent_threads SET updated_at=? WHERE thread_id=?').run('2026-02-01T00:00:00.000Z', newer.thread_id);
+
+    const renamed = repo.renameThread(older.thread_id, '重命名后的较早任务');
+
+    assert.equal(renamed.updated_at, olderUpdatedAt);
+    assert.deepEqual(repo.listThreads().map((thread: any) => thread.thread_id), [newer.thread_id, older.thread_id]);
+  } finally {
+    db.close();
+  }
+});
+
 test('pinned tasks are listed first and return to recent ordering when unpinned', () => {
   const { db, repository: repo } = repository();
   try {
@@ -424,7 +442,8 @@ test('runtime settings persist and clamp the global crawler limit', () => {
   try {
     assert.deepEqual(repo.getRuntimeSettings(), { maxConcurrentCrawlers: 3 });
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 5 }), { maxConcurrentCrawlers: 5 });
-    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 99 }), { maxConcurrentCrawlers: 5 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 8 }), { maxConcurrentCrawlers: 8 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 99 }), { maxConcurrentCrawlers: 8 });
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 0 }), { maxConcurrentCrawlers: 1 });
   } finally {
     db.close();

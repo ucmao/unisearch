@@ -258,8 +258,8 @@ export class AgentRepository {
     const value = title.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
     if (!value) throw new Error('任务名称不能为空');
     const result = this.db.prepare(`
-      UPDATE agent_threads SET title=?, title_source='manual', title_locked=1, updated_at=? WHERE thread_id=?
-    `).run(value, new Date().toISOString(), threadId);
+      UPDATE agent_threads SET title=?, title_source='manual', title_locked=1 WHERE thread_id=?
+    `).run(value, threadId);
     return result.changes ? this.getThread(threadId) : null;
   }
 
