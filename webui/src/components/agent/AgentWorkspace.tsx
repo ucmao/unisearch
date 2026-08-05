@@ -10,7 +10,6 @@ import {
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type AnalysisCoverage } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { MarkdownContent } from './MarkdownContent'
@@ -25,6 +24,7 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
 import { useMentionCommands, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
 import { usePlatformLabels, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
+import { cn } from '@/lib/utils'
 
 const AI_PLATFORMS = new Set([
   'deepseek', 'doubao', 'kimi', 'nami', 'qwen', 'wenxin', 'yuanbao',
@@ -33,6 +33,17 @@ const AI_PLATFORMS = new Set([
 const STATUS_LABELS: Record<string, string> = {
   awaiting_confirmation: '等待确认', queued: '排队中', running: '采集中', completed: '已完成',
   partially_completed: '部分完成', failed: '失败', stopped: '已停止',
+}
+
+const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; border: string; dot: string }> = {
+  running: { label: '采集中', bg: 'bg-sky-500/10', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20', dot: 'bg-sky-500 animate-pulse' },
+  analyzing: { label: '分析中', bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20', dot: 'bg-amber-500 animate-pulse' },
+  completed: { label: '已完成', bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20', dot: 'bg-emerald-500' },
+  partially_completed: { label: '部分完成', bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20', dot: 'bg-amber-500' },
+  failed: { label: '失败', bg: 'bg-rose-500/10', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-500/20', dot: 'bg-rose-500' },
+  stopped: { label: '已停止', bg: 'bg-slate-500/10', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', dot: 'bg-slate-400' },
+  awaiting_confirmation: { label: '等待确认', bg: 'bg-purple-500/10', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/20', dot: 'bg-purple-500 animate-pulse' },
+  queued: { label: '排队中', bg: 'bg-slate-500/10', text: 'text-slate-500 dark:text-slate-400', border: 'border-slate-500/20', dot: 'bg-slate-400 animate-pulse' },
 }
 
 function storedPanelSize(key: string, fallback: number) {
@@ -467,27 +478,27 @@ function AttachmentDisplayCard({
   sizeBytes?: number
   compact?: boolean
 }) {
-  const displayTitle = truncateMiddle(title, compact ? 14 : 16)
+  const displayTitle = truncateMiddle(title, compact ? 12 : 16)
   return (
     <div
       className={`flex items-center gap-2 rounded-xl border border-cyber-border-subtle/70 bg-cyber-bg-panel/75 backdrop-blur-xs shadow-2xs transition-all hover:bg-cyber-bg-panel/90 hover:border-cyber-border-highlight ${
-        compact ? 'w-full px-2 py-1' : 'w-fit min-w-[160px] max-w-[230px] px-2.5 py-1.5'
+        compact ? 'w-fit max-w-[210px] min-w-0 px-2 py-1' : 'w-fit min-w-[160px] max-w-[230px] px-2.5 py-1.5'
       }`}
       title={title}
     >
       {type === 'spreadsheet' && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500 border border-emerald-500/25 dark:bg-emerald-500/20">
-          <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
+        <div className={`flex shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500 border border-emerald-500/25 dark:bg-emerald-500/20 ${compact ? 'h-6 w-6' : 'h-7 w-7'}`}>
+          <FileSpreadsheet className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-emerald-500`} />
         </div>
       )}
       {type === 'text' && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-500 border border-blue-500/25 dark:bg-blue-500/20">
-          <FileText className="h-3.5 w-3.5 text-blue-500" />
+        <div className={`flex shrink-0 items-center justify-center rounded-lg bg-blue-500/15 text-blue-500 border border-blue-500/25 dark:bg-blue-500/20 ${compact ? 'h-6 w-6' : 'h-7 w-7'}`}>
+          <FileText className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-blue-500`} />
         </div>
       )}
       {type === 'data' && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-500 border border-cyan-500/25 dark:bg-cyan-500/20">
-          <Database className="h-3.5 w-3.5 text-cyan-500" />
+        <div className={`flex shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-500 border border-cyan-500/25 dark:bg-cyan-500/20 ${compact ? 'h-6 w-6' : 'h-7 w-7'}`}>
+          <Database className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-cyan-500`} />
         </div>
       )}
       <div className="flex flex-1 flex-col min-w-0 justify-center text-left">
@@ -496,7 +507,7 @@ function AttachmentDisplayCard({
         >
           {displayTitle}
         </span>
-        <span className="text-[10px] font-normal text-cyber-text-muted mt-0.5 leading-none">
+        <span className="truncate text-[10px] font-normal text-cyber-text-muted mt-0.5 leading-none">
           {categoryLabel}
           {sizeBytes ? ` · ${(sizeBytes / 1024).toFixed(0)}KB` : ''}
         </span>
@@ -506,7 +517,7 @@ function AttachmentDisplayCard({
           type="button"
           onClick={onRemove}
           aria-label={`移除 ${title}`}
-          className="rounded p-0.5 hover:bg-cyber-bg-tertiary text-cyber-text-muted hover:text-cyber-text-primary transition-colors"
+          className="rounded p-0.5 hover:bg-cyber-bg-tertiary text-cyber-text-muted hover:text-cyber-text-primary transition-colors shrink-0"
         >
           <X className="h-3 w-3" />
         </button>
@@ -1842,25 +1853,29 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       <p className="text-[11px] text-cyber-text-muted">支持图片 (PNG/JPG/WebP/GIF) 与文本/表格 (TXT/MD/CSV/JSON/XLSX，≤ 8MB)</p>
                     </div>
                   ) : null}
-                  {attachments.length || taskReferences.length ? <div className="flex flex-col gap-2 px-3 pt-3">
+                  {attachments.length || taskReferences.length ? <div className="flex flex-wrap items-center gap-2 px-3 pt-3 max-h-36 overflow-y-auto">
                     {attachments.map((attachment) => {
                       const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
                       const imgUrl = attachment.preview_url || (selectedId ? agentApi.getAttachmentFileUrl(selectedId, attachment.attachment_id) : '')
                       if (isImage && imgUrl) {
                         return (
-                          <div key={attachment.attachment_id} className="relative flex max-w-sm items-center gap-3 rounded-xl border border-cyber-border-default bg-cyber-bg-secondary/80 p-2 transition-colors hover:border-cyber-neon-cyan/50">
+                          <div
+                            key={attachment.attachment_id}
+                            className="relative flex w-fit max-w-[210px] items-center gap-2 rounded-xl border border-cyber-border-subtle/70 bg-cyber-bg-panel/75 backdrop-blur-xs p-1 px-2 shadow-2xs transition-all hover:bg-cyber-bg-panel/90 hover:border-cyber-border-highlight"
+                            title={attachment.file_name}
+                          >
                             <img
                               src={imgUrl}
                               alt={attachment.file_name}
-                              className="h-12 w-12 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
+                              className="h-7 w-7 shrink-0 rounded-lg object-cover border border-cyber-border-subtle cursor-pointer hover:opacity-90"
                               onClick={() => setPreviewImageUrl(imgUrl)}
                             />
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-medium text-cyber-text-primary">{attachment.file_name}</p>
-                              <p className="text-[10px] text-cyber-text-muted">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
+                            <div className="min-w-0 flex-1 text-left">
+                              <p className="truncate text-[11px] sm:text-xs font-medium text-cyber-text-primary leading-tight">{attachment.file_name}</p>
+                              <p className="text-[10px] text-cyber-text-muted mt-0.5 leading-none">{(attachment.size_bytes / 1024).toFixed(0)} KB</p>
                             </div>
-                            <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-1 hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
-                              <X className="h-4 w-4 text-cyber-text-muted" />
+                            <button type="button" onClick={() => removeAttachment(attachment)} aria-label={`移除 ${attachment.file_name}`} className="rounded p-0.5 hover:bg-cyber-bg-tertiary text-cyber-text-muted hover:text-cyber-text-primary transition-colors shrink-0">
+                              <X className="h-3 w-3" />
                             </button>
                           </div>
                         )
@@ -2098,13 +2113,26 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   <div className="space-y-5 text-xs">
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
-                      {activePlan ? (
-                        <Badge variant="outline" className="text-[10px]">
-                          {activePlan.status === 'running' && activeConnectorsCompleted
-                            ? '分析中'
-                            : (STATUS_LABELS[activePlan.status] || activePlan.status)}
-                        </Badge>
-                      ) : null}
+                      {activePlan ? (() => {
+                        const isAnalyzing = activePlan.status === 'running' && activeConnectorsCompleted
+                        const statusKey = isAnalyzing ? 'analyzing' : activePlan.status
+                        const cfg = STATUS_CONFIG[statusKey] || {
+                          label: STATUS_LABELS[activePlan.status] || activePlan.status,
+                          bg: 'bg-slate-500/10',
+                          text: 'text-cyber-text-secondary',
+                          border: 'border-cyber-border-DEFAULT/50',
+                          dot: 'bg-slate-400',
+                        }
+                        return (
+                          <span className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium select-none cursor-default pointer-events-none",
+                            cfg.bg, cfg.text, cfg.border
+                          )}>
+                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", cfg.dot)} />
+                            <span>{cfg.label}</span>
+                          </span>
+                        )
+                      })() : null}
                     </div>
                     {/* 区域 A：当前任务状态 / 控制卡片 */}
                     {activePlan && isPending ? (
