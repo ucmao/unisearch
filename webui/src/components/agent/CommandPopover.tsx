@@ -20,6 +20,7 @@ const CATEGORY_ICONS: Record<string, any> = {
   ai_qa: Brain,
   utility: Link2,
   skill: Sparkles,
+  tool: Link2,
   action: Terminal,
 }
 

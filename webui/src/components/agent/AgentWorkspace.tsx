@@ -109,36 +109,44 @@ function ThinkingIndicator({ retryState, progress }: {
     return () => window.clearInterval(timer)
   }, [startedAt])
 
+  const isWebSearching = progress?.phase === 'web_search'
+
+  // 下方弱提示：只在联网搜索、网络重试或有特定进度消息时展示
   const subStatusText = retryState
     ? `连接暂时不稳定，正在自动重试 ${retryState.count}/${retryState.max}（${retryState.delaySec}s 后继续）`
     : progress?.message
       ? progress.message
-      : progress?.phase === 'web_search'
-        ? '正在检索最新网页与参考资料…'
-        : progress?.phase === 'reasoning'
-          ? '联网搜索已完成，正在根据来源推导答案…'
-          : elapsedSeconds < 5
-            ? '正在解析问题与上下文…'
-            : elapsedSeconds < 15
-              ? '正在分析资料并理清回答逻辑…'
-              : elapsedSeconds < 30
-                ? '正在构建深度回答框架…'
-                : '较复杂步骤处理中，正在生成回答…'
+      : isWebSearching
+        ? '正在联网检索最新网页与参考资料…'
+        : null
 
   return (
     <div className="flex gap-3 text-xs text-cyber-text-muted" role="status" aria-live="polite">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
-        <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+      <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10">
+        <Bot className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
       </div>
-      <div className="flex flex-col justify-center gap-1 leading-5">
-        <div className="flex items-center gap-2 text-cyber-text-secondary">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyber-neon-cyan/80" />
-          <span>AI 正在思考…</span>
-          <span className="font-mono tabular-nums text-cyber-text-muted text-[11px]">({elapsedSeconds}s)</span>
+      <div className="flex flex-col justify-center gap-0.5 leading-5">
+        {/* 第一行：只有三个点不停跳动，保持绝对纯粹 */}
+        <div className="flex items-center gap-1.5 h-5 py-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan animate-typing-dot animate-typing-dot-1" />
+          <span className="h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan animate-typing-dot animate-typing-dot-2" />
+          <span className="h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan animate-typing-dot animate-typing-dot-3" />
         </div>
-        <p className="truncate text-[11px] text-cyber-text-muted/80 transition-all duration-300">
-          {subStatusText}
-        </p>
+
+        {/* 第二行（弱提示 + 读秒）：只在有联网/重试状态或超时>10s时展开展示 */}
+        {(subStatusText || elapsedSeconds >= 10) && (
+          <p className="truncate text-[11px] text-cyber-text-muted/65 transition-all duration-300 flex items-center gap-1.5 animate-fade-in">
+            {isWebSearching && (
+              <Globe className="h-3 w-3 text-cyber-neon-cyan/70 animate-spin shrink-0" style={{ animationDuration: '6s' }} />
+            )}
+            {subStatusText && <span>{subStatusText}</span>}
+            {elapsedSeconds >= 10 && (
+              <span className="font-mono tabular-nums opacity-80">
+                ({elapsedSeconds}s)
+              </span>
+            )}
+          </p>
+        )}
       </div>
     </div>
   )
@@ -1567,10 +1575,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
                     className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors ${
                       selectedId === thread.thread_id
-                        ? 'bg-cyber-neon-cyan/15 font-medium text-cyber-text-primary/80 border border-cyber-neon-cyan/20'
+                        ? 'bg-cyber-neon-cyan/10 font-medium text-cyber-text-primary/95 border border-cyber-neon-cyan/20'
                         : threadMenuId === thread.thread_id
-                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary'
-                          : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/60 hover:text-cyber-text-primary'
+                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary/95'
+                          : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85'
                     }`}
                   >
                     {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}

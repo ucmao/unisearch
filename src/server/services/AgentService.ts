@@ -126,6 +126,12 @@ export function normalizePlan(
   skill: SkillDefinition | null = null,
   mentionedConnectors: string[] = [],
 ): ResearchPlan {
+  // A structured @ selection is already carried in `skill`. Do not interpret
+  // words inside its display name as free-form platform instructions (for
+  // example, the “全网” in “@全网综合解析” used to expand to every connector).
+  const platformIntentText = skill
+    ? userText.replace(new RegExp(`@?${skill.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), ' ')
+    : userText;
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
@@ -144,10 +150,10 @@ export function normalizePlan(
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))
     .filter((p: string) => SUPPORTED.includes(p)))) as string[];
-  const inferredPlatforms = inferResearchPlatforms(userText);
-  const excludedPlatforms = inferExcludedPlatforms(userText);
-  const isExclusive = isExclusivePlatformRequest(userText);
-  const isAdditive = isAdditivePlatformRequest(userText);
+  const inferredPlatforms = inferResearchPlatforms(platformIntentText);
+  const excludedPlatforms = inferExcludedPlatforms(platformIntentText);
+  const isExclusive = isExclusivePlatformRequest(platformIntentText);
+  const isAdditive = isAdditivePlatformRequest(platformIntentText);
   const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
     .map((value: any) => String(value).trim()).filter(Boolean);
   let keywords = Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
@@ -173,7 +179,8 @@ export function normalizePlan(
         : /(?:详情|指定作品|指定内容)|https?:\/\//i.test(userText)
           ? 'content_detail'
           : 'keyword_search';
-  const capability = capabilityIds.includes(String(input?.capability)) ? input.capability : inferredCapability;
+  const requestedCapability = input?.capability ?? skill?.defaults?.capability;
+  const capability = capabilityIds.includes(String(requestedCapability)) ? requestedCapability : inferredCapability;
   const inputTargets = Array.isArray(input?.targets) ? input.targets : [];
   const textTargets = Array.from(userText.matchAll(/https?:\/\/[^\s，。；;]+/g)).map((match) => match[0]);
   const targets = Array.from(new Set([...inputTargets, ...textTargets].map((value) => String(value).trim()).filter(Boolean))).slice(0, 30);
@@ -217,9 +224,11 @@ export function normalizePlan(
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
   const loginType = requiresAuth ? 'qrcode' : 'none';
   const suppliedGoals = Array.isArray(input?.analysis) ? input.analysis : [];
-  const analysis = skill?.defaults
-    ? normalizeAnalysisGoals([...skill.defaults.analysis, ...suppliedGoals], goal)
-    : normalizeAnalysisGoals(input?.analysis, goal);
+  const analysis = skill?.category === 'tool'
+    ? []
+    : skill?.defaults
+      ? normalizeAnalysisGoals([...skill.defaults.analysis, ...suppliedGoals], goal)
+      : normalizeAnalysisGoals(input?.analysis, goal);
 
   const connectorOptions = input?.connectorOptions && typeof input.connectorOptions === 'object'
     ? { ...input.connectorOptions }
@@ -469,10 +478,10 @@ export class AgentService {
     const mentionedConnectors = Array.from(new Set((context.mentioned_connectors || []).map(String)))
       .filter((connector) => SUPPORTED.includes(connector));
     const mentionedSkillIds = Array.from(new Set((context.mentioned_skills || []).map(String)));
-    if (mentionedSkillIds.length > 1) throw new Error('每次只能调用一个业务 Skill');
+    if (mentionedSkillIds.length > 1) throw new Error('每次只能调用一个技能或工具');
     const explicitlySelectedSkill = skillRegistry.find(mentionedSkillIds[0]);
     if (mentionedSkillIds.length && (!explicitlySelectedSkill || !explicitlySelectedSkill.mentionable)) {
-      throw new Error('选择的业务 Skill 不存在或不能直接调用');
+      throw new Error('选择的技能或工具不存在或不能直接调用');
     }
     const messageMetadata = {
       attachments: attachments.map((attachment) => ({

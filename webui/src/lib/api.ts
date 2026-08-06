@@ -230,7 +230,7 @@ export interface SkillDefinition {
   version: string
   name: string
   description: string
-  category: 'core' | 'business'
+  category: 'core' | 'business' | 'tool'
   icon: string
   mentionable: boolean
   inputs: Array<{ key: string; required: boolean; description: string }>

@@ -20,7 +20,7 @@ export function usePlatformLabels(): Record<string, string> {
   )
 }
 
-/** @ 菜单用的可调用业务 Skill。 */
+/** @ 菜单用的可调用业务技能与执行工具。 */
 export function useSkillMentionEntities(): MentionEntity[] {
   const { data } = useQuery({
     queryKey: ['skills'],
@@ -28,13 +28,14 @@ export function useSkillMentionEntities(): MentionEntity[] {
     staleTime: Infinity,
   })
   return useMemo(() => (data || [])
-    .filter((skill) => skill.category === 'business' && skill.mentionable)
+    .filter((skill) => ['business', 'tool'].includes(skill.category) && skill.mentionable)
+    .sort((left, right) => (left.category === right.category ? 0 : left.category === 'business' ? -1 : 1))
     .map((skill) => ({
       id: skill.id,
       key: skill.id,
       name: skill.name,
-      category: 'skill' as MentionCategory,
-      categoryLabel: 'Skill',
+      category: (skill.category === 'tool' ? 'tool' : 'skill') as MentionCategory,
+      categoryLabel: skill.category === 'tool' ? '工具' : '技能',
       icon: skill.icon,
       description: skill.description,
     })), [data])

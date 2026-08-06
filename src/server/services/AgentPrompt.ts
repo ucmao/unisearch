@@ -11,8 +11,8 @@ export const UNISEARCH_PRODUCT_MANUAL = `
 【UniSearch 产品说明书】
 - 定位：本地运行的跨平台公开内容采集、任务管理和结果分析工具，同时提供通用文本 AI 对话与一次性实时网页检索问答。
 - 当前已注册并可执行的 Connector：${connectorNames}。
-- 当前可由用户在输入框通过 @ 调用的 Skill：${mentionableSkills}。Skill 是经过校验的调研模板，会提供默认平台、工作流、分析维度和证据边界；用户显式选择 Connector 时以用户选择为准。
-- 调用 Skill 必须创建真实计划并展示 Skill、平台、关键词、范围和分析维度；显式调用且配置允许自动开始的 Skill 可以直接执行。
+- 当前可由用户在输入框通过 @ 调用的技能与工具：${mentionableSkills}。底层统一使用 Skill 定义；业务技能包含分析方法与交付口径，工具只负责确定性采集、解析和导出，默认不分析结果。用户显式选择 Connector 时以用户选择为准。
+- 调用技能或工具必须创建真实计划并展示模板、平台、关键词/目标、范围和分析维度；显式调用且配置允许自动开始时可以直接执行。
 - 未接入微信/公众号、头条、新闻网站、淘宝、京东、Reddit、Twitter/X、YouTube、TikTok、Instagram 等平台。不得声称可以直接采集未接入的平台；可以说明需要未来新增适配器。
 - Connector 能力、输入参数、输出字段与限制如下；必须遵守能力边界，不能把未声明能力当成已经实现：
 ${connectorCatalogForAI()}

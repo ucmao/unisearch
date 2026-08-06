@@ -222,7 +222,6 @@ test('Skill registry validates and exposes the built-in research Skill', () => {
 
   const businessSkills = skillRegistry.list().filter((item) => item.category === 'business' && item.mentionable);
   assert.deepEqual(businessSkills.map((item) => item.id), [
-    'creator-profile-collection',
     'sales-course-intelligence',
     'marketing-content-research',
     'brand-geo-risk-monitor',
@@ -230,9 +229,8 @@ test('Skill registry validates and exposes the built-in research Skill', () => {
   ]);
   assert.deepEqual(skillRegistry.get('marketing-content-research').defaults?.platforms, ['xhs', 'douyin']);
   assert.deepEqual(skillRegistry.get('hr-salary-benchmark').defaults?.platforms, ['zhaopin']);
-  const autoAnalyzedSkills = businessSkills.filter((item) => item.id !== 'creator-profile-collection');
-  assert.ok(autoAnalyzedSkills.every((skill) => skill.execution.autoStartWhenExplicitlyInvoked));
-  assert.ok(autoAnalyzedSkills.every((skill) => skill.execution.autoAnalyzeOnCompletion));
+  assert.ok(businessSkills.every((skill) => skill.execution.autoStartWhenExplicitlyInvoked));
+  assert.ok(businessSkills.every((skill) => skill.execution.autoAnalyzeOnCompletion));
   assert.equal(skillRegistry.get('creator-profile-collection').execution.autoStartWhenExplicitlyInvoked, false);
   assert.equal(skillRegistry.get('creator-profile-collection').execution.autoAnalyzeOnCompletion, false);
 });

@@ -3,13 +3,21 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 
-function extractUrls(input: string): string[] {
+export function extractParserTargets(input: string): string[] {
   if (!input) return [];
-  return input
-    .split(/[\n,\s]+/)
+  const urls = input.match(/https?:\/\/[^\s,，;；"'\(\)\<\>\[\]{}]+/g) || [];
+  if (urls.length) {
+    return [...new Set(urls
+      .map((url) => url.trim().replace(/[.，;；!！?？。)\]\\]+$/, ''))
+      .filter((url) => /^https?:\/\/\w+/i.test(url)))];
+  }
+  return [...new Set(input
+    .split(/[\n,，]+/)
     .map((item) => item.trim())
-    .filter((item) => item.length > 0);
+    .filter((item) => item.length > 0))];
 }
+
+const wait = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 
 export class MediaParserCrawler extends AbstractCrawler {
   public async start(): Promise<void> {
@@ -22,7 +30,7 @@ export class MediaParserCrawler extends AbstractCrawler {
    */
   public async search(): Promise<void> {
     const rawTargets = activeConfig.SPECIFIED_IDS || activeConfig.KEYWORDS || '';
-    const targets = extractUrls(rawTargets);
+    const targets = extractParserTargets(rawTargets);
 
     if (targets.length === 0) {
       console.warn('[MediaParser] No valid URLs or text inputs provided.');
@@ -33,6 +41,10 @@ export class MediaParserCrawler extends AbstractCrawler {
 
     let index = 0;
     for (const text of targets) {
+      // The parser API is deliberately serialized and rate-limited. Apart from
+      // being friendlier to the service, this makes long multi-link batches
+      // predictable and prevents accidental request bursts.
+      if (index > 0) await wait(1000);
       index++;
       console.log(`[MediaParser] [${index}/${targets.length}] Direct parsing: "${text}"`);
 
