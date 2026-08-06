@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { skillRegistry } from '../src/skills/registry';
 import { looksLikeSimulatedPlanReply, normalizePlan, shouldAutoStartPlan, shouldAutoStartSkill } from '../src/server/services/AgentService';
+import { extractParserTargets } from '../src/crawler/platforms/media_parser';
 
 test('a business Skill applies deterministic platform and analysis defaults', () => {
   const skill = skillRegistry.get('marketing-content-research');
@@ -23,7 +24,7 @@ test('creator profile Skill documents an executable target contract for all seve
   const skill = skillRegistry.get('creator-profile-collection');
 
   assert.equal(skill.mentionable, true);
-  assert.equal(skill.category, 'business');
+  assert.equal(skill.category, 'tool');
   assert.equal(skill.defaults?.capability, 'creator_profile');
   assert.deepEqual(skill.defaults?.platforms, []);
   assert.deepEqual(
@@ -31,6 +32,64 @@ test('creator profile Skill documents an executable target contract for all seve
     ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'],
   );
   assert.ok(skill.targetGuidance.every((item) => item.accepted.length && item.examples.length));
+});
+
+test('input catalog exposes four business skills and three deterministic tools', () => {
+  const mentionable = skillRegistry.list().filter((skill) => skill.mentionable);
+  assert.deepEqual(
+    mentionable.filter((skill) => skill.category === 'business').map((skill) => skill.id),
+    ['sales-course-intelligence', 'marketing-content-research', 'brand-geo-risk-monitor', 'hr-salary-benchmark'],
+  );
+  assert.deepEqual(
+    mentionable.filter((skill) => skill.category === 'tool').map((skill) => skill.id),
+    ['web-search-research', 'creator-profile-collection', 'web-media-parser'],
+  );
+
+  const search = skillRegistry.get('web-search-research');
+  assert.deepEqual(search.defaults?.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+  assert.deepEqual(search.defaults?.analysis, []);
+  assert.equal(search.execution.autoAnalyzeOnCompletion, false);
+
+  const parser = skillRegistry.get('web-media-parser');
+  assert.deepEqual(parser.defaults?.platforms, ['media_parser']);
+  assert.equal(parser.defaults?.capability, 'url_resolve');
+  assert.deepEqual(parser.defaults?.analysis, []);
+  assert.equal(parser.execution.autoAnalyzeOnCompletion, false);
+});
+
+test('tool defaults choose their deterministic connector capability', () => {
+  const parser = skillRegistry.get('web-media-parser');
+  const parserPlan = normalizePlan(
+    { goal: '批量解析链接', targets: ['https://example.com/a', 'https://example.com/b'] },
+    '@全网综合解析 https://example.com/a https://example.com/b',
+    undefined,
+    false,
+    parser,
+  );
+  assert.deepEqual(parserPlan.platforms, ['media_parser']);
+  assert.equal(parserPlan.capability, 'url_resolve');
+  assert.deepEqual(parserPlan.analysis, []);
+
+  const search = skillRegistry.get('web-search-research');
+  const searchPlan = normalizePlan(
+    { goal: '搜索', keywords: ['Agent', 'RAG'] },
+    '@全网搜索 Agent RAG',
+    undefined,
+    false,
+    search,
+  );
+  assert.deepEqual(searchPlan.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+  assert.equal(searchPlan.capability, 'keyword_search');
+  assert.deepEqual(searchPlan.keywords, ['Agent', 'RAG']);
+  assert.deepEqual(searchPlan.analysis, []);
+});
+
+test('media parser extracts multiple links without splitting share copy into words', () => {
+  assert.deepEqual(
+    extractParserTargets('复制文案 https://example.com/a 然后解析 https://example.com/b。'),
+    ['https://example.com/a', 'https://example.com/b'],
+  );
+  assert.deepEqual(extractParserTargets('第一条分享文案\n第二条分享文案'), ['第一条分享文案', '第二条分享文案']);
 });
 
 test('an explicitly mentioned Connector overrides a Skill default platform set', () => {

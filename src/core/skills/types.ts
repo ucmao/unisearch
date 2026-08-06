@@ -5,7 +5,10 @@ export const skillDefinitionSchema = z.object({
   version: z.string().min(1),
   name: z.string().min(1),
   description: z.string().min(1),
-  category: z.enum(['core', 'business']).default('core'),
+  // All executable templates share the same Skill runtime. `tool` is a
+  // presentation/intent category for deterministic collection utilities,
+  // while `business` denotes workflows that include an analysis method.
+  category: z.enum(['core', 'business', 'tool']).default('core'),
   icon: z.string().min(1).default('sparkles'),
   mentionable: z.boolean().default(false),
   inputs: z.array(z.object({

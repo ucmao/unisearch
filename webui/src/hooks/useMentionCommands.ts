@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 
-export type MentionCategory = 'social' | 'search' | 'job_complaint' | 'ai_qa' | 'utility' | 'skill' | 'agent' | 'action'
+export type MentionCategory = 'social' | 'search' | 'job_complaint' | 'ai_qa' | 'utility' | 'skill' | 'tool' | 'agent' | 'action'
 
 export interface MentionEntity {
   id: string
@@ -28,7 +28,7 @@ function extractMentionedIds(text: string, entities: MentionEntity[]): string[] 
 }
 
 export function extractMentionedSkillIds(text: string, entities: MentionEntity[]): string[] {
-  return extractMentionedIds(text, entities.filter((entity) => entity.category === 'skill'))
+  return extractMentionedIds(text, entities.filter((entity) => ['skill', 'tool'].includes(entity.category)))
 }
 
 export const SLASH_COMMANDS: MentionEntity[] = [
@@ -47,7 +47,7 @@ export const SLASH_COMMANDS: MentionEntity[] = [
 export interface UseMentionCommandsOptions {
   value: string
   onChange: (newValue: string) => void
-  /** @ 菜单只接收可调用的业务 Skill。 */
+  /** @ 菜单接收可调用的业务技能与执行工具。 */
   mentionEntities: MentionEntity[]
 }
 

@@ -647,3 +647,34 @@
   -webkit-app-region: no-drag;
 }
 
+/* ============================
+   Typing Dot Bounce Animation
+   ============================ */
+@keyframes typing-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+.animate-typing-dot {
+  animation: typing-bounce 1.4s infinite ease-in-out both;
+}
+
+.animate-typing-dot-1 {
+  animation-delay: 0s;
+}
+
+.animate-typing-dot-2 {
+  animation-delay: 0.2s;
+}
+
+.animate-typing-dot-3 {
+  animation-delay: 0.4s;
+}
+
+

@@ -344,7 +344,7 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
 
   if (context.mentionedSkills?.length) {
     if (!hasResearchSubject(value)) {
-      return { action: 'clarify', reply: '已选择业务 Skill。请再告诉我这次要研究的具体品牌、产品、岗位或关键词。', missingFields: ['subject'] };
+      return { action: 'clarify', reply: '已选择技能或工具。请再告诉我这次要处理的具体关键词、主页或链接。', missingFields: ['subject'] };
     }
     return { action: status === 'awaiting_confirmation' ? 'revise_plan' : 'create_plan', reply: '' };
   }

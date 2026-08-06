@@ -50,13 +50,14 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'web-search-research',
   version: '1.0.0',
-  name: '全网搜索与深度阅读',
-  description: '聚合百度、必应、360、搜狗和头条搜索结果，统一去重后读取高价值网页正文。',
-  category: 'core',
+  name: '全网搜索',
+  description: '聚合百度、必应、360、搜狗和头条，支持多关键词、快速/标准/深度采集与可选网页正文读取，默认不分析结果。',
+  category: 'tool',
   icon: 'search',
   mentionable: true,
   inputs: [
-    { key: 'subject', required: true, description: '搜索关键词、主题或问题' },
+    { key: 'keywords', required: true, description: '一个或多个搜索关键词' },
+    { key: 'collectionDepth', required: false, description: '快速、标准或深度采集' },
     { key: 'readingMode', required: false, description: '只看摘要、自动阅读全文或尽量阅读全文' },
   ],
   workflow: {
@@ -88,7 +89,7 @@ skillRegistry.register({
   version: '1.0.0',
   name: '创作者主页采集',
   description: '按平台主页链接或账号标识采集七个社交媒体平台的创作者公开作品；主页链接可识别平台，裸 ID 必须同时说明平台。',
-  category: 'business',
+  category: 'tool',
   icon: 'users',
   mentionable: true,
   inputs: [
@@ -122,6 +123,42 @@ skillRegistry.register({
     '七个平台均依赖各自登录态，只采集当前账号可见的公开内容。',
     '不同平台的裸 ID 可能重名或格式相似；未说明平台时不能可靠自动分配。',
     '平台页面、接口或风控调整后，链接解析与翻页能力可能需要升级 Connector。',
+  ],
+});
+
+skillRegistry.register({
+  id: 'web-media-parser',
+  version: '1.0.0',
+  name: '全网综合解析',
+  description: '批量解析多平台作品链接、分享短链或分享文案，提取无水印视频、原图、音频与元数据；多目标按每秒最多一次请求循环处理。',
+  category: 'tool',
+  icon: 'link',
+  mentionable: true,
+  inputs: [
+    { key: 'targets', required: true, description: '作品链接、分享短链或分享文案；多个目标逐行填写。' },
+    { key: 'intervalSeconds', required: false, description: '批量解析的请求间隔，当前固定不少于 1 秒。' },
+  ],
+  workflow: {
+    connectorCapabilities: ['url_resolve'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['csv', 'markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: ['media_parser'],
+    capability: 'url_resolve',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['csv'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: true,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    '仅支持解析服务已适配且公开可访问的作品。',
+    '删除、私密、过期或受平台风控限制的链接可能解析失败。',
   ],
 });
 
