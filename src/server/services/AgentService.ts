@@ -458,7 +458,7 @@ export class AgentService {
     } = {},
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string }) => void,
     options: { skipAddUserMessage?: boolean } = {},
   ) {
     ensureMessageNotAborted(signal);
@@ -589,11 +589,19 @@ export class AgentService {
         ensureMessageNotAborted(signal);
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
+        const sources = directWebSourceCitations(result.articles);
         onStatus?.({ phase: 'reasoning', message: '正在总结网页内容…' });
+        let emittedSources = false;
         const answer = (await modelService.answerWithWebPages(messages, result.articles, {
           onRetry,
           signal,
-          onDelta,
+          onDelta: (delta) => {
+            if (!emittedSources && sources.length) {
+              emittedSources = true;
+              onStatus?.({ phase: 'reasoning', message: '正在总结网页内容…', sources, retrieval: 'direct_web_read' });
+            }
+            onDelta?.(delta);
+          },
         })).trim();
         ensureMessageNotAborted(signal);
         if (!answer) throw new Error('模型没有返回文本内容');
@@ -768,8 +776,20 @@ export class AgentService {
 
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
+        const sources = toLiveSourceCitations(evidence);
         onStatus?.({ phase: 'reasoning', message: '正在分析搜索结果…' });
-        const answer = (await modelService.answerWithLiveEvidence(messages, evidence, { onRetry, signal, onDelta })).trim();
+        let emittedSources = false;
+        const answer = (await modelService.answerWithLiveEvidence(messages, evidence, {
+          onRetry,
+          signal,
+          onDelta: (delta) => {
+            if (!emittedSources && sources.length) {
+              emittedSources = true;
+              onStatus?.({ phase: 'reasoning', message: '正在分析搜索结果…', sources, retrieval: 'live_search' });
+            }
+            onDelta?.(delta);
+          },
+        })).trim();
         ensureMessageNotAborted(signal);
         if (!answer) throw new Error('模型没有返回文本内容');
         agentRepository.addMessage(threadId, 'assistant', 'text', answer, {
@@ -1212,7 +1232,7 @@ export class AgentService {
     messageId: string,
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string }) => void,
   ) {
     ensureMessageNotAborted(signal);
     const target = agentRepository.deleteAssistantMessageForRegenerate(threadId, messageId);
