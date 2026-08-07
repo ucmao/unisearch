@@ -231,6 +231,44 @@ async function copyText(value: string) {
   if (!copied) throw new Error('复制失败')
 }
 
+function cleanAndFormatPlanConfig(rawConfig: string): string {
+  if (!rawConfig) return ''
+  let text = rawConfig.replace(/<\/?details>/gi, '').replace(/<summary>.*?<\/summary>/gi, '').trim()
+  const lines = text.split(/\r?\n/)
+  const statusPatterns = [
+    /^已创建任务/,
+    /^任务已进入/,
+    /^如需调整/,
+    /^已开始/,
+    /^已完成/,
+    /^已暂停/,
+    /^已停止/,
+    /^正在/,
+    /^自动完成/,
+  ]
+
+  const configLines: string[] = []
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    if (statusPatterns.some((pattern) => pattern.test(trimmed))) continue
+    configLines.push(trimmed)
+  }
+
+  if (configLines.length === 0) return ''
+
+  return `> **采集配置信息**\n` + configLines.map((l) => `> ${l}`).join('\n')
+}
+
+function flattenDetailsInMarkdown(text: string): string {
+  return text.replace(/<details>\s*<summary>(.*?)<\/summary>([\s\S]*?)<\/details>/gi, (_, summary, body) => {
+    const cleanSummary = summary.replace(/›\s*$/, '').trim()
+    const cleanBody = body.trim()
+    if (!cleanBody) return `> **${cleanSummary}**`
+    return `> **${cleanSummary}**\n` + cleanBody.split(/\r?\n/).map((l: string) => (l.trim() ? `> ${l}` : '>')).join('\n')
+  })
+}
+
 function StepIcon({ status }: { status: string }) {
   if (status === 'running') return <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" />
   if (status === 'completed') return <CheckCircle2 className="h-4 w-4 text-cyber-neon-green" />
@@ -540,11 +578,48 @@ function AttachmentDisplayCard({
   )
 }
 
-function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
+function PlanMessageContent({
+  cleanContent,
+  isPlanRunning,
+}: {
+  cleanContent: string
+  isPlanRunning: boolean
+}) {
+  if (isPlanRunning) {
+    return (
+      <details className="group my-1 text-xs text-cyber-text-muted">
+          <summary className="inline-flex cursor-pointer items-center gap-2 font-medium text-cyber-neon-cyan transition-colors select-none">
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            <span>已创建任务并开始采集</span>
+            <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
+          </summary>
+          <div className="mt-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
+            {cleanContent}
+          </div>
+      </details>
+    )
+  }
+
+  return (
+    <details className="group my-1 text-xs text-cyber-text-muted">
+      <summary className="inline-flex cursor-pointer items-center gap-1 text-[13px] text-cyber-text-secondary hover:text-cyber-neon-cyan transition-colors select-none">
+        <span>采集任务原始配置信息</span>
+        <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
+      </summary>
+      <div className="mt-2 rounded-lg border border-cyber-border-subtle/40 bg-cyber-bg-tertiary/20 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
+        {cleanContent}
+      </div>
+    </details>
+  )
+}
+
+function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
   activePlan?: AgentPlan | null
+  /** The originating plan is folded into the completed analysis bubble. */
+  planConfigContent?: string
   onStopPlan?: () => void
   stoppingPlan?: boolean
   hasStreamingAnswer?: boolean
@@ -561,10 +636,23 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, ha
   const isUser = message.role === 'user'
   const platformLabels = usePlatformLabels()
   const isTargetPlanMessage = !isUser && isPlanInitiator && activePlan && activePlan.status !== 'awaiting_confirmation' && ['queued', 'running'].includes(activePlan.status)
+  const isPlanMessage = !isUser && message.kind === 'plan'
+  const isPlanRunning = Boolean(
+    isTargetPlanMessage ||
+    (activePlan && activePlan.plan_id === message.metadata?.plan_id && ['queued', 'running'].includes(activePlan.status))
+  )
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
     try {
       let contentToCopy = message.content.replace(/\n\s*---\s*\n\s*##?\s*📚?\s*(?:参考资料|资料来源|References|来源列表)[\s\S]*$/, '').trim()
+      contentToCopy = flattenDetailsInMarkdown(contentToCopy)
+
+      if (planConfigContent) {
+        const formattedConfig = cleanAndFormatPlanConfig(planConfigContent)
+        if (formattedConfig) {
+          contentToCopy = `${formattedConfig}\n\n${contentToCopy}`
+        }
+      }
       const sources = message.metadata?.sources
       if (Array.isArray(sources) && sources.length > 0) {
         const isTransientWeb = ['live_search', 'direct_web_read'].includes(message.metadata?.retrieval)
@@ -572,28 +660,21 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, ha
           ? []
           : message.metadata?.keywords || plan?.plan?.keywords || []
         const kwText = keywords.length > 0 ? keywords.map((k: string) => `“${k}”`).join('、、') : ''
-        const sourceSummary = message.metadata?.retrieval === 'live_search'
-          ? `已实时检索，参考 ${sources.length} 个网页来源 ›`
-          : message.metadata?.retrieval === 'direct_web_read'
-            ? `已读取网页，参考 ${sources.length} 个网页来源 ›`
-          : message.metadata?.retrieval === 'stratified_hybrid_rag'
-            ? `已分层检索知识库，参考 ${sources.length} 个独立文档 ›`
-            : `已检索知识库，参考 ${sources.length} 个知识片段 ›`
         const listItems = sources.map((s: any, idx: number) => {
           const title = (s.title || '未命名资料').replace(/\r?\n/g, ' ')
           const link = s.sourceUrl ? `[${title}](${s.sourceUrl})` : `${title} [${s.id}]`
           return `${idx + 1}. ${link}`
         })
-        const detailsBlock = [
+        const refBlock = [
           '',
-          '<details>',
-          `<summary>${sourceSummary}</summary>`,
+          '---',
           '',
-          kwText ? kwText : '',
+          '## 参考来源',
+          '',
+          kwText ? `关键词：${kwText}` : '',
           ...listItems,
-          '</details>',
         ].filter(Boolean).join('\n')
-        contentToCopy += `\n${detailsBlock}`
+        contentToCopy += `\n${refBlock}`
       }
       await copyText(contentToCopy)
       setCopied(true)
@@ -645,6 +726,11 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, ha
             />
           ))}
         </div> : null}
+        {!isUser && planConfigContent ? (
+          <div className="mb-4">
+            <PlanMessageContent cleanContent={planConfigContent} isPlanRunning={false} />
+          </div>
+        ) : null}
         {!isUser && (message.metadata?.analysis_coverage || (Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0)) ? (
           <CollapsibleSourcesBar
             sources={message.metadata?.sources}
@@ -656,7 +742,9 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, ha
         ) : null}
         {isUser
           ? <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 text-cyber-text-primary">{renderMentionText(cleanContent)}</div>
-          : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
+          : isPlanMessage
+            ? <PlanMessageContent cleanContent={cleanContent} isPlanRunning={isPlanRunning} />
+            : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
         {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
@@ -886,7 +974,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setSourceDrawerOpen(true)
   }
   const workspaceRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const messagesScrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const composerBackdropRef = useRef<HTMLDivElement>(null)
@@ -894,6 +982,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const petReactionFrameRef = useRef<number | null>(null)
   const sendAbortControllerRef = useRef<AbortController | null>(null)
   const [isStoppingMessage, setIsStoppingMessage] = useState(false)
+  const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
+    window.requestAnimationFrame(() => {
+      const container = messagesScrollRef.current
+      if (!container) return
+      if (behavior === 'auto') {
+        container.scrollTop = container.scrollHeight
+      } else {
+        container.scrollTo({ top: container.scrollHeight, behavior })
+      }
+    })
+  }
   const send = useMutation({
     mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
@@ -938,7 +1037,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               : [...current.messages, streamedMessage],
           }
         })
-        bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+        scrollMessagesToBottom()
       }
       try {
         return await agentApi.sendMessageStream(id, content, {
@@ -1238,7 +1337,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               : [...current.messages, streamedMessage],
           }
         })
-        bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+        scrollMessagesToBottom()
       }
       try {
         return await agentApi.regenerateMessageStream(threadId, messageId, (delta) => {
@@ -1356,7 +1455,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     0,
   ) ?? 0
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: streamingContentLength > 0 ? 'auto' : 'smooth' })
+    scrollMessagesToBottom(streamingContentLength > 0 ? 'auto' : 'smooth')
   }, [threadQuery.data?.messages.length, send.isPending, streamingContentLength])
   useEffect(() => () => {
     if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
@@ -1422,6 +1521,40 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
   }
   const activePlan = threadQuery.data?.plan || null
+  const displayMessages = useMemo<Array<{ message: AgentMessage; planConfigContent?: string }>>(() => {
+    const messages = threadQuery.data?.messages || []
+    const planMessages = new Map<string, AgentMessage>()
+    for (const message of messages) {
+      const planId = typeof message.metadata?.plan_id === 'string' ? message.metadata.plan_id : ''
+      if (message.role === 'assistant' && message.kind === 'plan' && planId) {
+        planMessages.set(planId, message)
+      }
+    }
+
+    // A completed report and its original crawl configuration are one logical
+    // assistant reply. Keep both database records intact, but render the plan
+    // inside the first analysis for that plan instead of as a separate bubble.
+    const mergedPlanIds = new Set<string>()
+    return messages.flatMap((message) => {
+      const planId = typeof message.metadata?.plan_id === 'string' ? message.metadata.plan_id : ''
+      if (message.role === 'assistant' && message.kind === 'plan' && planId) {
+        const hasAnalysis = messages.some((candidate) =>
+          candidate.role === 'assistant'
+          && candidate.kind === 'analysis'
+          && candidate.metadata?.plan_id === planId,
+        )
+        return hasAnalysis ? [] : [{ message }]
+      }
+      if (message.role === 'assistant' && message.kind === 'analysis' && planId && !mergedPlanIds.has(planId)) {
+        const planMessage = planMessages.get(planId)
+        if (planMessage) {
+          mergedPlanIds.add(planId)
+          return [{ message, planConfigContent: planMessage.content }]
+        }
+      }
+      return [{ message }]
+    })
+  }, [threadQuery.data?.messages])
   const filteredThreads = useMemo(() => {
     const query = threadSearchQuery.trim().toLocaleLowerCase()
     if (!query) return threadsQuery.data || []
@@ -1854,15 +1987,16 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-                {threadQuery.data?.messages.map((message) => (
+                {displayMessages.map(({ message, planConfigContent }) => (
                   <MessageBubble
                     key={message.message_id}
                     message={message}
                     plan={activePlan}
                     activePlan={activePlan}
+                    planConfigContent={planConfigContent}
                     onStopPlan={() => activePlan && stopPlan.mutate(activePlan.plan_id)}
                     stoppingPlan={stopPlan.isPending}
                     hasStreamingAnswer={hasStreamingAnswer}
@@ -1880,7 +2014,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 {isThinking && (
                   <ThinkingIndicator retryState={aiRetryState} progress={aiProgress} />
                 )}
-                <div ref={bottomRef} />
+                <div />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
                 <div className="flex -translate-y-2 flex-col items-center text-center">
                   <div className="codex-pet-container">
