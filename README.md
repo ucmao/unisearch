@@ -31,7 +31,7 @@ UniSearch 是一款基于 AI 的**多平台公开内容采集与调研桌面工�
 UniSearch 的主链路为 **Agent 规划 -> Skill / Workflow 编排 -> Connector / Processor 隔离执行 -> 知识处理与导出**：
 
 ```mermaid
-flowchart TD
+flowchart LR
     UI["Electron / WebUI"] --> API["Fastify API / WebSocket"]
     API --> Agent["AgentService<br/>意图识别与模型调用"]
     Agent --> Skill["Skill Registry"]

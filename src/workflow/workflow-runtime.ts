@@ -52,8 +52,11 @@ export class WorkflowRuntime {
     const workflow = agentRepository.getPlan(context.workflowId);
     if (!workflow) throw new Error('Workflow 不存在');
     const skill = skillRegistry.find(workflow.plan.skillId);
-    const isBusinessAnalysis = Boolean(skill?.execution.autoAnalyzeOnCompletion);
-    if (!isBusinessAnalysis && !workflow.plan.analysis?.length) {
+    const isBusinessAnalysis = skill?.category === 'business';
+    const shouldAutoAnalyze = Boolean(
+      skill?.execution.autoAnalyzeOnCompletion || workflow.plan.autoAnalyze || workflow.plan.analysis?.length,
+    );
+    if (!shouldAutoAnalyze) {
       return { skipped: true, reason: '计划未要求自动分析' };
     }
 

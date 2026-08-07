@@ -17,7 +17,21 @@ test('a business Skill applies deterministic platform and analysis defaults', ()
   assert.equal(plan.skillId, skill.id);
   assert.deepEqual(plan.platforms, ['xhs', 'douyin']);
   assert.ok(plan.analysis.includes('内容主题与表达方式'));
+  assert.equal(plan.autoAnalyze, true);
   assert.deepEqual(plan.outputs, ['csv']);
+});
+
+test('generic collection auto-analyzes without inventing visible goals', () => {
+  const plan = normalizePlan({
+    goal: '搜索莆田学院',
+    platforms: ['bing', 'so360'],
+    keywords: ['莆田学院'],
+    capability: 'keyword_search',
+    analysis: [],
+  }, '去必应和360搜索关键词“莆田学院”');
+
+  assert.deepEqual(plan.analysis, []);
+  assert.equal(plan.autoAnalyze, true);
 });
 
 test('creator profile Skill documents an executable target contract for all seven social platforms', () => {
@@ -69,6 +83,7 @@ test('tool defaults choose their deterministic connector capability', () => {
   assert.deepEqual(parserPlan.platforms, ['media_parser']);
   assert.equal(parserPlan.capability, 'url_resolve');
   assert.deepEqual(parserPlan.analysis, []);
+  assert.equal(parserPlan.autoAnalyze, false);
 
   const search = skillRegistry.get('web-search-research');
   const searchPlan = normalizePlan(
@@ -82,6 +97,7 @@ test('tool defaults choose their deterministic connector capability', () => {
   assert.equal(searchPlan.capability, 'keyword_search');
   assert.deepEqual(searchPlan.keywords, ['Agent', 'RAG']);
   assert.deepEqual(searchPlan.analysis, []);
+  assert.equal(searchPlan.autoAnalyze, false);
 });
 
 test('media parser extracts multiple links without splitting share copy into words', () => {

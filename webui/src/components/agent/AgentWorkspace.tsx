@@ -601,15 +601,12 @@ function parsePlanText(rawText: string) {
       continue
     }
 
-    // 2. Classify task config parameter lines
-    if (
-      /^(Skill|平台|关键词|目标|范围|地域|正文|分析维度)：/.test(trimmed) ||
-      trimmed.startsWith('（相比上一轮')
-    ) {
-      configLines.push(trimmed)
-    } else {
-      // 3. Operational guidance / next step notice
+    // 2. Classify transient operational notices / execution prompts
+    if (/^(任务已进入|如果确认无误|采集完成后|采集结束后)/.test(trimmed)) {
       noticeLines.push(trimmed)
+    } else {
+      // 3. All other lines are task config metadata (平台, 关键词, 范围, 正文, 分析维度, 分析重点, Skill, etc.)
+      configLines.push(trimmed)
     }
   }
 
@@ -629,6 +626,13 @@ function PlanMessageContent({
   const [runningDetailsOpen, setRunningDetailsOpen] = useState(true)
   const { configText, noticeText } = parsePlanText(cleanContent)
   const displayConfig = configText || cleanContent
+
+  // Transient execution queue notices (e.g., "任务已进入执行队列...") are only meaningful
+  // while the task is active. Once completed or folded into an analysis report, hide them.
+  const hasExecutionNotice = noticeText ? /^任务已进入|^如果确认无误|^采集完成|^采集结束/.test(noticeText.trim()) : false
+  const shouldShowNotice = isPlanRunning
+    ? Boolean(noticeText)
+    : Boolean(noticeText && !hasExecutionNotice)
 
   return (
     <div className="space-y-3">
@@ -659,7 +663,7 @@ function PlanMessageContent({
         </details>
       )}
 
-      {noticeText ? (
+      {shouldShowNotice ? (
         <div className="text-sm leading-relaxed text-cyber-text-primary whitespace-pre-wrap">
           {noticeText}
         </div>
@@ -1630,21 +1634,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       }
     }
 
-    // A completed report and its original crawl configuration are one logical
+    // A completed report/status notice and its original crawl configuration are one logical
     // assistant reply. Keep both database records intact, but render the plan
-    // inside the first analysis for that plan instead of as a separate bubble.
+    // inside the first analysis or status response for that plan instead of as a separate bubble.
     const mergedPlanIds = new Set<string>()
+    const isPlanOutcomeMessage = (candidate: AgentMessage, planId: string) =>
+      candidate.role === 'assistant'
+      && candidate.metadata?.plan_id === planId
+      && (candidate.kind === 'analysis' || candidate.kind === 'status' || String(candidate.metadata?.action || '').includes('analysis'))
+
     return messages.flatMap((message) => {
       const planId = typeof message.metadata?.plan_id === 'string' ? message.metadata.plan_id : ''
       if (message.role === 'assistant' && isPlanLikeMessage(message) && planId) {
-        const hasAnalysis = messages.some((candidate) =>
-          candidate.role === 'assistant'
-          && (candidate.kind === 'analysis' || String(candidate.metadata?.action || '').includes('analysis'))
-          && candidate.metadata?.plan_id === planId,
-        )
-        return hasAnalysis ? [] : [{ message }]
+        const hasOutcome = messages.some((candidate) => isPlanOutcomeMessage(candidate, planId))
+        return hasOutcome ? [] : [{ message }]
       }
-      if (message.role === 'assistant' && (message.kind === 'analysis' || String(message.metadata?.action || '').includes('analysis')) && planId && !mergedPlanIds.has(planId)) {
+      if (message.role === 'assistant' && isPlanOutcomeMessage(message, planId) && planId && !mergedPlanIds.has(planId)) {
         const planMessage = planMessages.get(planId)
         if (planMessage) {
           mergedPlanIds.add(planId)
@@ -1910,10 +1915,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
                     {/* Right Metadata Area */}
                     <div className="shrink-0 flex items-center gap-1.5 ml-auto text-right">
-                      {/* Status Tag */}
+                      {/* Status Indicator */}
                       {isRunning ? (
-                        <span className="font-mono text-[9.5px] text-cyber-neon-green/80 animate-pulse shrink-0">
-                          running
+                        <span className="relative flex h-2 w-2 shrink-0 items-center justify-center" title="任务运行中">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyber-neon-green/60 opacity-75" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-cyber-neon-green shadow-glow-green-sm" />
                         </span>
                       ) : isFailed ? (
                         <span className="font-mono text-[9.5px] text-cyber-text-muted/50 shrink-0">

@@ -70,6 +70,25 @@ test('a business Skill id and version are persisted with its plan', () => {
   }
 });
 
+test('automatic analysis is compiled independently from visible analysis goals', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('自动归纳');
+    const created = repo.createPlan(thread.thread_id, plan({
+      analysis: [],
+      autoAnalyze: true,
+    }));
+    const keys = (db.prepare('SELECT step_key FROM workflow_steps WHERE workflow_id=?').all(created.plan_id) as any[])
+      .map((row) => row.step_key);
+
+    assert.ok(keys.includes('profile-dataset'));
+    assert.ok(keys.includes('business-analysis'));
+    assert.deepEqual(created.plan.analysis, []);
+  } finally {
+    db.close();
+  }
+});
+
 test('a completed round allows a new collection round in the same task', () => {
   const { db, repository: repo } = repository();
   try {

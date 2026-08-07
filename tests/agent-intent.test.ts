@@ -122,6 +122,38 @@ test('fallback keywords contain the subject rather than the whole request', () =
   assert.deepEqual(inferResearchPlatforms('抓取 https://v.douyin.com/example/ 的评论'), ['douyin']);
 });
 
+test('plan normalization preserves explicit user questions as analysis goals', () => {
+  const { normalizePlan } = require('../src/server/services/AgentService');
+  const request = `你去豆包、元宝、DeepSeek、纳米 AI、千问、文心一言、Kimi 上面搜索一下福州镇海楼，然后告诉我：
+1. 镇海楼是什么东西？
+2. 它的作用是什么？
+3. 当初为什么建这个楼？`;
+  const normalized = normalizePlan({
+    platforms: ['doubao', 'yuanbao', 'deepseek', 'nami', 'qwen', 'wenxin', 'kimi'],
+    keywords: ['福州镇海楼'],
+    analysis: [],
+  }, request);
+  assert.deepEqual(normalized.analysis, [
+    '镇海楼是什么东西？',
+    '它的作用是什么？',
+    '当初为什么建这个楼？',
+  ]);
+  assert.equal(normalized.analysisSource, 'user');
+});
+
+test('plan normalization preserves one unnumbered user question as an analysis goal', () => {
+  const { normalizePlan } = require('../src/server/services/AgentService');
+  const request = '你去头条、百度、Bing、哔哩哔哩搜索一下郑成功，然后告诉我他的历史成功的标志是什么。';
+  const normalized = normalizePlan({
+    goal: '搜索郑成功相关信息，了解其历史成功的标志',
+    platforms: ['bili', 'baidu', 'bing', 'toutiao'],
+    keywords: ['郑成功'],
+    analysis: [],
+  }, request);
+  assert.deepEqual(normalized.analysis, ['他的历史成功的标志是什么']);
+  assert.equal(normalized.analysisSource, 'user');
+});
+
 test('platform-only collection asks for a subject, then accepts a keyword', () => {
   assert.equal(localIntentDecision('采集小红书吧').action, 'clarify');
   assert.equal(localIntentDecision('采集小红书，关键词 科莱特教育').action, 'create_plan');
@@ -277,6 +309,9 @@ test('realtime weather questions use the one-shot live answer path', () => {
 
 test('search engine alias and page range expressions are parsed correctly', () => {
   const { inferCollectionDepth } = require('../src/server/services/AgentIntent');
+  assert.deepEqual(inferResearchPlatforms('你去百度、Bing、360 搜索以下关键词：“antigravity”、“反重力”。'), ['baidu', 'bing', 'so360']);
+  assert.deepEqual(inferResearchPlatforms('在百度和头条搜索'), ['baidu', 'toutiao']);
+  assert.deepEqual(inferResearchPlatforms('在百度贴吧搜索'), ['tieba']);
   assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
   assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
   assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu']);

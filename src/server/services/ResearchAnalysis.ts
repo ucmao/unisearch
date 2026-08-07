@@ -1,13 +1,5 @@
 import type { ResearchPlan } from './AgentRepository';
 
-export const DEFAULT_ANALYSIS_GOALS = [
-  '主题内容概览',
-  '核心观点与分歧',
-  '用户情感及原因',
-  '高频需求与痛点',
-  '关键发现与建议',
-];
-
 function uniqueGoals(values: unknown[]): string[] {
   return Array.from(new Set(values
     .map((value) => String(value).trim().replace(/^[·•\-\d.、\s]+/, ''))
@@ -15,31 +7,65 @@ function uniqueGoals(values: unknown[]): string[] {
     .slice(0, 8);
 }
 
-export function inferAnalysisGoals(goal: string): string[] {
-  const text = String(goal || '');
-  const goals: string[] = [];
-  const add = (...items: string[]) => goals.push(...items);
-
-  if (/培训|课程|教育|机构|学校|学院/.test(text)) {
-    add('机构与品牌识别', '课程定位与内容', '价格与服务对比', '师资、案例与承诺', '用户评价与需求');
-  } else if (/竞品|竞争|对比|横评|选型/.test(text)) {
-    add('主要品牌与产品识别', '定位与核心卖点对比', '价格与服务对比', '用户口碑与痛点', '竞争机会与风险');
-  } else if (/舆情|口碑|评价|评论|反馈|怎么看/.test(text)) {
-    add('讨论主题与传播概览', '正负面观点及原因', '高频问题与用户诉求', '代表性意见与来源', '舆情风险与机会');
-  } else if (/趋势|行业|市场|赛道/.test(text)) {
-    add('热门主题与参与者', '趋势变化与驱动因素', '用户需求与应用场景', '争议与潜在风险', '市场机会与关键判断');
-  } else {
-    add(...DEFAULT_ANALYSIS_GOALS);
-  }
-
-  if (/价格|收费|费用|多少钱/.test(text) && !goals.some((item) => /价格|收费|费用/.test(item))) goals.splice(2, 0, '价格与收费对比');
-  if (/机构|品牌|公司|厂商/.test(text) && !goals.some((item) => /机构|品牌|公司|厂商/.test(item))) goals.unshift('主要机构与品牌识别');
-  return uniqueGoals(goals);
+/**
+ * Analysis goals are user intent, not an industry classification. Keep only
+ * goals supplied by the planner/user; an empty list means "infer from the
+ * collected evidence at report time" and must not be filled from keywords.
+ */
+export function normalizeAnalysisGoals(input: unknown, _goal?: string): string[] {
+  return Array.isArray(input) ? uniqueGoals(input) : [];
 }
 
-export function normalizeAnalysisGoals(input: unknown, goal: string): string[] {
-  const normalized = Array.isArray(input) ? uniqueGoals(input) : [];
-  return normalized.length ? normalized : inferAnalysisGoals(goal);
+/**
+ * Preserve concrete questions that the user attached to a collection request.
+ * The planner normally writes these to `analysis`, but a deterministic fallback
+ * is important because otherwise an omitted field turns the final answer into a
+ * generic evidence-led report.
+ */
+export function inferExplicitAnalysisGoals(text: string): string[] {
+  const value = String(text || '').trim();
+  if (!value) return [];
+
+  const preamblePattern = /(?:告诉|回答|解答|说明|分析|想知道|需要了解)(?:我|一下)?\s*[:：]?/gi;
+  const preambles = Array.from(value.matchAll(preamblePattern));
+  const lastPreamble = preambles.at(-1);
+  const answerSection = lastPreamble
+    ? value.slice((lastPreamble.index || 0) + lastPreamble[0].length)
+    : value;
+  const listItemPattern = /(?:^|\n)\s*(?:\d{1,2}\s*[.、)）]|[-*•])\s*([^\n]+)/g;
+  const listed = Array.from(answerSection.matchAll(listItemPattern))
+    .map((match) => match[1].trim())
+    .filter(Boolean);
+  if (listed.length) {
+    const questionLike = listed.filter((item) => /[？?]|什么|为何|为什么|怎么|如何|哪些|哪(?:个|些|里|种)|是否|能否|作用|原因|目的/.test(item));
+    if (lastPreamble || questionLike.length === listed.length) {
+      return uniqueGoals(listed.map((item) => item.replace(/[；;，,]+$/, '')));
+    }
+  }
+
+  // Also support compact input such as “请回答：1. 是什么？2. 有什么作用？”.
+  if (lastPreamble) {
+    const compact = Array.from(answerSection.matchAll(/(?:^|\s)(?:\d{1,2}\s*[.、)）])\s*([\s\S]*?)(?=(?:\s+\d{1,2}\s*[.、)）])|$)/g))
+      .map((match) => match[1].trim())
+      .filter((item) => item && /[？?]|什么|为何|为什么|怎么|如何|哪些|是否|能否|作用|原因|目的/.test(item));
+    if (compact.length) return uniqueGoals(compact);
+
+    // A single natural-language deliverable is just as explicit as a numbered
+    // list, e.g. “搜索郑成功，然后告诉我他的历史成功的标志是什么”。
+    // Previously this fell through to an empty analysis array, so the task card
+    // hid the request even though the broader workflow goal still contained it.
+    const single = answerSection
+      .replace(/^[，,：:\s]+/, '')
+      .replace(/[。；;\s]+$/, '')
+      .trim();
+    const preamblePrefix = value.slice(0, lastPreamble.index || 0);
+    const isExplicitDirective = /告诉|回答|解答|想知道|需要了解/.test(lastPreamble[0])
+      || /一下/.test(lastPreamble[0])
+      || /(?:^|[，,。；;\n]|然后|并|再|请|帮我)\s*$/.test(preamblePrefix);
+    if (single && isExplicitDirective) return uniqueGoals([single]);
+  }
+
+  return [];
 }
 
 function splitGoals(value: string): string[] {
@@ -78,7 +104,7 @@ export function inferAnalysisRevision(text: string, base: ResearchPlan): string[
     changed = true;
   }
 
-  return changed && uniqueGoals(next).length ? uniqueGoals(next) : null;
+  return changed ? uniqueGoals(next) : null;
 }
 
 export function isAnalysisRevisionRequest(text: string): boolean {
