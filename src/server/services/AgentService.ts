@@ -95,9 +95,9 @@ export function shouldAutoStartSkill(skill: SkillDefinition | null, explicitlyIn
 }
 
 /**
- * Start clear, low-risk collection requests immediately.  Confirmation is a
- * safety boundary for expensive or authenticated work, not a mandatory extra
- * turn for every public search.
+ * A collection request already expresses the user's intent to run it, so do
+ * not add a redundant confirmation turn. Keep awaiting_confirmation only as
+ * an explicit "show me the plan first" mode.
  */
 export function shouldAutoStartPlan(
   plan: ResearchPlan,
@@ -105,17 +105,9 @@ export function shouldAutoStartPlan(
   skill: SkillDefinition | null = null,
   explicitlyInvokedSkill = false,
 ): boolean {
+  if (/(?:先别|不要|暂不|先不)(?:自动)?(?:开始|执行|运行|采集|搜索)|(?:先|只)(?:给我)?看(?:一下)?(?:采集)?计划|等待确认|确认后再/i.test(userText)) return false;
   if (shouldAutoStartSkill(skill, explicitlyInvokedSkill)) return true;
-  if (/(?:先别|不要|暂不|先不)(?:开始|执行|采集|搜索)|(?:先|只)(?:给我|看)(?:一下)?计划|等待确认|确认后再/i.test(userText)) return false;
-  if (['deep', 'custom'].includes(String(plan.collectionDepth))) return false;
-  if (plan.platforms.length > 3) return false;
-  if (plan.platforms.some((platform) => getConnectorManifest(platform)?.auth.required)) return false;
-
-  const hasLargeOverride = Object.values(plan.connectorOptions || {}).some((options) => {
-    const maxItems = Number(options?.max_items);
-    return Number.isFinite(maxItems) && maxItems > 50;
-  });
-  return !hasLargeOverride;
+  return true;
 }
 
 export function normalizePlan(

@@ -709,7 +709,7 @@ export class ModelService {
 - clarify：用户有调研意图，但缺少具体品牌、产品、事件、关键词或采集平台。一次优先问一个最关键的执行参数。
 - create_plan：用户明确要求搜索、采集、调研或监测，且主题/关键词和平台已经明确。
 - revise_plan：用户在修改当前待确认计划。必须在 currentPlan 基础上修改，保留未被否定的字段。
-- execute：用户明确确认执行当前 awaiting_confirmation 计划时使用。新建的低风险计划是否自动开始由后端安全策略决定，模型仍应返回 create_plan。
+- execute：用户明确确认执行当前 awaiting_confirmation 计划时使用。新建计划是否自动开始由后端根据用户是否明确要求暂缓来决定，模型仍应返回 create_plan。
 - stop：只有用户明确要求停止 queued/running 计划时使用。
 - status：用户询问采集数量、任务进度、是否完成或采集情况。只要是在问已有任务本身，就不能创建新计划。
 - analyze：只有已有 completed/partially_completed 计划且用户要分析其结果时使用。
@@ -722,7 +722,7 @@ export class ModelService {
 补充：当用户提到“GitHub”、“GitHub 仓库”或“GitHub 趋势”时对应 ["github_repositories"]；AI GitHub 趋势设置 connectorOptions.github_repositories.mode="ai"。当用户提到“RSS”、“RSS 新闻”、“Atom”或“订阅源”时对应 ["rss_news"]。当用户提到“BOSS 直聘”或 zhipin.com 时对应 ["boss"]；“招聘平台”或“招聘网站”对应 ["boss", "zhaopin", "job51", "liepin"]。单独的 boss 只在明确的求职/招聘平台语境中才是别名；普通英文 Boss（老板、上司、标题或作品名）必须保持 chat，不得创建采集计划。
 修改计划 (revise_plan) 时必须基于 currentPlan 进行增量修改，不得将 plan 置为空或省略。
 4. 对采集任务，平台未指定时必须 clarify，不能直接生成计划；一次性强时效问答使用 live_answer，不需要用户指定平台。当用户已经指定 deepseek、kimi、doubao、qwen、yuanbao、nami、wenxin 或其他具体 Connector 时，平台已确定，不得再询问“小红书还是微博”。可以在问题中给出平台建议；不得静默假装用户指定过。
-5. 不要自行假设新计划已经执行；新建任务返回 create_plan，由后端根据规模、登录要求和用户表述决定自动开始或等待确认。当前计划状态不匹配时不得 execute/stop/analyze。
+5. 不要自行假设新计划已经执行；新建任务返回 create_plan，后端默认自动开始，只有用户明确要求先看计划、暂不开始或确认后再执行时才等待确认。当前计划状态不匹配时不得 execute/stop/analyze。
 5.1 确认意图必须结合完整对话理解，而不是匹配固定词。像“好”“可以”可能表示同意，也可能只是承接对话；若同一句还包含修改、否定、犹豫或提问，应优先 revise_plan、clarify 或 chat，不能 execute。
 6. 回复自然、简短，像可以协作讨论的助手，而不是表单。
 7. “你采集到了多少信息”“采集了多少条”“任务完成了吗”必须是 status，绝不能 create_plan。

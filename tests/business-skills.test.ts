@@ -112,7 +112,7 @@ test('business Skills only auto-start when the user explicitly invokes them', ()
   assert.equal(shouldAutoStartSkill(skillRegistry.get('multi-source-research'), true), false);
 });
 
-test('clear low-risk public collection starts automatically', () => {
+test('collection starts automatically by default', () => {
   const githubPlan = normalizePlan({
     goal: 'GitHub 热点',
     platforms: ['github_repositories'],
@@ -124,7 +124,7 @@ test('clear low-risk public collection starts automatically', () => {
   assert.equal(shouldAutoStartPlan(githubPlan, '采集并分析 GitHub AI Agent 热点'), true);
 });
 
-test('high-risk or explicitly deferred collection still waits for confirmation', () => {
+test('only explicitly deferred collection waits for confirmation', () => {
   const publicPlan = normalizePlan({
     goal: '公开搜索',
     platforms: ['github_repositories'],
@@ -140,13 +140,20 @@ test('high-risk or explicitly deferred collection still waits for confirmation',
     analysis: [],
   }, '在小红书搜索 AI Agent');
 
-  assert.equal(shouldAutoStartPlan({ ...publicPlan, collectionDepth: 'deep' }, '深度采集 GitHub AI Agent'), false);
+  assert.equal(shouldAutoStartPlan({ ...publicPlan, collectionDepth: 'deep' }, '深度采集 GitHub AI Agent'), true);
   assert.equal(shouldAutoStartPlan(publicPlan, '先给我看计划，确认后再采集'), false);
-  assert.equal(shouldAutoStartPlan(authenticatedPlan, '在小红书搜索 AI Agent'), false);
+  assert.equal(shouldAutoStartPlan(publicPlan, '先给我看一下采集计划'), false);
+  assert.equal(shouldAutoStartPlan(publicPlan, '不要自动运行'), false);
+  assert.equal(shouldAutoStartPlan(authenticatedPlan, '在小红书搜索 AI Agent'), true);
+  assert.equal(shouldAutoStartPlan(authenticatedPlan, '@销售课程竞争情报 先看计划', skillRegistry.get('sales-course-intelligence'), true), false);
   assert.equal(shouldAutoStartPlan({
     ...publicPlan,
     connectorOptions: { github_repositories: { max_items: 100 } },
-  }, '在 GitHub 搜索 100 条 AI Agent 仓库'), false);
+  }, '在 GitHub 搜索 100 条 AI Agent 仓库'), true);
+  assert.equal(shouldAutoStartPlan({
+    ...publicPlan,
+    platforms: ['github_repositories', 'baidu', 'bing', 'so360'],
+  }, '在多个平台搜索 AI Agent'), true);
 });
 
 test('plain chat cannot impersonate a persisted collection plan', () => {
