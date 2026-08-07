@@ -177,9 +177,17 @@ test('BOSS 直聘 aliases require explicit platform context and preserve ordinar
   assert.deepEqual(inferResearchPlatforms('在 BOSS直聘 搜索 Java 后端'), ['boss']);
   assert.deepEqual(inferResearchPlatforms('在 BOSS 直聘上找产品经理'), ['boss']);
   assert.deepEqual(inferResearchPlatforms('用 boss 搜索上海数据分析师'), ['boss']);
+  assert.deepEqual(
+    inferResearchPlatforms('你去智联、猎聘、BOSS、前程无忧上面搜索一下 FDE 工程师'),
+    ['boss', 'zhaopin', 'job51', 'liepin'],
+  );
   assert.deepEqual(inferResearchPlatforms('采集 https://www.zhipin.com/web/geek/job?query=Java'), ['boss']);
   assert.deepEqual(inferResearchPlatforms('所有招聘平台'), ['boss', 'zhaopin', 'job51', 'liepin']);
   assert.deepEqual(inferResearchKeywords('在 BOSS直聘 搜索 Java 后端'), ['Java 后端']);
+  assert.doesNotMatch(
+    inferResearchKeywords('你去智联、猎聘、BOSS、前程无忧上面搜索一下 FDE 工程师')[0],
+    /boss/i,
+  );
   assert.equal(localIntentDecision('在 BOSS直聘 搜索 Java 后端').action, 'create_plan');
 
   for (const message of ['How do I talk to my Boss?', 'Boss Baby 电影怎么样？', 'Boss 招聘员工要注意什么？']) {
@@ -197,6 +205,12 @@ test('BOSS 直聘 planner aliases normalize to the registered boss connector', (
     );
     assert.deepEqual(plan.platforms, ['boss'], alias);
   }
+
+  const listPlan = normalizePlan(
+    { platforms: ['zhaopin', 'job51', 'liepin'], keywords: ['FDE 工程师'] },
+    '你去智联、猎聘、BOSS、前程无忧上面搜索一下 FDE 工程师',
+  );
+  assert.deepEqual(listPlan.platforms, ['boss', 'zhaopin', 'job51', 'liepin']);
 });
 
 test('arXiv requests select the academic connector and remove the platform name from keywords', () => {
@@ -204,6 +218,16 @@ test('arXiv requests select the academic connector and remove the platform name 
   assert.deepEqual(inferResearchPlatforms('去论文库查 RAG'), ['arxiv']);
   assert.deepEqual(inferResearchKeywords('在 arXiv 搜索 Agent 论文'), ['Agent']);
   assert.equal(localIntentDecision('在 arXiv 搜索 Agent 论文').action, 'create_plan');
+
+  const academicRequests = [
+    ['如果我要查询学术的话，有什么要求吗？我想要查询关于 LED 电磁的学术论文，你帮我查询。', 'LED 电磁'],
+    ['我想要查询关于 LED 点阵的学术论文，请你帮我查询。有什么要求？', 'LED 点阵'],
+  ] as const;
+  for (const [message, keyword] of academicRequests) {
+    assert.deepEqual(inferResearchPlatforms(message), ['arxiv'], message);
+    assert.deepEqual(inferResearchKeywords(message), [keyword], message);
+    assert.equal(localIntentDecision(message).action, 'create_plan', message);
+  }
 });
 
 test('GitHub repository requests select the merged connector and remove the platform name from keywords', () => {
@@ -225,6 +249,15 @@ test('RSS requests select the news Feed connector and remove the source name fro
 test('AI HOT requests select the connector and can omit keywords', () => {
   assert.deepEqual(inferResearchPlatforms('看看 AI HOT 当前热点'), ['aihot']);
   assert.equal(localIntentDecision('看看 AI HOT 当前热点').action, 'create_plan');
+  for (const message of [
+    '你去看一下AI hot有什么新闻吗？',
+    '看看 AI HOT 有什么最新资讯',
+    'AI热榜最近有什么动态',
+    'AI热点有什么新消息',
+  ]) {
+    assert.deepEqual(inferResearchPlatforms(message), ['aihot'], message);
+    assert.equal(localIntentDecision(message).action, 'create_plan', message);
+  }
 });
 
 test('confirmation only executes a pending plan', () => {

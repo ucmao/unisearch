@@ -201,7 +201,12 @@ export function normalizePlan(
     basePlatforms = inferredPlatforms.length ? inferredPlatforms : platforms;
   } else if (skill?.defaults?.platforms?.length) {
     const defaultPlatforms = skill.defaults.platforms.filter((p) => SUPPORTED.includes(p));
-    if (inferredPlatforms.length > 0) {
+    // URL resolver tools own the target URL. Its origin (for example a Douyin
+    // link) describes what media_parser should parse, not an additional social
+    // connector that should crawl the same URL a second time.
+    if (defaultPlatforms.includes('media_parser')) {
+      basePlatforms = defaultPlatforms;
+    } else if (inferredPlatforms.length > 0) {
       basePlatforms = Array.from(new Set([...defaultPlatforms, ...inferredPlatforms]));
     } else {
       basePlatforms = defaultPlatforms;

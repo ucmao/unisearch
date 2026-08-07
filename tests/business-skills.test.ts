@@ -85,6 +85,21 @@ test('tool defaults choose their deterministic connector capability', () => {
   assert.deepEqual(parserPlan.analysis, []);
   assert.equal(parserPlan.autoAnalyze, false);
 
+  const douyinParserPlan = normalizePlan(
+    {
+      goal: '解析抖音链接',
+      platforms: ['media_parser', 'douyin'],
+      targets: ['https://www.douyin.com/video/7668613077083983144'],
+      capability: 'url_resolve',
+    },
+    '@全网综合解析 https://www.douyin.com/video/7668613077083983144',
+    undefined,
+    false,
+    parser,
+  );
+  assert.deepEqual(douyinParserPlan.platforms, ['media_parser']);
+  assert.deepEqual(douyinParserPlan.targets, ['https://www.douyin.com/video/7668613077083983144']);
+
   const search = skillRegistry.get('web-search-research');
   const searchPlan = normalizePlan(
     { goal: '搜索', keywords: ['Agent', 'RAG'] },

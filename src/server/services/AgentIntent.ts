@@ -46,11 +46,15 @@ const ANALYZE = /分析|总结|结论|对比|洞察|报告|原因|评价|评价�
 const REVISE_ACTION = '(?:加上|增加|添加|再加|也要|去掉|删除|移除|不要|改成|改为|换成|换一个|更换|替换|修改|调整|只要)';
 const REVISE_FIELD = '(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\\s*直聘|zhipin\\.com|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
 const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.*${REVISE_ACTION})`, 'i');
-const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:RSS|Atom|订阅源).*(?:新闻|更新|文章|资讯)|(?:GitHub|AI HOT|AI热点|AI热榜).*(?:趋势|热门|仓库|项目|热点|日报|资讯)|(?:去|到|在)?(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\s*直聘|(?:[\w-]+\.)*zhipin\.com)(?:上|里)?(?:搜|找|查|问|看看|读取)/i;
+const RESEARCH = /采集|收集|抓取|搜索|搜(?:一下)?|查(?:找|一下)|调查|调研|研究|监测|做(?:个|一份)?报告|(?:我)?(?:想|要|想要)了解|帮我(?:查|搜|看看)|(?:网上|全网|各平台|社交媒体).*(?:口碑|评价|讨论|反馈|怎么说)|(?:看看|了解)(?:大家|网友|用户).*(?:评价|看法|反馈|怎么说)|(?:RSS|Atom|订阅源).*(?:新闻|更新|文章|资讯)|(?:GitHub|AI HOT|AI热点|AI热榜).*(?:趋势|热门|仓库|项目|热点|日报|新闻|资讯|动态|消息)|(?:去|到|在)?(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\s*直聘|(?:[\w-]+\.)*zhipin\.com)(?:上|里)?(?:搜|找|查|问|看看|读取)/i;
 const ONE_SHOT_WEB_SEARCH = /(?:联网|上网|网上)(?:搜索|检索|查询|查找|搜|查)(?:一下)?/i;
 const PERSISTENT_RESEARCH = /采集|收集|抓取|批量|数据集|监测|调研|研究|建立任务|创建任务|做(?:个|一份)?报告/i;
 const BOSS_STRONG_MENTION = /(?:BOSS\s*直聘|(?:^|[^\w.-])(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b)/i;
 const BOSS_CONTEXTUAL_MENTION = /(?:在|去|到|从|用|通过|打开|访问)\s*@?\bboss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))|(?:^|[\s，。；;、@])boss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))/i;
+// A bare "BOSS" is also unambiguous when it is one item in a platform list,
+// e.g. "智联、猎聘、BOSS、前程无忧". Requiring list separators on both
+// sides preserves ordinary English uses such as "Boss 招聘员工".
+const BOSS_LIST_MENTION = /(?:^|[、,，和与])\s*@?boss\b(?=\s*(?:[、,，和与]|$))/i;
 const DIRECT_WEB_READ = /阅读|读取|阅读全文|查看(?:一下)?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)?|看看?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)|网页正文|正文内容|总结|概括|归纳|解读|告诉我|介绍(?:一下)?|(?:是什么|有哪些|怎么样|如何|为何|为什么|是否|能否|亮点|核心|重点|主要内容)/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
@@ -58,7 +62,7 @@ const ALL_PLATFORM_IDS = [
 ];
 
 function hasBossPlatformMention(text: string): boolean {
-  return BOSS_STRONG_MENTION.test(text) || BOSS_CONTEXTUAL_MENTION.test(text);
+  return BOSS_STRONG_MENTION.test(text) || BOSS_CONTEXTUAL_MENTION.test(text) || BOSS_LIST_MENTION.test(text);
 }
 
 function hasExcludedBossMention(segment: string): boolean {
@@ -116,6 +120,7 @@ function cleanResearchSubject(text: string): string {
     .replace(/(?:BOSS\s*直聘|(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b|(?:^|[\s，。；;、@])boss\b)\s*(?:除外|不用|不要|不采|不抓|不搜)/gi, ' ')
     .replace(/https?:\/\/(?:[\w-]+\.)*zhipin\.com\b[^\s，。；;]*/gi, ' ')
     .replace(/BOSS\s*直聘|(^|[^\w.-])(?:[\w-]+\.)*zhipin\.com\b/gi, '$1')
+    .replace(/(^|[、,，和与])\s*@?boss\b(?=\s*(?:[、,，和与]|$))/gi, '$1')
     .replace(/(^|[\s，。；;、@])boss\b(?=\s*(?:直聘|招聘(?:平台|网站)|平台|网站|app|上|里|中|搜索|搜|查询|查|找|采集|抓取))/gi, '$1');
 
   return withoutBossPlatform
@@ -123,8 +128,8 @@ function cleanResearchSubject(text: string): string {
     .replace(/@\S+/g, ' ')
     .replace(/(?:用\s*)?(?:RSS\s*(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)(?:\s*(?:查|搜索|读取))?/gi, ' ')
     .replace(/GitHub(?:仓库|趋势|热门项目)?/gi, ' ')
-    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|arXiv|论文库|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
-    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|arXiv|论文库|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
+    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|arXiv|论文库|学术论文|学术文献|科研论文|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
+    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|arXiv|论文库|学术论文|学术文献|科研论文|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
     .replace(/关键词(?:[:：]|\s)+/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
     .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|多|加|再|也|还|额外|另外|此外/gi, ' ')
@@ -157,6 +162,11 @@ export function inferResearchKeywords(text: string): string[] {
     return splitExplicitKeywords(explicit[1], text);
   }
 
+  const academicQueries = Array.from(text.matchAll(
+    /(?:查询|查找|搜索|检索)(?:一下)?(?:关于|有关)?\s*([^，。；;！？?\n]{2,60}?)(?:的)?(?:学术论文|学术文献|科研论文)/gi,
+  )).map((match) => match[1].trim()).filter(Boolean);
+  if (academicQueries.length) return [academicQueries.at(-1)!].slice(0, 12);
+
   const cleaned = cleanResearchSubject(text);
   return cleaned.length >= 2 ? [cleaned.slice(0, 40)] : [];
 }
@@ -179,7 +189,7 @@ export function inferExcludedPlatforms(text: string): string[] {
     [/(?:360搜索|360|so\.com)/i, 'so360'],
     [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
     [/(?:头条搜索|头条|so\.toutiao\.com)/i, 'toutiao'],
-    [/(?:arXiv|arxiv\.org|论文库)/i, 'arxiv'],
+    [/(?:arXiv|arxiv\.org|论文库|学术论文|学术文献|科研论文)/i, 'arxiv'],
     [/(?:GitHub(?:仓库|趋势|热门项目)?|github\.com)/i, 'github_repositories'],
     [/(?:RSS(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)/i, 'rss_news'],
     [/(?:AI\s*HOT|AI热点|AI热榜|aihot\.virxact\.com)/i, 'aihot'],
@@ -248,7 +258,7 @@ export function inferResearchPlatforms(text: string): string[] {
       [/(?:360搜索|360|so\.com)/i, 'so360'],
       [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
       [/(?:头条搜索|头条|so\.toutiao\.com)/i, 'toutiao'],
-      [/(?:arXiv|arxiv\.org|论文库)/i, 'arxiv'],
+      [/(?:arXiv|arxiv\.org|论文库|学术论文|学术文献|科研论文)/i, 'arxiv'],
       [/(?:GitHub(?:仓库|趋势|热门项目)?|github\.com)/i, 'github_repositories'],
       [/(?:RSS(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)/i, 'rss_news'],
       [/(?:AI\s*HOT|AI热点|AI热榜|aihot\.virxact\.com)/i, 'aihot'],
