@@ -64,6 +64,19 @@ test('mentioning a platform or asking a normal question does not create a task',
   }
 });
 
+test('one-shot web search requests answer immediately without creating a collection plan', () => {
+  for (const message of [
+    '土风舞有哪些代表性的舞蹈？你可以联网搜索一下。',
+    '帮我上网查一下这个概念是什么',
+    '网上检索一下 OpenAI 最新的 API 是哪个',
+  ]) {
+    assert.equal(localIntentDecision(message).action, 'live_answer', message);
+  }
+
+  assert.equal(localIntentDecision('在百度搜索土风舞代表性舞蹈').action, 'create_plan');
+  assert.equal(localIntentDecision('联网搜索并批量收集土风舞资料').action, 'clarify');
+});
+
 test('concrete collection requests create a plan decision', () => {
   for (const message of [
     '在小红书搜扫地机器人', '调研华为手机在全网的口碑', '收集微博上关于新能源汽车的评论',

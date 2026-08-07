@@ -578,6 +578,14 @@ function AttachmentDisplayCard({
   )
 }
 
+function isPlanLikeMessage(message?: AgentMessage | null): boolean {
+  if (!message || message.role === 'user') return false
+  if (message.kind === 'plan') return true
+  const planId = message.metadata?.plan_id
+  const action = message.metadata?.action
+  return Boolean(planId) && ['execute', 'create_plan', 'plan'].includes(String(action || ''))
+}
+
 function PlanMessageContent({
   cleanContent,
   isPlanRunning,
@@ -585,9 +593,15 @@ function PlanMessageContent({
   cleanContent: string
   isPlanRunning: boolean
 }) {
+  const [runningDetailsOpen, setRunningDetailsOpen] = useState(true)
+
   if (isPlanRunning) {
     return (
-      <details className="group my-1 text-xs text-cyber-text-muted">
+      <details
+        open={runningDetailsOpen}
+        onToggle={(event) => setRunningDetailsOpen(event.currentTarget.open)}
+        className="group my-1 text-xs text-cyber-text-muted"
+      >
           <summary className="inline-flex cursor-pointer items-center gap-2 font-medium text-cyber-neon-cyan transition-colors select-none">
             <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
             <span>已创建任务并开始采集</span>
@@ -636,10 +650,10 @@ function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPla
   const isUser = message.role === 'user'
   const platformLabels = usePlatformLabels()
   const isTargetPlanMessage = !isUser && isPlanInitiator && activePlan && activePlan.status !== 'awaiting_confirmation' && ['queued', 'running'].includes(activePlan.status)
-  const isPlanMessage = !isUser && message.kind === 'plan'
+  const isPlanMessage = !isUser && isPlanLikeMessage(message)
   const isPlanRunning = Boolean(
-    isTargetPlanMessage ||
-    (activePlan && activePlan.plan_id === message.metadata?.plan_id && ['queued', 'running'].includes(activePlan.status))
+    (isTargetPlanMessage || (activePlan && activePlan.plan_id === message.metadata?.plan_id && ['queued', 'running'].includes(activePlan.status))) &&
+    isPlanLikeMessage(message)
   )
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
@@ -745,7 +759,7 @@ function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPla
           : isPlanMessage
             ? <PlanMessageContent cleanContent={cleanContent} isPlanRunning={isPlanRunning} />
             : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
-        {message.kind === 'export' && typeof message.metadata?.plan_id === 'string'
+        {(message.kind === 'export' || message.metadata?.action === 'export') && typeof message.metadata?.plan_id === 'string'
           ? <CsvDownloadLink planId={message.metadata.plan_id} />
           : null}
         {isTargetPlanMessage && activePlan && onStopPlan ? (
@@ -1526,8 +1540,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     const planMessages = new Map<string, AgentMessage>()
     for (const message of messages) {
       const planId = typeof message.metadata?.plan_id === 'string' ? message.metadata.plan_id : ''
-      if (message.role === 'assistant' && message.kind === 'plan' && planId) {
-        planMessages.set(planId, message)
+      if (message.role === 'assistant' && isPlanLikeMessage(message) && planId) {
+        if (!planMessages.has(planId) || message.kind === 'plan') {
+          planMessages.set(planId, message)
+        }
       }
     }
 
@@ -1537,15 +1553,15 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     const mergedPlanIds = new Set<string>()
     return messages.flatMap((message) => {
       const planId = typeof message.metadata?.plan_id === 'string' ? message.metadata.plan_id : ''
-      if (message.role === 'assistant' && message.kind === 'plan' && planId) {
+      if (message.role === 'assistant' && isPlanLikeMessage(message) && planId) {
         const hasAnalysis = messages.some((candidate) =>
           candidate.role === 'assistant'
-          && candidate.kind === 'analysis'
+          && (candidate.kind === 'analysis' || String(candidate.metadata?.action || '').includes('analysis'))
           && candidate.metadata?.plan_id === planId,
         )
         return hasAnalysis ? [] : [{ message }]
       }
-      if (message.role === 'assistant' && message.kind === 'analysis' && planId && !mergedPlanIds.has(planId)) {
+      if (message.role === 'assistant' && (message.kind === 'analysis' || String(message.metadata?.action || '').includes('analysis')) && planId && !mergedPlanIds.has(planId)) {
         const planMessage = planMessages.get(planId)
         if (planMessage) {
           mergedPlanIds.add(planId)
@@ -1581,6 +1597,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const planInitiatorMessageId = useMemo(() => {
     if (!activePlan || !['queued', 'running'].includes(activePlan.status)) return null
     const msgs = threadQuery.data?.messages || []
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (m.role === 'assistant' && m.metadata?.plan_id === activePlan.plan_id && isPlanLikeMessage(m)) {
+        return m.message_id
+      }
+    }
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]
       if (m.role === 'assistant' && (m.metadata?.action === 'execute' || m.metadata?.plan_id === activePlan.plan_id)) {
