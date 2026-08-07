@@ -458,7 +458,7 @@ export class AgentService {
     } = {},
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any }) => void,
     options: { skipAddUserMessage?: boolean } = {},
   ) {
     ensureMessageNotAborted(signal);
@@ -598,7 +598,7 @@ export class AgentService {
           onDelta: (delta) => {
             if (!emittedSources && sources.length) {
               emittedSources = true;
-              onStatus?.({ phase: 'reasoning', message: '正在总结网页内容…', sources, retrieval: 'direct_web_read' });
+              try { onStatus?.({ phase: 'reasoning', message: '正在总结网页内容…', sources, retrieval: 'direct_web_read' }); } catch {}
             }
             onDelta?.(delta);
           },
@@ -785,7 +785,7 @@ export class AgentService {
           onDelta: (delta) => {
             if (!emittedSources && sources.length) {
               emittedSources = true;
-              onStatus?.({ phase: 'reasoning', message: '正在分析搜索结果…', sources, retrieval: 'live_search' });
+              try { onStatus?.({ phase: 'reasoning', message: '正在分析搜索结果…', sources, retrieval: 'live_search' }); } catch {}
             }
             onDelta?.(delta);
           },
@@ -965,6 +965,7 @@ export class AgentService {
             partial: isPartialAnalysis,
             signal,
             onRetry,
+            onStatus,
             onDelta,
           });
           ensureMessageNotAborted(signal);
@@ -1002,11 +1003,23 @@ export class AgentService {
       if (referencedMaterials.texts.length || referencedMaterials.images.length) {
         try {
           const messages = conversationMessages(updatedThread);
+          let emittedStatus = false;
           const answer = await modelService.converse(messages, {
             materials: referencedMaterials,
             analysisGoals: latest.plan.analysis,
             skillInstructions: skillRegistry.find(latest.plan.skillId)?.analysisInstructions,
-            onRetry, signal, onDelta,
+            onRetry, signal,
+            onDelta: (delta) => {
+              if (!emittedStatus && latest?.plan?.keywords?.length) {
+                emittedStatus = true;
+                onStatus?.({
+                  phase: 'reasoning',
+                  message: '正在分析采集数据…',
+                  keywords: latest.plan.keywords,
+                });
+              }
+              onDelta?.(delta);
+            },
           });
           ensureMessageNotAborted(signal);
           agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
@@ -1091,11 +1104,23 @@ export class AgentService {
         if (referencedMaterials.texts.length || referencedMaterials.images.length) {
           try {
             const messages = conversationMessages(updatedThread);
+            let emittedStatus = false;
             const answer = await modelService.converse(messages, {
               materials: referencedMaterials,
               analysisGoals: latest.plan.analysis,
               skillInstructions: skillRegistry.find(latest.plan.skillId)?.analysisInstructions,
-              onRetry, signal, onDelta,
+              onRetry, signal,
+              onDelta: (delta) => {
+                if (!emittedStatus && latest?.plan?.keywords?.length) {
+                  emittedStatus = true;
+                  onStatus?.({
+                    phase: 'reasoning',
+                    message: '正在分析采集数据…',
+                    keywords: latest.plan.keywords,
+                  });
+                }
+                onDelta?.(delta);
+              },
             });
             ensureMessageNotAborted(signal);
             agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
@@ -1232,7 +1257,7 @@ export class AgentService {
     messageId: string,
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any }) => void,
   ) {
     ensureMessageNotAborted(signal);
     const target = agentRepository.deleteAssistantMessageForRegenerate(threadId, messageId);

@@ -347,10 +347,12 @@ function ChatCrawlingStatusBanner({
   activePlan,
   onStop,
   stopping,
+  hasStreamingAnswer,
 }: {
   activePlan: AgentPlan
   onStop: () => void
   stopping: boolean
+  hasStreamingAnswer: boolean
 }) {
   if (!activePlan) return null
 
@@ -365,6 +367,10 @@ function ChatCrawlingStatusBanner({
   const contentCount = activePlan.stats?.content_count ?? 0
   const isPostProcessing = activePlan.status === 'running' && totalSteps > 0 && completedSteps === totalSteps
 
+  // 第一段报告正文出现后，由草稿消息接管展示；在此之前保留分析状态
+  // 和中止入口，避免模型首字等待期间界面没有反馈。
+  if (isPostProcessing && hasStreamingAnswer) return null
+
   const isStreamActive = isRunning && !isPostProcessing
 
   return (
@@ -372,7 +378,7 @@ function ChatCrawlingStatusBanner({
       <div className="flex items-center gap-2 py-1">
         <div className="inline-flex items-center gap-1.5 text-cyber-text-secondary">
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>{isPostProcessing ? '正在整理并分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+          <span>{isPostProcessing ? '正在分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
           <span className="text-cyber-border-default">·</span>
           <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
         </div>
@@ -534,13 +540,14 @@ function AttachmentDisplayCard({
   )
 }
 
-function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
+function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
   activePlan?: AgentPlan | null
   onStopPlan?: () => void
   stoppingPlan?: boolean
+  hasStreamingAnswer?: boolean
   isPlanInitiator?: boolean
   onDeletePair: () => Promise<unknown>
   deletingPair: boolean
@@ -658,6 +665,7 @@ function MessageBubble({ message, plan, activePlan, onStopPlan, stoppingPlan, is
             activePlan={activePlan}
             onStop={onStopPlan}
             stopping={Boolean(stoppingPlan)}
+            hasStreamingAnswer={Boolean(hasStreamingAnswer)}
           />
         ) : null}
         <div className={`mt-1.5 flex items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -896,13 +904,16 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       let renderedContent = ''
       let streamedSources: any[] | undefined = undefined
       let streamedRetrieval: string | undefined = undefined
+      let streamedCoverage: any | undefined = undefined
       let lastRenderedSources: any[] | undefined = undefined
+      let lastRenderedCoverage: any | undefined = undefined
       let renderFrame: number | null = null
       const renderDelta = () => {
         renderFrame = null
-        if (renderedContent === streamedContent && lastRenderedSources === streamedSources) return
+        if (renderedContent === streamedContent && lastRenderedSources === streamedSources && lastRenderedCoverage === streamedCoverage) return
         renderedContent = streamedContent
         lastRenderedSources = streamedSources
+        lastRenderedCoverage = streamedCoverage
         client.setQueryData<AgentThread>(['agent-thread', id], (current) => {
           if (!current) return current
           const streamedMessage: AgentMessage = {
@@ -913,7 +924,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             content: renderedContent,
             metadata: {
               streaming: true,
-              ...(streamedSources ? { sources: streamedSources, retrieval: streamedRetrieval } : {}),
+              ...(streamedSources ? { sources: streamedSources } : {}),
+              ...(streamedRetrieval ? { retrieval: streamedRetrieval } : {}),
+              ...(streamedCoverage ? { analysis_coverage: streamedCoverage } : {}),
             },
             created_at: new Date().toISOString(),
           }
@@ -937,9 +950,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
         }, controller.signal, (status) => {
           setAiProgress(status)
-          if (status.sources && Array.isArray(status.sources)) {
+          if ((status.sources && Array.isArray(status.sources)) || status.analysis_coverage) {
             streamedSources = status.sources
             streamedRetrieval = status.retrieval
+            streamedCoverage = status.analysis_coverage
             if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
           }
         })
@@ -990,7 +1004,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   }, [systemLogs, send.isPending, selectedId])
 
   const threadsQuery = useQuery({ queryKey: ['agent-threads'], queryFn: async () => (await agentApi.listThreads()).data.items, refetchInterval: 3000 })
-  const threadQuery = useQuery({ queryKey: ['agent-thread', selectedId], queryFn: async () => (await agentApi.getThread(selectedId!)).data, enabled: Boolean(selectedId), refetchInterval: send.isPending ? false : 1500 })
+  const threadQuery = useQuery({
+    queryKey: ['agent-thread', selectedId],
+    queryFn: async () => (await agentApi.getThread(selectedId!)).data,
+    enabled: Boolean(selectedId),
+    refetchInterval: (query) => (send.isPending ? false : (query.state.data?.plan && ['queued', 'running'].includes(query.state.data.plan.status) ? 600 : 1500)),
+  })
   const referenceableTasksQuery = useQuery({ queryKey: ['agent-referenceable-tasks'], queryFn: async () => (await agentApi.listReferenceableTasks()).data.items, enabled: taskPickerOpen })
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -1183,15 +1202,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       let renderedContent = ''
       let streamedSources: any[] | undefined = undefined
       let streamedRetrieval: string | undefined = undefined
+      let streamedCoverage: any | undefined = undefined
       let lastRenderedSources: any[] | undefined = undefined
+      let lastRenderedCoverage: any | undefined = undefined
       const streamingMessageId = `streaming-${Date.now()}`
       let renderFrame: number | null = null
 
       const renderDelta = () => {
         renderFrame = null
-        if (renderedContent === streamedContent && lastRenderedSources === streamedSources) return
+        if (renderedContent === streamedContent && lastRenderedSources === streamedSources && lastRenderedCoverage === streamedCoverage) return
         renderedContent = streamedContent
         lastRenderedSources = streamedSources
+        lastRenderedCoverage = streamedCoverage
         client.setQueryData<AgentThread>(['agent-thread', threadId], (current) => {
           if (!current) return current
           const streamedMessage: AgentMessage = {
@@ -1202,7 +1224,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             content: renderedContent,
             metadata: {
               streaming: true,
-              ...(streamedSources ? { sources: streamedSources, retrieval: streamedRetrieval } : {}),
+              ...(streamedSources ? { sources: streamedSources } : {}),
+              ...(streamedRetrieval ? { retrieval: streamedRetrieval } : {}),
+              ...(streamedCoverage ? { analysis_coverage: streamedCoverage } : {}),
             },
             created_at: new Date().toISOString(),
           }
@@ -1222,9 +1246,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
         }, controller.signal, (status) => {
           setAiProgress(status)
-          if (status.sources && Array.isArray(status.sources)) {
+          if ((status.sources && Array.isArray(status.sources)) || status.analysis_coverage) {
             streamedSources = status.sources
             streamedRetrieval = status.retrieval
+            streamedCoverage = status.analysis_coverage
             if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
           }
         })
@@ -1326,7 +1351,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [threadMenuId])
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [threadQuery.data?.messages.length, send.isPending])
+  const streamingContentLength = threadQuery.data?.messages.reduce(
+    (length, message) => message.metadata?.streaming ? message.content.length : length,
+    0,
+  ) ?? 0
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: streamingContentLength > 0 ? 'auto' : 'smooth' })
+  }, [threadQuery.data?.messages.length, send.isPending, streamingContentLength])
   useEffect(() => () => {
     if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
     if (petReactionFrameRef.current !== null) window.cancelAnimationFrame(petReactionFrameRef.current)
@@ -1834,6 +1865,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     activePlan={activePlan}
                     onStopPlan={() => activePlan && stopPlan.mutate(activePlan.plan_id)}
                     stoppingPlan={stopPlan.isPending}
+                    hasStreamingAnswer={hasStreamingAnswer}
                     isPlanInitiator={message.message_id === planInitiatorMessageId}
                     deletingPair={removeMessagePair.isPending || send.isPending || regenerate.isPending}
                     onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })}
@@ -2206,7 +2238,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued'
                               ? '采集任务排队中...'
                               : activeConnectorsCompleted
-                                ? '正在整理并分析采集结果...'
+                                ? '正在分析采集结果...'
                                 : '正在执行采集任务...'}
                           </span>
                           <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
