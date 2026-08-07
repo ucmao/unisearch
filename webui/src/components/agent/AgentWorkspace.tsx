@@ -113,7 +113,7 @@ function ThinkingIndicator({ retryState, progress }: {
 
   // 下方弱提示：只在联网搜索、网络重试或有特定进度消息时展示
   const subStatusText = retryState
-    ? `连接暂时不稳定，正在自动重试 ${retryState.count}/${retryState.max}（${retryState.delaySec}s 后继续）`
+    ? `连接不稳定，正在自动重试 ${retryState.count}/${retryState.max}（${retryState.delaySec}s 后继续）`
     : progress?.message
       ? progress.message
       : isWebSearching
@@ -894,11 +894,15 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       const streamingMessageId = `streaming-${id}`
       let streamedContent = ''
       let renderedContent = ''
+      let streamedSources: any[] | undefined = undefined
+      let streamedRetrieval: string | undefined = undefined
+      let lastRenderedSources: any[] | undefined = undefined
       let renderFrame: number | null = null
       const renderDelta = () => {
         renderFrame = null
-        if (renderedContent === streamedContent) return
+        if (renderedContent === streamedContent && lastRenderedSources === streamedSources) return
         renderedContent = streamedContent
+        lastRenderedSources = streamedSources
         client.setQueryData<AgentThread>(['agent-thread', id], (current) => {
           if (!current) return current
           const streamedMessage: AgentMessage = {
@@ -907,7 +911,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             role: 'assistant',
             kind: 'text',
             content: renderedContent,
-            metadata: { streaming: true },
+            metadata: {
+              streaming: true,
+              ...(streamedSources ? { sources: streamedSources, retrieval: streamedRetrieval } : {}),
+            },
             created_at: new Date().toISOString(),
           }
           const existingIndex = current.messages.findIndex((item) => item.message_id === streamingMessageId)
@@ -928,7 +935,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         }, (delta) => {
           streamedContent += delta
           if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
-        }, controller.signal, (status) => setAiProgress(status))
+        }, controller.signal, (status) => {
+          setAiProgress(status)
+          if (status.sources && Array.isArray(status.sources)) {
+            streamedSources = status.sources
+            streamedRetrieval = status.retrieval
+            if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+          }
+        })
       } finally {
         if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
       }
@@ -1166,12 +1180,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       const controller = new AbortController()
       sendAbortControllerRef.current = controller
       let streamedContent = ''
+      let renderedContent = ''
+      let streamedSources: any[] | undefined = undefined
+      let streamedRetrieval: string | undefined = undefined
+      let lastRenderedSources: any[] | undefined = undefined
       const streamingMessageId = `streaming-${Date.now()}`
       let renderFrame: number | null = null
 
       const renderDelta = () => {
         renderFrame = null
-        const renderedContent = streamedContent
+        if (renderedContent === streamedContent && lastRenderedSources === streamedSources) return
+        renderedContent = streamedContent
+        lastRenderedSources = streamedSources
         client.setQueryData<AgentThread>(['agent-thread', threadId], (current) => {
           if (!current) return current
           const streamedMessage: AgentMessage = {
@@ -1180,7 +1200,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             role: 'assistant',
             kind: 'text',
             content: renderedContent,
-            metadata: { streaming: true },
+            metadata: {
+              streaming: true,
+              ...(streamedSources ? { sources: streamedSources, retrieval: streamedRetrieval } : {}),
+            },
             created_at: new Date().toISOString(),
           }
           const existingIndex = current.messages.findIndex((item) => item.message_id === streamingMessageId)
@@ -1197,7 +1220,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         return await agentApi.regenerateMessageStream(threadId, messageId, (delta) => {
           streamedContent += delta
           if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
-        }, controller.signal, (status) => setAiProgress(status))
+        }, controller.signal, (status) => {
+          setAiProgress(status)
+          if (status.sources && Array.isArray(status.sources)) {
+            streamedSources = status.sources
+            streamedRetrieval = status.retrieval
+            if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+          }
+        })
       } finally {
         if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
       }
