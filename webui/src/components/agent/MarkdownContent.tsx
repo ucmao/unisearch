@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, memo, useMemo, type ReactNode } from 'react'
 import { type SourceCitationItem } from './CollapsibleSourcesBar'
 import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
 
@@ -277,7 +277,7 @@ function inlineMarkdown(
   return nodes
 }
 
-export function MarkdownContent({
+export const MarkdownContent = memo(function MarkdownContent({
   content,
   sources,
   onCitationClick,
@@ -287,136 +287,141 @@ export function MarkdownContent({
   onCitationClick?: (sourceId: string) => void
 }) {
   const platformLabels = usePlatformLabels()
-  const renderInline = (text: string) => inlineMarkdown(text, platformLabels, sources, onCitationClick)
-  const lines = content.replace(/\r\n/g, '\n').split('\n')
-  const blocks: ReactNode[] = []
-  let index = 0
-  while (index < lines.length) {
-    const line = lines[index]
-    if (!line.trim()) { index++; continue }
 
-    // 折叠块 <details> ... </details>
-    if (/^\s*<details>/i.test(line)) {
-      const detailLines: string[] = []
-      index++
-      while (index < lines.length && !/^\s*<\/details>/i.test(lines[index])) {
-        detailLines.push(lines[index++])
-      }
-      if (index < lines.length) index++
-      let summaryText = '参考资料'
-      const innerLines: string[] = []
-      for (const dl of detailLines) {
-        const sumMatch = dl.match(/<summary>(.*?)<\/summary>/i)
-        if (sumMatch) {
-          summaryText = sumMatch[1].trim()
-        } else {
-          innerLines.push(dl)
+  const blocks = useMemo(() => {
+    const renderInline = (text: string) => inlineMarkdown(text, platformLabels, sources, onCitationClick)
+    const lines = content.replace(/\r\n/g, '\n').split('\n')
+    const result: ReactNode[] = []
+    let index = 0
+    while (index < lines.length) {
+      const line = lines[index]
+      if (!line.trim()) { index++; continue }
+
+      // 折叠块 <details> ... </details>
+      if (/^\s*<details>/i.test(line)) {
+        const detailLines: string[] = []
+        index++
+        while (index < lines.length && !/^\s*<\/details>/i.test(lines[index])) {
+          detailLines.push(lines[index++])
         }
-      }
-      blocks.push(
-        <details key={`details-${index}`} className="my-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 px-3 py-2 text-xs">
-          <summary className="cursor-pointer font-normal text-cyber-text-muted hover:text-cyber-text-primary select-none">
-            {summaryText}
-          </summary>
-          <div className="mt-2 border-t border-cyber-border-subtle/40 pt-2 space-y-1">
-            <MarkdownContent content={innerLines.join('\n')} sources={sources} onCitationClick={onCitationClick} />
-          </div>
-        </details>
-      )
-      continue
-    }
-
-    // 多行代码块 ```language ... ```
-    if (line.trimStart().startsWith('```')) {
-      const language = line.trim().slice(3).trim()
-      const code: string[] = []
-      index++
-      while (index < lines.length && !lines[index].trimStart().startsWith('```')) code.push(lines[index++])
-      if (index < lines.length) index++
-      blocks.push(
-        <div key={`code-${index}`} className="my-3 overflow-hidden rounded-lg border border-cyber-border-subtle bg-cyber-bg-tertiary">
-          {language ? (
-            <div className="border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-cyber-text-muted">
-              {language}
+        if (index < lines.length) index++
+        let summaryText = '参考资料'
+        const innerLines: string[] = []
+        for (const dl of detailLines) {
+          const sumMatch = dl.match(/<summary>(.*?)<\/summary>/i)
+          if (sumMatch) {
+            summaryText = sumMatch[1].trim()
+          } else {
+            innerLines.push(dl)
+          }
+        }
+        result.push(
+          <details key={`details-${index}`} className="my-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-normal text-cyber-text-muted hover:text-cyber-text-primary select-none">
+              {summaryText}
+            </summary>
+            <div className="mt-2 border-t border-cyber-border-subtle/40 pt-2 space-y-1">
+              <MarkdownContent content={innerLines.join('\n')} sources={sources} onCitationClick={onCitationClick} />
             </div>
-          ) : null}
-          <pre className="overflow-x-auto p-3 text-xs leading-5"><code className="font-mono text-cyber-text-primary">{code.join('\n')}</code></pre>
-        </div>,
-      )
-      continue
-    }
+          </details>
+        )
+        continue
+      }
 
-    // 分隔线 (---, ***, ___)
-    if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-      blocks.push(<hr key={`hr-${index}`} className="my-4 border-t border-cyber-border-subtle" />)
+      // 多行代码块 ```language ... ```
+      if (line.trimStart().startsWith('```')) {
+        const language = line.trim().slice(3).trim()
+        const code: string[] = []
+        index++
+        while (index < lines.length && !lines[index].trimStart().startsWith('```')) code.push(lines[index++])
+        if (index < lines.length) index++
+        result.push(
+          <div key={`code-${index}`} className="my-3 overflow-hidden rounded-lg border border-cyber-border-subtle bg-cyber-bg-tertiary">
+            {language ? (
+              <div className="border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-cyber-text-muted">
+                {language}
+              </div>
+            ) : null}
+            <pre className="overflow-x-auto p-3 text-xs leading-5"><code className="font-mono text-cyber-text-primary">{code.join('\n')}</code></pre>
+          </div>,
+        )
+        continue
+      }
+
+      // 分隔线 (---, ***, ___)
+      if (/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+        result.push(<hr key={`hr-${index}`} className="my-4 border-t border-cyber-border-subtle" />)
+        index++
+        continue
+      }
+
+      // 标题 (# 到 ######)
+      const heading = line.match(/^(#{1,6})\s+(.+)$/)
+      if (heading) {
+        const level = heading[1].length
+        const size = level === 1 ? 'text-base' : level === 2 ? 'text-sm font-bold' : 'text-xs font-semibold'
+        result.push(<div key={`heading-${index}`} className={`mb-1 mt-3 font-semibold ${size}`}>{renderInline(heading[2])}</div>)
+        index++
+        continue
+      }
+
+      // 表格
+      const nextLine = lines[index + 1] || ''
+      if (line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(nextLine)) {
+        const splitRow = (row: string) => row.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim())
+        const headers = splitRow(line)
+        const rows: string[][] = []
+        index += 2
+        while (index < lines.length && lines[index].includes('|') && lines[index].trim()) rows.push(splitRow(lines[index++]))
+        result.push(
+          <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-lg border border-cyber-border-subtle">
+            <table className="w-full border-collapse text-left text-xs">
+              <thead className="bg-cyber-bg-tertiary/70"><tr>{headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-cyber-border-subtle px-3 py-2 font-semibold">{renderInline(cell)}</th>)}</tr></thead>
+              <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-cyber-border-subtle/60 last:border-0">{headers.map((_, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-cyber-text-secondary">{renderInline(row[cellIndex] || '')}</td>)}</tr>)}</tbody>
+            </table>
+          </div>,
+        )
+        continue
+      }
+
+      // 无序列表
+      if (/^\s*[-*+]\s+/.test(line)) {
+        const items: string[] = []
+        while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*[-*+]\s+/, ''))
+        result.push(<ul key={`ul-${index}`} className="my-2 list-disc space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ul>)
+        continue
+      }
+
+      // 有序列表
+      if (/^\s*\d+[.)]\s+/.test(line)) {
+        const items: string[] = []
+        while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*\d+[.)]\s+/, ''))
+        result.push(<ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ol>)
+        continue
+      }
+
+      // 引用块
+      if (/^>\s?/.test(line)) {
+        const quote: string[] = []
+        while (index < lines.length && /^>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^>\s?/, ''))
+        result.push(<blockquote key={`quote-${index}`} className="my-2 border-l-2 border-cyber-neon-cyan/50 pl-3 text-cyber-text-secondary">{quote.map((item, quoteIndex) => <Fragment key={quoteIndex}>{renderInline(item)}{quoteIndex < quote.length - 1 ? <br /> : null}</Fragment>)}</blockquote>)
+        continue
+      }
+
+      // 普通段落
+      const paragraph: string[] = [line]
       index++
-      continue
+      while (
+        index < lines.length &&
+        lines[index].trim() &&
+        !/^(?:#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s?|\s*```|\s*(?:-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[index]) &&
+        !(lines[index].includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] || '')) &&
+        !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index])
+      ) paragraph.push(lines[index++])
+      result.push(<p key={`p-${index}`} className="my-2 first:mt-0 last:mb-0">{paragraph.map((item, lineIndex) => <Fragment key={lineIndex}>{renderInline(item)}{lineIndex < paragraph.length - 1 ? <br /> : null}</Fragment>)}</p>)
     }
+    return result
+  }, [content, sources, platformLabels, onCitationClick])
 
-    // 标题 (# 到 ######)
-    const heading = line.match(/^(#{1,6})\s+(.+)$/)
-    if (heading) {
-      const level = heading[1].length
-      const size = level === 1 ? 'text-base' : level === 2 ? 'text-sm font-bold' : 'text-xs font-semibold'
-      blocks.push(<div key={`heading-${index}`} className={`mb-1 mt-3 font-semibold ${size}`}>{renderInline(heading[2])}</div>)
-      index++
-      continue
-    }
-
-    // 表格
-    const nextLine = lines[index + 1] || ''
-    if (line.includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(nextLine)) {
-      const splitRow = (row: string) => row.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim())
-      const headers = splitRow(line)
-      const rows: string[][] = []
-      index += 2
-      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) rows.push(splitRow(lines[index++]))
-      blocks.push(
-        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-lg border border-cyber-border-subtle">
-          <table className="w-full border-collapse text-left text-xs">
-            <thead className="bg-cyber-bg-tertiary/70"><tr>{headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-cyber-border-subtle px-3 py-2 font-semibold">{renderInline(cell)}</th>)}</tr></thead>
-            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-cyber-border-subtle/60 last:border-0">{headers.map((_, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-cyber-text-secondary">{renderInline(row[cellIndex] || '')}</td>)}</tr>)}</tbody>
-          </table>
-        </div>,
-      )
-      continue
-    }
-
-    // 无序列表
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items: string[] = []
-      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*[-*+]\s+/, ''))
-      blocks.push(<ul key={`ul-${index}`} className="my-2 list-disc space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ul>)
-      continue
-    }
-
-    // 有序列表
-    if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items: string[] = []
-      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) items.push(lines[index++].replace(/^\s*\d+[.)]\s+/, ''))
-      blocks.push(<ol key={`ol-${index}`} className="my-2 list-decimal space-y-1 pl-5">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInline(item)}</li>)}</ol>)
-      continue
-    }
-
-    // 引用块
-    if (/^>\s?/.test(line)) {
-      const quote: string[] = []
-      while (index < lines.length && /^>\s?/.test(lines[index])) quote.push(lines[index++].replace(/^>\s?/, ''))
-      blocks.push(<blockquote key={`quote-${index}`} className="my-2 border-l-2 border-cyber-neon-cyan/50 pl-3 text-cyber-text-secondary">{quote.map((item, quoteIndex) => <Fragment key={quoteIndex}>{renderInline(item)}{quoteIndex < quote.length - 1 ? <br /> : null}</Fragment>)}</blockquote>)
-      continue
-    }
-
-    // 普通段落
-    const paragraph: string[] = [line]
-    index++
-    while (
-      index < lines.length &&
-      lines[index].trim() &&
-      !/^(?:#{1,6}\s|\s*[-*+]\s+|\s*\d+[.)]\s+|>\s?|\s*```|\s*(?:-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[index]) &&
-      !(lines[index].includes('|') && /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] || '')) &&
-      !/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index])
-    ) paragraph.push(lines[index++])
-    blocks.push(<p key={`p-${index}`} className="my-2 first:mt-0 last:mb-0">{paragraph.map((item, lineIndex) => <Fragment key={lineIndex}>{renderInline(item)}{lineIndex < paragraph.length - 1 ? <br /> : null}</Fragment>)}</p>)
-  }
   return <div className="break-words text-sm leading-6 text-cyber-text-primary">{blocks}</div>
-}
+})

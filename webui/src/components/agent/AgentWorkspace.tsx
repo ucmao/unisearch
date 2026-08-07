@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react'
+import { useCallback, useEffect, memo, useMemo, useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -627,20 +627,20 @@ function PlanMessageContent({
   )
 }
 
-function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
+const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
   activePlan?: AgentPlan | null
   /** The originating plan is folded into the completed analysis bubble. */
   planConfigContent?: string
-  onStopPlan?: () => void
+  onStopPlan?: (planId: string) => void
   stoppingPlan?: boolean
   hasStreamingAnswer?: boolean
   isPlanInitiator?: boolean
-  onDeletePair: () => Promise<unknown>
+  onDeletePair: (threadId: string, messageId: string) => Promise<unknown>
   deletingPair: boolean
-  onRegenerate?: () => Promise<unknown>
+  onRegenerate?: (threadId: string, messageId: string) => Promise<unknown>
   regenerating?: boolean
   disabled?: boolean
   isLatestAssistant?: boolean
@@ -765,7 +765,7 @@ function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPla
         {isTargetPlanMessage && activePlan && onStopPlan ? (
           <ChatCrawlingStatusBanner
             activePlan={activePlan}
-            onStop={onStopPlan}
+            onStop={() => onStopPlan(activePlan.plan_id)}
             stopping={Boolean(stoppingPlan)}
             hasStreamingAnswer={Boolean(hasStreamingAnswer)}
           />
@@ -781,7 +781,7 @@ function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPla
                 <button
                   type="button"
                   disabled={disabled || regenerating}
-                  onClick={onRegenerate}
+                  onClick={() => onRegenerate?.(message.thread_id, message.message_id)}
                   className="flex h-6 w-6 items-center justify-center rounded text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-neon-cyan disabled:opacity-40"
                   title="重新回答"
                   aria-label="重新回答"
@@ -794,7 +794,7 @@ function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPla
                 title="删除这一轮对话？"
                 description="将删除这条用户消息及其对应的全部 AI 回复；关联的采集任务和看板数据会保留。此操作无法撤销。"
                 confirmLabel="删除这一轮"
-                onConfirm={onDeletePair}
+                onConfirm={() => onDeletePair(message.thread_id, message.message_id)}
               />
             </> : null}
           </div>
@@ -803,7 +803,7 @@ function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPla
       {isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>}
     </div>
   )
-}
+})
 
 type AgentWorkspaceProps = {
   selectedId: string | null
@@ -961,9 +961,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     document.body.removeChild(link)
   }
 
-  const handleCitationClick = (sourceId: string) => {
+  const handleCitationClick = useCallback((sourceId: string) => {
     const num = parseInt(sourceId.replace(/\D/g, ''), 10)
-    const docs = threadDocumentsQuery.data || []
+    const docs = client.getQueryData<any[]>(['thread-documents', selectedId]) || []
     const doc = (num > 0 && docs[num - 1]) ? docs[num - 1] : docs[0]
     if (doc) {
       setActiveCitation({
@@ -986,7 +986,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       })
     }
     setSourceDrawerOpen(true)
-  }
+  }, [client, selectedId])
   const workspaceRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -995,18 +995,27 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const petReactionTimerRef = useRef<number | null>(null)
   const petReactionFrameRef = useRef<number | null>(null)
   const sendAbortControllerRef = useRef<AbortController | null>(null)
+  const shouldStickToBottomRef = useRef(true)
   const [isStoppingMessage, setIsStoppingMessage] = useState(false)
-  const scrollMessagesToBottom = (behavior: ScrollBehavior = 'auto') => {
+  const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto', force = false) => {
+    if (!force && !shouldStickToBottomRef.current) return
     window.requestAnimationFrame(() => {
       const container = messagesScrollRef.current
       if (!container) return
+      if (!force && !shouldStickToBottomRef.current) return
       if (behavior === 'auto') {
         container.scrollTop = container.scrollHeight
       } else {
         container.scrollTo({ top: container.scrollHeight, behavior })
       }
+      shouldStickToBottomRef.current = true
     })
-  }
+  }, [])
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesScrollRef.current
+    if (!container) return
+    shouldStickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 150
+  }, [])
   const send = useMutation({
     mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
@@ -1020,9 +1029,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       let streamedCoverage: any | undefined = undefined
       let lastRenderedSources: any[] | undefined = undefined
       let lastRenderedCoverage: any | undefined = undefined
-      let renderFrame: number | null = null
+      let renderTimer: number | null = null
+      let lastRenderTime = 0
       const renderDelta = () => {
-        renderFrame = null
+        renderTimer = null
+        lastRenderTime = Date.now()
         if (renderedContent === streamedContent && lastRenderedSources === streamedSources && lastRenderedCoverage === streamedCoverage) return
         renderedContent = streamedContent
         lastRenderedSources = streamedSources
@@ -1051,7 +1062,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               : [...current.messages, streamedMessage],
           }
         })
-        scrollMessagesToBottom()
+        scrollMessagesToBottom('auto')
+      }
+      const scheduleRender = () => {
+        if (renderTimer !== null) return
+        const elapsed = Date.now() - lastRenderTime
+        const delay = Math.max(0, 40 - elapsed)
+        renderTimer = window.setTimeout(renderDelta, delay)
       }
       try {
         return await agentApi.sendMessageStream(id, content, {
@@ -1060,18 +1077,19 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           ...(mentionedSkills.length ? { mentioned_skills: mentionedSkills } : {}),
         }, (delta) => {
           streamedContent += delta
-          if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+          scheduleRender()
         }, controller.signal, (status) => {
           setAiProgress(status)
           if ((status.sources && Array.isArray(status.sources)) || status.analysis_coverage) {
             streamedSources = status.sources
             streamedRetrieval = status.retrieval
             streamedCoverage = status.analysis_coverage
-            if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+            scheduleRender()
           }
         })
       } finally {
-        if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
+        if (renderTimer !== null) window.clearTimeout(renderTimer)
+        renderDelta()
       }
     },
     onMutate: async ({ id, message }) => {
@@ -1083,6 +1101,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         updated_at: message.created_at,
         messages: [...current.messages, message],
       } : current)
+      scrollMessagesToBottom('smooth', true)
     },
     onSuccess: ({ data }) => {
       client.setQueryData(['agent-thread', data.thread_id], data)
@@ -1319,10 +1338,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       let lastRenderedSources: any[] | undefined = undefined
       let lastRenderedCoverage: any | undefined = undefined
       const streamingMessageId = `streaming-${Date.now()}`
-      let renderFrame: number | null = null
+      let renderTimer: number | null = null
+      let lastRenderTime = 0
 
       const renderDelta = () => {
-        renderFrame = null
+        renderTimer = null
+        lastRenderTime = Date.now()
         if (renderedContent === streamedContent && lastRenderedSources === streamedSources && lastRenderedCoverage === streamedCoverage) return
         renderedContent = streamedContent
         lastRenderedSources = streamedSources
@@ -1351,23 +1372,30 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               : [...current.messages, streamedMessage],
           }
         })
-        scrollMessagesToBottom()
+        scrollMessagesToBottom('auto')
+      }
+      const scheduleRender = () => {
+        if (renderTimer !== null) return
+        const elapsed = Date.now() - lastRenderTime
+        const delay = Math.max(0, 40 - elapsed)
+        renderTimer = window.setTimeout(renderDelta, delay)
       }
       try {
         return await agentApi.regenerateMessageStream(threadId, messageId, (delta) => {
           streamedContent += delta
-          if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+          scheduleRender()
         }, controller.signal, (status) => {
           setAiProgress(status)
           if ((status.sources && Array.isArray(status.sources)) || status.analysis_coverage) {
             streamedSources = status.sources
             streamedRetrieval = status.retrieval
             streamedCoverage = status.analysis_coverage
-            if (renderFrame === null) renderFrame = window.requestAnimationFrame(renderDelta)
+            scheduleRender()
           }
         })
       } finally {
-        if (renderFrame !== null) window.cancelAnimationFrame(renderFrame)
+        if (renderTimer !== null) window.clearTimeout(renderTimer)
+        renderDelta()
       }
     },
     onMutate: async ({ threadId, messageId }) => {
@@ -1382,6 +1410,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           messages: current.messages.slice(0, targetIndex),
         }
       })
+      scrollMessagesToBottom('auto', true)
     },
     onSuccess: ({ data }) => {
       client.setQueryData(['agent-thread', data.thread_id], data)
@@ -1450,7 +1479,20 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
   })
+  const handleStopPlan = useCallback((planId: string) => {
+    stopPlan.mutate(planId)
+  }, [stopPlan.mutate])
+  const handleDeleteMessagePair = useCallback((threadId: string, messageId: string) => (
+    removeMessagePair.mutateAsync({ threadId, messageId })
+  ), [removeMessagePair.mutateAsync])
+  const handleRegenerateMessage = useCallback((threadId: string, messageId: string) => (
+    regenerate.mutateAsync({ threadId, messageId })
+  ), [regenerate.mutateAsync])
+  const handlePreviewImage = useCallback((url: string) => {
+    setPreviewImageUrl(url)
+  }, [])
   useEffect(() => {
+    shouldStickToBottomRef.current = true
     setAttachments([])
     setTaskReferences([])
     setAddMenuOpen(false)
@@ -1470,7 +1512,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   ) ?? 0
   useEffect(() => {
     scrollMessagesToBottom(streamingContentLength > 0 ? 'auto' : 'smooth')
-  }, [threadQuery.data?.messages.length, send.isPending, streamingContentLength])
+  }, [threadQuery.data?.messages.length, send.isPending, streamingContentLength, scrollMessagesToBottom])
   useEffect(() => () => {
     if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
     if (petReactionFrameRef.current !== null) window.cancelAnimationFrame(petReactionFrameRef.current)
@@ -2009,7 +2051,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
-            <div ref={messagesScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="min-h-0 flex-1 overflow-y-auto">
               {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
                 {displayMessages.map(({ message, planConfigContent }) => (
@@ -2019,17 +2061,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     plan={activePlan}
                     activePlan={activePlan}
                     planConfigContent={planConfigContent}
-                    onStopPlan={() => activePlan && stopPlan.mutate(activePlan.plan_id)}
+                    onStopPlan={handleStopPlan}
                     stoppingPlan={stopPlan.isPending}
                     hasStreamingAnswer={hasStreamingAnswer}
                     isPlanInitiator={message.message_id === planInitiatorMessageId}
                     deletingPair={removeMessagePair.isPending || send.isPending || regenerate.isPending}
-                    onDeletePair={() => removeMessagePair.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })}
-                    onRegenerate={() => regenerate.mutateAsync({ threadId: message.thread_id, messageId: message.message_id })}
+                    onDeletePair={handleDeleteMessagePair}
+                    onRegenerate={handleRegenerateMessage}
                     regenerating={regenerate.isPending && regenerate.variables?.messageId === message.message_id}
                     disabled={send.isPending || regenerate.isPending}
                     isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId}
-                    onPreviewImage={(url) => setPreviewImageUrl(url)}
+                    onPreviewImage={handlePreviewImage}
                     onCitationClick={handleCitationClick}
                   />
                 ))}
