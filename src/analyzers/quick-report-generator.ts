@@ -199,7 +199,9 @@ export class QuickReportGenerator {
             `请生成“${request.reportName}”。`,
             `原任务：${request.workflowGoal}`,
             `用户本轮要求：${request.userRequest}`,
-            `分析目标：${request.analysisGoals.join('、') || request.workflowGoal}`,
+            request.analysisGoals.length
+              ? `分析重点：${request.analysisGoals.join('、')}`
+              : '分析方式：未预设分析维度，请根据实际采集证据动态归纳最有信息量的主题，不要根据行业关键词套用固定模板。',
             request.skillName ? `业务 Skill：${request.skillName}` : '',
             request.skillInstructions ? `业务分析规则：${request.skillInstructions}` : '',
             request.partial ? '任务仍在采集中，只能生成阶段性报告。' : '',

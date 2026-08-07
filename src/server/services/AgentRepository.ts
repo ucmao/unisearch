@@ -37,6 +37,8 @@ export interface ResearchPlan {
   customScopeDescription?: string;
   analysis: string[];
   analysisSource?: 'ai' | 'fallback' | 'user';
+  /** Run a report after collection even when no explicit analysis goals exist. */
+  autoAnalyze?: boolean;
   outputs: string[];
 }
 
@@ -672,7 +674,10 @@ export class AgentRepository {
         '["finalize-documents"]', 'success', '{}', 'queued', 2, 300000, ?, ?)
     `).run(id(), workflowId, now, now);
     let previousStep = 'index-documents';
-    if (skill.execution.autoAnalyzeOnCompletion || plan.analysis?.length) {
+    const shouldAutoAnalyze = Boolean(
+      skill.execution.autoAnalyzeOnCompletion || plan.autoAnalyze || plan.analysis?.length,
+    );
+    if (shouldAutoAnalyze) {
       this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -683,7 +688,7 @@ export class AgentRepository {
       `).run(id(), workflowId, JSON.stringify({ goals: plan.analysis }), now, now);
       previousStep = 'profile-dataset';
     }
-    if (skill.execution.autoAnalyzeOnCompletion || plan.analysis?.length) {
+    if (shouldAutoAnalyze) {
       this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,

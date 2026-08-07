@@ -22,3 +22,12 @@ test('plan titles use the topic without forcing a platform prefix', () => {
     analysis: ['用户观点'], outputs: ['csv'],
   }), '扫地机器人');
 });
+
+test('automatic plan title updates fallback title', () => {
+  const planTitle = titleFromPlan({
+    goal: '你在各大AI上搜索福州镇海楼', platforms: ['deepseek', 'kimi'], keywords: ['福州镇海楼'],
+    collectionDepth: 'quick', loginType: 'none', headless: true, analysis: [], outputs: [],
+  });
+  assert.equal(planTitle, '福州镇海楼');
+});
+

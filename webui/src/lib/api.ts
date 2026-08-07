@@ -312,6 +312,7 @@ export interface ResearchPlanData {
   headless: boolean
   analysis: string[]
   analysisSource?: 'ai' | 'fallback' | 'user'
+  autoAnalyze?: boolean
   outputs: string[]
 }
 

@@ -6,7 +6,7 @@ import { modelService, type ConversationMaterials, type ConversationMemory } fro
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
 import { fallbackTitleFromText, isMeaningfulTitleInput, sanitizeThreadTitle, titleFromPlan } from './ThreadTitle';
-import { normalizeAnalysisGoals } from './ResearchAnalysis';
+import { inferExplicitAnalysisGoals, normalizeAnalysisGoals } from './ResearchAnalysis';
 import { directParserService } from './DirectParserService';
 import { workflowRuntime } from '../../workflow/workflow-runtime';
 import { knowledgeIndex } from '../../knowledge/knowledge-index';
@@ -177,10 +177,11 @@ export function normalizePlan(
   const textTargets = Array.from(userText.matchAll(/https?:\/\/[^\s，。；;]+/g)).map((match) => match[0]);
   const targets = Array.from(new Set([...inputTargets, ...textTargets].map((value) => String(value).trim()).filter(Boolean))).slice(0, 30);
   const goal = String(input?.goal || userText).slice(0, 300);
+  const explicitAnalysis = inferExplicitAnalysisGoals(userText);
   const suppliedAnalysis = Array.isArray(input?.analysis) && input.analysis.some((value: unknown) => String(value).trim());
   const analysisSource = ['ai', 'fallback', 'user'].includes(String(input?.analysisSource))
     ? input.analysisSource
-    : suppliedAnalysis ? 'ai' : 'fallback';
+    : explicitAnalysis.length ? 'user' : suppliedAnalysis ? 'ai' : undefined;
 
   // Do not let the planner silently enlarge a new run. The user's own words are
   // authoritative; absent an explicit scope, every new plan starts at quick.
@@ -216,11 +217,15 @@ export function normalizePlan(
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
   const loginType = requiresAuth ? 'qrcode' : 'none';
   const suppliedGoals = Array.isArray(input?.analysis) ? input.analysis : [];
-  const analysis = skill?.category === 'tool'
-    ? []
-    : skill?.defaults
-      ? normalizeAnalysisGoals([...skill.defaults.analysis, ...suppliedGoals], goal)
-      : normalizeAnalysisGoals(input?.analysis, goal);
+  const analysis = skill?.category === 'business' && skill.defaults
+    ? normalizeAnalysisGoals([...skill.defaults.analysis, ...explicitAnalysis, ...suppliedGoals], goal)
+    : normalizeAnalysisGoals([...explicitAnalysis, ...suppliedGoals], goal);
+  // Generic Agent collection always produces an automatic evidence-led report.
+  // Deterministic tools keep their explicit "collect only" contract unless the
+  // user supplied an analysis goal; business Skills always use their template.
+  const autoAnalyze = skill?.category === 'business'
+    || (!skill || skill.id === 'multi-source-research')
+    || analysis.length > 0;
 
   const connectorOptions = input?.connectorOptions && typeof input.connectorOptions === 'object'
     ? { ...input.connectorOptions }
@@ -254,6 +259,7 @@ export function normalizePlan(
     headless: Boolean(input?.headless),
     analysis,
     analysisSource,
+    autoAnalyze,
     outputs: skill?.defaults?.outputs?.length
       ? skill.defaults.outputs
       : Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['csv'],
@@ -853,6 +859,12 @@ export class AgentService {
               const created = agentRepository.createPlan(threadId, plan);
               this.executePlan(created.plan_id);
               agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，已生成采集计划并自动进入本地执行队列。', { plan_id: created.plan_id, action: 'execute' });
+              const currentThread = agentRepository.getThread(threadId);
+              if (!latest && ['default', 'fallback'].includes(String(currentThread?.title_source))) {
+                agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
+              }
+              this.scheduleThreadTitle(threadId);
+              this.scheduleMemoryCapture(threadId, content);
               return agentRepository.getThread(threadId);
             }
           } catch (err: any) { ensureMessageNotAborted(signal); }
@@ -861,6 +873,8 @@ export class AgentService {
       } else {
         this.executePlan(latest.plan_id);
         agentRepository.addMessage(threadId, 'assistant', 'status', decision.reply || '好的，任务已进入本地执行队列。', { plan_id: latest.plan_id, action: 'execute' });
+        this.scheduleThreadTitle(threadId);
+        this.scheduleMemoryCapture(threadId, content);
       }
       return agentRepository.getThread(threadId);
     }
@@ -1201,7 +1215,7 @@ export class AgentService {
       if (locations.length) scopeLine += `\n地域：${locations.join('、')}`;
       if (plan.contentEnrichment.mode !== 'snippet') {
         const modeLabel = plan.contentEnrichment.mode === 'full' ? '尽量阅读全文' : '自动深度阅读';
-        scopeLine += `\n正文：${modeLabel}，搜索结果去重后最多读取 ${plan.contentEnrichment.maxReadItems} 个网页，每域名最多 ${plan.contentEnrichment.maxPerDomain} 个`;
+        scopeLine += `\n正文：${modeLabel}，最多读取 ${plan.contentEnrichment.maxReadItems} 个网页，每域名最多 ${plan.contentEnrichment.maxPerDomain} 个`;
       } else if (plan.platforms.some((platform) => getConnectorManifest(platform)?.category === 'web_search')) {
         scopeLine += '\n正文：仅保留搜索摘要';
       }
@@ -1224,12 +1238,16 @@ export class AgentService {
 
     const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
     if (autoStart) this.executePlan(created.plan_id);
+    const shouldAutoAnalyze = Boolean(
+      plan.autoAnalyze || plan.analysis.length || planSkill?.execution.autoAnalyzeOnCompletion,
+    );
     const nextStep = autoStart
-      ? plan.analysis.length || planSkill?.execution.autoAnalyzeOnCompletion
+      ? shouldAutoAnalyze
         ? '\n\n任务已进入执行队列，采集结束后会自动完成计划中的分析；如需调整，可以随时暂停。'
         : '\n\n任务已进入执行队列；如需调整，可以随时暂停。采集完成后可继续让我分析结果。'
       : '\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。';
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}\n分析维度：${plan.analysis.join('、') || '按用户后续问题分析'}${nextStep}`, {
+    const analysisLine = plan.analysis.length ? `\n分析重点：${plan.analysis.join('、')}` : '';
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}${analysisLine}${nextStep}`, {
       plan_id: created.plan_id,
       skill_id: planSkill?.id,
       action: autoStart ? 'execute' : decision.action,
@@ -1238,9 +1256,11 @@ export class AgentService {
     // 计划只负责提供默认标题兜底，不覆盖用户首句或已经生成的会话标题。
     // 平台信息属于任务元数据，放在标题中会让同一平台的任务高度雷同。
     const currentThread = agentRepository.getThread(threadId);
-    if (!latest && currentThread?.title_source === 'default') {
+    if (!latest && ['default', 'fallback'].includes(String(currentThread?.title_source))) {
       agentRepository.updateAutomaticTitle(threadId, titleFromPlan(plan), 'plan');
     }
+    this.scheduleThreadTitle(threadId);
+    this.scheduleMemoryCapture(threadId, content);
     return agentRepository.getThread(threadId);
   }
 
@@ -1387,7 +1407,8 @@ export class AgentService {
       );
       if (autoAnalyzed) continue;
 
-      if (['completed', 'partially_completed'].includes(status) && totalItems > 0 && final.plan?.analysis?.length) {
+      if (['completed', 'partially_completed'].includes(status) && totalItems > 0
+        && (final.plan?.autoAnalyze || final.plan?.analysis?.length)) {
         const existingReport = agentRepository.getThread(final.thread_id)?.messages?.some((message: any) =>
           message.kind === 'analysis' && message.metadata?.plan_id === final.plan_id,
         );
