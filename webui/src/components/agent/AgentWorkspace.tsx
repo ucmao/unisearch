@@ -586,6 +586,39 @@ function isPlanLikeMessage(message?: AgentMessage | null): boolean {
   return Boolean(planId) && ['execute', 'create_plan', 'plan'].includes(String(action || ''))
 }
 
+function parsePlanText(rawText: string) {
+  if (!rawText) return { configText: '', noticeText: '' }
+  const lines = rawText.split(/\r?\n/)
+  const configLines: string[] = []
+  const noticeLines: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    // 1. Filter out redundant status lead headers (already represented by card status summary)
+    if (/^已(创建任务|按.*创建任务|按你的补充|识别并创建)/.test(trimmed)) {
+      continue
+    }
+
+    // 2. Classify task config parameter lines
+    if (
+      /^(Skill|平台|关键词|目标|范围|地域|正文|分析维度)：/.test(trimmed) ||
+      trimmed.startsWith('（相比上一轮')
+    ) {
+      configLines.push(trimmed)
+    } else {
+      // 3. Operational guidance / next step notice
+      noticeLines.push(trimmed)
+    }
+  }
+
+  return {
+    configText: configLines.join('\n'),
+    noticeText: noticeLines.join('\n'),
+  }
+}
+
 function PlanMessageContent({
   cleanContent,
   isPlanRunning,
@@ -594,36 +627,44 @@ function PlanMessageContent({
   isPlanRunning: boolean
 }) {
   const [runningDetailsOpen, setRunningDetailsOpen] = useState(true)
+  const { configText, noticeText } = parsePlanText(cleanContent)
+  const displayConfig = configText || cleanContent
 
-  if (isPlanRunning) {
-    return (
-      <details
-        open={runningDetailsOpen}
-        onToggle={(event) => setRunningDetailsOpen(event.currentTarget.open)}
-        className="group my-1 text-xs text-cyber-text-muted"
-      >
+  return (
+    <div className="space-y-3">
+      {isPlanRunning ? (
+        <details
+          open={runningDetailsOpen}
+          onToggle={(event) => setRunningDetailsOpen(event.currentTarget.open)}
+          className="group my-1 text-xs text-cyber-text-muted"
+        >
           <summary className="inline-flex cursor-pointer items-center gap-2 font-medium text-cyber-neon-cyan transition-colors select-none">
             <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
             <span>已创建任务并开始采集</span>
             <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
           </summary>
           <div className="mt-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
-            {cleanContent}
+            {displayConfig}
           </div>
-      </details>
-    )
-  }
+        </details>
+      ) : (
+        <details className="group my-1 text-xs text-cyber-text-muted">
+          <summary className="inline-flex cursor-pointer items-center gap-1 text-[13px] text-cyber-text-secondary hover:text-cyber-neon-cyan transition-colors select-none">
+            <span>采集任务原始配置信息</span>
+            <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
+          </summary>
+          <div className="mt-2 rounded-lg border border-cyber-border-subtle/40 bg-cyber-bg-tertiary/20 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
+            {displayConfig}
+          </div>
+        </details>
+      )}
 
-  return (
-    <details className="group my-1 text-xs text-cyber-text-muted">
-      <summary className="inline-flex cursor-pointer items-center gap-1 text-[13px] text-cyber-text-secondary hover:text-cyber-neon-cyan transition-colors select-none">
-        <span>采集任务原始配置信息</span>
-        <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
-      </summary>
-      <div className="mt-2 rounded-lg border border-cyber-border-subtle/40 bg-cyber-bg-tertiary/20 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
-        {cleanContent}
-      </div>
-    </details>
+      {noticeText ? (
+        <div className="text-sm leading-relaxed text-cyber-text-primary whitespace-pre-wrap">
+          {noticeText}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
