@@ -68,6 +68,7 @@ app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_pro
 
 let mainWindow: BrowserWindow | null = null;
 let crawlerHubWindow: BrowserWindow | null = null;
+let crawlerHubRestoreMaximized = false;
 const crawlerViews = new Map<string, BrowserView>();
 type CrawlerTabStatus = 'running' | 'completed' | 'failed' | 'stopped';
 const crawlerTabStates = new Map<string, CrawlerTabStatus>();
@@ -346,6 +347,7 @@ function activateCrawlerView(platform: string): boolean {
 function createCrawlerHubWindow(): BrowserWindow {
   if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) return crawlerHubWindow;
   const restoredState = restoredWindowState('crawler', 1280, 800);
+  crawlerHubRestoreMaximized = Boolean(restoredState?.maximized);
   crawlerHubWindow = new BrowserWindow({
     ...(restoredState?.bounds ?? { width: 1280, height: 800 }),
     minWidth: 820,
@@ -365,7 +367,6 @@ function createCrawlerHubWindow(): BrowserWindow {
     },
   });
   trackWindowState('crawler', crawlerHubWindow);
-  if (restoredState?.maximized) crawlerHubWindow.maximize();
   crawlerHubWindow.webContents.on('will-navigate', (event, url) => {
     if (url.startsWith('unisearch-tab://')) {
       event.preventDefault();
@@ -394,6 +395,7 @@ function createCrawlerHubWindow(): BrowserWindow {
   });
   crawlerHubWindow.on('closed', () => {
     crawlerHubWindow = null;
+    crawlerHubRestoreMaximized = false;
   });
   refreshCrawlerHubTabs();
   return crawlerHubWindow;
@@ -524,6 +526,11 @@ export function showCrawlerWindow(platform?: string): boolean {
   if (!activateCrawlerView(resolvedPlatform)) return false;
   if (hub.isMinimized()) hub.restore();
   hub.show();
+  // Calling maximize() while a hidden BrowserWindow is being prepared can
+  // reveal it on macOS. Restore the saved maximized state only after an
+  // explicit user action has made the crawler window visible.
+  if (crawlerHubRestoreMaximized && !hub.isMaximized()) hub.maximize();
+  crawlerHubRestoreMaximized = false;
   hub.focus();
   return true;
 }

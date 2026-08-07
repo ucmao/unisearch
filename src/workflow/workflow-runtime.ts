@@ -75,6 +75,7 @@ export class WorkflowRuntime {
     try {
       const analysisGoals = workflow.plan.analysis || [];
       const result = await quickReportGenerator.generate({
+        threadId: workflow.thread_id,
         workflowId: workflow.plan_id,
         workflowGoal: workflow.goal,
         reportName,

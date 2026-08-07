@@ -543,7 +543,7 @@ export const agentApi = {
     task_references?: Array<{ plan_id: string; platforms?: string[] }>
     mentioned_connectors?: string[]
     mentioned_skills?: string[]
-  } = {}, onDelta?: (delta: string) => void, signal?: AbortSignal, onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string }) => void): Promise<{ data: AgentThread }> => {
+  } = {}, onDelta?: (delta: string) => void, signal?: AbortSignal, onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any; keywords?: string[] }) => void): Promise<{ data: AgentThread }> => {
     const response = await fetch(`/api/agent/threads/${encodeURIComponent(threadId)}/messages/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -570,7 +570,7 @@ export const agentApi = {
         const event = JSON.parse(line)
         if (event.type === 'delta' && typeof event.delta === 'string') onDelta?.(event.delta)
         else if (event.type === 'status' && typeof event.message === 'string') {
-          onStatus?.({ phase: event.phase, message: event.message, sources: event.sources, retrieval: event.retrieval })
+          onStatus?.({ phase: event.phase, message: event.message, sources: event.sources, retrieval: event.retrieval, analysis_coverage: event.analysis_coverage, keywords: event.keywords })
         }
         else if (event.type === 'complete') result = event.thread as AgentThread
         else if (event.type === 'error') throw new Error(event.detail || 'AI 消息处理失败')
@@ -590,7 +590,7 @@ export const agentApi = {
     messageId: string,
     onDelta?: (delta: string) => void,
     signal?: AbortSignal,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any; keywords?: string[] }) => void,
   ): Promise<{ data: AgentThread }> => {
     const response = await fetch(`/api/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/regenerate/stream`, {
       method: 'POST',
@@ -618,7 +618,7 @@ export const agentApi = {
         const event = JSON.parse(line)
         if (event.type === 'delta' && typeof event.delta === 'string') onDelta?.(event.delta)
         else if (event.type === 'status' && typeof event.message === 'string') {
-          onStatus?.({ phase: event.phase, message: event.message, sources: event.sources, retrieval: event.retrieval })
+          onStatus?.({ phase: event.phase, message: event.message, sources: event.sources, retrieval: event.retrieval, analysis_coverage: event.analysis_coverage, keywords: event.keywords })
         }
         else if (event.type === 'complete') result = event.thread as AgentThread
         else if (event.type === 'error') throw new Error(event.detail || 'AI 消息处理失败')
