@@ -20,6 +20,8 @@ export interface ItemPreview {
   url?: string;
   fetched_at?: string;
   run_id?: string;
+  thread_id?: string;
+  plan_id?: string;
 }
 
 export interface LogEntry {
@@ -30,6 +32,7 @@ export interface LogEntry {
   platform?: string;
   run_id?: string;
   thread_id?: string;
+  plan_id?: string;
   item_preview?: ItemPreview;
 }
 
@@ -73,7 +76,12 @@ export class CrawlerTask {
       platform: this.platform,
       run_id: this.currentRunId || undefined,
       thread_id: (this.config.thread_id || this.currentRunId) || undefined,
-      item_preview: itemPreview,
+      plan_id: this.config.workflow_id || undefined,
+      item_preview: itemPreview ? {
+        ...itemPreview,
+        thread_id: this.config.thread_id || undefined,
+        plan_id: this.config.workflow_id || undefined,
+      } : undefined,
     };
 
     if (this.currentRunId) {

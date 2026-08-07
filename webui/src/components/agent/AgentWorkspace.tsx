@@ -25,6 +25,8 @@ import { CommandPopover } from './CommandPopover'
 import { useMentionCommands, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
 import { usePlatformLabels, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
 import { cn } from '@/lib/utils'
+import { resolveComposerMode } from '@/lib/agentTaskState'
+import { selectPlanPreviews } from '@/lib/livePreviewScope'
 
 const AI_PLATFORMS = new Set([
   'deepseek', 'doubao', 'kimi', 'nami', 'qwen', 'wenxin', 'yuanbao',
@@ -295,7 +297,7 @@ function CsvDownloadLink({ planId, threadId, compact = false }: { planId?: strin
   )
 }
 
-function SinglePassPacedThreeLineStream({ isRunning }: { isRunning: boolean }) {
+function SinglePassPacedThreeLineStream({ isRunning, planId }: { isRunning: boolean; planId: string }) {
   const liveItemPreviews = useCrawlerStore((state) => state.liveItemPreviews)
   const platformLabels = usePlatformLabels()
 
@@ -303,25 +305,25 @@ function SinglePassPacedThreeLineStream({ isRunning }: { isRunning: boolean }) {
   const [displayed, setDisplayed] = useState<Array<{ item: any; displayTime: number }>>([])
   const processedSeqRef = useRef(0)
 
-  // Reset state & wipe store previews immediately whenever collection stops / finishes
+  // Each stream owns only its local queue. The shared preview store may contain
+  // other concurrently running plans and must never be cleared globally here.
   useEffect(() => {
     if (!isRunning) {
       setQueue([])
       setDisplayed([])
       processedSeqRef.current = 0
-      useCrawlerStore.getState().clearLiveItemPreviews()
     }
   }, [isRunning])
 
   // Ingest new items from liveItemPreviews that have seq > processedSeqRef.current
   useEffect(() => {
-    const newItems = liveItemPreviews.filter((item) => (item.seq || 0) > processedSeqRef.current)
+    const newItems = selectPlanPreviews(liveItemPreviews, planId, processedSeqRef.current)
     if (newItems.length > 0) {
       const maxSeq = Math.max(...newItems.map((i) => i.seq || 0))
       processedSeqRef.current = maxSeq
       setQueue((prev) => [...prev, ...newItems])
     }
-  }, [liveItemPreviews])
+  }, [liveItemPreviews, planId])
 
   // Dequeue 1 item every 1500ms into displayed list (max 3 items), tagging displayTime
   useEffect(() => {
@@ -433,7 +435,7 @@ function ChatCrawlingStatusBanner({
       </div>
 
       <div className="absolute top-9 left-0 right-0 z-10 pointer-events-none">
-        <SinglePassPacedThreeLineStream isRunning={isStreamActive} />
+        <SinglePassPacedThreeLineStream isRunning={isStreamActive} planId={activePlan.plan_id} />
       </div>
     </div>
   )
@@ -869,8 +871,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     mentionEntities: skillEntities,
   })
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null)
-  const [aiRetryState, setAiRetryState] = useState<{ count: number; max: number; delaySec: number } | null>(null)
-  const [aiProgress, setAiProgress] = useState<AiProgressStatus | null>(null)
+  const [aiRetryStates, setAiRetryStates] = useState<Record<string, { count: number; max: number; delaySec: number }>>({})
+  const [aiProgressByThread, setAiProgressByThread] = useState<Record<string, AiProgressStatus>>({})
+  const [pendingMessageThreadIds, setPendingMessageThreadIds] = useState<Set<string>>(() => new Set())
+  const [stoppingMessageThreadIds, setStoppingMessageThreadIds] = useState<Set<string>>(() => new Set())
+  const [stoppingPlanIds, setStoppingPlanIds] = useState<Set<string>>(() => new Set())
+  const [regeneratingMessageByThread, setRegeneratingMessageByThread] = useState<Record<string, string>>({})
+  const sendAbortControllersRef = useRef(new Map<string, AbortController>())
+  const selectedThreadIdRef = useRef<string | null>(selectedId)
+
+  useEffect(() => {
+    selectedThreadIdRef.current = selectedId
+  }, [selectedId])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('appearance')
   const [addMenuOpen, setAddMenuOpen] = useState(false)
@@ -1039,9 +1051,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const composerBackdropRef = useRef<HTMLDivElement>(null)
   const petReactionTimerRef = useRef<number | null>(null)
   const petReactionFrameRef = useRef<number | null>(null)
-  const sendAbortControllerRef = useRef<AbortController | null>(null)
   const shouldStickToBottomRef = useRef(true)
-  const [isStoppingMessage, setIsStoppingMessage] = useState(false)
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto', force = false) => {
     if (!force && !shouldStickToBottomRef.current) return
     window.requestAnimationFrame(() => {
@@ -1064,7 +1074,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const send = useMutation({
     mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
       const controller = new AbortController()
-      sendAbortControllerRef.current = controller
+      sendAbortControllersRef.current.set(id, controller)
       const mentionedSkills = extractMentionedSkillIds(content, skillEntities)
       const streamingMessageId = `streaming-${id}`
       let streamedContent = ''
@@ -1107,7 +1117,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               : [...current.messages, streamedMessage],
           }
         })
-        scrollMessagesToBottom('auto')
+        if (selectedThreadIdRef.current === id) scrollMessagesToBottom('auto')
       }
       const scheduleRender = () => {
         if (renderTimer !== null) return
@@ -1124,7 +1134,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           streamedContent += delta
           scheduleRender()
         }, controller.signal, (status) => {
-          setAiProgress(status)
+          setAiProgressByThread((current) => ({ ...current, [id]: status }))
           if ((status.sources && Array.isArray(status.sources)) || status.analysis_coverage) {
             streamedSources = status.sources
             streamedRetrieval = status.retrieval
@@ -1138,7 +1148,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       }
     },
     onMutate: async ({ id, message }) => {
-      setAiProgress(null)
+      setPendingMessageThreadIds((current) => new Set(current).add(id))
+      setAiProgressByThread((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
       await client.cancelQueries({ queryKey: ['agent-thread', id] })
       client.setQueryData<AgentThread>(['agent-thread', id], (current) => current ? {
         ...current,
@@ -1146,7 +1161,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         updated_at: message.created_at,
         messages: [...current.messages, message],
       } : current)
-      scrollMessagesToBottom('smooth', true)
+      if (selectedThreadIdRef.current === id) scrollMessagesToBottom('smooth', true)
     },
     onSuccess: ({ data }) => {
       client.setQueryData(['agent-thread', data.thread_id], data)
@@ -1158,34 +1173,58 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-thread', id] })
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
-    onSettled: () => {
-      sendAbortControllerRef.current = null
-      setIsStoppingMessage(false)
-      setAiProgress(null)
+    onSettled: (_data, _error, { id }) => {
+      sendAbortControllersRef.current.delete(id)
+      setPendingMessageThreadIds((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
+      setAiProgressByThread((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      setAiRetryStates((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
     },
   })
 
+  const isCurrentMessagePending = Boolean(selectedId && pendingMessageThreadIds.has(selectedId))
+
   useEffect(() => {
-    if (!send.isPending) {
-      setAiRetryState(null)
+    if (!selectedId) return
+    if (!pendingMessageThreadIds.has(selectedId)) {
+      setAiRetryStates((current) => {
+        if (!current[selectedId]) return current
+        const next = { ...current }
+        delete next[selectedId]
+        return next
+      })
       return
     }
     const latest = systemLogs.at(-1)
     if (latest && latest.thread_id === selectedId && latest.retry_count) {
-      setAiRetryState({
-        count: latest.retry_count,
-        max: latest.max_retries || 3,
-        delaySec: latest.delay_sec || 5,
-      })
+      setAiRetryStates((current) => ({
+        ...current,
+        [selectedId]: {
+          count: Number(latest.retry_count),
+          max: latest.max_retries || 3,
+          delaySec: latest.delay_sec || 5,
+        },
+      }))
     }
-  }, [systemLogs, send.isPending, selectedId])
+  }, [systemLogs, pendingMessageThreadIds, selectedId])
 
   const threadsQuery = useQuery({ queryKey: ['agent-threads'], queryFn: async () => (await agentApi.listThreads()).data.items, refetchInterval: 3000 })
   const threadQuery = useQuery({
     queryKey: ['agent-thread', selectedId],
     queryFn: async () => (await agentApi.getThread(selectedId!)).data,
     enabled: Boolean(selectedId),
-    refetchInterval: (query) => (send.isPending ? false : (query.state.data?.plan && ['queued', 'running'].includes(query.state.data.plan.status) ? 600 : 1500)),
+    refetchInterval: (query) => (isCurrentMessagePending ? false : (query.state.data?.plan && ['queued', 'running'].includes(query.state.data.plan.status) ? 600 : 1500)),
   })
   const referenceableTasksQuery = useQuery({ queryKey: ['agent-referenceable-tasks'], queryFn: async () => (await agentApi.listReferenceableTasks()).data.items, enabled: taskPickerOpen })
 
@@ -1374,7 +1413,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const regenerate = useMutation({
     mutationFn: async ({ threadId, messageId }: { threadId: string; messageId: string }) => {
       const controller = new AbortController()
-      sendAbortControllerRef.current = controller
+      sendAbortControllersRef.current.set(threadId, controller)
       let streamedContent = ''
       let renderedContent = ''
       let streamedSources: any[] | undefined = undefined
@@ -1417,7 +1456,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               : [...current.messages, streamedMessage],
           }
         })
-        scrollMessagesToBottom('auto')
+        if (selectedThreadIdRef.current === threadId) scrollMessagesToBottom('auto')
       }
       const scheduleRender = () => {
         if (renderTimer !== null) return
@@ -1430,7 +1469,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           streamedContent += delta
           scheduleRender()
         }, controller.signal, (status) => {
-          setAiProgress(status)
+          setAiProgressByThread((current) => ({ ...current, [threadId]: status }))
           if ((status.sources && Array.isArray(status.sources)) || status.analysis_coverage) {
             streamedSources = status.sources
             streamedRetrieval = status.retrieval
@@ -1444,7 +1483,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       }
     },
     onMutate: async ({ threadId, messageId }) => {
-      setAiProgress(null)
+      setPendingMessageThreadIds((current) => new Set(current).add(threadId))
+      setRegeneratingMessageByThread((current) => ({ ...current, [threadId]: messageId }))
+      setAiProgressByThread((current) => {
+        const next = { ...current }
+        delete next[threadId]
+        return next
+      })
       await client.cancelQueries({ queryKey: ['agent-thread', threadId] })
       client.setQueryData<AgentThread>(['agent-thread', threadId], (current) => {
         if (!current) return current
@@ -1455,7 +1500,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           messages: current.messages.slice(0, targetIndex),
         }
       })
-      scrollMessagesToBottom('auto', true)
+      if (selectedThreadIdRef.current === threadId) scrollMessagesToBottom('auto', true)
     },
     onSuccess: ({ data }) => {
       client.setQueryData(['agent-thread', data.thread_id], data)
@@ -1467,10 +1512,28 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-thread', threadId] })
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
-    onSettled: () => {
-      sendAbortControllerRef.current = null
-      setIsStoppingMessage(false)
-      setAiProgress(null)
+    onSettled: (_data, _error, { threadId }) => {
+      sendAbortControllersRef.current.delete(threadId)
+      setPendingMessageThreadIds((current) => {
+        const next = new Set(current)
+        next.delete(threadId)
+        return next
+      })
+      setRegeneratingMessageByThread((current) => {
+        const next = { ...current }
+        delete next[threadId]
+        return next
+      })
+      setAiProgressByThread((current) => {
+        const next = { ...current }
+        delete next[threadId]
+        return next
+      })
+      setAiRetryStates((current) => {
+        const next = { ...current }
+        delete next[threadId]
+        return next
+      })
     },
   })
   const rename = useMutation({
@@ -1505,21 +1568,27 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     },
     onError: (error) => toast.error(getError(error)),
   })
-  const clearLiveItemPreviews = useCrawlerStore((state) => state.clearLiveItemPreviews)
   const execute = useMutation({
     mutationFn: (planId: string) => agentApi.executePlan(planId),
-    onMutate: () => { clearLiveItemPreviews() },
     onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
     onError: (error) => toast.error(getError(error)),
   })
   const stopPlan = useMutation({
     mutationFn: (planId: string) => agentApi.stopPlan(planId),
+    onMutate: (planId) => {
+      setStoppingPlanIds((current) => new Set(current).add(planId))
+    },
     onSuccess: ({ data }) => {
       if (data.stopped) toast.success('采集已中止')
       else toast.info('任务已经结束，无需中止')
     },
     onError: (error) => toast.error(getError(error)),
-    onSettled: () => {
+    onSettled: (_data, _error, planId) => {
+      setStoppingPlanIds((current) => {
+        const next = new Set(current)
+        next.delete(planId)
+        return next
+      })
       client.invalidateQueries({ queryKey: ['agent-thread', selectedId] })
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
@@ -1557,7 +1626,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   ) ?? 0
   useEffect(() => {
     scrollMessagesToBottom(streamingContentLength > 0 ? 'auto' : 'smooth')
-  }, [threadQuery.data?.messages.length, send.isPending, streamingContentLength, scrollMessagesToBottom])
+  }, [threadQuery.data?.messages.length, isCurrentMessagePending, streamingContentLength, scrollMessagesToBottom])
   useEffect(() => () => {
     if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
     if (petReactionFrameRef.current !== null) window.cancelAnimationFrame(petReactionFrameRef.current)
@@ -1565,7 +1634,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
   const submit = () => {
     const content = input.trim()
-    if (!content || send.isPending || create.isPending) return
+    if (!content || isCurrentMessagePending || (selectedId && stoppingMessageThreadIds.has(selectedId)) || create.isPending) return
     const references = taskReferences.map(({ plan_id, platforms }) => ({ plan_id, platforms }))
     if (!selectedId) {
       const selectedTaskReferences = [...taskReferences]
@@ -1587,21 +1656,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setInput('')
     setAttachments([])
     setTaskReferences([])
-    if (activePlan && ['queued', 'running'].includes(activePlan.status)) {
-      stopPlan.mutate(activePlan.plan_id)
-    }
     send.mutate({ id: selectedId, content, attachmentIds, references, message })
   }
 
   const stopGenerating = () => {
-    const threadId = send.variables?.id
-    if (!threadId || isStoppingMessage) return
-    setIsStoppingMessage(true)
-    sendAbortControllerRef.current?.abort()
+    const threadId = selectedId
+    if (!threadId || stoppingMessageThreadIds.has(threadId)) return
+    setStoppingMessageThreadIds((current) => new Set(current).add(threadId))
+    sendAbortControllersRef.current.get(threadId)?.abort()
     agentApi.stopMessage(threadId)
       .catch((error) => toast.error(getError(error)))
       .finally(() => {
-        setIsStoppingMessage(false)
+        setStoppingMessageThreadIds((current) => {
+          const next = new Set(current)
+          next.delete(threadId)
+          return next
+        })
         client.invalidateQueries({ queryKey: ['agent-thread', threadId] })
         client.invalidateQueries({ queryKey: ['agent-threads'] })
       })
@@ -1671,9 +1741,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     [threadsQuery.data],
   )
   const isCollecting = (threadsQuery.data || []).some((thread) => thread.plan_status === 'running')
-  // The crawl runs in a background workflow, so `send.isPending` (the chat request)
-  // says nothing about it. The composer button needs this to offer a real abort.
+  // Collection and message generation are independent and scoped to the selected task.
   const isPlanRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
+  const isCurrentPlanStopping = Boolean(activePlan && stoppingPlanIds.has(activePlan.plan_id))
+  const isCurrentMessageStopping = Boolean(selectedId && stoppingMessageThreadIds.has(selectedId))
+  const currentRegeneratingMessageId = selectedId ? regeneratingMessageByThread[selectedId] : undefined
+  const aiRetryState = selectedId ? aiRetryStates[selectedId] || null : null
+  const aiProgress = selectedId ? aiProgressByThread[selectedId] || null : null
   const terminalPlatforms = useMemo(() => Array.from(new Set(activePlan?.steps.map((step) => step.platform) || [])), [activePlan])
   const lastAssistantMessageId = useMemo(() => {
     const messages = threadQuery.data?.messages || []
@@ -1703,7 +1777,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     return null
   }, [activePlan, threadQuery.data?.messages])
   const hasStreamingAnswer = Boolean(threadQuery.data?.messages.some((message) => message.metadata?.streaming))
-  const isThinking = ((send.isPending && send.variables?.id === selectedId) || (regenerate.isPending && regenerate.variables?.threadId === selectedId)) && !hasStreamingAnswer
+  const isThinking = isCurrentMessagePending && !hasStreamingAnswer
   const toggleThreads = () => {
     setThreadsCollapsed((current) => {
       localStorage.setItem('unisearch-threads-collapsed', String(!current))
@@ -2109,14 +2183,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     activePlan={activePlan}
                     planConfigContent={planConfigContent}
                     onStopPlan={handleStopPlan}
-                    stoppingPlan={stopPlan.isPending}
+                    stoppingPlan={isCurrentPlanStopping}
                     hasStreamingAnswer={hasStreamingAnswer}
                     isPlanInitiator={message.message_id === planInitiatorMessageId}
-                    deletingPair={removeMessagePair.isPending || send.isPending || regenerate.isPending}
+                    deletingPair={removeMessagePair.isPending || isCurrentMessagePending}
                     onDeletePair={handleDeleteMessagePair}
                     onRegenerate={handleRegenerateMessage}
-                    regenerating={regenerate.isPending && regenerate.variables?.messageId === message.message_id}
-                    disabled={send.isPending || regenerate.isPending}
+                    regenerating={currentRegeneratingMessageId === message.message_id}
+                    disabled={isCurrentMessagePending}
                     isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId}
                     onPreviewImage={handlePreviewImage}
                     onCitationClick={handleCitationClick}
@@ -2259,18 +2333,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         if (isHandled) return
                         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                           e.preventDefault()
-                          if (send.isPending || isPlanRunning) return
+                          if (isCurrentMessagePending || isCurrentMessageStopping) return
                           submit()
                         }
                       }}
                       onPaste={handlePaste}
-                      placeholder={isPlanRunning ? '正在采集与分析中，点击右下角按钮可中止任务…' : !selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
+                      placeholder={isPlanRunning ? '采集在后台进行中，你可以继续提问…' : !selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
                       className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
                       spellCheck={false}
                     />
                   </div>
                   <div ref={addMenuRef} className="absolute bottom-2.5 left-3">
-                    <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || send.isPending} title="添加内容">
+                    <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || isCurrentMessagePending} title="添加内容">
                       {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus className="h-4.5 w-4.5" />}
                     </Button>
                     {addMenuOpen ? <div className="absolute bottom-11 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
@@ -2291,12 +2365,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   {(() => {
                     // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
                     // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
-                    const mode = send.isPending ? 'stop-message'
-                      : isPlanRunning ? 'stop-plan'
-                        : 'send'
+                    const mode = resolveComposerMode({
+                      messagePending: isCurrentMessagePending,
+                      planRunning: isPlanRunning,
+                      hasInput: Boolean(input.trim()),
+                    })
                     const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
-                    const busy = mode === 'stop-message' ? isStoppingMessage : mode === 'stop-plan' ? stopPlan.isPending : create.isPending
-                    const isDisabled = mode === 'send' && (!input.trim() || create.isPending)
+                    const busy = mode === 'stop-message' ? isCurrentMessageStopping : mode === 'stop-plan' ? isCurrentPlanStopping : create.isPending
+                    const isDisabled = mode === 'send' && (!input.trim() || create.isPending || isCurrentMessageStopping)
 
                     const isStopMode = mode === 'stop-message' || mode === 'stop-plan'
                     const buttonStyles = isStopMode

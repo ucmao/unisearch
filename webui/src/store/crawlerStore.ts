@@ -39,7 +39,6 @@ interface CrawlerState {
   setConnectorOption: (platform: string, key: string, value: unknown) => void
   setSelectedPlatforms: (platforms: string[]) => void
   setActivePlatformTab: (platform: string) => void
-  clearLiveItemPreviews: () => void
   reset: (platform?: string) => void
 }
 
@@ -191,7 +190,14 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
     set((state) => {
       const pLogs = state.logs[platform] || []
       const previewWithTime = log.item_preview
-        ? { ...log.item_preview, run_id: log.item_preview.run_id || log.run_id, timestamp: Date.now(), seq: ++globalPreviewSeq }
+        ? {
+            ...log.item_preview,
+            run_id: log.item_preview.run_id || log.run_id,
+            thread_id: log.item_preview.thread_id || log.thread_id,
+            plan_id: log.item_preview.plan_id || log.plan_id,
+            timestamp: Date.now(),
+            seq: ++globalPreviewSeq,
+          }
         : null
       const nextPreviews = previewWithTime
         ? [...state.liveItemPreviews.slice(-99), previewWithTime]
@@ -274,8 +280,6 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
   },
 
   setActivePlatformTab: (activePlatformTab) => set({ activePlatformTab }),
-
-  clearLiveItemPreviews: () => set({ liveItemPreviews: [] }),
 
   reset: (platform) => {
     if (platform) {

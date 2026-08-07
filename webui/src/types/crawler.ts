@@ -48,6 +48,8 @@ export interface ItemPreview {
   timestamp?: number
   seq?: number
   run_id?: string
+  thread_id?: string
+  plan_id?: string
 }
 
 export interface LogEntry {
@@ -58,6 +60,7 @@ export interface LogEntry {
   platform?: string
   run_id?: string
   thread_id?: string
+  plan_id?: string
   retry_count?: number
   max_retries?: number
   delay_sec?: number
