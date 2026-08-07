@@ -11,6 +11,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  ChevronsDown,
+  ChevronsUp,
   Clock,
   Code,
   Columns3,
@@ -21,8 +23,11 @@ import {
   FileSpreadsheet,
   FileText,
   FileType,
+  Folder,
+  FolderOpen,
   Check,
   History,
+  Layers,
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
@@ -687,70 +692,252 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
   }
 
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
+
+  // 当任务首次载入或选中某个任务/轮次时，自动展开对应文件夹
+  useEffect(() => {
+    if (tasks.length && expandedTasks.size === 0) {
+      setExpandedTasks(new Set(tasks.map((t) => t.thread_id)))
+    }
+  }, [tasks])
+
+  useEffect(() => {
+    if (selectedThreadId) {
+      setExpandedTasks((prev) => new Set([...prev, selectedThreadId]))
+    } else if (selectedWorkflowId) {
+      const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === selectedWorkflowId))
+      if (parentTask) {
+        setExpandedTasks((prev) => new Set([...prev, parentTask.thread_id]))
+      }
+    }
+  }, [selectedThreadId, selectedWorkflowId, tasks])
+
+  const toggleTaskExpand = (threadId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setExpandedTasks((prev) => {
+      const next = new Set(prev)
+      if (next.has(threadId)) {
+        next.delete(threadId)
+      } else {
+        next.add(threadId)
+      }
+      return next
+    })
+  }
+
+  const expandAllTasks = () => {
+    setExpandedTasks(new Set(tasks.map((t) => t.thread_id)))
+  }
+
+  const collapseAllTasks = () => {
+    setExpandedTasks(new Set())
+  }
+
   const scopeTitle = selectedRunId
     ? `执行 ${selectedRunId.slice(0, 8)}`
     : selectedWorkflowId ? '当前采集轮次' : selectedThreadId ? '当前 AI 任务' : '全部任务的最新文档'
 
-  const renderScopeTree = (mobile = false) => (
-    <div className="space-y-2">
-      <button
-        type="button"
-        onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }}
-        className={`w-full rounded-lg border p-3 text-left transition-all ${scope === 'all' ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 shadow-sm' : 'border-cyber-border-subtle bg-cyber-bg-panel/40 hover:bg-cyber-bg-tertiary/60'}`}
-      >
-        <span className="block text-xs font-semibold text-cyber-text-primary">全部任务</span>
-        <span className="mt-0.5 block text-[10px] text-cyber-text-muted">每个文档展示最新采集快照</span>
-      </button>
-      {tasks.map((task) => {
-        const isTaskSelected = scope === `thread:${task.thread_id}`
-        return (
-          <div key={task.thread_id} className={`rounded-lg border p-2 transition-all ${isTaskSelected ? 'border-cyber-neon-cyan/40 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle bg-cyber-bg-panel/20'}`}>
-            <div className={`group flex items-center justify-between rounded-md px-2 py-1.5 transition-colors ${isTaskSelected ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary font-medium hover:bg-cyber-neon-cyan/20' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'}`}>
-              <button
-                type="button"
-                onClick={() => { setScope(`thread:${task.thread_id}`); if (mobile) setMobileScopeOpen(false) }}
-                className="min-w-0 flex-1 truncate text-left text-xs font-medium focus:outline-none"
-              >
-                {task.task_title || task.thread_id}
-              </button>
-              <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
-                <DeleteConfirmDialog
-                  title="删除整个任务及其采集数据？"
-                  description="该操作会物理删除任务下所有执行、文档来源和日志。"
-                  onConfirm={() => deleteScope('task', task.thread_id)}
-                  trigger={<Button variant="ghost" size="icon" className="h-6 w-6 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
-                />
-              </div>
+  const renderScopeTree = (mobile = false) => {
+    const isAllExpanded = tasks.length > 0 && tasks.every((t) => expandedTasks.has(t.thread_id))
+
+    return (
+      <div className="space-y-1">
+        {/* 全局范围：全部任务 */}
+        <button
+          type="button"
+          onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }}
+          className={`group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition-all ${
+            scope === 'all'
+              ? 'border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/15 text-cyber-text-primary shadow-xs'
+              : 'border border-transparent hover:border-cyber-border-subtle hover:bg-cyber-bg-tertiary/60 text-cyber-text-secondary hover:text-cyber-text-primary'
+          }`}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <Layers className={`h-4 w-4 shrink-0 transition-colors ${scope === 'all' ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted group-hover:text-cyber-neon-cyan'}`} />
+            <div className="min-w-0">
+              <span className="block truncate text-xs font-semibold">全部任务</span>
+              <span className="block truncate text-[10px] text-cyber-text-muted leading-tight">全局最新快照</span>
             </div>
-            <div className="ml-2 space-y-1 border-l border-cyber-border-subtle pl-2 mt-1">
-              {task.rounds.map((round) => {
-                const isRoundSelected = scope === `plan:${round.plan_id}`
-                return (
-                  <div key={round.plan_id} className={`group flex items-center justify-between rounded px-2 py-1 transition-colors ${isRoundSelected ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary font-medium hover:bg-cyber-neon-cyan/20' : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'}`}>
-                    <button
-                      type="button"
-                      onClick={() => { setScope(`plan:${round.plan_id}`); if (mobile) setMobileScopeOpen(false) }}
-                      className="min-w-0 flex-1 truncate text-left text-[11px] focus:outline-none"
-                    >
-                      {round.round_title || round.plan_id}
-                    </button>
-                    <div className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+          </div>
+          {scopeSummary?.totals.document_count !== undefined && (
+            <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${
+              scope === 'all'
+                ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-bold'
+                : 'bg-cyber-bg-secondary text-cyber-text-muted'
+            }`}>
+              {scopeSummary.totals.document_count} 条
+            </span>
+          )}
+        </button>
+
+        {/* 分隔与快捷操作 */}
+        <div className="my-1.5 flex items-center justify-between px-2 pt-1 text-[11px] text-cyber-text-muted">
+          <span>任务列表 ({tasks.length})</span>
+          {tasks.length > 0 && (
+            <button
+              type="button"
+              onClick={isAllExpanded ? collapseAllTasks : expandAllTasks}
+              className="hover:text-cyber-neon-cyan transition-colors text-[10px] flex items-center gap-0.5 focus:outline-none"
+              title={isAllExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
+            >
+              {isAllExpanded ? (
+                <>
+                  <ChevronsUp className="h-3 w-3" />
+                  <span>全部折叠</span>
+                </>
+              ) : (
+                <>
+                  <ChevronsDown className="h-3 w-3" />
+                  <span>全部展开</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* 文件夹树状列表 */}
+        <div className="space-y-0.5">
+          {tasks.map((task) => {
+            const isTaskSelected = scope === `thread:${task.thread_id}`
+            const isExpanded = expandedTasks.has(task.thread_id)
+            const hasRounds = Boolean(task.rounds && task.rounds.length > 0)
+
+            return (
+              <div key={task.thread_id} className="select-none">
+                {/* 1级节点：任务文件夹行 */}
+                <div
+                  className={`group relative flex h-8 items-center justify-between rounded-md px-1.5 text-xs transition-colors cursor-pointer ${
+                    isTaskSelected
+                      ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium border-l-2 border-cyber-neon-cyan'
+                      : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
+                  }`}
+                  onClick={() => {
+                    setScope(`thread:${task.thread_id}`)
+                    if (!isExpanded && hasRounds) {
+                      setExpandedTasks((prev) => new Set([...prev, task.thread_id]))
+                    }
+                    if (mobile) setMobileScopeOpen(false)
+                  }}
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
+                    {/* 折叠/展开箭头 */}
+                    {hasRounds ? (
+                      <button
+                        type="button"
+                        onClick={(e) => toggleTaskExpand(task.thread_id, e)}
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-cyber-bg-secondary hover:text-cyber-text-primary text-cyber-text-muted transition-colors focus:outline-none"
+                        title={isExpanded ? "收起" : "展开"}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+                    ) : (
+                      <span className="w-5 shrink-0" />
+                    )}
+
+                    {/* 文件夹图标 */}
+                    {isExpanded ? (
+                      <FolderOpen className={`h-3.5 w-3.5 shrink-0 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-neon-cyan/70'}`} />
+                    ) : (
+                      <Folder className={`h-3.5 w-3.5 shrink-0 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted group-hover:text-cyber-text-secondary'}`} />
+                    )}
+
+                    {/* 任务标题 */}
+                    <span className="min-w-0 flex-1 truncate text-xs" title={task.task_title || task.thread_id}>
+                      {task.task_title || task.thread_id}
+                    </span>
+                  </div>
+
+                  {/* 右侧徽章与快捷操作 */}
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    {hasRounds && (
+                      <span className="rounded bg-cyber-bg-secondary/80 px-1 py-0.5 font-mono text-[10px] text-cyber-text-muted group-hover:hidden">
+                        {task.rounds.length}
+                      </span>
+                    )}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                       <DeleteConfirmDialog
-                        title="删除该采集轮次？"
-                        description="该轮次下的执行和文档来源将被物理删除。"
-                        onConfirm={() => deleteScope('round', round.plan_id)}
-                        trigger={<Button variant="ghost" size="icon" className="h-5 w-5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"><Trash2 className="h-3 w-3" /></Button>}
+                        title="删除整个任务及其采集数据？"
+                        description="该操作会物理删除任务下所有执行、文档来源和日志。"
+                        onConfirm={() => deleteScope('task', task.thread_id)}
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"
+                            title="删除任务"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        }
                       />
                     </div>
                   </div>
-                )
-              })}
-            </div>
+                </div>
+
+                {/* 2级节点：采集轮次子树 */}
+                {isExpanded && hasRounds && (
+                  <div className="ml-3 my-0.5 space-y-0.5 border-l border-cyber-border-subtle/60 pl-2.5">
+                    {task.rounds.map((round) => {
+                      const isRoundSelected = scope === `plan:${round.plan_id}`
+                      return (
+                        <div
+                          key={round.plan_id}
+                          className={`group flex h-7 items-center justify-between rounded px-2 text-[11px] transition-colors cursor-pointer ${
+                            isRoundSelected
+                              ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium shadow-xs'
+                              : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
+                          }`}
+                          onClick={() => {
+                            setScope(`plan:${round.plan_id}`)
+                            if (mobile) setMobileScopeOpen(false)
+                          }}
+                        >
+                          <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
+                            <FileText className={`h-3 w-3 shrink-0 ${isRoundSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted'}`} />
+                            <span className="min-w-0 flex-1 truncate" title={round.round_title || round.plan_id}>
+                              {round.round_title || round.plan_id}
+                            </span>
+                          </div>
+
+                          <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                            <DeleteConfirmDialog
+                              title="删除该采集轮次？"
+                              description="该轮次下的执行和文档来源将被物理删除。"
+                              onConfirm={() => deleteScope('round', round.plan_id)}
+                              trigger={
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-4.5 w-4.5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"
+                                  title="删除轮次"
+                                >
+                                  <Trash2 className="h-2.5 w-2.5" />
+                                </Button>
+                              }
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {tasks.length === 0 && (
+          <div className="py-8 text-center text-xs text-cyber-text-muted">
+            暂无采集任务
           </div>
-        )
-      })}
-    </div>
-  )
+        )}
+      </div>
+    )
+  }
 
   const selectedColumns = [
     ...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })),
@@ -862,8 +1049,13 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
         >
           <div className="flex h-9 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/30 px-3">
             <span className="text-xs font-medium text-cyber-text-muted">任务范围</span>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded bg-cyber-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] text-cyber-text-muted">
+                {tasks.length} 个任务
+              </span>
+            </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">{renderScopeTree()}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">{renderScopeTree()}</div>
           {!sidebarCollapsed && (
             <div
               onMouseDown={startResizing}
