@@ -99,6 +99,9 @@ const metricLabels: Record<string, string> = {
 }
 
 const PLATFORM_CONFIGS: Record<string, { label: string; bg: string; text: string; border: string }> = {
+  media_parser: { label: '无水印解析', bg: 'bg-indigo-500/10 dark:bg-indigo-400/15', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/20' },
+  universal: { label: '通用采集', bg: 'bg-sky-500/10 dark:bg-sky-400/15', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20' },
+  web: { label: '网页采集', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
   baidu: { label: '百度', bg: 'bg-blue-500/10 dark:bg-blue-400/15', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
   bing: { label: '必应', bg: 'bg-teal-500/10 dark:bg-teal-400/15', text: 'text-teal-600 dark:text-teal-400', border: 'border-teal-500/20' },
   so360: { label: '360搜索', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
@@ -126,17 +129,15 @@ const PLATFORM_CONFIGS: Record<string, { label: string; bg: string; text: string
 
 function renderPlatformBadge(platformKey: string, fallbackLabel?: string) {
   const config = PLATFORM_CONFIGS[platformKey]
-  if (config) {
-    return (
-      <span className={`inline-flex items-center rounded-full border ${config.border} ${config.bg} ${config.text} px-2.5 py-0.5 text-[11px] font-medium transition-colors`}>
-        {config.label}
-      </span>
-    )
-  }
+  const label = config?.label || fallbackLabel || platformKey
+  const border = config?.border || 'border-cyber-border-subtle'
+  const bg = config?.bg || 'bg-cyber-bg-secondary'
+  const text = config?.text || 'text-cyber-text-secondary'
+
   return (
-    <Badge variant="outline" className="rounded-full px-2.5 text-[11px]">
-      {fallbackLabel || platformKey}
-    </Badge>
+    <span className={`inline-flex items-center shrink-0 whitespace-nowrap rounded-full border ${border} ${bg} ${text} px-2.5 py-0.5 text-[11px] font-medium transition-colors`}>
+      {label}
+    </span>
   )
 }
 
@@ -181,6 +182,18 @@ function displayValue(value: unknown, maxLength = 80): string {
   return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
 }
 
+function getColumnWidthClass(key: string): string {
+  if (key === 'title') return 'min-w-[320px] max-w-[460px]'
+  if (key === 'platform') return 'min-w-[95px] w-[95px] whitespace-nowrap'
+  if (key === 'kind') return 'min-w-[80px] w-[80px] whitespace-nowrap'
+  if (key === 'subject') return 'min-w-[140px] max-w-[200px]'
+  if (key === 'keyword') return 'min-w-[110px] max-w-[180px]'
+  if (key === 'publishedAt') return 'min-w-[140px] w-[140px] whitespace-nowrap font-mono'
+  if (key.startsWith('metric:')) return 'min-w-[90px] w-[90px] whitespace-nowrap text-right font-mono'
+  if (key.startsWith('attribute:')) return 'min-w-[120px] max-w-[220px]'
+  return 'min-w-[100px]'
+}
+
 function StatCard({ label, value, hint, icon: Icon }: {
   label: string
   value: number
@@ -188,13 +201,13 @@ function StatCard({ label, value, hint, icon: Icon }: {
   icon: typeof FileSearch
 }) {
   return (
-    <div className="glass-panel float-panel rounded-xl border border-cyber-border-subtle p-4 flex items-start justify-between gap-3 transition-colors duration-150 hover:border-cyber-border-subtle/80">
-      <div>
-        <p className="text-[11px] font-medium uppercase tracking-wider text-cyber-text-muted">{label}</p>
-        <p className="mt-1.5 font-mono text-2xl font-bold tracking-tight text-cyber-text-primary">{formatNumber(value)}</p>
-        <p className="mt-1 text-[11px] text-cyber-text-muted/80">{hint}</p>
+    <div className="glass-panel float-panel rounded-xl border border-cyber-border-subtle p-3.5 sm:p-4 flex min-w-0 items-start justify-between gap-2.5 sm:gap-3 transition-colors duration-150 hover:border-cyber-border-subtle/80 shadow-xs">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[11px] font-medium uppercase tracking-wider text-cyber-text-muted">{label}</p>
+        <p className="mt-1 truncate font-mono text-xl sm:text-2xl font-bold tracking-tight text-cyber-text-primary">{formatNumber(value)}</p>
+        <p className="mt-0.5 truncate text-[10px] sm:text-[11px] text-cyber-text-muted/80" title={hint}>{hint}</p>
       </div>
-      <div className="rounded-lg border border-cyber-border-subtle/80 bg-cyber-bg-tertiary/70 p-2.5 text-cyber-text-muted transition-colors">
+      <div className="shrink-0 rounded-lg border border-cyber-border-subtle/80 bg-cyber-bg-tertiary/70 p-2 text-cyber-text-muted transition-colors">
         <Icon className="h-4 w-4 text-cyber-text-muted" />
       </div>
     </div>
@@ -299,7 +312,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
   platformLabel: string
   onOpenChange: (open: boolean) => void
 }) {
-  const [drawerWidth, setDrawerWidth] = useState(560)
+  const [drawerWidth, setDrawerWidth] = useState(580)
   const [isResizing, setIsResizing] = useState(false)
   const [techDetailsOpen, setTechDetailsOpen] = useState(false)
 
@@ -311,7 +324,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
 
     const onMouseMove = (mouseMoveEvent: MouseEvent) => {
       const deltaX = startX - mouseMoveEvent.clientX
-      const newWidth = Math.max(360, Math.min(startWidth + deltaX, window.innerWidth * 0.85))
+      const newWidth = Math.max(380, Math.min(startWidth + deltaX, window.innerWidth * 0.88))
       setDrawerWidth(newWidth)
     }
 
@@ -330,19 +343,24 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
     : {}
   const cover = document ? previewAsset(document) : undefined
 
-  // 判断摘要是否与正文内容大面积重复
+  // 判断摘要是否与正文或标题大面积重复
   const isSummaryIdentical = useMemo(() => {
-    if (!document?.summary || !document?.markdown) return false
+    if (!document?.summary) return true
     const s = document.summary.trim()
-    const m = document.markdown.trim()
-    if (s === m) return true
-    return s.length > 20 && m.startsWith(s.slice(0, Math.min(40, s.length)))
+    const m = document.markdown ? document.markdown.trim() : ''
+    const t = document.title ? document.title.trim() : ''
+    if (s === m || s === t) return true
+    if (m && s.length > 20 && m.startsWith(s.slice(0, Math.min(40, s.length)))) return true
+    if (t && s.length > 20 && t.startsWith(s.slice(0, Math.min(40, s.length)))) return true
+    return false
   }, [document])
 
   return (
     <Dialog open={Boolean(document)} onOpenChange={onOpenChange}>
       <DialogContent
-        style={{ width: `min(${drawerWidth}px, 88vw)` }}
+        hideClose
+        overlayClassName="bg-black/20 backdrop-blur-[1px]"
+        style={{ width: `min(${drawerWidth}px, 94vw)` }}
         className={`left-auto right-0 top-0 flex h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-cyber-border-subtle bg-cyber-bg-panel/95 p-0 shadow-2xl backdrop-blur-md data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right ${isResizing ? 'select-none' : ''}`}
       >
         <div
@@ -352,70 +370,85 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
         />
         {document ? (
           <>
-            {/* 顶栏 Header */}
-            <div className="flex h-12 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-5 pr-12">
-              <div className="flex items-center gap-2">
+            {/* 顶栏 Header - 增加高度与充裕呼吸感 */}
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-6 sm:px-7 gap-3">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
                 {renderPlatformBadge(document.platform, platformLabel)}
-                <Badge variant="secondary" className="rounded-full px-2.5 text-[11px] font-normal">
+                <Badge variant="secondary" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-normal">
                   {kindLabels[document.kind] || document.kind}
                 </Badge>
-                {document.keyword ? (
-                  <span className="rounded-full bg-cyber-bg-tertiary/70 px-2.5 py-0.5 font-mono text-[11px] text-cyber-text-secondary">
+                {document.keyword && !document.keyword.startsWith('http') ? (
+                  <span className="shrink-0 max-w-[160px] truncate rounded-full bg-cyber-bg-tertiary/70 px-3 py-1 font-mono text-xs text-cyber-text-secondary" title={document.keyword}>
                     #{document.keyword}
                   </span>
                 ) : null}
               </div>
-              <div className="flex items-center gap-2">
+
+              <div className="flex items-center gap-2.5 shrink-0">
                 {document.sourceUrl && (
-                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" asChild>
+                  <Button size="sm" variant="outline" className="h-9 gap-2 rounded-xl px-4 text-xs font-medium text-cyber-text-primary hover:bg-cyber-bg-tertiary hover:border-cyber-neon-cyan/40 transition-colors shadow-xs" asChild>
                     <a href={document.sourceUrl} target="_blank" rel="noreferrer">
                       <ExternalLink className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                      打开原帖
+                      <span>打开原帖</span>
                     </a>
                   </Button>
                 )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onOpenChange(false)}
+                  className="h-9 w-9 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary transition-colors"
+                  title="关闭详情面板"
+                >
+                  <span className="text-lg font-light leading-none">✕</span>
+                </Button>
               </div>
             </div>
 
-            {/* 内容区 */}
-            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
+            {/* 内容区 - 增大内边距与舒适行距 */}
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6 sm:p-7">
               {/* 大标题 & 作者/时间属性 */}
-              <div className="space-y-3">
-                <h2 className="text-xl font-bold leading-snug tracking-tight text-cyber-text-primary">
+              <div className="space-y-3.5">
+                <h2
+                  className="line-clamp-2 text-base sm:text-lg font-semibold leading-relaxed tracking-normal text-cyber-text-primary break-words"
+                  title={document.title || '无标题文档'}
+                >
                   {document.title || '无标题文档'}
                 </h2>
                 
-                <div className="flex flex-wrap items-center gap-4 border-b border-cyber-border-subtle/60 pb-3 text-xs text-cyber-text-muted">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl bg-cyber-bg-secondary/40 border border-cyber-border-subtle/50 px-3.5 py-2.5 text-xs text-cyber-text-muted">
                   <div className="flex items-center gap-1.5 font-medium text-cyber-text-secondary">
                     <User className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                    <span>{document.subject.name || document.subject.id || '未知作者'}</span>
-                    <span className="text-[10px] text-cyber-text-muted">
+                    <span className="truncate max-w-[240px]">{document.subject.name || document.subject.id || '未知作者'}</span>
+                    <span className="text-[10px] text-cyber-text-muted shrink-0">
                       ({subjectTypeLabels[document.subject.type] || document.subject.type})
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5 shrink-0 text-cyber-text-muted">
                     <Clock className="h-3.5 w-3.5" />
                     <span>发布于 {formatDate(document.publishedAt)}</span>
                   </div>
                 </div>
 
-                {/* 仅当摘要不与正文大面积重复时显示 */}
+                {/* 仅当摘要非空且与正文/标题不重复时显示 */}
                 {document.summary && !isSummaryIdentical ? (
-                  <div className="rounded-lg border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 p-3 text-xs leading-relaxed text-cyber-text-secondary">
-                    <p className="mb-1 font-semibold text-cyber-neon-cyan">摘要提炼</p>
-                    {document.summary}
+                  <div className="rounded-xl border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 p-4 text-xs leading-relaxed text-cyber-text-secondary">
+                    <p className="mb-1.5 font-semibold text-cyber-neon-cyan flex items-center gap-1">
+                      <span>📌 摘要提炼</span>
+                    </p>
+                    <p className="whitespace-pre-wrap break-words">{document.summary}</p>
                   </div>
                 ) : null}
               </div>
 
-              {/* 封面图 */}
+              {/* 封面图 / 媒体展示 */}
               {cover ? (
-                <div className="overflow-hidden rounded-xl border border-cyber-border-subtle bg-black/5 shadow-md">
+                <div className="group relative overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 shadow-xs flex items-center justify-center max-h-80">
                   <img
                     src={cover.url}
                     alt={document.title || '文档封面'}
                     referrerPolicy="no-referrer"
-                    className="max-h-80 w-full object-contain"
+                    className="max-h-80 w-auto max-w-full rounded-lg object-contain transition-transform duration-300 group-hover:scale-[1.01]"
                   />
                 </div>
               ) : null}
@@ -431,12 +464,12 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
               ) : null}
 
               {/* 正文内容 */}
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">
+              <section className="space-y-1.5">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">
                   正文内容
                 </h3>
-                <div className="whitespace-pre-wrap break-words rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-4.5 font-sans text-sm leading-7 text-cyber-text-primary shadow-inner">
-                  {document.markdown || '—'}
+                <div className="whitespace-pre-wrap break-words rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4 font-sans text-sm leading-relaxed text-cyber-text-primary shadow-inner">
+                  {document.markdown || document.summary || '—'}
                 </div>
               </section>
 
@@ -575,7 +608,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_COLUMNS))
   const [columnDialogOpen, setColumnDialogOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(288)
+  const [sidebarWidth, setSidebarWidth] = useState(270)
   const [isResizing, setIsResizing] = useState(false)
   const [mobileScopeOpen, setMobileScopeOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
@@ -741,43 +774,44 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     const isAllExpanded = tasks.length > 0 && tasks.every((t) => expandedTasks.has(t.thread_id))
 
     return (
-      <div className="space-y-1">
-        {/* 全局范围：全部任务 */}
+      <div className="flex flex-col gap-0.5">
+        {/* 全局范围：全部任务数据（总览海报大卡片） */}
         <button
           type="button"
           onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }}
-          className={`group flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left transition-all ${
+          className={`group relative flex w-full items-center rounded-xl p-3 text-left transition-colors cursor-pointer ${
             scope === 'all'
-              ? 'border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/15 text-cyber-text-primary shadow-xs'
-              : 'border border-transparent hover:border-cyber-border-subtle hover:bg-cyber-bg-tertiary/60 text-cyber-text-secondary hover:text-cyber-text-primary'
+              ? 'bg-cyber-neon-cyan/10 font-medium text-cyber-text-primary/95 border border-cyber-neon-cyan/20'
+              : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85 border border-transparent'
           }`}
         >
-          <div className="flex min-w-0 items-center gap-2">
-            <Layers className={`h-4 w-4 shrink-0 transition-colors ${scope === 'all' ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted group-hover:text-cyber-neon-cyan'}`} />
+          <div className="flex min-w-0 items-center gap-3">
+            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+              scope === 'all'
+                ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan'
+                : 'bg-cyber-bg-tertiary text-cyber-text-muted group-hover:bg-cyber-neon-cyan/10 group-hover:text-cyber-neon-cyan'
+            }`}>
+              <Layers className="h-4.5 w-4.5" />
+            </div>
             <div className="min-w-0">
-              <span className="block truncate text-xs font-semibold">全部任务</span>
-              <span className="block truncate text-[10px] text-cyber-text-muted leading-tight">全局最新快照</span>
+              <span className="block truncate text-sm font-bold tracking-tight text-cyber-text-primary">
+                全部任务数据
+              </span>
+              <span className="block truncate text-[11px] text-cyber-text-muted mt-0.5">
+                汇总全部采集成果快照
+              </span>
             </div>
           </div>
-          {scopeSummary?.totals.document_count !== undefined && (
-            <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] ${
-              scope === 'all'
-                ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-bold'
-                : 'bg-cyber-bg-secondary text-cyber-text-muted'
-            }`}>
-              {scopeSummary.totals.document_count} 条
-            </span>
-          )}
         </button>
 
         {/* 分隔与快捷操作 */}
-        <div className="my-1.5 flex items-center justify-between px-2 pt-1 text-[11px] text-cyber-text-muted">
+        <div className="flex items-center justify-between px-2.5 py-1 text-[11px] font-medium text-cyber-text-muted">
           <span>任务列表 ({tasks.length})</span>
           {tasks.length > 0 && (
             <button
               type="button"
               onClick={isAllExpanded ? collapseAllTasks : expandAllTasks}
-              className="hover:text-cyber-neon-cyan transition-colors text-[10px] flex items-center gap-0.5 focus:outline-none"
+              className="hover:text-cyber-neon-cyan transition-colors text-[10px] font-medium flex items-center gap-0.5 focus:outline-none"
               title={isAllExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
             >
               {isAllExpanded ? (
@@ -796,20 +830,24 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
         </div>
 
         {/* 文件夹树状列表 */}
-        <div className="space-y-0.5">
+        <div className="flex flex-col gap-0.5">
           {tasks.map((task) => {
             const isTaskSelected = scope === `thread:${task.thread_id}`
             const isExpanded = expandedTasks.has(task.thread_id)
             const hasRounds = Boolean(task.rounds && task.rounds.length > 0)
+            const taskItemCount = task.rounds.reduce(
+              (sum, r) => sum + r.runs.reduce((rSum, run) => rSum + (run.item_count || 0), 0),
+              0
+            )
 
             return (
               <div key={task.thread_id} className="select-none">
                 {/* 1级节点：任务文件夹行 */}
                 <div
-                  className={`group relative flex h-8 items-center justify-between rounded-md px-1.5 text-xs transition-colors cursor-pointer ${
+                  className={`group flex h-[34px] w-full items-center gap-1.5 rounded-xl px-2 text-left transition-colors cursor-pointer ${
                     isTaskSelected
-                      ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium border-l-2 border-cyber-neon-cyan'
-                      : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
+                      ? 'bg-cyber-neon-cyan/10 font-medium text-cyber-text-primary/95 border border-cyber-neon-cyan/20'
+                      : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85'
                   }`}
                   onClick={() => {
                     setScope(`thread:${task.thread_id}`)
@@ -819,46 +857,47 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                     if (mobile) setMobileScopeOpen(false)
                   }}
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
-                    {/* 折叠/展开箭头 */}
-                    {hasRounds ? (
-                      <button
-                        type="button"
-                        onClick={(e) => toggleTaskExpand(task.thread_id, e)}
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-cyber-bg-secondary hover:text-cyber-text-primary text-cyber-text-muted transition-colors focus:outline-none"
-                        title={isExpanded ? "收起" : "展开"}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    ) : (
-                      <span className="w-5 shrink-0" />
-                    )}
+                  {/* 折叠/展开箭头 */}
+                  {hasRounds ? (
+                    <button
+                      type="button"
+                      onClick={(e) => toggleTaskExpand(task.thread_id, e)}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md hover:bg-cyber-bg-tertiary text-cyber-text-muted hover:text-cyber-text-primary transition-colors focus:outline-none"
+                      title={isExpanded ? "收起" : "展开"}
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="w-5 shrink-0" />
+                  )}
 
-                    {/* 文件夹图标 */}
+                  {/* 文件夹图标 */}
+                  <div className="flex h-4 w-4 shrink-0 items-center justify-center">
                     {isExpanded ? (
-                      <FolderOpen className={`h-3.5 w-3.5 shrink-0 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-neon-cyan/70'}`} />
+                      <FolderOpen className={`h-3.5 w-3.5 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted/75'}`} />
                     ) : (
-                      <Folder className={`h-3.5 w-3.5 shrink-0 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted group-hover:text-cyber-text-secondary'}`} />
+                      <Folder className={`h-3.5 w-3.5 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted/70 group-hover:text-cyber-text-secondary'}`} />
                     )}
-
-                    {/* 任务标题 */}
-                    <span className="min-w-0 flex-1 truncate text-xs" title={task.task_title || task.thread_id}>
-                      {task.task_title || task.thread_id}
-                    </span>
                   </div>
 
-                  {/* 右侧徽章与快捷操作 */}
-                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {hasRounds && (
-                      <span className="rounded bg-cyber-bg-secondary/80 px-1 py-0.5 font-mono text-[10px] text-cyber-text-muted group-hover:hidden">
-                        {task.rounds.length}
-                      </span>
-                    )}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                  {/* 任务标题 */}
+                  <span className="min-w-0 flex-1 truncate text-[13.5px] leading-snug" title={task.task_title || task.thread_id}>
+                    {task.task_title || task.thread_id}
+                  </span>
+
+                  {/* 右侧实际采集数据量徽章与快捷操作：完全右靠重叠对齐 */}
+                  <div className="relative flex h-6 min-w-[24px] items-center justify-end shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
+                    <span
+                      className="rounded bg-cyber-bg-secondary px-1.5 py-0.2 font-mono text-[9.5px] font-medium text-cyber-text-muted group-hover:opacity-0 transition-opacity"
+                      title={`该任务共采集 ${taskItemCount} 条数据`}
+                    >
+                      {taskItemCount}
+                    </span>
+                    <div className="absolute right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <DeleteConfirmDialog
                         title="删除整个任务及其采集数据？"
                         description="该操作会物理删除任务下所有执行、文档来源和日志。"
@@ -867,10 +906,10 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"
+                            className="h-6 w-6 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"
                             title="删除任务"
                           >
-                            <Trash2 className="h-3 w-3" />
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         }
                       />
@@ -880,16 +919,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
 
                 {/* 2级节点：采集轮次子树 */}
                 {isExpanded && hasRounds && (
-                  <div className="ml-3 my-0.5 space-y-0.5 border-l border-cyber-border-subtle/60 pl-2.5">
+                  <div className="ml-3.5 pl-2.5 my-0.5 space-y-0.5 border-l border-cyber-border-subtle/50">
                     {task.rounds.map((round) => {
                       const isRoundSelected = scope === `plan:${round.plan_id}`
+                      const roundItemCount = round.runs.reduce(
+                        (rSum, run) => rSum + (run.item_count || 0),
+                        0
+                      )
+
                       return (
                         <div
                           key={round.plan_id}
-                          className={`group flex h-7 items-center justify-between rounded px-2 text-[11px] transition-colors cursor-pointer ${
+                          className={`group flex h-[28px] items-center justify-between rounded-lg px-2 text-[12px] transition-colors cursor-pointer ${
                             isRoundSelected
-                              ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium shadow-xs'
-                              : 'text-cyber-text-secondary hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
+                              ? 'bg-cyber-neon-cyan/10 text-cyber-text-primary font-medium border border-cyber-neon-cyan/20'
+                              : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/60 hover:text-cyber-text-primary font-normal'
                           }`}
                           onClick={() => {
                             setScope(`plan:${round.plan_id}`)
@@ -897,28 +941,37 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                           }}
                         >
                           <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
-                            <FileText className={`h-3 w-3 shrink-0 ${isRoundSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted'}`} />
+                            <FileText className={`h-3 w-3 shrink-0 ${isRoundSelected ? 'text-cyber-text-primary' : 'text-cyber-text-muted/65'}`} />
                             <span className="min-w-0 flex-1 truncate" title={round.round_title || round.plan_id}>
                               {round.round_title || round.plan_id}
                             </span>
                           </div>
 
-                          <div className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                            <DeleteConfirmDialog
-                              title="删除该采集轮次？"
-                              description="该轮次下的执行和文档来源将被物理删除。"
-                              onConfirm={() => deleteScope('round', round.plan_id)}
-                              trigger={
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-4.5 w-4.5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"
-                                  title="删除轮次"
-                                >
-                                  <Trash2 className="h-2.5 w-2.5" />
-                                </Button>
-                              }
-                            />
+                          {/* 轮次采集量徽章与快捷操作：完全右靠重叠对齐 */}
+                          <div className="relative flex h-5 min-w-[20px] items-center justify-end shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
+                            <span
+                              className="rounded bg-cyber-bg-secondary/70 px-1 py-0.2 font-mono text-[9px] text-cyber-text-muted/80 group-hover:opacity-0 transition-opacity"
+                              title={`该轮次共采集 ${roundItemCount} 条数据`}
+                            >
+                              {roundItemCount}
+                            </span>
+                            <div className="absolute right-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <DeleteConfirmDialog
+                                title="删除该采集轮次？"
+                                description="该轮次下的执行和文档来源将被物理删除。"
+                                onConfirm={() => deleteScope('round', round.plan_id)}
+                                trigger={
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5 text-cyber-text-muted hover:bg-cyber-bg-secondary hover:text-red-400"
+                                    title="删除轮次"
+                                  >
+                                    <Trash2 className="h-2.5 w-2.5" />
+                                  </Button>
+                                }
+                              />
+                            </div>
                           </div>
                         </div>
                       )
@@ -931,7 +984,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
         </div>
 
         {tasks.length === 0 && (
-          <div className="py-8 text-center text-xs text-cyber-text-muted">
+          <div className="py-6 text-center text-xs text-cyber-text-muted">
             暂无采集任务
           </div>
         )}
@@ -970,12 +1023,48 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const cell = (document: CanonicalDocument, key: string) => {
     if (key === 'title') {
       const preview = previewAsset(document)
-      return <div className="flex max-w-[420px] items-start gap-3">{preview ? <img src={preview.url} alt="" referrerPolicy="no-referrer" className="h-14 w-20 shrink-0 rounded border border-cyber-border-subtle bg-cyber-bg-secondary object-cover" /> : null}<div className="min-w-0"><p className="truncate font-medium text-cyber-text-primary">{document.title || '无标题'}</p><p className="mt-1 line-clamp-2 text-[11px] text-cyber-text-muted">{document.summary || document.markdown || '—'}</p></div></div>
+      return (
+        <div className="flex max-w-[460px] items-start gap-3">
+          {preview ? (
+            <img
+              src={preview.url}
+              alt=""
+              referrerPolicy="no-referrer"
+              className="h-14 w-20 shrink-0 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary object-cover shadow-xs"
+            />
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-semibold text-cyber-text-primary hover:text-cyber-neon-cyan transition-colors" title={document.title || '无标题'}>
+              {document.title || '无标题'}
+            </p>
+            <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-cyber-text-muted">
+              {document.summary || document.markdown || '—'}
+            </p>
+          </div>
+        </div>
+      )
     }
     if (key === 'platform') return renderPlatformBadge(document.platform, platformLabels.get(document.platform))
-    if (key === 'kind') return <Badge variant="secondary" className="rounded-md text-[11px] font-normal">{kindLabels[document.kind] || document.kind}</Badge>
-    if (key === 'subject') return <div><p className="font-medium text-cyber-text-primary">{document.subject.name || document.subject.id || '—'}</p><p className="text-[10px] text-cyber-text-muted">{subjectTypeLabels[document.subject.type] || document.subject.type}</p></div>
-    if (key === 'keyword') return <span className="rounded bg-cyber-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[11px] text-cyber-text-secondary">{document.keyword || '—'}</span>
+    if (key === 'kind') return <Badge variant="secondary" className="shrink-0 whitespace-nowrap rounded-md text-[11px] font-normal">{kindLabels[document.kind] || document.kind}</Badge>
+    if (key === 'subject') {
+      return (
+        <div className="min-w-0">
+          <p className="truncate font-medium text-cyber-text-primary" title={document.subject.name || document.subject.id || '—'}>
+            {document.subject.name || document.subject.id || '—'}
+          </p>
+          <p className="text-[10px] text-cyber-text-muted shrink-0">
+            {subjectTypeLabels[document.subject.type] || document.subject.type}
+          </p>
+        </div>
+      )
+    }
+    if (key === 'keyword') {
+      return (
+        <span className="inline-block max-w-[170px] truncate rounded bg-cyber-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[11px] text-cyber-text-secondary" title={document.keyword || ''}>
+          {document.keyword || '—'}
+        </span>
+      )
+    }
     if (key === 'publishedAt') return <span className="whitespace-nowrap font-mono text-[11px] text-cyber-text-muted">{formatDate(document.publishedAt)}</span>
     if (key.startsWith('metric:')) {
       const value = document.metrics[key.slice(7)]
@@ -987,7 +1076,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
     if (key.startsWith('attribute:')) {
       const val = displayValue(document.attributes[key.slice(10)])
-      return val === '—' ? <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span> : val
+      return val === '—' ? <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span> : <span className="truncate block" title={val}>{val}</span>
     }
     return <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span>
   }
@@ -1055,7 +1144,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
               </span>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">{renderScopeTree()}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">{renderScopeTree()}</div>
           {!sidebarCollapsed && (
             <div
               onMouseDown={startResizing}
@@ -1065,97 +1154,186 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
           )}
         </aside>
 
-        <main className="min-w-0 flex-1 overflow-auto p-4">
-          <div className="mx-auto max-w-[1800px] space-y-4">
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <main className="min-w-0 flex-1 overflow-auto p-3 sm:p-4">
+          <div className="mx-auto max-w-[1800px] space-y-3 sm:space-y-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
               <StatCard label="文档总数" value={summary?.totals.document_count || 0} hint="包含正文与评论" icon={FileSearch} />
               <StatCard label="主体数" value={summary?.totals.subject_count || 0} hint="按主体 ID / 名称去重" icon={Users} />
               <StatCard label="正文" value={summary?.totals.content_count || 0} hint="非评论文档" icon={FileText} />
               <StatCard label="评论" value={summary?.totals.comment_count || 0} hint="保留父级关系" icon={MessageSquare} />
             </div>
 
-          <section className="glass-panel rounded-lg p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <Select value={platform} onValueChange={setPlatform}>
-                  <SelectTrigger className="h-8 w-28 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="平台" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部平台</SelectItem>{(scopeSummary?.filters.platforms || summary?.filters.platforms || []).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={kind} onValueChange={setKind}>
-                  <SelectTrigger className="h-8 w-44 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle font-medium"><SelectValue placeholder="类型" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="main_only">全部正文/主帖 (排除评论)</SelectItem>
-                    <SelectItem value="all">全部类型 (包含评论)</SelectItem>
-                    {(scopeSummary?.filters.kinds || summary?.filters.kinds || []).map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                <Select value={keyword} onValueChange={setKeyword}>
-                  <SelectTrigger className="h-8 w-32 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="关键词" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部关键词</SelectItem>{(scopeSummary?.filters.keywords || summary?.filters.keywords || []).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={subjectType} onValueChange={setSubjectType}>
-                  <SelectTrigger className="h-8 w-28 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="主体类型" /></SelectTrigger>
-                  <SelectContent><SelectItem value="all">全部主体</SelectItem>{(scopeSummary?.filters.subject_types || summary?.filters.subject_types || []).map((value) => <SelectItem key={value} value={value}>{subjectTypeLabels[value] || value}</SelectItem>)}</SelectContent>
-                </Select>
-                <form className="relative" onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()) }}>
-                  <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cyber-text-muted" />
-                  <Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索标题、摘要、正文、主体或来源 ID" className="h-8 w-60 sm:w-72 pl-8 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle" />
-                </form>
+            <section className="glass-panel rounded-xl p-3.5 sm:p-4 shadow-xs">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-2.5">
+                  <Select value={platform} onValueChange={setPlatform}>
+                    <SelectTrigger className="h-8 w-28 shrink-0 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="平台" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">全部平台</SelectItem>{(scopeSummary?.filters.platforms || summary?.filters.platforms || []).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={kind} onValueChange={setKind}>
+                    <SelectTrigger className="h-8 w-44 shrink-0 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle font-medium"><SelectValue placeholder="类型" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="main_only">全部正文/主帖 (排除评论)</SelectItem>
+                      <SelectItem value="all">全部类型 (包含评论)</SelectItem>
+                      {(scopeSummary?.filters.kinds || summary?.filters.kinds || []).map((value) => <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <Select value={keyword} onValueChange={setKeyword}>
+                    <SelectTrigger className="h-8 w-32 shrink-0 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="关键词" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">全部关键词</SelectItem>{(scopeSummary?.filters.keywords || summary?.filters.keywords || []).map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={subjectType} onValueChange={setSubjectType}>
+                    <SelectTrigger className="h-8 w-28 shrink-0 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle"><SelectValue placeholder="主体类型" /></SelectTrigger>
+                    <SelectContent><SelectItem value="all">全部主体</SelectItem>{(scopeSummary?.filters.subject_types || summary?.filters.subject_types || []).map((value) => <SelectItem key={value} value={value}>{subjectTypeLabels[value] || value}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <form className="relative min-w-[200px] flex-1 max-w-sm shrink-0" onSubmit={(event) => { event.preventDefault(); setQuery(queryInput.trim()) }}>
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cyber-text-muted" />
+                    <Input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="搜索标题、摘要、正文或作者..." className="h-8 w-full pl-8 text-xs bg-cyber-bg-secondary/60 border-cyber-border-subtle" />
+                  </form>
+                </div>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setColumnDialogOpen(true)}
+                  className="h-8 shrink-0 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary/80 border border-transparent hover:border-cyber-border-subtle gap-1.5 ml-auto"
+                >
+                  <Columns3 className="h-3.5 w-3.5" />
+                  <span>列设置</span>
+                </Button>
               </div>
 
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setColumnDialogOpen(true)}
-                className="h-8 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary/80 border border-transparent hover:border-cyber-border-subtle gap-1.5 ml-auto"
-              >
-                <Columns3 className="h-3.5 w-3.5" />
-                <span>列设置</span>
-              </Button>
-            </div>
-
-            <div className="overflow-x-auto rounded border border-cyber-border-subtle">
-              <table className="w-full min-w-[960px] border-collapse text-xs">
-                <thead className="bg-cyber-bg-tertiary/80 text-cyber-text-muted">
-                  <tr>
-                    {selectedColumns.map((column) => {
-                      const activeSortOrder = getColumnSortState(column.key)
+              {/* 表格容器：具有最小宽度与横向滚动保护，杜绝列挤压变形 */}
+              <div className="overflow-x-auto rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/50 shadow-xs">
+                <table className="w-full min-w-[1020px] border-collapse text-xs">
+                  <thead className="bg-cyber-bg-tertiary/80 text-cyber-text-muted">
+                    <tr>
+                      {selectedColumns.map((column) => {
+                        const activeSortOrder = getColumnSortState(column.key)
+                        const colWidth = getColumnWidthClass(column.key)
+                        return (
+                          <th
+                            key={column.key}
+                            onClick={() => handleColumnHeaderClick(column.key)}
+                            className={`group/th cursor-pointer select-none whitespace-nowrap px-3 py-2.5 text-left font-medium hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary transition-colors ${colWidth}`}
+                          >
+                            <div className="inline-flex items-center gap-1.5">
+                              <span className={activeSortOrder ? 'text-cyber-neon-cyan font-semibold' : ''}>
+                                {column.label}
+                              </span>
+                              {activeSortOrder === 'desc' ? (
+                                <ArrowDown className="h-3.5 w-3.5 text-cyber-neon-cyan shrink-0" />
+                              ) : activeSortOrder === 'asc' ? (
+                                <ArrowUp className="h-3.5 w-3.5 text-cyber-neon-cyan shrink-0" />
+                              ) : (
+                                <ArrowUpDown className="h-3.5 w-3.5 text-cyber-text-muted/40 opacity-0 group-hover/th:opacity-100 transition-opacity shrink-0" />
+                              )}
+                            </div>
+                          </th>
+                        )
+                      })}
+                      <th className="min-w-[65px] w-[65px] whitespace-nowrap px-3 py-2.5 text-center font-medium">来源</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {documents?.items.map((document) => {
+                      const isSelected = selectedDocument?.documentId === document.documentId
                       return (
-                        <th
-                          key={column.key}
-                          onClick={() => handleColumnHeaderClick(column.key)}
-                          className="group/th cursor-pointer select-none whitespace-nowrap px-3 py-2 text-left font-medium hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary transition-colors"
+                        <tr
+                          key={`${document.documentId}:${document.provenance.runId || 'latest'}`}
+                          onClick={() => setSelectedDocument(document)}
+                          className={`cursor-pointer border-t border-cyber-border-subtle transition-colors ${
+                            isSelected
+                              ? 'bg-cyber-neon-cyan/15 hover:bg-cyber-neon-cyan/20'
+                              : 'hover:bg-cyber-neon-cyan/5'
+                          }`}
                         >
-                          <div className="inline-flex items-center gap-1.5">
-                            <span className={activeSortOrder ? 'text-cyber-neon-cyan font-semibold' : ''}>
-                              {column.label}
-                            </span>
-                            {activeSortOrder === 'desc' ? (
-                              <ArrowDown className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                            ) : activeSortOrder === 'asc' ? (
-                              <ArrowUp className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                          {selectedColumns.map((column) => (
+                            <td key={column.key} className={`px-3 py-2.5 align-top text-cyber-text-secondary ${getColumnWidthClass(column.key)}`}>
+                              {cell(document, column.key)}
+                            </td>
+                          ))}
+                          <td className="min-w-[65px] w-[65px] px-3 py-2.5 text-center align-top whitespace-nowrap">
+                            {document.sourceUrl ? (
+                              <a
+                                href={document.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-flex items-center justify-center rounded p-1 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10 transition-colors"
+                                title="打开原帖链接"
+                              >
+                                <ExternalLink className="h-4 w-4" />
+                              </a>
                             ) : (
-                              <ArrowUpDown className="h-3.5 w-3.5 text-cyber-text-muted/40 opacity-0 group-hover/th:opacity-100 transition-opacity" />
+                              <span className="text-cyber-text-muted/40">—</span>
                             )}
-                          </div>
-                        </th>
+                          </td>
+                        </tr>
                       )
                     })}
-                    <th className="px-3 py-2 text-center font-medium">来源</th>
-                  </tr>
-                </thead>
-                <tbody>{documents?.items.map((document) => <tr key={`${document.documentId}:${document.provenance.runId || 'latest'}`} onClick={() => setSelectedDocument(document)} className="cursor-pointer border-t border-cyber-border-subtle hover:bg-cyber-neon-cyan/5">{selectedColumns.map((column) => <td key={column.key} className="max-w-[280px] px-3 py-2.5 align-top text-cyber-text-secondary">{cell(document, column.key)}</td>)}<td className="px-3 py-2.5 text-center">{document.sourceUrl ? <a href={document.sourceUrl} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()} className="inline-flex text-cyber-neon-cyan"><ExternalLink className="h-4 w-4" /></a> : '—'}</td></tr>)}</tbody>
-              </table>
-              {!documentsQuery.isLoading && !documents?.items.length ? <div className="py-16 text-center text-xs text-cyber-text-muted">没有符合当前条件的数据</div> : null}
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-cyber-text-muted"><span>共 {documents?.total || 0} 条 · 第 {documents?.page || 1} / {Math.max(documents?.pages || 1, 1)} 页</span><div className="flex gap-1"><Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}><ChevronLeft />上一页</Button><Button variant="outline" size="sm" disabled={!documents || page >= documents.pages} onClick={() => setPage((value) => value + 1)}>下一页<ChevronRight /></Button></div></div>
-          </section>
-        </div>
-      </main>
-    </div>
+                  </tbody>
+                </table>
+                {!documentsQuery.isLoading && !documents?.items.length ? (
+                  <div className="py-16 text-center text-xs text-cyber-text-muted">
+                    没有符合当前条件的数据
+                  </div>
+                ) : null}
+              </div>
 
-      <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}><DialogContent className="max-h-[80vh] overflow-y-auto"><DialogHeader><DialogTitle>动态列设置</DialogTitle><DialogDescription>固定字段与当前结果中实际出现的指标、属性。缺失值保持为空。</DialogDescription></DialogHeader><div className="space-y-4">{['通用字段', '指标', '扩展属性'].map((group) => { const columns = [...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })), ...dynamicColumns].filter((column) => column.group === group); return columns.length ? <section key={group}><h3 className="mb-2 text-xs font-semibold text-cyber-text-muted">{group}</h3><div className="grid gap-2 sm:grid-cols-2">{columns.map((column) => <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded border border-cyber-border-subtle p-2 text-xs"><Checkbox checked={visibleColumns.has(column.key)} onCheckedChange={(checked) => toggleColumn(column.key, checked)} />{column.label}</label>)}</div></section> : null })}</div></DialogContent></Dialog>
-      <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}><DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none"><DialogHeader><DialogTitle>任务范围</DialogTitle><DialogDescription>选择任务或采集轮次</DialogDescription></DialogHeader>{renderScopeTree(true)}</DialogContent></Dialog>
+              <div className="mt-3 flex items-center justify-between text-xs text-cyber-text-muted">
+                <span>共 {documents?.total || 0} 条 · 第 {documents?.page || 1} / {Math.max(documents?.pages || 1, 1)} 页</span>
+                <div className="flex gap-1">
+                  <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+                    <ChevronLeft className="h-3.5 w-3.5" />上一页
+                  </Button>
+                  <Button variant="outline" size="sm" disabled={!documents || page >= documents.pages} onClick={() => setPage((value) => value + 1)}>
+                    下一页<ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>动态列设置</DialogTitle>
+            <DialogDescription>固定字段与当前结果中实际出现的指标、属性。缺失值保持为空。</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {['通用字段', '指标', '扩展属性'].map((group) => {
+              const columns = [...BASE_COLUMNS.map(([key, label]) => ({ key, label, group: '通用字段' })), ...dynamicColumns].filter((column) => column.group === group)
+              return columns.length ? (
+                <section key={group}>
+                  <h3 className="mb-2 text-xs font-semibold text-cyber-text-muted">{group}</h3>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {columns.map((column) => (
+                      <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded border border-cyber-border-subtle p-2 text-xs hover:bg-cyber-bg-secondary/40 transition-colors">
+                        <Checkbox checked={visibleColumns.has(column.key)} onCheckedChange={(checked) => toggleColumn(column.key, Boolean(checked))} />
+                        <span>{column.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              ) : null
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}>
+        <DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none">
+          <DialogHeader>
+            <DialogTitle>任务范围</DialogTitle>
+            <DialogDescription>选择任务或采集轮次</DialogDescription>
+          </DialogHeader>
+          {renderScopeTree(true)}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
         <DialogContent className="sm:max-w-[440px] border-cyber-border-subtle bg-cyber-bg-panel/95 backdrop-blur-md p-5">
           <DialogHeader className="pb-1">
@@ -1176,7 +1354,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                     onClick={() => setExportFormat(item.id as ExportFormat)}
                     className={`group flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all ${
                       isSelected
-                        ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10 shadow-sm'
+                        ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10 shadow-xs'
                         : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 hover:border-cyber-border-subtle/80 hover:bg-cyber-bg-secondary/70'
                     }`}
                   >
@@ -1217,7 +1395,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(false)} className="h-8 text-xs">
               取消
             </Button>
-            <Button size="sm" className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan text-black font-semibold hover:bg-cyber-neon-cyan/90 shadow-sm" asChild>
+            <Button size="sm" className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan text-black font-semibold hover:bg-cyber-neon-cyan/90 shadow-xs" asChild>
               <a
                 href={exportUrl}
                 onClick={() => {
