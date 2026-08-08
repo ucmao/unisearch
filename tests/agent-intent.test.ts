@@ -372,7 +372,7 @@ test('unspecified collection depth defaults to quick first results', () => {
 });
 
 test('negative platform exclusion directives filter out specified platforms', () => {
-  const { inferExcludedPlatforms, inferResearchPlatforms } = require('../src/server/services/AgentIntent');
+  const { inferExcludedPlatforms } = require('../src/server/services/AgentIntent');
   const { normalizePlan } = require('../src/server/services/AgentService');
   const { skillRegistry } = require('../src/skills/registry');
 

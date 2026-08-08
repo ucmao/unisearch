@@ -152,7 +152,6 @@ export class QuickReportGenerator {
     }));
 
     const initialCoverage = buildQuickAnalysisCoverage(request.datasetProfile, selection.evidence, '', Boolean(request.partial));
-    const boundary = buildQuickReportBoundary(initialCoverage);
     const profile = this.model.getProfile(false);
     const draftMessageId = request.workflowId ? `draft-report-${request.workflowId}` : undefined;
 

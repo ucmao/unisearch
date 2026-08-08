@@ -80,8 +80,8 @@ export class ZhaopinCrawler extends AbstractCrawler {
           }, { timeout: 8000 }).catch(() => {});
 
           // Check if captcha or slider verification page appeared
-          let pageTitle = await this.page.title().catch(() => '');
-          let pageContent = await this.page.content().catch(() => '');
+          const pageTitle = await this.page.title().catch(() => '');
+          const pageContent = await this.page.content().catch(() => '');
           if (pageTitle.includes('验证') || pageContent.includes('nc_1_wrapper') || pageContent.includes('sec-captcha')) {
             console.warn('[Zhaopin] Anti-spider slider captcha detected in built-in browser window.');
             notifyManualVerificationRequired('zhaopin', '智联招聘触发人脸/滑块验证，请在内置浏览器窗口中完成手动验证。');

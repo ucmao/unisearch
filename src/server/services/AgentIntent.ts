@@ -71,7 +71,7 @@ function hasExcludedBossMention(segment: string): boolean {
 }
 
 export function extractWebUrls(text: string): string[] {
-  const matches = text.match(/https?:\/\/[^\s,，。；;！？"'“”‘’()<>\[\]{}]+/gi) || [];
+  const matches = text.match(/https?:\/\/[^\s,，。；;！？"'“”‘’()<>[\]{}]+/gi) || [];
   return Array.from(new Set(matches
     .map((url) => url.trim().replace(/[.，;；!！?？。)\\\]]+$/, ''))
     .filter((url) => /^https?:\/\/[^/\s]+\//i.test(url) || /^https?:\/\/[^/\s]+$/i.test(url))))
@@ -136,7 +136,7 @@ function cleanResearchSubject(text: string): string {
     .replace(/采集|收集|抓取|搜索|搜|查找|查一下|调查|调研|研究|监测|分析/gi, ' ')
     .replace(/(?:的)?(?:舆情|口碑|竞品|评论|评价|帖子|论文|内容|信息|数据|讨论|报告)/gi, ' ')
     .replace(/(^|\s)(?:在|从|上|里|中)(?=\s|$)/g, ' ')
-    .replace(/[，。！？、,.!?;；:：()（）\[\]]/g, ' ')
+    .replace(/[，。！？、,.!?;；:：()（）[\]]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^的|的$/g, '')

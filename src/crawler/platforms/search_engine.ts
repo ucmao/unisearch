@@ -891,7 +891,7 @@ export class SogouCrawler extends AbstractCrawler {
         if (totalRank >= maxItems) break;
 
         console.log(`[SOGOU] Fetching page ${page}...`);
-        let pageItems: { title: string; url: string; snippet: string; publisher: string; images: string[]; time: string }[] = [];
+        const pageItems: { title: string; url: string; snippet: string; publisher: string; images: string[]; time: string }[] = [];
 
         // Strategy A: Try PC Search via SystemHttpClient
         try {
@@ -959,7 +959,7 @@ export class SogouCrawler extends AbstractCrawler {
             $('.vrResult, .result, div[class*="result"]').each((_, el) => {
               const $item = $(el);
               const $titleLink = $item.find('h3 a, a.tit, a[class*="title"]').first();
-              let rawLink = $titleLink.attr('href') || $item.find('a').attr('href') || '';
+              const rawLink = $titleLink.attr('href') || $item.find('a').attr('href') || '';
               const title = cleanText($titleLink.text() || $item.find('h3').text());
               if (!title) return;
 

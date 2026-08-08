@@ -134,9 +134,6 @@ test('cleanupThreads removes failed and zero-result crawl threads but keeps thre
       db.prepare('INSERT INTO agent_messages (message_id, thread_id, role, content, created_at) VALUES (?, ?, \'user\', \'采集请求\', ?)')
         .run(`message-${threadId}`, threadId, now);
     }
-    const zero = { thread_id: 'zero-result' };
-    const failed = { thread_id: 'failed' };
-    const commentsOnly = { thread_id: 'comments-only' };
     const withData = { thread_id: 'with-data' };
 
     const insertCrawlRun = (runId: string, threadId: string, status: string) => {

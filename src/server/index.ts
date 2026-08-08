@@ -16,7 +16,6 @@ import { skillRegistry } from '../skills/registry';
 import { modelService } from './services/ModelService';
 import { agentAttachmentService } from './services/AgentAttachmentService';
 import { planIdsForRunningCrawlers, type RunningCrawlerState } from './services/StopScope';
-import type { AppConfig } from '../tools/config';
 import { listConnectorManifests } from '../connectors/registry';
 import { getBrowserDataDir } from '../tools/runtimePaths';
 import type { ConnectorStartRequest } from '../connectors/types';
@@ -96,7 +95,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   // Register WebSocket routes
   fastify.register(async function (fastifyInstance) {
     // logs stream
-    fastifyInstance.get('/api/ws/logs', { websocket: true }, (connection, req) => {
+    fastifyInstance.get('/api/ws/logs', { websocket: true }, (connection, _req) => {
       console.log('[WS] Client connected to logs stream');
       const socket = connection.socket || connection;
 
@@ -133,7 +132,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     });
 
     // status stream
-    fastifyInstance.get('/api/ws/status', { websocket: true }, (connection, req) => {
+    fastifyInstance.get('/api/ws/status', { websocket: true }, (connection, _req) => {
       console.log('[WS] Client connected to status stream');
       const socket = connection.socket || connection;
       
@@ -782,7 +781,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   // Crawler routes
   fastify.post('/api/crawler/start', async (request, reply) => {
     const body = request.body as ConnectorStartRequest;
-    let success = false;
+    let success: boolean;
     try {
       success = await crawlerManager.start(body);
     } catch (error: any) {

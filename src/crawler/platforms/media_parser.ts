@@ -5,7 +5,7 @@ import { systemHttpClient } from '../base/SystemHttpClient';
 
 export function extractParserTargets(input: string): string[] {
   if (!input) return [];
-  const urls = input.match(/https?:\/\/[^\s,，;；"'\(\)\<\>\[\]{}]+/g) || [];
+  const urls = input.match(/https?:\/\/[^\s,，;；"'()<>[\]{}]+/g) || [];
   if (urls.length) {
     return [...new Set(urls
       .map((url) => url.trim().replace(/[.，;；!！?？。)\]\\]+$/, ''))

@@ -175,7 +175,7 @@ export class AgentRepository {
       ).get(id) as any)?.count || 0);
       if (runningCrawl) throw new Error('任务仍在运行，请先停止后再删除');
 
-      let analyticsRunsDeleted = 0;
+      let analyticsRunsDeleted: number;
       if (deleteAnalyticsData) {
         analyticsRunsDeleted = this.db.prepare('DELETE FROM crawl_runs WHERE thread_id=?').run(id).changes;
       } else {

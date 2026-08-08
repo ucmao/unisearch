@@ -2,7 +2,6 @@ import { fork, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
-import { activeConfig, applyConfig } from '../../tools/config';
 import { analyticsRepository } from '../../database/repository';
 import { getDatabasePath } from '../../database/connection';
 import { getConnectorManifest, normalizeConnectorRequest } from '../../connectors/registry';
@@ -170,7 +169,7 @@ export class CrawlerTask {
     this.firstItemAt = null;
 
     const isPackaged = Boolean(require('electron').app?.isPackaged);
-    let workerPath = '';
+    let workerPath: string;
     
     if (isPackaged) {
       workerPath = path.join(process.resourcesPath, 'app.asar.unpacked/dist/crawler/worker.js');
@@ -329,7 +328,7 @@ export class CrawlerTask {
         const exitCode = code ?? -1;
         this.process = null;
 
-        let runStatus: 'completed' | 'failed' | 'stopped' = 'completed';
+        let runStatus: 'completed' | 'failed' | 'stopped';
         if (this.status === 'stopping') {
           runStatus = 'stopped';
           this.addLog('爬虫循环已手动停止', 'warning', manager);

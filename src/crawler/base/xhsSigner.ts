@@ -169,7 +169,7 @@ export class XhsSigner {
       }
 
       const text = await response.text();
-      let payload: any = null;
+      let payload: any;
       try {
         payload = JSON.parse(text);
       } catch {
