@@ -938,7 +938,7 @@ export class AgentService {
           threadId,
           'assistant',
           'export',
-          `当前任务的 CSV 已准备好，共 ${stats.content_count} 条内容。点击下方按钮下载；桌面版会保存到系统“下载”目录，并在完成后自动定位文件。`,
+          `当前任务的 Excel 表格已准备好，共 ${stats.content_count} 条内容。点击下方按钮下载；桌面版会保存到系统“下载”目录，并在完成后自动定位文件。`,
           { action: 'export', plan_id: latest.plan_id, record_count: stats.content_count },
         );
       }

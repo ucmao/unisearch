@@ -488,7 +488,9 @@ export const dataApi = {
     query?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
-    format?: 'csv' | 'json' | 'markdown'
+    format?: 'xlsx' | 'csv' | 'json'
+    field_mode?: 'recommended' | 'visible' | 'all'
+    fields?: string
   }) => {
     const search = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {
@@ -644,7 +646,6 @@ export const agentApi = {
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}`, updates),
   updatePlanAnalysis: (planId: string, analysis: string[]) =>
     api.patch<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/analysis`, { analysis }),
-  getPlanExportUrl: (planId: string) => `/api/agent/plans/${encodeURIComponent(planId)}/export`,
   getModelProfile: () => api.get<ModelProfile>('/agent/model-profile'),
   getModelProfiles: () => api.get<ModelProfiles>('/agent/model-profiles'),
   saveModelProfile: (profile: Partial<ModelProfile> & { apiKey?: string; clearApiKey?: boolean }) => api.put<ModelProfile>('/agent/model-profile', profile),

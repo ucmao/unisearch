@@ -23,7 +23,6 @@ import {
   FileSearch,
   FileSpreadsheet,
   FileText,
-  FileType,
   Filter,
   Folder,
   FolderOpen,
@@ -54,9 +53,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
-type ExportFormat = 'csv' | 'json' | 'markdown'
+type ExportFormat = 'xlsx' | 'csv' | 'json'
+type ExportFieldMode = 'recommended' | 'visible' | 'all'
 
 const EXPORT_FORMAT_OPTIONS = [
+  {
+    id: 'xlsx',
+    title: 'Excel 表格',
+    ext: '.xlsx',
+    hint: '推荐，适合直接查看与筛选',
+    icon: FileSpreadsheet,
+  },
   {
     id: 'csv',
     title: 'CSV 表格',
@@ -66,17 +73,10 @@ const EXPORT_FORMAT_OPTIONS = [
   },
   {
     id: 'json',
-    title: 'JSON 数据',
+    title: 'JSON 原始数据',
     ext: '.json',
-    hint: '适合 API 对接与程序开发',
+    hint: '包含完整字段，适合开发与系统对接',
     icon: FileJson,
-  },
-  {
-    id: 'markdown',
-    title: 'Markdown 文档',
-    ext: '.md',
-    hint: '适合 Obsidian / Notion 笔记阅读',
-    icon: FileType,
   },
 ] as const
 
@@ -651,7 +651,8 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const [sidebarWidth, setSidebarWidth] = useState(270)
   const [isResizing, setIsResizing] = useState(false)
   const [mobileScopeOpen, setMobileScopeOpen] = useState(false)
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
+  const [exportFieldMode, setExportFieldMode] = useState<ExportFieldMode>('recommended')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const keywordScrollRef = useRef<HTMLDivElement>(null)
 
@@ -1249,7 +1250,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     return <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span>
   }
 
-  const exportUrl = dataApi.getAnalyticsExportUrl({ ...filters, sort_by: sortBy, sort_order: sortOrder, format: exportFormat })
+  const visibleExportFields = selectedColumns.flatMap((column) => {
+    if (column.key === 'title') return ['title', 'summary']
+    if (column.key === 'subject') return ['subject.name']
+    if (column.key.startsWith('metric:')) return [`metrics.${column.key.slice(7)}`]
+    if (column.key.startsWith('attribute:')) return [`attributes.${column.key.slice(10)}`]
+    return [column.key]
+  })
+  const exportUrl = dataApi.getAnalyticsExportUrl({
+    ...filters,
+    sort_by: sortBy,
+    sort_order: sortOrder,
+    format: exportFormat,
+    field_mode: exportFieldMode,
+    fields: exportFieldMode === 'visible' ? visibleExportFields.join(',') : undefined,
+  })
 
   // 基准数据（当前任务 Scope 下的总盘基准，用于计算筛选占比）
   const baselineTotals = scopeSummary?.totals || { document_count: 0, subject_count: 0, content_count: 0, comment_count: 0 }
@@ -1795,7 +1810,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-2.5 py-1">
+          <div className="space-y-3 py-1">
             <div className="grid gap-2">
               {EXPORT_FORMAT_OPTIONS.map((item) => {
                 const isSelected = exportFormat === item.id
@@ -1837,9 +1852,35 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
               })}
             </div>
 
-            <div className="flex items-center justify-between text-[11px] text-cyber-text-muted px-1 pt-1">
-              <span>当前范围：{platform === 'all' ? '全部平台' : platformLabels.get(platform) || platform} · {kind === 'main_only' ? '仅正文' : '包含评论'}</span>
-              <span className="font-mono font-medium text-cyber-text-secondary">{summary?.totals.document_count || 0} 条数据</span>
+            {(exportFormat === 'xlsx' || exportFormat === 'csv') && (
+              <div className="space-y-2 border-t border-cyber-border-subtle/40 pt-3">
+                <p className="px-1 text-[11px] font-medium text-cyber-text-secondary">导出字段</p>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {([
+                    ['recommended', '推荐字段'],
+                    ['visible', '当前显示'],
+                    ['all', '全部原始字段'],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setExportFieldMode(value)}
+                      className={`h-8 rounded-lg border px-2 text-[11px] transition-colors ${
+                        exportFieldMode === value
+                          ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/[0.08] text-cyber-neon-cyan'
+                          : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 text-cyber-text-muted hover:bg-cyber-bg-secondary/70'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border-t border-cyber-border-subtle/40 px-1 pt-3 text-[11px] text-cyber-text-muted">
+              <span>将导出当前筛选条件下的全部数据</span>
+              <span className="font-mono font-medium text-cyber-text-secondary">{summary?.totals.document_count || 0} 条</span>
             </div>
           </div>
 
@@ -1866,4 +1907,3 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     </div>
   )
 }
-
