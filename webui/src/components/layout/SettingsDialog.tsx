@@ -723,7 +723,7 @@ export function SettingsDialog({
                             />
                             <Button
                               size="sm"
-                              className="h-8 bg-cyber-neon-cyan text-black hover:bg-cyber-neon-cyan/80"
+                              className="h-8 bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 font-medium shadow-xs"
                               disabled={!newMemoryContent.trim() || createMemory.isPending}
                               onClick={() => createMemory.mutate(newMemoryContent.trim())}
                             >

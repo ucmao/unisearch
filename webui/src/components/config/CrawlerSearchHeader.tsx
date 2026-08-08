@@ -306,9 +306,9 @@ export function CrawlerSearchHeader() {
             <Button
               onClick={handleStartAll}
               disabled={selectedPlatforms.length === 0}
-              className="h-12 px-8 bg-cyber-neon-cyan text-cyber-bg-primary font-mono font-bold text-sm tracking-widest rounded-xl hover:bg-cyber-neon-cyan/90 hover:shadow-glow-cyan-sm transition-all flex items-center gap-2"
+              className="h-12 px-8 bg-cyber-neon-cyan text-white font-mono font-bold text-sm tracking-widest rounded-xl hover:bg-cyber-neon-cyan/90 hover:shadow-glow-cyan-sm transition-all flex items-center gap-2"
             >
-              <Play className="w-4 h-4 fill-cyber-bg-primary" />
+              <Play className="w-4 h-4 fill-white" />
               开始扫描
             </Button>
           )}
@@ -339,8 +339,8 @@ export function CrawlerSearchHeader() {
               >
                 {/* Active check indicator */}
                 {isSelected && (
-                  <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-cyber-neon-cyan text-cyber-bg-primary rounded-full flex items-center justify-center text-[10px] font-bold">
-                    <Check className="w-2.5 h-2.5 stroke-[3px]" />
+                  <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-cyber-neon-cyan text-white rounded-full flex items-center justify-center text-[10px] font-bold shadow-xs">
+                    <Check className="w-2.5 h-2.5 stroke-[2.5px]" />
                   </span>
                 )}
 
