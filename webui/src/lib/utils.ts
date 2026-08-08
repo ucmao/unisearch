@@ -23,3 +23,15 @@ export function formatDateTime(date: string | Date | number): string {
     minute: '2-digit',
   })
 }
+
+export function isMacPlatform(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false
+  const nav = navigator as { userAgentData?: { platform?: string } }
+  if (nav?.userAgentData?.platform) {
+    return nav.userAgentData.platform.toLowerCase().includes('mac')
+  }
+  const platform = navigator.platform || ''
+  const userAgent = navigator.userAgent || ''
+  return /Macintosh|Mac OS X|MacIntel|MacPPC|Mac68K/i.test(platform) || /Macintosh|Mac OS X/i.test(userAgent)
+}
+

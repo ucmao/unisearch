@@ -44,6 +44,7 @@ import {
   X,
 } from 'lucide-react'
 import { dataApi, type CanonicalDocument } from '@/lib/api'
+import { isMacPlatform } from '@/lib/utils'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1493,7 +1494,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   return (
     <div className="flex h-full min-h-0 flex-col bg-cyber-bg-primary">
       {onBack && (
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 pl-[74px] pr-4 backdrop-blur app-drag">
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 ${isMacPlatform() ? 'pl-[74px]' : 'pl-3 sm:pl-3.5'} pr-4 backdrop-blur app-drag`}>
           <div className="flex items-center gap-1.5 app-no-drag">
             <Button
               size="icon"

@@ -24,7 +24,7 @@ import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
 import { useMentionCommands, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
 import { usePlatformLabels, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
-import { cn } from '@/lib/utils'
+import { cn, isMacPlatform } from '@/lib/utils'
 import { resolveComposerMode } from '@/lib/agentTaskState'
 import { selectPlanPreviews } from '@/lib/livePreviewScope'
 
@@ -2117,7 +2117,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 app-drag ${threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6'}`}>
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 app-drag ${
+          isMacPlatform()
+            ? (threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6')
+            : (threadsCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4 sm:md:pl-6')
+        }`}>
           <div className="flex items-center gap-1.5 min-w-0">
             <div className={`items-center gap-1.5 app-no-drag ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}>
               <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">

@@ -359,13 +359,18 @@ function createCrawlerHubWindow(): BrowserWindow {
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
       trafficLightPosition: { x: 14, y: 14 },
-    } : {}),
+    } : {
+      autoHideMenuBar: true,
+    }),
     webPreferences: {
       backgroundThrottling: false,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  if (process.platform !== 'darwin') {
+    crawlerHubWindow.removeMenu();
+  }
   trackWindowState('crawler', crawlerHubWindow);
   crawlerHubWindow.webContents.on('will-navigate', (event, url) => {
     if (url.startsWith('unisearch-tab://')) {
@@ -593,13 +598,18 @@ function createWindow(port: number): void {
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset' as const,
       trafficLightPosition: { x: 14, y: 14 },
-    } : {}),
+    } : {
+      autoHideMenuBar: true,
+    }),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
     },
     title: 'UniSearch Desktop',
   });
+  if (process.platform !== 'darwin') {
+    mainWindow.removeMenu();
+  }
   trackWindowState('main', mainWindow);
   if (restoredState?.maximized) mainWindow.maximize();
 
@@ -640,8 +650,14 @@ function createWindow(port: number): void {
 
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
-      event.preventDefault();
-      mainWindow?.hide();
+      if (process.platform === 'darwin') {
+        // macOS: 遵循系统原生习惯，关闭红灯时仅隐藏窗口，保留 Dock 常驻，Cmd+Q 时彻底退出
+        event.preventDefault();
+        mainWindow?.hide();
+      } else {
+        // Windows / Linux: 点击关闭按钮直接彻底退出程序
+        app.quit();
+      }
     }
   });
 
