@@ -91,6 +91,118 @@ const BASE_COLUMNS = [
 
 const DEFAULT_COLUMNS = new Set(BASE_COLUMNS.map(([key]) => key))
 
+type PivotViewState = {
+  version: 1
+  platform: string
+  kind: string
+  keyword: string
+  subjectType: string
+  queryInput: string
+  query: string
+  sortBy: string
+  sortOrder: 'asc' | 'desc'
+  page: number
+  visibleColumns: string[]
+}
+
+type PivotLayoutState = {
+  version: 1
+  sidebarCollapsed: boolean
+  sidebarWidth: number
+  expandedTasks: string[]
+}
+
+const PIVOT_VIEW_STORAGE_PREFIX = 'unisearch-pivot-view-v1:'
+const PIVOT_LAYOUT_STORAGE_KEY = 'unisearch-pivot-layout-v1'
+
+function defaultPivotViewState(): PivotViewState {
+  return {
+    version: 1,
+    platform: 'all',
+    kind: 'main_only',
+    keyword: 'all',
+    subjectType: 'all',
+    queryInput: '',
+    query: '',
+    sortBy: 'fetched_at',
+    sortOrder: 'desc',
+    page: 1,
+    visibleColumns: [...DEFAULT_COLUMNS],
+  }
+}
+
+function loadPivotViewState(scope: string): PivotViewState | null {
+  try {
+    const raw = sessionStorage.getItem(`${PIVOT_VIEW_STORAGE_PREFIX}${scope}`)
+    if (!raw) return null
+    const saved = JSON.parse(raw) as Partial<PivotViewState>
+    if (saved.version !== 1) return null
+    const fallback = defaultPivotViewState()
+    return {
+      version: 1,
+      platform: typeof saved.platform === 'string' ? saved.platform : fallback.platform,
+      kind: typeof saved.kind === 'string' ? saved.kind : fallback.kind,
+      keyword: typeof saved.keyword === 'string' ? saved.keyword : fallback.keyword,
+      subjectType: typeof saved.subjectType === 'string' ? saved.subjectType : fallback.subjectType,
+      queryInput: typeof saved.queryInput === 'string' ? saved.queryInput : fallback.queryInput,
+      query: typeof saved.query === 'string' ? saved.query : fallback.query,
+      sortBy: typeof saved.sortBy === 'string' ? saved.sortBy : fallback.sortBy,
+      sortOrder: saved.sortOrder === 'asc' ? 'asc' : 'desc',
+      page: typeof saved.page === 'number' && Number.isInteger(saved.page) && saved.page > 0 ? saved.page : 1,
+      visibleColumns: Array.isArray(saved.visibleColumns)
+        ? saved.visibleColumns.filter((column): column is string => typeof column === 'string')
+        : fallback.visibleColumns,
+    }
+  } catch {
+    return null
+  }
+}
+
+function savePivotViewState(scope: string, state: PivotViewState) {
+  try {
+    sessionStorage.setItem(`${PIVOT_VIEW_STORAGE_PREFIX}${scope}`, JSON.stringify(state))
+  } catch {
+    // 会话存储不可用时不影响当前页面继续使用。
+  }
+}
+
+function removePivotViewState(scope: string) {
+  try {
+    sessionStorage.removeItem(`${PIVOT_VIEW_STORAGE_PREFIX}${scope}`)
+  } catch {
+    // 忽略不可用的会话存储。
+  }
+}
+
+function loadPivotLayoutState(): PivotLayoutState | null {
+  try {
+    const raw = sessionStorage.getItem(PIVOT_LAYOUT_STORAGE_KEY)
+    if (!raw) return null
+    const saved = JSON.parse(raw) as Partial<PivotLayoutState>
+    if (saved.version !== 1) return null
+    return {
+      version: 1,
+      sidebarCollapsed: saved.sidebarCollapsed === true,
+      sidebarWidth: typeof saved.sidebarWidth === 'number'
+        ? Math.max(200, Math.min(saved.sidebarWidth, 520))
+        : 270,
+      expandedTasks: Array.isArray(saved.expandedTasks)
+        ? saved.expandedTasks.filter((taskId): taskId is string => typeof taskId === 'string')
+        : [],
+    }
+  } catch {
+    return null
+  }
+}
+
+function savePivotLayoutState(state: PivotLayoutState) {
+  try {
+    sessionStorage.setItem(PIVOT_LAYOUT_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // 会话存储不可用时不影响当前页面继续使用。
+  }
+}
+
 const kindLabels: Record<string, string> = {
   post: '帖子', article: '文章', video: '视频', image: '图片', comment: '评论',
   profile: '账号', search_result: '搜索结果', ai_answer: 'AI 回答', job: '招聘', complaint: '投诉',
@@ -624,17 +736,28 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const statuses = useCrawlerStore((state) => state.statuses)
   const crawlerStatus = Object.values(statuses).some((status) => status === 'running') ? 'running' : 'idle'
   const previousCrawlerStatus = useRef(crawlerStatus)
-  const initializedDynamicColumns = useRef(false)
+  const initialViewRef = useRef<{ state: PivotViewState; restored: boolean } | null>(null)
+  if (!initialViewRef.current) {
+    const restored = loadPivotViewState(initialScope)
+    initialViewRef.current = { state: restored || defaultPivotViewState(), restored: Boolean(restored) }
+  }
+  const initialView = initialViewRef.current.state
+  const initialLayoutRef = useRef<PivotLayoutState | null | undefined>(undefined)
+  if (initialLayoutRef.current === undefined) initialLayoutRef.current = loadPivotLayoutState()
+  const initialLayout = initialLayoutRef.current
+  const initializedDynamicColumns = useRef(initialViewRef.current.restored)
+  const restoringViewState = useRef(true)
+  const initializedTaskExpansion = useRef(Boolean(initialLayout))
   const [scope, setScope] = useState(initialScope)
-  const [platform, setPlatform] = useState('all')
-  const [kind, setKind] = useState('main_only')
-  const [keyword, setKeyword] = useState('all')
-  const [subjectType, setSubjectType] = useState('all')
-  const [queryInput, setQueryInput] = useState('')
-  const [query, setQuery] = useState('')
-  const [sortBy, setSortBy] = useState('fetched_at')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
-  const [page, setPage] = useState(1)
+  const [platform, setPlatform] = useState(initialView.platform)
+  const [kind, setKind] = useState(initialView.kind)
+  const [keyword, setKeyword] = useState(initialView.keyword)
+  const [subjectType, setSubjectType] = useState(initialView.subjectType)
+  const [queryInput, setQueryInput] = useState(initialView.queryInput)
+  const [query, setQuery] = useState(initialView.query)
+  const [sortBy, setSortBy] = useState(initialView.sortBy)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialView.sortOrder)
+  const [page, setPage] = useState(initialView.page)
   const [pageSize, setPageSize] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('unisearch-pivot-page-size')
@@ -645,16 +768,17 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
   })
   const [selectedDocument, setSelectedDocument] = useState<CanonicalDocument | null>(null)
-  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(DEFAULT_COLUMNS))
+  const [visibleColumns, setVisibleColumns] = useState<Set<string>>(new Set(initialView.visibleColumns))
   const [columnDialogOpen, setColumnDialogOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(270)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialLayout?.sidebarCollapsed || false)
+  const [sidebarWidth, setSidebarWidth] = useState(initialLayout?.sidebarWidth || 270)
   const [isResizing, setIsResizing] = useState(false)
   const [mobileScopeOpen, setMobileScopeOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exportFieldMode, setExportFieldMode] = useState<ExportFieldMode>('recommended')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const keywordScrollRef = useRef<HTMLDivElement>(null)
+  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set(initialLayout?.expandedTasks || []))
 
   const startResizing = (mouseDownEvent: React.MouseEvent) => {
     mouseDownEvent.preventDefault()
@@ -820,13 +944,92 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       .map((key) => ({ key: `attribute:${key}`, label: attributeLabels[key] || key, group: '扩展属性' })),
   ], [scopeSummary, summary])
 
-  useEffect(() => setScope(initialScope), [initialScope])
-  useEffect(() => { setPage(1); setSelectedDocument(null) }, [scope, platform, kind, keyword, subjectType, query, sortBy, sortOrder, pageSize])
+  const currentViewState = useMemo<PivotViewState>(() => ({
+    version: 1,
+    platform,
+    kind,
+    keyword,
+    subjectType,
+    queryInput,
+    query,
+    sortBy,
+    sortOrder,
+    page,
+    visibleColumns: [...visibleColumns],
+  }), [platform, kind, keyword, subjectType, queryInput, query, sortBy, sortOrder, page, visibleColumns])
+
+  const switchScope = (nextScope: string) => {
+    if (nextScope === scope) return
+
+    savePivotViewState(scope, currentViewState)
+    const restored = loadPivotViewState(nextScope)
+    const next = restored || defaultPivotViewState()
+
+    restoringViewState.current = true
+    initializedDynamicColumns.current = Boolean(restored)
+    setScope(nextScope)
+    setPlatform(next.platform)
+    setKind(next.kind)
+    setKeyword(next.keyword)
+    setSubjectType(next.subjectType)
+    setQueryInput(next.queryInput)
+    setQuery(next.query)
+    setSortBy(next.sortBy)
+    setSortOrder(next.sortOrder)
+    setPage(next.page)
+    setVisibleColumns(new Set(next.visibleColumns))
+
+    // 任务切换时不继承一次性交互界面。
+    setSelectedDocument(null)
+    setColumnDialogOpen(false)
+    setExportDialogOpen(false)
+  }
+
+  useEffect(() => {
+    if (initialScope !== scope) switchScope(initialScope)
+  }, [initialScope])
+  useEffect(() => {
+    savePivotViewState(scope, currentViewState)
+  }, [scope, currentViewState])
+  useEffect(() => {
+    if (restoringViewState.current) {
+      restoringViewState.current = false
+      setSelectedDocument(null)
+      return
+    }
+    setPage(1)
+    setSelectedDocument(null)
+  }, [scope, platform, kind, keyword, subjectType, query, sortBy, sortOrder, pageSize])
   useEffect(() => {
     if (initializedDynamicColumns.current || !dynamicColumns.length) return
     initializedDynamicColumns.current = true
     setVisibleColumns((current) => new Set([...current, ...dynamicColumns.slice(0, 6).map((column) => column.key)]))
   }, [dynamicColumns])
+  useEffect(() => {
+    if (!scopeSummary) return
+    const availablePlatforms = new Set(scopeSummary.filters.platforms.map(([value]) => value))
+    const availableKinds = new Set(scopeSummary.filters.kinds)
+    const availableKeywords = new Set(scopeSummary.filters.keywords)
+    const availableSubjectTypes = new Set(scopeSummary.filters.subject_types)
+
+    if (platform !== 'all' && !availablePlatforms.has(platform)) setPlatform('all')
+    if (!['all', 'main_only'].includes(kind) && !availableKinds.has(kind)) setKind('main_only')
+    if (keyword !== 'all' && !availableKeywords.has(keyword)) setKeyword('all')
+    if (subjectType !== 'all' && !availableSubjectTypes.has(subjectType)) setSubjectType('all')
+  }, [scopeSummary, platform, kind, keyword, subjectType])
+  useEffect(() => {
+    if (!documents) return
+    const lastPage = Math.max(1, documents.pages || 1)
+    if (page > lastPage) setPage(lastPage)
+  }, [documents, page])
+  useEffect(() => {
+    savePivotLayoutState({
+      version: 1,
+      sidebarCollapsed,
+      sidebarWidth,
+      expandedTasks: [...expandedTasks],
+    })
+  }, [sidebarCollapsed, sidebarWidth, expandedTasks])
   useEffect(() => {
     const wasRunning = previousCrawlerStatus.current === 'running'
     if (wasRunning && crawlerStatus === 'idle') {
@@ -848,7 +1051,20 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       if (type === 'task') await dataApi.deleteAnalyticsTask(id)
       else if (type === 'round') await dataApi.deleteAnalyticsRound(id)
       else await dataApi.deleteAnalyticsRun(id)
-      if (scope.endsWith(id)) setScope('all')
+      if (scope.endsWith(id)) switchScope('all')
+      if (type === 'task') {
+        removePivotViewState(`thread:${id}`)
+        tasks.find((task) => task.thread_id === id)?.rounds.forEach((round) => removePivotViewState(`plan:${round.plan_id}`))
+        setExpandedTasks((current) => {
+          const next = new Set(current)
+          next.delete(id)
+          return next
+        })
+      } else if (type === 'round') {
+        removePivotViewState(`plan:${id}`)
+      } else {
+        removePivotViewState(`run:${id}`)
+      }
       await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       await queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
       await queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
@@ -858,11 +1074,10 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
   }
 
-  const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set())
-
   // 当任务首次载入或选中某个任务/轮次时，自动展开对应文件夹
   useEffect(() => {
-    if (tasks.length && expandedTasks.size === 0) {
+    if (tasks.length && !initializedTaskExpansion.current) {
+      initializedTaskExpansion.current = true
       setExpandedTasks(new Set(tasks.map((t) => t.thread_id)))
     }
   }, [tasks])
@@ -929,7 +1144,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
         {/* 全局范围：全部任务数据（总览海报大卡片） */}
         <button
           type="button"
-          onClick={() => { setScope('all'); if (mobile) setMobileScopeOpen(false) }}
+          onClick={() => { switchScope('all'); if (mobile) setMobileScopeOpen(false) }}
           className={`group relative flex w-full items-center rounded-xl p-3 text-left transition-all cursor-pointer ${
             scope === 'all'
               ? 'bg-cyber-neon-cyan/15 font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-[0_0_12px_rgba(0,240,255,0.1)] shadow-xs'
@@ -1005,7 +1220,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                       : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85 border border-transparent'
                   }`}
                   onClick={() => {
-                    setScope(`thread:${task.thread_id}`)
+                    switchScope(`thread:${task.thread_id}`)
                     if (!isExpanded && hasRounds) {
                       setExpandedTasks((prev) => new Set([...prev, task.thread_id]))
                     }
@@ -1099,7 +1314,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                               : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/60 hover:text-cyber-text-primary font-normal border border-transparent'
                           }`}
                           onClick={() => {
-                            setScope(`plan:${round.plan_id}`)
+                            switchScope(`plan:${round.plan_id}`)
                             if (mobile) setMobileScopeOpen(false)
                           }}
                         >
