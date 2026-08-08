@@ -110,7 +110,7 @@ export class KnowledgeIndex {
   }
 
   rebuild(options: { workflowId?: string; threadId?: string } = {}): { documents: number; chunks: number } {
-    let documentIds: string[] = [];
+    let documentIds: string[];
     if (options.workflowId) {
       documentIds = (this.db.prepare(`
         SELECT DISTINCT ds.document_id
@@ -163,7 +163,7 @@ export class KnowledgeIndex {
     }
     const scopeSql = filters.length ? `AND ${filters.join(' AND ')}` : '';
 
-    let lexical: any[] = [];
+    let lexical: any[];
     try {
       lexical = this.db.prepare(`
         SELECT c.chunk_id, bm25(document_chunks_fts) AS rank

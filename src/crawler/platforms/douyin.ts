@@ -413,15 +413,14 @@ export class DouyinCrawler extends AbstractCrawler {
     const buffered = this.searchResponseBuffer.shift();
     if (buffered) return Promise.resolve(buffered);
     return new Promise((resolve) => {
-      let waiter: (capture: DouyinSearchCapture) => void;
+      const waiter = (capture: DouyinSearchCapture) => {
+        clearTimeout(timer);
+        resolve(capture);
+      };
       const timer = setTimeout(() => {
         this.searchResponseWaiters = this.searchResponseWaiters.filter((item) => item !== waiter);
         resolve(null);
       }, timeout);
-      waiter = (capture: DouyinSearchCapture) => {
-        clearTimeout(timer);
-        resolve(capture);
-      };
       this.searchResponseWaiters.push(waiter);
     });
   }
@@ -568,7 +567,7 @@ export class DouyinCrawler extends AbstractCrawler {
         // requests quickly become invalid when anti-bot parameters change.
         const capture = await this.openSearchPage(keyword);
 
-        let postsRes: any = capture?.data || null;
+        const postsRes: any = capture?.data || null;
         if (capture) {
           if (!capture.ok) {
             throw new Error(`抖音搜索接口请求失败（HTTP ${capture.status}）`);
@@ -765,7 +764,7 @@ export class DouyinCrawler extends AbstractCrawler {
       this.consecutiveDetailFailures++;
       console.error(`[DY] Failed to collect detail ${target}: ${error.message}`);
       if (this.consecutiveDetailFailures >= 3 && !(await this.checkLoginState())) {
-        throw new Error(`连续 ${this.consecutiveDetailFailures} 个作品采集失败，且登录状态已失效: ${error.message}`);
+        throw new Error(`连续 ${this.consecutiveDetailFailures} 个作品采集失败，且登录状态已失效: ${error.message}`, { cause: error });
       }
       return null;
     }

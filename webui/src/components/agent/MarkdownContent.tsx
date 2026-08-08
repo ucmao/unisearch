@@ -6,7 +6,7 @@ function safeHref(value: string) {
   return /^(?:https?:\/\/|mailto:)/i.test(value) ? value : undefined
 }
 
-export function compressConsecutiveCitations(text: string, maxValidId: number = 500): string {
+function compressConsecutiveCitations(text: string, maxValidId: number = 500): string {
   if (!text) return text
   // 匹配连续出现的角标块，如 [S1] [S2] [S3] 或 （S1）（S2）
   const pattern = /(?:(?:\[\s*S?\d+\s*\]|（\s*S?\d+\s*）)\s*){2,}/gi
@@ -174,7 +174,7 @@ function inlineMarkdown(
   const text = compressConsecutiveCitations(rawText, maxValidId)
   // Chinese prose commonly follows a URL without a space. Treat full-width
   // punctuation as a boundary so the link does not swallow the rest of a line.
-  const pattern = /(<br\s*\/?>|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>"'\(\)（），。；：！？、【】《》「」『』]+|\[\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*\]|（\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*）|\bS\d+(?:[、,，]\s*S?\d+)+|\bS\d+[:：]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`)/gi
+  const pattern = /(<br\s*\/?>|\[[^\]]+\]\([^\s)]+\)|https?:\/\/[^\s<>"'()（），。；：！？、【】《》「」『』]+|\[\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*\]|（\s*S?\d+(?:[\s,–—/\-&、，]+S?\d+)*\s*）|\bS\d+(?:[、,，]\s*S?\d+)+|\bS\d+[:：]|\*\*\*[^*]+\*\*\*|\*\*[^*]+\*\*|~~[^~]+~~|`[^`]+`)/gi
   const nodes: ReactNode[] = []
   let cursor = 0
 

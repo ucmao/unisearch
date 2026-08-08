@@ -57,7 +57,7 @@ export function useLogWebSocket() {
           if (log.id && log.message) {
             addLogRef.current(log)
           }
-        } catch (e) {
+        } catch {
           console.warn('Failed to parse WebSocket message:', event.data)
         }
       }

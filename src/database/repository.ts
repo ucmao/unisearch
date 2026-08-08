@@ -383,7 +383,7 @@ export class AnalyticsRepository {
       JOIN documents d ON d.document_id = s.document_id
       WHERE r.thread_id = t.thread_id AND d.kind != 'comment'
     )`;
-    let whereClause = '';
+    let whereClause: string;
     if (mode === 'empty_short') {
       whereClause = `
         (SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id) < 6

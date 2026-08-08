@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import axios from 'axios'
 import { toast } from 'sonner'
@@ -806,7 +806,8 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     queryFn: async () => (await dataApi.getAnalyticsTasks()).data,
     refetchInterval: crawlerStatus === 'running' ? 1500 : false,
   })
-  const tasks = tasksQuery.data?.items || []
+  const taskItems = tasksQuery.data?.items
+  const tasks = useMemo(() => taskItems ?? [], [taskItems])
   const selectedRunId = scope.startsWith('run:') ? scope.slice(4) : undefined
   const selectedWorkflowId = scope.startsWith('plan:') ? scope.slice(5) : undefined
   const selectedThreadId = scope.startsWith('thread:') ? scope.slice(7) : undefined
@@ -852,7 +853,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
 
     // 1. URL 链接判断（以 http://、https:// 或 www. 开头）
     if (/^https?:\/\//i.test(trimmed) || /^www\./i.test(trimmed)) {
-      let displayLabel = trimmed
+      let displayLabel: string
       try {
         const urlObj = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
         const host = urlObj.hostname.replace(/^www\./, '')
@@ -958,7 +959,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     visibleColumns: [...visibleColumns],
   }), [platform, kind, keyword, subjectType, queryInput, query, sortBy, sortOrder, page, visibleColumns])
 
-  const switchScope = (nextScope: string) => {
+  const switchScope = useCallback((nextScope: string) => {
     if (nextScope === scope) return
 
     savePivotViewState(scope, currentViewState)
@@ -983,11 +984,14 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     setSelectedDocument(null)
     setColumnDialogOpen(false)
     setExportDialogOpen(false)
-  }
+  }, [currentViewState, scope])
 
+  const previousInitialScope = useRef<string | null>(null)
   useEffect(() => {
+    if (previousInitialScope.current === initialScope) return
+    previousInitialScope.current = initialScope
     if (initialScope !== scope) switchScope(initialScope)
-  }, [initialScope])
+  }, [initialScope, scope, switchScope])
   useEffect(() => {
     savePivotViewState(scope, currentViewState)
   }, [scope, currentViewState])

@@ -198,9 +198,9 @@ function crawlerHubHtml(): string {
   if (activeCrawlerPlatform && !isRunningActive && activeState) {
     const label = platformLabel(activeCrawlerPlatform);
     const metrics = crawlerTabMetrics.get(activeCrawlerPlatform);
-    let statusTitle = '';
-    let statusDesc = '';
-    let iconSvg = '';
+    let statusTitle: string;
+    let statusDesc: string;
+    let iconSvg: string;
     const badgeClass = activeState;
 
     if (activeState === 'completed') {

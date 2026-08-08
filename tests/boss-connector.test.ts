@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { BossCrawler } from '../src/crawler/platforms/boss';
 import {
   classifyBossPageState,
   buildBossDetailUrl,
@@ -13,7 +12,6 @@ import {
   parseBossDomJobs,
   parseBossSearchPayload,
 } from '../src/crawler/platforms/bossParsing';
-import { resetConfig } from '../src/tools/config';
 
 const fixture = (name: string) => readFileSync(path.resolve(import.meta.dirname, 'fixtures', name), 'utf8');
 

@@ -195,7 +195,6 @@ test('quick analysis coverage distinguishes full statistics from representative 
 test('Quick Report Generator separates selection, generation and program-owned report assembly', async () => {
   let prompt = '';
   let materials: any;
-  let streamed = '';
   const selection = {
     targetDocumentCount: 22,
     candidateDocumentCount: 40,
@@ -233,7 +232,6 @@ test('Quick Report Generator separates selection, generation and program-owned r
     userRequest: '分析薪酬与经验',
     analysisGoals: ['薪酬分布', '经验要求'],
     datasetProfile: { documentCount: 212 } as any,
-    onDelta: (delta) => { streamed += delta; },
   });
 
   assert.match(prompt, /只能使用“全部文档的确定性统计结果”/);

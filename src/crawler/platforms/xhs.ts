@@ -782,4 +782,3 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     return dict;
   }
 }
-import fs from 'fs';

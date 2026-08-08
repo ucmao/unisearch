@@ -41,7 +41,7 @@ export class AnalysisService {
   private get db(): Database { return this.databaseProvider(); }
 
   documents(workflowId?: string, threadId?: string): any[] {
-    let ids: Array<{ document_id: string }> = [];
+    let ids: Array<{ document_id: string }>;
     if (workflowId) {
       ids = this.db.prepare(`
         SELECT DISTINCT ds.document_id FROM document_sources ds

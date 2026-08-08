@@ -12,7 +12,7 @@ export interface PlatformConfig {
   icon: string
 }
 
-export const PLATFORMS: PlatformConfig[] = [
+const PLATFORMS: PlatformConfig[] = [
   {
     id: 'obsidian',
     name: 'Obsidian',

@@ -156,9 +156,11 @@ export function CrawlerConfigPanel() {
     updateConfig({ capability: selectedCapability.id, crawler_type: selectedCapability.runtimeMode })
   }, [config.capability, selectedCapability, updateConfig])
 
-  const loginMethods = selectedConnectors.length
-    ? selectedConnectors[0].auth.methods.filter((method) => selectedConnectors.every((connector) => connector.auth.methods.includes(method)))
-    : []
+  const loginMethods = useMemo(() => (
+    selectedConnectors.length
+      ? selectedConnectors[0].auth.methods.filter((method) => selectedConnectors.every((connector) => connector.auth.methods.includes(method)))
+      : []
+  ), [selectedConnectors])
 
   useEffect(() => {
     if (!loginMethods.length || loginMethods.includes(config.login_type as 'qrcode' | 'cookie' | 'none')) return

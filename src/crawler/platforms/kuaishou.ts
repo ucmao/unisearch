@@ -626,7 +626,7 @@ export class KuaishouCrawler extends AbstractCrawler {
       this.consecutiveDetailFailures++;
       console.error(`[KS] Failed to collect detail ${target}: ${error.message}`);
       if (this.consecutiveDetailFailures >= 3 && !(await this.checkLoginState())) {
-        throw new Error(`连续 ${this.consecutiveDetailFailures} 个作品采集失败，且登录状态已失效: ${error.message}`);
+        throw new Error(`连续 ${this.consecutiveDetailFailures} 个作品采集失败，且登录状态已失效: ${error.message}`, { cause: error });
       }
       return null;
     }

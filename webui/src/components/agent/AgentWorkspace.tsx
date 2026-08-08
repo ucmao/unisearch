@@ -235,7 +235,7 @@ async function copyText(value: string) {
 
 function cleanAndFormatPlanConfig(rawConfig: string): string {
   if (!rawConfig) return ''
-  let text = rawConfig.replace(/<\/?details>/gi, '').replace(/<summary>.*?<\/summary>/gi, '').trim()
+  const text = rawConfig.replace(/<\/?details>/gi, '').replace(/<summary>.*?<\/summary>/gi, '').trim()
   const lines = text.split(/\r?\n/)
   const statusPatterns = [
     /^已创建任务/,
@@ -1593,15 +1593,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       client.invalidateQueries({ queryKey: ['agent-threads'] })
     },
   })
+  const stopPlanMutate = stopPlan.mutate
+  const removeMessagePairMutateAsync = removeMessagePair.mutateAsync
+  const regenerateMutateAsync = regenerate.mutateAsync
   const handleStopPlan = useCallback((planId: string) => {
-    stopPlan.mutate(planId)
-  }, [stopPlan.mutate])
+    stopPlanMutate(planId)
+  }, [stopPlanMutate])
   const handleDeleteMessagePair = useCallback((threadId: string, messageId: string) => (
-    removeMessagePair.mutateAsync({ threadId, messageId })
-  ), [removeMessagePair.mutateAsync])
+    removeMessagePairMutateAsync({ threadId, messageId })
+  ), [removeMessagePairMutateAsync])
   const handleRegenerateMessage = useCallback((threadId: string, messageId: string) => (
-    regenerate.mutateAsync({ threadId, messageId })
-  ), [regenerate.mutateAsync])
+    regenerateMutateAsync({ threadId, messageId })
+  ), [regenerateMutateAsync])
   const handlePreviewImage = useCallback((url: string) => {
     setPreviewImageUrl(url)
   }, [])

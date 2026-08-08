@@ -6,6 +6,8 @@
   "author": "cheng wang",
   "main": "dist/main/index.js",
   "scripts": {
+    "lint": "eslint src tests webui/src --max-warnings=0",
+    "lint:fix": "eslint src tests webui/src --fix",
     "test:agent": "node tests/run-agent-tests.mjs",
     "probe:boss:cdp": "node --import tsx scratch/probe_boss_cdp.ts",
     "webui:build": "cd webui && npm run build",
@@ -32,13 +34,19 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.14.9",
     "electron": "^42.7.1",
     "electron-builder": "^24.13.3",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.9.0",
     "tsup": "^8.1.0",
     "tsx": "^4.16.0",
-    "typescript": "^5.5.2"
+    "typescript": "^5.5.2",
+    "typescript-eslint": "^8.66.0"
   },
   "build": {
     "appId": "com.unisearch.app",

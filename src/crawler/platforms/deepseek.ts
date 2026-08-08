@@ -202,12 +202,10 @@ export class DeepSeekCrawler extends AbstractCrawler {
       'button:has-text("发送")',
     ];
 
-    let sent = false;
     for (const btnSel of sendButtonSelectors) {
       if (await this.page.isVisible(btnSel).catch(() => false)) {
         console.log(`[DEEPSEEK] Clicking send button via selector: ${btnSel}`);
         await this.page.click(btnSel).catch(() => {});
-        sent = true;
         break;
       }
     }

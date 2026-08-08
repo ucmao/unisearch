@@ -14,7 +14,7 @@ export function sanitizeThreadTitle(value: string, limit = 24): string {
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, ' ')
     .replace(/(?<!\d)1[3-9]\d{9}(?!\d)/g, ' ')
     .replace(/(?<!\d)\d{15,18}[\dXx]?(?!\d)/g, ' ')
-    .replace(/^[\s#>*_`“”‘’"'《》【】\[\]()（）]+|[\s#>*_`“”‘’"'《》【】\[\]()（）。，、；;：:！？!?~～]+$/g, '')
+    .replace(/^[\s#>*_`“”‘’"'《》【】[\]()（）]+|[\s#>*_`“”‘’"'《》【】[\]()（）。，、；;：:！？!?~～]+$/g, '')
     .replace(/[\r\n\t]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

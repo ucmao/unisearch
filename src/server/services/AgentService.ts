@@ -194,7 +194,7 @@ export function normalizePlan(
 
   const explicitlyMentionedPlatforms = Array.from(new Set(mentionedConnectors.filter((platform) => SUPPORTED.includes(platform))));
 
-  let basePlatforms: string[] = [];
+  let basePlatforms: string[];
   if (explicitlyMentionedPlatforms.length > 0) {
     basePlatforms = explicitlyMentionedPlatforms;
   } else if (isExclusive) {
@@ -872,7 +872,7 @@ export class AgentService {
               this.scheduleMemoryCapture(threadId, content);
               return agentRepository.getThread(threadId);
             }
-          } catch (err: any) { ensureMessageNotAborted(signal); }
+          } catch { ensureMessageNotAborted(signal); }
         }
         agentRepository.addMessage(threadId, 'assistant', 'text', '当前没有生成或挂起等待确认的采集计划。如果你想发起采集，请告诉我具体的平台和关键词（例如：“在小红书搜索 某品牌”）。', { action: 'chat' });
       } else {
@@ -1087,7 +1087,7 @@ export class AgentService {
           ensureMessageNotAborted(signal);
           plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
         }
-        catch (error: any) {
+        catch {
           ensureMessageNotAborted(signal);
           const fallbackKeywords = inferResearchKeywords(planningText);
           plan = normalizePlan({
@@ -1136,7 +1136,7 @@ export class AgentService {
             ensureMessageNotAborted(signal);
             agentRepository.addMessage(threadId, 'assistant', 'analysis', answer, { action: 'material_analysis' });
             return agentRepository.getThread(threadId);
-          } catch (error: any) { ensureMessageNotAborted(signal); }
+          } catch { ensureMessageNotAborted(signal); }
         }
       }
       agentRepository.addMessage(threadId, 'assistant', 'clarify', '你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。', {
@@ -1161,9 +1161,6 @@ export class AgentService {
       : agentRepository.createPlan(threadId, plan);
     const planSkill = skillRegistry.find(plan.skillId);
     const platformNames = plan.platforms.map((p) => LABELS[p]).join('、');
-    const capabilityLabel = plan.platforms
-      .map((platform) => getConnectorManifest(platform)?.capabilities.find((capability) => capability.id === (plan.capability || 'keyword_search'))?.label)
-      .find(Boolean) || '关键词搜索';
     const autoStart = shouldAutoStartPlan(plan, planningText, planSkill, explicitlyInvokedSkill);
     const lead = autoStart
       ? planSkill?.category === 'business'
@@ -1191,7 +1188,7 @@ export class AgentService {
       const overrides = Object.values(plan.connectorOptions || {});
       const overrideMaxItems = overrides.map((option) => Number(option?.max_items)).find((value) => Number.isFinite(value) && value > 0);
       const overrideStartPage = overrides.map((option) => Number(option?.start_page)).find((value) => Number.isFinite(value) && value > 1);
-      let depthSummary = '';
+      let depthSummary: string;
 
       if (plan.customScopeDescription) {
         depthSummary = plan.customScopeDescription;
@@ -1350,7 +1347,7 @@ export class AgentService {
     const current = agentRepository.getPlan(planId);
     if (!current) throw new Error('计划不存在');
     if (current.status !== 'awaiting_confirmation') throw new Error('只有等待确认的计划可以修改参数');
-    let updatedPlan = { ...current.plan };
+    const updatedPlan = { ...current.plan };
     if (Array.isArray(updates.keywords)) {
       const keywords = Array.from(new Set(updates.keywords.map((v) => String(v).trim()).filter(Boolean))).slice(0, 12);
       if (keywords.length > 0) updatedPlan.keywords = keywords;

@@ -201,7 +201,7 @@ export class ModelService {
     return value;
   }
 
-  private encrypt(value: string): string | undefined {
+  private encrypt(_value: string): string | undefined {
     return undefined;
   }
 
@@ -427,7 +427,7 @@ export class ModelService {
           this.lastErrors[profile.provider] = message;
           this.markConnectionUnverified(profile.provider);
         }
-        throw new Error(message);
+        throw new Error(message, { cause: error });
       }
     }
     throw new Error(lastErrorMsg || '模型服务调用失败');

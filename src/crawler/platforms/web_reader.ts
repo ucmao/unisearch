@@ -5,7 +5,7 @@ import { webReaderService, type WebReaderParsedArticle } from '../../services/we
 
 function extractUrls(input: string): string[] {
   if (!input) return [];
-  const matches = input.match(/https?:\/\/[^\s,，;；"'\(\)\<\>\[\]{}]+/g) || [];
+  const matches = input.match(/https?:\/\/[^\s,，;；"'()<>[\]{}]+/g) || [];
   return [...new Set(matches.map((url) => url.trim().replace(/[.，;；!！?？。)\\]]+$/, '')).filter((url) => /^https?:\/\/\w+/i.test(url)))];
 }
 
