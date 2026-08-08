@@ -2544,11 +2544,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           </div>
                         </div>
                         <Button
-                          className="mt-3 w-full h-8.5 text-xs gap-1.5 bg-cyber-neon-cyan text-black hover:bg-cyber-neon-cyan/90 font-medium"
+                          className="mt-3 w-full h-8.5 text-xs gap-1.5 bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 font-medium shadow-xs"
                           onClick={() => execute.mutate(activePlan.plan_id)}
                           disabled={execute.isPending}
                         >
-                          {execute.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-black" />}
+                          {execute.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-white" />}
                           确认并开始采集
                         </Button>
                       </div>
@@ -2781,7 +2781,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               const selected = taskReferences.find((item) => item.plan_id === task.plan_id)
               return <div key={task.plan_id} className={`rounded-xl border p-3 ${selected ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle'}`}>
                 <button type="button" onClick={() => toggleTaskReference(task)} className="flex w-full items-start gap-3 text-left">
-                  <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-cyber-bg-primary' : 'border-cyber-border-default'}`}>{selected ? '✓' : ''}</span>
+                  <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-white' : 'border-cyber-border-default'}`}>{selected ? '✓' : ''}</span>
                   <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-cyber-text-primary">{task.goal}</span><span className="mt-1 block text-[10px] text-cyber-text-muted">{task.content_count} 条内容 · {task.platforms.map((platform) => platformLabels[platform] || platform).join('、')}</span></span>
                 </button>
                 {selected ? <div className="mt-3 flex flex-wrap gap-1.5 border-t border-cyber-border-subtle pt-3">
