@@ -28,7 +28,12 @@ import { ragService } from '../knowledge/rag-service';
 import { analyzerRegistry, analysisService } from '../analyzers/registry';
 import { exporterRegistry, exportService } from '../exporters/registry';
 import { zipDirectoryToBuffer } from '../exporters/zip';
-import { renderCanonicalExport, type CanonicalExportFormat } from '../exporters/canonical-export';
+import {
+  canonicalDocumentsToXlsx,
+  renderCanonicalExport,
+  type CanonicalExportFieldMode,
+  type CanonicalExportFormat,
+} from '../exporters/canonical-export';
 
 const fastify = Fastify({ logger: false, bodyLimit: 12 * 1024 * 1024 });
 const activeAgentMessageRequests = new Map<string, AbortController>();
@@ -760,31 +765,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.delete('/api/agent/memories', async () => ({ deleted: agentRepository.clearMemories() }));
 
-  fastify.get('/api/agent/plans/:plan_id/export', async (request, reply) => {
-    const { plan_id } = request.params as { plan_id: string };
-    const plan = agentRepository.getPlan(plan_id);
-    if (!plan) return reply.status(404).send({ detail: 'Plan not found' });
-    const rows = agentRepository.getPlanExportContents(plan_id);
-    const columns = [
-      ['platform_label', '平台'], ['keyword', '关键词'], ['title', '标题'], ['description', '正文'],
-      ['creator_name', '作者'], ['likes', '点赞数'], ['saves', '收藏数'], ['comments', '评论数'],
-      ['shares', '分享数'], ['views', '播放数'], ['published_at', '发布时间'], ['content_url', '内容链接'],
-    ];
-    const quote = (value: any) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    let csv = '\ufeff' + columns.map(([, header]) => quote(header)).join(',') + '\n';
-    for (const row of rows) {
-      csv += columns.map(([key]) => {
-        const value = key === 'published_at' && row[key] ? new Date(row[key] * 1000).toLocaleString('zh-CN') : row[key];
-        return quote(value);
-      }).join(',') + '\n';
-    }
-    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-    const filename = `UniSearch_${stamp}.csv`;
-    return reply.header('Content-Type', 'text/csv; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="${filename}"`)
-      .send(Buffer.from(csv, 'utf-8'));
-  });
-
   fastify.get('/api/agent/model-profile', async () => modelService.getProfile(false));
 
   fastify.get('/api/agent/model-profiles', async () => modelService.getProfiles());
@@ -1065,7 +1045,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       subject_type?: string;
       query?: string;
       sort_by?: string;
+      sort_order?: 'asc' | 'desc';
       format?: CanonicalExportFormat;
+      field_mode?: CanonicalExportFieldMode;
+      fields?: string;
     };
 
     const res = analyticsRepository.queryDocuments({
@@ -1078,20 +1061,46 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       subject_type: query.subject_type,
       query: query.query,
       sort_by: query.sort_by || 'updated_at',
-      sort_order: 'desc',
+      sort_order: query.sort_order === 'asc' ? 'asc' : 'desc',
       page: 1,
       page_size: 1000000,
     });
 
-    const format: CanonicalExportFormat = ['csv', 'json', 'markdown'].includes(query.format || '')
+    const format: CanonicalExportFormat = ['xlsx', 'csv', 'json'].includes(query.format || '')
       ? query.format!
-      : 'csv';
-    const rendered = renderCanonicalExport(format, res.items);
-    const filename = `UniSearch_Canonical_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_${Date.now()}.${rendered.extension}`;
+      : 'xlsx';
+    const fieldMode: CanonicalExportFieldMode = ['recommended', 'visible', 'all'].includes(query.field_mode || '')
+      ? query.field_mode!
+      : 'recommended';
+    const fields = query.fields?.split(',').map((field) => field.trim()).filter(Boolean);
+    const exportOptions = {
+      fieldMode,
+      fields,
+      metadata: {
+        '平台筛选': query.platform,
+        '内容类型筛选': query.kind,
+        '关键词筛选': query.keyword,
+        '主体类型筛选': query.subject_type,
+        '搜索条件': query.query,
+      },
+    };
+    const stamp = `${new Date().toISOString().slice(0, 10).replace(/-/g, '')}_${Date.now()}`;
+
+    if (format === 'xlsx') {
+      const content = await canonicalDocumentsToXlsx(res.items, exportOptions);
+      const filename = `UniSearch_数据导出_${stamp}.xlsx`;
+      return reply
+        .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`)
+        .send(content);
+    }
+
+    const rendered = renderCanonicalExport(format, res.items, exportOptions);
+    const filename = `UniSearch_数据导出_${stamp}.${rendered.extension}`;
 
     return reply
       .header('Content-Type', rendered.contentType)
-      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
+      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"; filename*=UTF-8''${encodeURIComponent(filename)}`)
       .send(Buffer.from(rendered.content, 'utf-8'));
   });
 

@@ -278,12 +278,12 @@ function StepIcon({ status }: { status: string }) {
   return <Clock3 className="h-4 w-4 text-cyber-text-muted" />
 }
 
-function CsvDownloadLink({ planId, threadId, compact = false }: { planId?: string; threadId?: string; compact?: boolean }) {
-  const exportUrl = threadId
-    ? dataApi.getAnalyticsExportUrl({ thread_id: threadId })
-    : planId
-      ? agentApi.getPlanExportUrl(planId)
-      : '#'
+function SpreadsheetDownloadLink({ planId, threadId, compact = false }: { planId?: string; threadId?: string; compact?: boolean }) {
+  const exportUrl = dataApi.getAnalyticsExportUrl({
+    ...(threadId ? { thread_id: threadId } : planId ? { workflow_id: planId } : {}),
+    format: 'xlsx',
+    field_mode: 'recommended',
+  })
 
   return (
     <a
@@ -292,7 +292,7 @@ function CsvDownloadLink({ planId, threadId, compact = false }: { planId?: strin
       className={`inline-flex items-center justify-center rounded-md border border-cyber-border-default text-xs font-medium transition-colors hover:border-cyber-neon-cyan/60 hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan ${compact ? 'h-9 min-w-0 gap-1.5 px-2' : 'mt-3 h-10 min-w-0 gap-2 px-4'}`}
     >
       <Download className={`${compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} shrink-0 text-cyber-neon-cyan`} />
-      <span className="truncate">下载 CSV</span>
+      <span className="truncate">下载 Excel</span>
     </a>
   )
 }
@@ -807,7 +807,7 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
             ? <PlanMessageContent cleanContent={cleanContent} isPlanRunning={isPlanRunning} />
             : <MarkdownContent content={cleanContent} sources={message.metadata?.sources} onCitationClick={onCitationClick} />}
         {(message.kind === 'export' || message.metadata?.action === 'export') && typeof message.metadata?.plan_id === 'string'
-          ? <CsvDownloadLink planId={message.metadata.plan_id} />
+          ? <SpreadsheetDownloadLink planId={message.metadata.plan_id} />
           : null}
         {isTargetPlanMessage && activePlan && onStopPlan ? (
           <ChatCrawlingStatusBanner
@@ -2654,7 +2654,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
                             <span className="truncate">结果看板</span>
                           </Button>
-                          {selectedId ? <CsvDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <CsvDownloadLink planId={latestFinishedPlanId} compact /> : null}
+                          {selectedId ? <SpreadsheetDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <SpreadsheetDownloadLink planId={latestFinishedPlanId} compact /> : null}
                         </div>
                       ) : null}
                       {isRunning && sessionTotalItems > 0 ? (

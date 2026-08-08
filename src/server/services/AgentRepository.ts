@@ -935,10 +935,6 @@ export class AgentRepository {
     return { content_count: rows.length, by_platform: [...counts.values()].sort((a, b) => b.count - a.count) };
   }
 
-  getPlanExportContents(workflowId: string): any[] {
-    return new AnalyticsRepository(this.databaseProvider)
-      .queryDocuments({ workflow_id: workflowId, page: 1, page_size: 1000000 }).items;
-  }
 }
 
 export const agentRepository = new AgentRepository();

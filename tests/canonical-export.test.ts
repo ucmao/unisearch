@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildRawItem } from '../src/connectors/output/connector-output';
 import { mapRawItemToCanonicalDocument } from '../src/connectors/mappers/canonical-document-mapper';
-import { renderCanonicalExport } from '../src/exporters/canonical-export';
+import { canonicalDocumentsToXlsx, renderCanonicalExport } from '../src/exporters/canonical-export';
 
 function document() {
   return mapRawItemToCanonicalDocument(buildRawItem('emitZhaopinResult', {
@@ -16,21 +16,33 @@ function document() {
   }));
 }
 
-test('canonical unified export renders CSV with dynamic attribute columns', () => {
+test('canonical unified export renders a user-facing CSV with populated business columns', () => {
   const rendered = renderCanonicalExport('csv', [document()]);
   assert.equal(rendered.extension, 'csv');
-  assert.match(rendered.content, /属性:salary/);
+  assert.match(rendered.content, /薪资/);
   assert.match(rendered.content, /25-40K/);
   assert.match(rendered.content, /示例科技/);
+  assert.doesNotMatch(rendered.content, /文档 ID/);
+  assert.doesNotMatch(rendered.content, /资源 JSON/);
 });
 
-test('canonical unified export renders JSON and Markdown from the same document contract', () => {
+test('canonical CSV can export only the fields currently visible in the workbench', () => {
+  const rendered = renderCanonicalExport('csv', [document()], {
+    fieldMode: 'visible',
+    fields: ['title', 'attributes.salary', 'sourceUrl'],
+  });
+  const [header] = rendered.content.replace(/^\ufeff/, '').split('\n');
+  assert.equal(header, '"标题","薪资","内容链接"');
+});
+
+test('canonical Excel export includes a workbook payload', async () => {
+  const rendered = await canonicalDocumentsToXlsx([document()], { fieldMode: 'recommended' });
+  assert.equal(rendered.subarray(0, 2).toString(), 'PK');
+  assert.ok(rendered.length > 1_000);
+});
+
+test('canonical unified export renders complete JSON from the document contract', () => {
   const json = renderCanonicalExport('json', [document()]);
   assert.equal(JSON.parse(json.content).schemaVersion, 2);
   assert.equal(JSON.parse(json.content).documents[0].subject.type, 'company');
-
-  const markdown = renderCanonicalExport('markdown', [document()]);
-  assert.equal(markdown.extension, 'md');
-  assert.match(markdown.content, /Canonical metadata/);
-  assert.match(markdown.content, /负责统一搜索服务/);
 });
