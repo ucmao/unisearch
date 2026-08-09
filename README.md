@@ -81,7 +81,7 @@ flowchart LR
 | 类别 | 平台与信源 |
 | :--- | :--- |
 | **社交与内容平台** | 小红书、抖音、快手、哔哩哔哩、微博、百度贴吧、知乎 |
-| **搜索引擎** | 百度、必应中国、360搜索、搜狗搜索、头条搜索 |
+| **搜索引擎** | 百度搜索、必应搜索、360搜索、搜狗搜索、头条搜索 |
 | **AI 网页问答** | DeepSeek、Kimi、豆包、通义千问、腾讯元宝、纳米AI、文心一言 |
 | **技术、论文与资讯** | arXiv、GitHub 仓库、RSS 新闻、AI HOT |
 | **垂直平台** | 智联招聘、前程无忧、猎聘网、BOSS直聘、黑猫投诉 |
@@ -106,18 +106,20 @@ npm --prefix webui install
 ### 🖥️ 启动开发模式
 
 ```bash
-# 首次启动先构建 WebUI
+# 首次运行或前端更新后需构建 WebUI
 npm run webui:build
+
+# 编译后端并启动 Electron 桌面应用
 npm run electron:dev
 ```
 
-AI 功能需在应用设置中配置 MiniMax、DeepSeek 或 OpenAI 兼容接口。
+> **提示**：AI 规划与分析功能需在应用「设置」中配置 MiniMax、DeepSeek 或 OpenAI 兼容接口 Key。
 
 ### 🛠️ 前后端分离调试（可选）
 
 如需单独调试前端 UI 界面：
 
-1. **启动后端服务**：
+1. **启动后端服务与 Electron 容器**：
    ```bash
    npm run electron:dev
    ```
@@ -127,18 +129,48 @@ AI 功能需在应用设置中配置 MiniMax、DeepSeek 或 OpenAI 兼容接口�
    ```
    在浏览器访问 `http://localhost:5173/` 即可。
 
+### 🧪 测试与代码检查（可选）
+
+```bash
+# 运行核心测试套件
+npm run test:agent
+
+# 代码风格与规范检查
+npm run lint
+```
+
 ---
 
 ## 📦 应用打包
 
-执行以下命令为当前平台构建安装包：
+### 1. 基础打包命令
+
+执行以下命令自动构建后端、WebUI 并打包为当前系统平台的安装包：
 
 ```bash
-# 构建后端、WebUI 并打包
+# 构建后端、WebUI 并打包生成安装包
 npm run electron:build
 ```
 
-打包完成后，产物将自动输出至 `dist/` 目录。
+打包完成后，安装包产物将自动输出至 `dist/` 目录。
+
+### 2. 平台专属发布命令
+
+```bash
+# Windows 平台正式发布构建（需在 Windows 机器执行）
+npm run electron:build:win:release
+
+# macOS 平台正式发布构建（需在 macOS 机器执行，支持签名与公证检查）
+npm run electron:build:mac:release
+```
+
+### ⚠️ Windows 打包提示
+
+Windows 打包需要符号链接权限（用于解压工具包与注入图标），请满足以下任一条件后再执行打包：
+- **开启开发者模式**（推荐）：系统设置 -> 开发者选项 -> 开启「开发人员模式」；
+- **管理员身份运行**：以管理员身份打开 CMD / PowerShell 终端执行打包命令。
+
+> 详细的发布打包流程、代码签名及产物校验规范请参阅 [docs/release-packaging.md](docs/release-packaging.md)。
 
 ---
 

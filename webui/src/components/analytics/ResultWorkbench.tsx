@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ArrowUp,
   ArrowUpDown,
+  BarChart3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -1119,10 +1120,6 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     setExpandedTasks(new Set())
   }
 
-  const scopeTitle = selectedRunId
-    ? `执行 ${selectedRunId.slice(0, 8)}`
-    : selectedWorkflowId ? '当前采集轮次' : selectedThreadId ? '当前 AI 任务' : '全部任务的最新文档'
-
   // 判断是否存在活动筛选
   const hasActiveFilters = platform !== 'all' || kind !== 'main_only' || keyword !== 'all' || subjectType !== 'all' || query.trim() !== ''
 
@@ -1493,51 +1490,57 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-cyber-bg-primary">
-      {onBack && (
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 ${isMacPlatform() ? 'pl-[74px]' : 'pl-3 sm:pl-3.5'} pr-4 backdrop-blur app-drag`}>
-          <div className="flex items-center gap-1.5 app-no-drag">
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-              title={sidebarCollapsed ? "展开任务范围侧栏" : "收起任务范围侧栏"}
-            >
-              {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-8 gap-1.5 rounded-xl px-2.5 text-xs text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-              onClick={onBack}
-            >
-              <ArrowLeft className="h-4 w-4" />返回任务
-            </Button>
-            <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
-            <span className="text-sm font-medium text-cyber-text-primary">数据透视工作台</span>
-            <span className="hidden text-xs text-cyber-text-muted sm:inline">· {scopeTitle}</span>
+      <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 ${isMacPlatform() ? 'pl-[74px]' : 'pl-3 sm:pl-3.5'} pr-4 backdrop-blur app-drag`}>
+        <div className="flex items-center gap-1.5 app-no-drag">
+          {onBack && (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-8 gap-1.5 rounded-xl px-2.5 text-xs text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                onClick={onBack}
+                title="返回任务"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>返回任务</span>
+              </Button>
+              <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
+            </>
+          )}
+          <div className="flex items-center gap-1.5 pl-0.5">
+            <BarChart3 className="h-4 w-4 text-cyber-neon-cyan/90 shrink-0" />
+            <span className="text-sm font-semibold text-cyber-text-primary tracking-tight">数据透视工作台</span>
           </div>
-
-          <div className="flex items-center gap-2 app-no-drag">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 rounded-xl text-xs md:hidden"
-              onClick={() => setMobileScopeOpen(true)}
-            >
-              <History className="h-3.5 w-3.5" />任务范围
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => setExportDialogOpen(true)}
-              className="h-8 gap-1.5 rounded-xl text-xs bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/30 hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/50 transition-colors focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-            >
-              <Download className="h-3.5 w-3.5" />
-              <span>统一下载</span>
-            </Button>
-          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 rounded-lg ml-1 text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 hidden md:flex"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            title={sidebarCollapsed ? "展开任务范围侧栏" : "收起任务范围侧栏"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+          </Button>
         </div>
-      )}
+
+        <div className="flex items-center gap-2 app-no-drag">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-xl text-xs md:hidden"
+            onClick={() => setMobileScopeOpen(true)}
+          >
+            <History className="h-3.5 w-3.5" />任务范围
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setExportDialogOpen(true)}
+            className="h-8 gap-1.5 rounded-xl text-xs bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/30 hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/50 transition-colors focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>统一下载</span>
+          </Button>
+        </div>
+      </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside
