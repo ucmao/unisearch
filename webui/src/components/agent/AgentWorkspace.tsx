@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
+  AlertTriangle, ArrowRight, ArrowUpRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
   Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
@@ -1818,6 +1818,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     createNewTask.mutate()
   }
 
+  const navigateToHome = () => {
+    setSelectedId(null)
+    setTerminalOpen(false)
+    if (window.innerWidth < 768) {
+      setThreadsCollapsed(true)
+    }
+    window.requestAnimationFrame(() => {
+      composerInputRef.current?.focus()
+    })
+  }
+
   const updateLeftSidebarWidth = (value: number) => {
     const next = Math.round(Math.min(420, Math.max(220, value)))
     setLeftSidebarWidth(next)
@@ -1878,9 +1889,17 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           </Button>
         </div>
         <div className="pl-6 pr-3 pt-2 pb-2.5">
-          <span className="text-xl font-bold tracking-tight text-cyber-text-primary">
-            UniSearch
-          </span>
+          <button
+            type="button"
+            onClick={navigateToHome}
+            title="UniSearch 首页"
+            aria-label="UniSearch 首页"
+            className="cursor-pointer text-left select-none app-no-drag focus:outline-none transition-opacity hover:opacity-80 active:opacity-60"
+          >
+            <span className="text-xl font-bold tracking-tight text-cyber-text-primary">
+              UniSearch
+            </span>
+          </button>
         </div>
         <div className="px-2 pb-1.5">
           <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">
@@ -2115,7 +2134,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               </Button>
               <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
             </div>
-            <h1 className="truncate text-sm font-medium">{threadQuery.data?.title || '新任务'}</h1>
+            <h1 className="truncate text-sm font-medium">{threadQuery.data?.title || (selectedId ? '新任务' : 'UniSearch 首页')}</h1>
           </div>
           <div className="flex items-center gap-1 app-no-drag">
             {/* 采集结束后依然保留入口：失败平台要回看页面，下次任务前要预登录 */}
@@ -2680,19 +2699,24 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           <Sparkles className="h-3 w-3 text-cyber-neon-cyan" />
                           <span>继续分析</span>
                         </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                           {[
-                            { label: '跨平台对比', prompt: '分析各平台采集到的数据热度与讨论差异' },
-                            { label: '用户评价总结', prompt: '总结抓取数据中用户的主要诉求和评论观点' },
-                            { label: '高频热词提取', prompt: '提取已采集数据中频繁出现的高频词与热门话题' },
+                            { label: '跨平台对比', prompt: '对比分析各平台在内容侧重、受众态度与讨论热度上的分布差异' },
+                            { label: '核心观点提炼', prompt: '提炼全部采集内容中的核心论点、高赞观点与关键事实要点' },
+                            { label: '用户痛点挖掘', prompt: '深入挖掘评论区与正文中用户集中吐槽的痛点、诉求与负面反馈' },
+                            { label: '争议焦点剖析', prompt: '梳理数据中多方争论的核心矛盾、分歧立场与代表性辩论观点' },
+                            { label: '多源交叉核验', prompt: '对不同信源与平台提供的信息进行交叉验证，指出存疑或矛盾点' },
+                            { label: '生成调研简报', prompt: '基于当前所有采集数据，输出一份结构化、含核心发现的调研简报' },
                           ].map(({ label, prompt }) => (
                             <button
                               key={label}
                               type="button"
                               onClick={() => handleApplyPrompt(prompt)}
-                              className="group inline-flex items-center gap-0.5 text-[11px] text-cyber-text-secondary transition-colors hover:text-cyber-neon-cyan"
+                              title={prompt}
+                              className="group flex items-center justify-between text-[11px] text-cyber-text-secondary transition-colors hover:text-cyber-neon-cyan py-0.5"
                             >
-                              {label}<ChevronRight className="h-3 w-3 opacity-50 transition-transform group-hover:translate-x-0.5" />
+                              <span className="truncate">{label}</span>
+                              <ArrowUpRight className="h-3 w-3 shrink-0 opacity-35 transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:opacity-100 group-hover:text-cyber-neon-cyan" />
                             </button>
                           ))}
                         </div>

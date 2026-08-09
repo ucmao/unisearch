@@ -18,21 +18,74 @@ type PetState =
   | 'celebrate'
   | 'cool-walk'
 
+const GREETING_QUOTES_BY_PERIOD = {
+  morning: [
+    '早！今天也要元气满满 ( •̀ ω •́ )y',
+    '早上好！随时准备干活～ (*ﾟｰﾟ*)',
+    '早呀！来杯咖啡，准备开始探索！',
+  ],
+  noon: [
+    '中午好！饱饭后灵感更容易爆发～',
+    '午间巡检中... 算力充沛！',
+    '午休时间到，今天吃点什么好吃的？',
+  ],
+  afternoon: [
+    '下午好！打起精神攻克难题 (ง •̀_•́)ง',
+    '下午犯困了？想查的尽管交给我～',
+    '午后灵感雷达在线... 随时叫我！',
+  ],
+  evening: [
+    '晚上好！夜间探索模式已就绪 (｡•̀ᴗ-)✧',
+    '今晚想研究点什么？算力不打烊！',
+    '夜深了，一起搞定今天最后一个目标！',
+  ],
+  midnight: [
+    '发际线警告！查完早点休息哦 (つд⊂)',
+    '夜深了，喝口水再继续吧 (*ﾟｰﾟ*)',
+    '居然还在卷！算力今晚全程陪你 ⚡',
+    '夜猫子出没！今晚的灵感我包了 (。-ω-)',
+    '太拼了！明天记得对自己好一点哦～',
+  ],
+}
+
 const getDynamicGreeting = (): string => {
   const hour = new Date().getHours()
-  if (hour >= 5 && hour < 11) return '早上好呀！Uni 随时待命 ☀️'
-  if (hour >= 11 && hour < 14) return '中午好呀！灵感充电完毕 ⚡'
-  if (hour >= 14 && hour < 18) return '下午好呀！今天精力充沛 ✨'
-  if (hour >= 18 && hour < 23) return '晚上好呀！Uni 已就绪 🚀'
-  return '夜深啦，探索也要注意休息哦 🌙'
+  let list = GREETING_QUOTES_BY_PERIOD.midnight
+  if (hour >= 5 && hour < 11) list = GREETING_QUOTES_BY_PERIOD.morning
+  else if (hour >= 11 && hour < 14) list = GREETING_QUOTES_BY_PERIOD.noon
+  else if (hour >= 14 && hour < 18) list = GREETING_QUOTES_BY_PERIOD.afternoon
+  else if (hour >= 18 && hour < 23) list = GREETING_QUOTES_BY_PERIOD.evening
+
+  return list[Math.floor(Math.random() * list.length)]
 }
 
 const CELEBRATE_QUOTES = [
-  '(๑•̀ㅂ•́)و✧ 随时准备出发！',
-  '灵感充电完毕 ⚡',
-  'UniSearch 智能引擎在线 ～',
-  '随时为你采集与分析数据 📊',
-  '输入框输入 @ 还可以呼出技能哦 ✨',
+  '( •̀ ω •́ )y 随时待命，今天搜点大的！',
+  '戳我干嘛，遇到难题没灵感了？(｡・ω・｡)',
+  '没事就戳我，是打算摸鱼唠嗑吗？( ´ー`)',
+  '别戳啦，再戳电量都要被你点光啦！',
+  '小技巧：输入 @ 可以呼出专属技能哦！',
+  '快给我派活！算力已经按捺不住了 (๑•̀ㅂ•́)و',
+  '按 Enter 发送，Shift+Enter 换行哦～',
+  '(ﾟДﾟ*) 哇！你的手速突破了我的采样率！',
+  '被你戳得电量 +100%！(ง •̀_•́)ง',
+  '正在调集全网节点，随时听候差遣 ⚡',
+  '深度洞察还是快速采集？我都能搞定～',
+  '没在摸鱼！我正在后台疯狂计算中...',
+]
+
+const EASTER_EGG_QUOTES = [
+  '(⌐■_■) 别摸啦，墨镜都要被点歪啦！',
+  '(⌐■_■) 纯帅！颜值与算力双超频～',
+  '⚡ 哎呀，被你点出隐藏形态了～',
+  '(⌐■_■) 别看啦，这个姿势我练了很久！',
+  '✨ 极客形态全开！硬核任务尽管砸过来！',
+]
+
+const WAKEUP_QUOTES = [
+  '(ﾟДﾟ)！我没睡！只是在闭目检索数据！',
+  '唔... (つд⊂) 伸个懒腰，准备干活！',
+  '休眠模式解除！随时听候差遣 (•̀ᴗ•́)و',
 ]
 
 // Translucent pastel celebration palette (subtle, colorful, non-intrusive)
@@ -227,7 +280,8 @@ export const CodexPet: React.FC<CodexPetProps> = ({
     if (petMode !== 'dynamic' || isEasterEggLockedRef.current) return
     setPetState((prev) => {
       if (prev === 'sleep') {
-        showBubble('唔... 我醒啦！准备就绪 (•̀ᴗ•́)و', 2000)
+        const quote = WAKEUP_QUOTES[Math.floor(Math.random() * WAKEUP_QUOTES.length)]
+        showBubble(quote, 2000)
         return 'idle'
       }
       return prev
@@ -363,7 +417,9 @@ export const CodexPet: React.FC<CodexPetProps> = ({
         }
       }, 1400)
 
-      showBubble('✨ 极客超频模式已激活', 3200, true)
+      const easterEggQuote =
+        EASTER_EGG_QUOTES[Math.floor(Math.random() * EASTER_EGG_QUOTES.length)]
+      showBubble(easterEggQuote, 3200, true)
 
       if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
       auraTimerRef.current = window.setTimeout(() => {
@@ -458,7 +514,7 @@ export const CodexPet: React.FC<CodexPetProps> = ({
         aria-label="UniSearch 智能宠物伴侣"
         title={
           isEasterEggRunning
-            ? '极客模式超频中...'
+            ? '宠物彩蛋触发中 🕶️'
             : petState === 'sleep'
             ? '小宠物正在打瞌睡，点击唤醒'
             : petState === 'thinking'
