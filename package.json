@@ -94,8 +94,15 @@
     "win": {
       "icon": "build/icon.ico",
       "target": "nsis",
-      "artifactName": "${productName}-${version}-win-${arch}.${ext}",
-      "signAndEditExecutable": false
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "UniSearch"
     }
   }
 }
