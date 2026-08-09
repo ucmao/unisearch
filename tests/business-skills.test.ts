@@ -103,7 +103,7 @@ test('tool defaults choose their deterministic connector capability', () => {
   const search = skillRegistry.get('web-search-research');
   const searchPlan = normalizePlan(
     { goal: '搜索', keywords: ['Agent', 'RAG'] },
-    '@全网搜索 Agent RAG',
+    '@网页聚合搜索 Agent RAG',
     undefined,
     false,
     search,

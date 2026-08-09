@@ -20,6 +20,18 @@ export function usePlatformLabels(): Record<string, string> {
   )
 }
 
+const SKILL_ORDER: Record<string, number> = {
+  // 基础工具（高频通用置前）
+  'web-search-research': 10,
+  'web-media-parser': 20,
+  'creator-profile-collection': 30,
+  // 深度业务技能
+  'marketing-content-research': 40,
+  'sales-course-intelligence': 50,
+  'brand-geo-risk-monitor': 60,
+  'hr-salary-benchmark': 70,
+}
+
 /** @ 菜单用的可调用业务技能与执行工具。 */
 export function useSkillMentionEntities(): MentionEntity[] {
   const { data } = useQuery({
@@ -29,7 +41,11 @@ export function useSkillMentionEntities(): MentionEntity[] {
   })
   return useMemo(() => (data || [])
     .filter((skill) => ['business', 'tool'].includes(skill.category) && skill.mentionable)
-    .sort((left, right) => (left.category === right.category ? 0 : left.category === 'business' ? -1 : 1))
+    .sort((left, right) => {
+      const leftOrder = SKILL_ORDER[left.id] ?? (left.category === 'tool' ? 100 : 200)
+      const rightOrder = SKILL_ORDER[right.id] ?? (right.category === 'tool' ? 100 : 200)
+      return leftOrder - rightOrder
+    })
     .map((skill) => ({
       id: skill.id,
       key: skill.id,

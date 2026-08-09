@@ -398,7 +398,7 @@ test('negative platform exclusion directives filter out specified platforms', ()
 
   const additivePlan = normalizePlan(
     { keywords: ['皮卡丘'] },
-    '@品牌GEO与投诉风险监测 不要采集黑猫，多采集一个百度搜索，关键词：皮卡丘',
+    '@品牌GEO与风险监测 不要采集黑猫，多采集一个百度搜索，关键词：皮卡丘',
     undefined,
     false,
     skill,

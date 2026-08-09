@@ -50,7 +50,7 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'web-search-research',
   version: '1.0.0',
-  name: '全网搜索',
+  name: '网页聚合搜索',
   description: '聚合百度、必应、360、搜狗和头条，支持多关键词、快速/标准/深度采集与可选网页正文读取，默认不分析结果。',
   category: 'tool',
   icon: 'search',
@@ -231,7 +231,7 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'brand-geo-risk-monitor',
   version: '1.0.0',
-  name: '品牌GEO与投诉风险监测',
+  name: '品牌GEO与风险监测',
   description: '对比品牌在多个 AI 问答平台中的呈现，并结合黑猫投诉公开信息识别负面主题与待核验风险。',
   category: 'business',
   icon: 'shield-alert',

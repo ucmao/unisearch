@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { agentApi, configApi, dataApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
-import { useThemeStore } from '@/store/themeStore'
+import { useThemeStore, type PetMode } from '@/store/themeStore'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -32,6 +32,12 @@ const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '浅色', icon: Sun },
   { value: 'dark', label: '深色', icon: Moon },
   { value: 'system', label: '跟随系统', icon: Monitor },
+]
+
+const petModes: { value: PetMode; label: string; icon: typeof Sparkles }[] = [
+  { value: 'dynamic', label: '灵动模式', icon: Sparkles },
+  { value: 'quiet', label: '安静克制', icon: Coffee },
+  { value: 'off', label: '极简关闭', icon: EyeOff },
 ]
 
 const MODEL_PROVIDER_DEFAULTS = {
@@ -80,7 +86,7 @@ export function SettingsDialog({
   initialSection?: SettingsSection
 }) {
   const queryClient = useQueryClient()
-  const { theme, setTheme } = useThemeStore()
+  const { theme, setTheme, petMode, setPetMode } = useThemeStore()
   const [internalOpen, setInternalOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection)
   const [form, setForm] = useState<ModelForm>({})
@@ -301,23 +307,44 @@ export function SettingsDialog({
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">外观</DialogTitle>
                   <DialogDescription>选择最适合当前环境的界面显示方式。</DialogDescription>
                 </DialogHeader>
-                <div className="mt-7 flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
-                  <div>
-                    <div className="text-sm font-medium text-cyber-text-primary">外观主题</div>
-                    <div className="mt-1 text-xs text-cyber-text-muted">切换浅色、深色，或自动跟随系统</div>
+                <div className="mt-7 space-y-4">
+                  <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                    <div>
+                      <div className="text-sm font-medium text-cyber-text-primary">外观主题</div>
+                      <div className="mt-1 text-xs text-cyber-text-muted">切换浅色、深色，或自动跟随系统</div>
+                    </div>
+                    <Select value={theme} onValueChange={(value: Theme) => setTheme(value)}>
+                      <SelectTrigger className="h-9 w-32 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {themes.map(({ value, label, icon: Icon }) => (
+                          <SelectItem key={value} value={value} className="text-xs">
+                            <div className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" />{label}</div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <Select value={theme} onValueChange={(value: Theme) => setTheme(value)}>
-                    <SelectTrigger className="h-9 w-32 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {themes.map(({ value, label, icon: Icon }) => (
-                        <SelectItem key={value} value={value} className="text-xs">
-                          <div className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" />{label}</div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+
+                  <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                    <div>
+                      <div className="text-sm font-medium text-cyber-text-primary">助手伴侣</div>
+                      <div className="mt-1 text-xs text-cyber-text-muted">调整空状态下的像素助手显示与互动偏好</div>
+                    </div>
+                    <Select value={petMode} onValueChange={(value: PetMode) => setPetMode(value)}>
+                      <SelectTrigger className="h-9 w-32 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {petModes.map(({ value, label, icon: Icon }) => (
+                          <SelectItem key={value} value={value} className="text-xs">
+                            <div className="flex items-center gap-2"><Icon className="h-3.5 w-3.5" />{label}</div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
             ) : activeSection === 'models' ? (

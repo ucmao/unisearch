@@ -22,6 +22,7 @@ import { PlatformExportIcons, type PlatformConfig } from './PlatformExportIcons'
 import { useLogWebSocket } from '@/hooks/useWebSocket'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { CommandPopover } from './CommandPopover'
+import { CodexPet } from './CodexPet'
 import { useMentionCommands, extractMentionedSkillIds } from '@/hooks/useMentionCommands'
 import { usePlatformLabels, useSkillMentionEntities } from '@/hooks/usePlatformCatalog'
 import { cn, isMacPlatform } from '@/lib/utils'
@@ -979,7 +980,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       }
     }
   }, [selectedId])
-  const [petCelebrating, setPetCelebrating] = useState(false)
+  const [isComposerFocused, setIsComposerFocused] = useState(false)
   const [activeCitation, setActiveCitation] = useState<SourceCitation | null>(null)
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false)
 
@@ -1049,8 +1050,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const composerBackdropRef = useRef<HTMLDivElement>(null)
-  const petReactionTimerRef = useRef<number | null>(null)
-  const petReactionFrameRef = useRef<number | null>(null)
   const shouldStickToBottomRef = useRef(true)
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto', force = false) => {
     if (!force && !shouldStickToBottomRef.current) return
@@ -1630,10 +1629,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   useEffect(() => {
     scrollMessagesToBottom(streamingContentLength > 0 ? 'auto' : 'smooth')
   }, [threadQuery.data?.messages.length, isCurrentMessagePending, streamingContentLength, scrollMessagesToBottom])
-  useEffect(() => () => {
-    if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
-    if (petReactionFrameRef.current !== null) window.cancelAnimationFrame(petReactionFrameRef.current)
-  }, [])
 
   const submit = () => {
     const content = input.trim()
@@ -1821,15 +1816,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setInput('')
     setTerminalOpen(false)
     createNewTask.mutate()
-  }
-  const celebratePet = () => {
-    if (petReactionTimerRef.current !== null) window.clearTimeout(petReactionTimerRef.current)
-    if (petReactionFrameRef.current !== null) window.cancelAnimationFrame(petReactionFrameRef.current)
-    setPetCelebrating(false)
-    petReactionFrameRef.current = window.requestAnimationFrame(() => {
-      setPetCelebrating(true)
-      petReactionTimerRef.current = window.setTimeout(() => setPetCelebrating(false), 800)
-    })
   }
 
   const updateLeftSidebarWidth = (value: number) => {
@@ -2209,16 +2195,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 <div />
               </div> : <div className="flex min-h-full items-center justify-center px-6 py-12">
                 <div className="flex -translate-y-2 flex-col items-center text-center">
-                  <div className="codex-pet-container">
-                    <button
-                      type="button"
-                      className={`codex-pet ${petCelebrating ? 'codex-pet--celebrate' : ''}`}
-                      onClick={celebratePet}
-                      aria-label="和 UniSearch 宠物助手互动"
-                      title="摸摸我"
-                    />
-                    <div className="codex-pet-shadow" />
-                  </div>
+                  <CodexPet
+                    isComposerFocused={isComposerFocused}
+                    hasInput={input.trim().length > 0}
+                  />
                   <h2 className="mt-6 text-2xl font-semibold tracking-tight text-cyber-text-primary sm:text-3xl">今天想研究什么？</h2>
                   <p className="mt-2 text-sm text-cyber-text-muted">可以直接聊天，也可以描述想采集和分析的内容</p>
                   {runningThreads.length ? <button
@@ -2345,6 +2325,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         }
                       }}
                       onPaste={handlePaste}
+                      onFocus={() => setIsComposerFocused(true)}
+                      onBlur={() => setIsComposerFocused(false)}
                       placeholder={isPlanRunning ? '采集在后台进行中，你可以继续提问…' : !selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
                       className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
                       spellCheck={false}

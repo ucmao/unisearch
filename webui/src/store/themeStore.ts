@@ -1,14 +1,18 @@
 import { create } from 'zustand'
 
-type Theme = 'light' | 'dark' | 'system'
+export type Theme = 'light' | 'dark' | 'system'
+export type PetMode = 'dynamic' | 'quiet' | 'off'
 
 interface ThemeState {
   theme: Theme
   resolvedTheme: 'light' | 'dark'
+  petMode: PetMode
   setTheme: (theme: Theme) => void
+  setPetMode: (mode: PetMode) => void
 }
 
 const THEME_KEY = 'unisearch_theme'
+const PET_MODE_KEY = 'unisearch_pet_mode'
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
@@ -22,6 +26,15 @@ function getStoredTheme(): Theme {
     return stored
   }
   return 'light' // Default to light
+}
+
+function getStoredPetMode(): PetMode {
+  if (typeof window === 'undefined') return 'dynamic'
+  const stored = localStorage.getItem(PET_MODE_KEY) as PetMode | null
+  if (stored && ['dynamic', 'quiet', 'off'].includes(stored)) {
+    return stored
+  }
+  return 'dynamic' // Default to dynamic
 }
 
 function applyTheme(resolved: 'light' | 'dark') {
@@ -40,6 +53,8 @@ function resolveTheme(theme: Theme): 'light' | 'dark' {
 // Initialize theme immediately to prevent flash
 const initialTheme = getStoredTheme()
 const initialResolved = resolveTheme(initialTheme)
+const initialPetMode = getStoredPetMode()
+
 if (typeof window !== 'undefined') {
   applyTheme(initialResolved)
 }
@@ -47,12 +62,18 @@ if (typeof window !== 'undefined') {
 export const useThemeStore = create<ThemeState>((set) => ({
   theme: initialTheme,
   resolvedTheme: initialResolved,
+  petMode: initialPetMode,
 
   setTheme: (theme) => {
     const resolved = resolveTheme(theme)
     localStorage.setItem(THEME_KEY, theme)
     applyTheme(resolved)
     set({ theme, resolvedTheme: resolved })
+  },
+
+  setPetMode: (petMode) => {
+    localStorage.setItem(PET_MODE_KEY, petMode)
+    set({ petMode })
   },
 }))
 
