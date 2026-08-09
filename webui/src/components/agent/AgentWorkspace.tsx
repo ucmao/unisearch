@@ -1956,10 +1956,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
                     className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors ${
                       selectedId === thread.thread_id
-                        ? 'bg-cyber-neon-cyan/10 font-medium text-cyber-text-primary/95 border border-cyber-neon-cyan/20'
+                        ? 'bg-cyber-neon-cyan/10 font-semibold text-cyber-text-primary border border-cyber-neon-cyan/30 shadow-sm'
                         : threadMenuId === thread.thread_id
-                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary/95'
-                          : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85'
+                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary/95 font-medium'
+                          : 'font-normal text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85'
                     }`}
                   >
                     {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}
