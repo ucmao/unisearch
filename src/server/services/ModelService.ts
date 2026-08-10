@@ -9,6 +9,7 @@ import { connectorCatalogForAI } from '../../connectors/registry';
 import { depthPromptGuide } from '../../connectors/depth';
 import type { SearchEvidence } from './LiveSearchService';
 import type { WebReaderParsedArticle } from '../../services/web-reader-service';
+import { applyContextBudget } from '../agent/ContextBudgetManager';
 
 export interface ModelProfile {
   provider: 'minimax' | 'deepseek' | 'custom';
@@ -319,6 +320,10 @@ export class ModelService {
     const maxRetries = maxAttempts - 1;
     const retryBaseDelayMs = Math.max(0, requestOptions.retryBaseDelayMs ?? 5000);
     let lastErrorMsg = '';
+    const budgeted = applyContextBudget(messages, { reservedOutputTokens: maxTokens });
+    if (budgeted.report.compacted) {
+      console.info('[ContextBudget]', JSON.stringify(budgeted.report));
+    }
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       signal?.throwIfAborted();
@@ -326,7 +331,7 @@ export class ModelService {
       try {
         const response = await axios.post(`${profile.baseUrl}/chat/completions`, {
           model: profile.model,
-          messages,
+          messages: budgeted.messages,
           temperature: profile.temperature,
           max_tokens: maxTokens,
           stream: Boolean(onDelta),

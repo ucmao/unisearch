@@ -13,10 +13,12 @@ import { knowledgeIndex } from '../../knowledge/knowledge-index';
 import { exportService } from '../../exporters/registry';
 import { skillRegistry } from '../../skills/registry';
 import type { SkillDefinition } from '../../core/skills/types';
-import { liveSearchService, toLiveSourceCitations } from './LiveSearchService';
+import { toLiveSourceCitations, type SearchEvidence } from './LiveSearchService';
 import { analysisService } from '../../analyzers/registry';
 import { quickReportGenerator } from '../../analyzers/quick-report-generator';
-import { directWebReadService, directWebSourceCitations } from './DirectWebReadService';
+import { directWebSourceCitations, type DirectWebReadResult } from './DirectWebReadService';
+import { agentToolExecutor } from '../agent/AgentTools';
+import { AgentRunTrace } from '../agent/AgentToolRegistry';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -463,12 +465,13 @@ export class AgentService {
     } = {},
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any; keywords?: string[] }) => void,
     options: { skipAddUserMessage?: boolean } = {},
   ) {
     ensureMessageNotAborted(signal);
     const thread = agentRepository.getThread(threadId);
     if (!thread) throw new Error('任务不存在');
+    const runTrace = new AgentRunTrace(threadId);
     const attachmentIds = Array.from(new Set((context.attachment_ids || []).map(String))).slice(0, 5);
     const attachments = agentRepository.getAttachments(threadId, attachmentIds);
     if (attachments.length !== attachmentIds.length) throw new Error('部分附件不存在或不属于当前任务');
@@ -587,10 +590,10 @@ export class AgentService {
       const urls = extractWebUrls(content);
       try {
         onStatus?.({ phase: 'web_search', message: '正在读取网页正文…' });
-        const result = await directWebReadService.read(urls, {
-          timeoutMs: 20_000,
-          signal,
-        });
+        const result = await agentToolExecutor.execute<
+          { urls: string[]; timeoutMs?: number },
+          DirectWebReadResult
+        >('direct_web_read', { urls, timeoutMs: 20_000 }, { threadId, signal }, runTrace);
         ensureMessageNotAborted(signal);
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
@@ -615,6 +618,7 @@ export class AgentService {
           retrieval: 'direct_web_read',
           sources: directWebSourceCitations(result.articles),
           failed_urls: result.failures,
+          agent_run: runTrace.snapshot(),
         });
         this.scheduleThreadTitle(threadId);
         this.scheduleMemoryCapture(threadId, content);
@@ -626,6 +630,7 @@ export class AgentService {
           retrieval: 'direct_web_read',
           urls,
           error: error.message || '未知错误',
+          agent_run: runTrace.snapshot(),
         });
         return agentRepository.getThread(threadId);
       }
@@ -764,16 +769,20 @@ export class AgentService {
       try {
         onStatus?.({ phase: 'web_search', message: '正在联网搜索…' });
         const wantsFullText = /全文|正文|详细内容|核实(?:细节|原文)|总结(?:这些|搜索到的)?文章/i.test(content);
-        const evidence = await liveSearchService.search(query, {
+        const evidence = await agentToolExecutor.execute<
+          { query: string; limit?: number; readMode?: 'snippet' | 'auto'; maxReadItems?: number },
+          SearchEvidence[]
+        >('live_search', {
+          query,
           limit: 8,
-          signal,
           readMode: wantsFullText ? 'auto' : 'snippet',
           maxReadItems: wantsFullText ? 3 : 0,
-        });
+        }, { threadId, signal }, runTrace);
         ensureMessageNotAborted(signal);
         if (!evidence.length) {
           agentRepository.addMessage(threadId, 'assistant', 'text', '这次没有检索到足够可靠的实时网页摘要，暂时无法据此回答。你可以补充更具体的地点、对象或时间后重试。', {
             action: 'live_answer', retrieval: 'live_search', query, sources: [],
+            agent_run: runTrace.snapshot(),
           });
           this.scheduleThreadTitle(threadId);
           return agentRepository.getThread(threadId);
@@ -803,6 +812,7 @@ export class AgentService {
           query,
           fetched_at: evidence[0].fetchedAt,
           sources: toLiveSourceCitations(evidence),
+          agent_run: runTrace.snapshot(),
         });
         this.scheduleThreadTitle(threadId);
         return agentRepository.getThread(threadId);
@@ -811,6 +821,7 @@ export class AgentService {
         const reason = modelService.getRuntimeStatus().lastError || error.message || '未知错误';
         agentRepository.addMessage(threadId, 'assistant', 'status', `实时检索回答失败：${reason}`, {
           action: 'live_answer_error', retrieval: 'live_search', error: reason,
+          agent_run: runTrace.snapshot(),
         });
         return agentRepository.getThread(threadId);
       }
@@ -1273,7 +1284,7 @@ export class AgentService {
     messageId: string,
     signal?: AbortSignal,
     onDelta?: (delta: string) => void,
-    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any }) => void,
+    onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any; keywords?: string[] }) => void,
   ) {
     ensureMessageNotAborted(signal);
     const target = agentRepository.deleteAssistantMessageForRegenerate(threadId, messageId);
