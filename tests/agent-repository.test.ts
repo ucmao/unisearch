@@ -3,6 +3,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 import { initSchema } from '../src/database/schema';
 import { AgentRepository, type ResearchPlan } from '../src/server/services/AgentRepository';
+import { AgentRunTrace, runWithAgentTrace } from '../src/server/agent/AgentToolRegistry';
 
 function plan(overrides: Partial<ResearchPlan> = {}): ResearchPlan {
   return {
@@ -464,6 +465,25 @@ test('runtime settings persist and clamp the global crawler limit', () => {
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 8 }), { maxConcurrentCrawlers: 8 });
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 99 }), { maxConcurrentCrawlers: 8 });
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 0 }), { maxConcurrentCrawlers: 1 });
+  } finally {
+    db.close();
+  }
+});
+
+test('assistant messages automatically persist the active whole-run trace', async () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('轨迹测试');
+    const trace = new AgentRunTrace(thread.thread_id);
+    await runWithAgentTrace(trace, async () => {
+      trace.recordRoute('chat', 'local');
+      trace.recordModelCall({ durationMs: 12, success: true, inputTokens: 120, outputTokens: 20 });
+      repo.addMessage(thread.thread_id, 'assistant', 'text', '回答', { action: 'chat' });
+    });
+    const message = repo.getThread(thread.thread_id).messages.at(-1);
+    assert.equal(message.metadata.agent_run.route.action, 'chat');
+    assert.equal(message.metadata.agent_run.metrics.model_calls, 1);
+    assert.equal(message.metadata.agent_run.stop_reason, 'chat');
   } finally {
     db.close();
   }

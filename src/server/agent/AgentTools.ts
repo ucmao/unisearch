@@ -1,7 +1,25 @@
 import { z } from 'zod';
 import { directWebReadService } from '../services/DirectWebReadService';
 import { liveSearchService } from '../services/LiveSearchService';
+import { knowledgeIndex } from '../../knowledge/knowledge-index';
 import { AgentToolExecutor, AgentToolRegistry } from './AgentToolRegistry';
+import {
+  ReadOnlyPolicyHook,
+  RetryPolicyHook,
+  SensitiveDataRedactionHook,
+  ToolAuditHook,
+} from './AgentToolHooks';
+
+export interface KnowledgeToolEvidence {
+  chunkId: string;
+  documentId: string;
+  title: string;
+  content: string;
+  sourceUrl?: string;
+  source: string;
+  kind: string;
+  score: number;
+}
 
 export const agentToolRegistry = new AgentToolRegistry();
 
@@ -41,4 +59,35 @@ agentToolRegistry.register({
   summarizeOutput: (output) => `读取成功 ${output.articles.length} 个，失败 ${output.failures.length} 个`,
 });
 
-export const agentToolExecutor = new AgentToolExecutor(agentToolRegistry);
+agentToolRegistry.register({
+  name: 'knowledge_query',
+  description: '查询 UniSearch 本地知识库中的已采集资料，不修改索引或文档。',
+  readOnly: true,
+  inputSchema: z.object({
+    query: z.string().trim().min(1).max(300),
+    limit: z.number().int().min(1).max(12).default(8),
+    scope: z.enum(['global', 'thread']).default('global'),
+  }).strict(),
+  execute: async (input, context): Promise<KnowledgeToolEvidence[]> => knowledgeIndex.search(input.query, {
+    limit: input.limit,
+    ...(input.scope === 'thread' ? { threadId: context.threadId } : {}),
+  }).map((item) => ({
+    chunkId: item.chunkId,
+    documentId: item.documentId,
+    title: item.title,
+    content: item.content.slice(0, 2_000),
+    sourceUrl: item.sourceUrl,
+    source: item.source,
+    kind: item.kind,
+    score: item.score,
+  })),
+  summarizeInput: (input) => `query=${JSON.stringify(input.query)}，scope=${input.scope}，limit=${input.limit}`,
+  summarizeOutput: (output) => `知识库返回 ${output.length} 条证据`,
+});
+
+export const agentToolExecutor = new AgentToolExecutor(agentToolRegistry, [
+  new ReadOnlyPolicyHook(),
+  new SensitiveDataRedactionHook(),
+  new ToolAuditHook(),
+  new RetryPolicyHook(),
+]);

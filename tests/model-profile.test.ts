@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import axios from 'axios';
 import { buildRecentTurnContext, isRetryableModelError, ModelService } from '../src/server/services/ModelService';
+import { AgentRunTrace, runWithAgentTrace } from '../src/server/agent/AgentToolRegistry';
 
 test('recent turn context gives current user priority while preserving follow-up references', () => {
   const context = buildRecentTurnContext([
@@ -167,6 +168,27 @@ test('model conversation streams visible deltas and hides reasoning blocks', asy
     assert.equal(requestedStream, true);
     assert.equal(answer, '你好');
     assert.equal(deltas.join(''), '你好');
+  } finally {
+    (axios as any).post = originalPost;
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('model calls automatically contribute timing and context metrics to the active run trace', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-trace-'));
+  const configPath = path.join(directory, 'model-profile.json');
+  const originalPost = axios.post;
+  try {
+    const service = new ModelService(configPath);
+    service.saveProfile({ provider: 'custom', baseUrl: 'https://trace.example', model: 'trace-model', apiKey: 'secret' });
+    (axios as any).post = async () => ({ data: { choices: [{ message: { content: '追踪回答' } }] } });
+    const trace = new AgentRunTrace('thread-1');
+    await runWithAgentTrace(trace, () => service.converse([{ role: 'user', content: '测试模型轨迹' }]));
+    trace.finish('测试完成');
+    const snapshot = trace.snapshot();
+    assert.equal(snapshot.metrics.model_calls, 1);
+    assert.ok(snapshot.metrics.estimated_input_tokens > 0);
+    assert.equal(snapshot.events.some((event) => event.tool === 'context_budget'), true);
   } finally {
     (axios as any).post = originalPost;
     fs.rmSync(directory, { recursive: true, force: true });

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
+import { currentAgentRunTrace } from '../agent/AgentToolRegistry';
 import { getDb } from '../../database/connection';
 import { AnalyticsRepository } from '../../database/repository';
 import { exporterRegistry } from '../../exporters/registry';
@@ -274,6 +275,13 @@ export class AgentRepository {
   addMessage(threadId: string, role: AgentRole, kind: string, content: string, metadata: any = {}) {
     const messageId = id();
     const now = new Date().toISOString();
+    if (role === 'assistant' && !metadata.agent_run) {
+      const trace = currentAgentRunTrace();
+      if (trace) {
+        trace.finish(String(metadata.action || kind || 'completed'));
+        metadata = { ...metadata, agent_run: trace.snapshot() };
+      }
+    }
     this.db.prepare(`INSERT INTO agent_messages (message_id, thread_id, role, kind, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(messageId, threadId, role, kind, content, JSON.stringify(metadata), now);
     this.touchThread(threadId);

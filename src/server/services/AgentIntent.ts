@@ -32,6 +32,7 @@ const PLATFORM_CAPABILITY = /(?:支持|可以|能).*(?:采集|抓取|搜索)?.*(
 const RESEARCH_HOW_TO = /(?:采集|收集|搜索|调研|任务).*(?:怎么做|怎么用|如何操作|操作流程|步骤)|(?:怎么|如何).*(?:采集|收集|搜索|调研|创建任务)/i;
 const MODEL_INFO = /(?:你|当前|现在)?(?:用的|使用的|配置的)?(?:是)?什么模型|模型(?:名称|版本|信息)|which model/i;
 const WEATHER = /天气|气温|下雨|降雨|温度|weather/i;
+const CURRENT_FACT = /(?:今天|现在|当前|最新|最近).*(?:汇率|价格|行情|新闻|资讯|比分|排名)|(?:汇率|价格|行情|新闻|资讯|比分|排名).*(?:今天|现在|当前|最新|最近)/i;
 const LOCATION = /^(?:我在|我住在|城市是|地点是)?\s*[\u4e00-\u9fa5]{2,12}(?:市)?[!！,.，。\s]*$/;
 const CONFIRM_PARTICLE = '(?:呀|啊|吧|呗|哈|咯|呐|哦|捏)?';
 // “开始/立即/马上……” 后面接采集类动词（搜索、采集、跑……）同样是确认，而不是一条新的调研请求。
@@ -55,7 +56,7 @@ const BOSS_CONTEXTUAL_MENTION = /(?:在|去|到|从|用|通过|打开|访问)\s*
 // e.g. "智联、猎聘、BOSS、前程无忧". Requiring list separators on both
 // sides preserves ordinary English uses such as "Boss 招聘员工".
 const BOSS_LIST_MENTION = /(?:^|[、,，和与])\s*@?boss\b(?=\s*(?:[、,，和与]|$))/i;
-const DIRECT_WEB_READ = /阅读|读取|阅读全文|查看(?:一下)?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)?|看看?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)|网页正文|正文内容|总结|概括|归纳|解读|告诉我|介绍(?:一下)?|(?:是什么|有哪些|怎么样|如何|为何|为什么|是否|能否|亮点|核心|重点|主要内容)/i;
+const DIRECT_WEB_READ = /阅读|读取|阅读全文|查看(?:一下)?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)?|看看?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)|网页正文|正文内容|总结|概括|归纳|解读|告诉我|介绍(?:一下)?|讲了什么|(?:是什么|有哪些|怎么样|如何|为何|为什么|是否|能否|亮点|核心|重点|主要内容)/i;
 const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
   'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
@@ -403,6 +404,9 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
     return { action: 'live_answer', reply: '', query: value };
   }
   if (WEATHER.test(value) && !(RESEARCH.test(value) && inferResearchPlatforms(value).length > 0)) {
+    return { action: 'live_answer', reply: '', query: value };
+  }
+  if (CURRENT_FACT.test(value) && !PERSISTENT_RESEARCH.test(value) && !inferResearchPlatforms(value).length) {
     return { action: 'live_answer', reply: '', query: value };
   }
   if (context.previousUserText && WEATHER.test(context.previousUserText) && LOCATION.test(value) && !(RESEARCH.test(value) && inferResearchPlatforms(value).length > 0)) {
