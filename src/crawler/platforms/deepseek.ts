@@ -1,5 +1,11 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
+import {
+  AbstractCrawler,
+  connectToElectronChromium,
+  getElectronCrawlerPage,
+  notifyLoginRequired,
+  notifyLoginSuccess,
+} from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
@@ -59,6 +65,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
     let isLoggedIn = await this.checkLoginState();
     if (!isLoggedIn) {
       console.log(`[DEEPSEEK] User is not logged in or login dialog is present. Waiting up to ${MANUAL_LOGIN_TIMEOUT_MS / 1000}s for manual login in crawler window...`);
+      notifyLoginRequired('deepseek', '请在内置 DeepSeek 窗口完成登录；成功后任务会自动继续。');
 
       try {
         const loginBtnSelectors = [
@@ -84,6 +91,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[DEEPSEEK] Login verified successfully!');
+          notifyLoginSuccess('deepseek');
           break;
         }
         if (Date.now() - lastLogTs > 10000) {
@@ -99,6 +107,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
       }
     } else {
       console.log('[DEEPSEEK] Login state verified.');
+      notifyLoginSuccess('deepseek');
     }
   }
 

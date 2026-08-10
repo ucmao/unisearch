@@ -3,6 +3,8 @@ import {
   AbstractCrawler,
   connectToElectronChromium,
   getElectronCrawlerPage,
+  notifyLoginRequired,
+  notifyLoginSuccess,
   notifyManualVerificationRequired,
   notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
@@ -10,8 +12,92 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
-import { waitForManualVerificationToClear } from '../base/interactiveTimeouts';
+import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
+
+export type LiepinPageState =
+  | 'ready'
+  | 'empty_result'
+  | 'login_required'
+  | 'verification_required'
+  | 'rate_limited'
+  | 'unknown';
+
+export interface LiepinPageStateAssessment {
+  state: LiepinPageState;
+  reason?: string;
+}
+
+export function classifyLiepinPageState(input: {
+  url: string;
+  title: string;
+  bodyText: string;
+  hasModal?: boolean;
+  hasJobCards?: boolean;
+}): LiepinPageStateAssessment {
+  const { url, title, bodyText, hasModal, hasJobCards } = input;
+  const lowerUrl = url.toLowerCase();
+  const lowerTitle = title.toLowerCase();
+
+  // 1. Verification / Captcha detection
+  if (
+    lowerTitle.includes('验证') ||
+    lowerTitle.includes('verification') ||
+    lowerUrl.includes('security') ||
+    lowerUrl.includes('captcha') ||
+    bodyText.includes('向右滑动') ||
+    bodyText.includes('安全验证') ||
+    bodyText.includes('完成验证') ||
+    bodyText.includes('人机验证') ||
+    bodyText.includes('sec-captcha')
+  ) {
+    return { state: 'verification_required', reason: '触发人机滑块或安全验证' };
+  }
+
+  // 2. Login required / Modal blocked detection
+  if (
+    lowerUrl.includes('passport.liepin.com') ||
+    lowerUrl.includes('/login') ||
+    lowerUrl.includes('/register') ||
+    hasModal ||
+    bodyText.includes('微信扫码登录') ||
+    bodyText.includes('手机快捷登录') ||
+    bodyText.includes('账号密码登录') ||
+    bodyText.includes('登录查看更多职位') ||
+    bodyText.includes('登录后可查看') ||
+    bodyText.includes('请先登录后继续操作')
+  ) {
+    return { state: 'login_required', reason: '页面需要登录或弹出登录遮罩' };
+  }
+
+  // 3. Rate limited
+  if (
+    bodyText.includes('访问过于频繁') ||
+    bodyText.includes('操作过于频繁') ||
+    bodyText.includes('系统繁忙')
+  ) {
+    return { state: 'rate_limited', reason: '访问频次过高受限' };
+  }
+
+  // 4. Job cards present -> Ready
+  if (hasJobCards) {
+    return { state: 'ready' };
+  }
+
+  // 5. Genuine empty search result
+  if (
+    bodyText.includes('暂无符合条件的职位') ||
+    bodyText.includes('没有找到相关职位') ||
+    bodyText.includes('暂无相关职位') ||
+    bodyText.includes('抱歉，未找到') ||
+    bodyText.includes('没有找到符合条件的职位') ||
+    bodyText.includes('换个搜索条件试试')
+  ) {
+    return { state: 'empty_result', reason: '平台搜索结果为空' };
+  }
+
+  return { state: 'unknown' };
+}
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -37,6 +123,90 @@ export class LiepinCrawler extends AbstractCrawler {
     } else {
       await this.search();
     }
+  }
+
+  /**
+   * Evaluate page state for security challenges, login requirements, and empty states.
+   */
+  private async assessCurrentPageState(): Promise<LiepinPageStateAssessment> {
+    if (!this.page || this.page.isClosed()) return { state: 'unknown' };
+    const url = this.page.url();
+    const title = await this.page.title().catch(() => '');
+    const bodyText = await this.page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
+
+    const domInfo = await this.page.evaluate(() => {
+      const hasModal = Boolean(
+        document.querySelector(
+          '[class*="login-modal"], [class*="modal-login"], [class*="login-dialog"], [data-selector="login-modal"], [class*="login-container"], .ant-modal-mask'
+        )
+      );
+      const cards = document.querySelectorAll(
+        '.job-card-pc-container, div[class*="job-card"], div[class*="job-list-item"], a[href*="/job/"]'
+      );
+      return {
+        hasModal,
+        hasJobCards: cards.length > 0,
+      };
+    }).catch(() => ({ hasModal: false, hasJobCards: false }));
+
+    return classifyLiepinPageState({
+      url,
+      title,
+      bodyText: bodyText.slice(0, 10_000),
+      hasModal: domInfo.hasModal,
+      hasJobCards: domInfo.hasJobCards,
+    });
+  }
+
+  /**
+   * Handle verification challenges or login requirements by notifying user and waiting.
+   */
+  private async checkAndHandleIntervention(keyword: string): Promise<boolean> {
+    if (!this.page || this.page.isClosed()) return false;
+    let assessment = await this.assessCurrentPageState();
+
+    if (assessment.state === 'ready') return true;
+    if (assessment.state === 'empty_result') return false;
+
+    let loginNotificationSent = false;
+    let verifyNotificationSent = false;
+
+    if (assessment.state === 'verification_required') {
+      console.warn(`[Liepin] Security verification detected for "${keyword}". Requesting manual verification...`);
+      notifyManualVerificationRequired('liepin', `猎聘网“${keyword}”触发安全验证，请在内置浏览器窗口中完成验证。`);
+      verifyNotificationSent = true;
+    } else if (assessment.state === 'login_required' || assessment.state === 'unknown') {
+      console.warn(`[Liepin] Login required or access restricted for "${keyword}". Requesting user login...`);
+      notifyLoginRequired('liepin', `猎聘网“${keyword}”需要登录后查看搜索结果，请在内置浏览器中完成登录。`);
+      loginNotificationSent = true;
+    } else if (assessment.state === 'rate_limited') {
+      console.warn(`[Liepin] Rate limit detected for "${keyword}". Requesting user check...`);
+      notifyManualVerificationRequired('liepin', `猎聘网访问过于频繁，请在内置浏览器中完成解封或稍候重试。`);
+      verifyNotificationSent = true;
+    }
+
+    const maxWaitMs = MANUAL_LOGIN_TIMEOUT_MS;
+    const startTime = Date.now();
+    console.log(`[Liepin] Pausing crawler and waiting for user interaction in browser window (up to ${maxWaitMs / 1000}s)...`);
+
+    while (Date.now() - startTime < maxWaitMs) {
+      if (!this.page || this.page.isClosed()) return false;
+      await this.humanDelay(this.page, 3);
+      if (!this.page || this.page.isClosed()) return false;
+
+      assessment = await this.assessCurrentPageState();
+
+      if (assessment.state === 'ready') {
+        console.log(`[Liepin] User interaction resolved successfully for "${keyword}"! Resuming extraction.`);
+        if (loginNotificationSent) notifyLoginSuccess('liepin');
+        if (verifyNotificationSent) notifyManualVerificationSuccess('liepin');
+        await this.humanDelay(this.page, 2);
+        return true;
+      }
+    }
+
+    console.warn(`[Liepin] Interactive timeout reached for "${keyword}". Continuing with best-effort parsing.`);
+    return false;
   }
 
   public async search(): Promise<void> {
@@ -68,59 +238,42 @@ export class LiepinCrawler extends AbstractCrawler {
 
         try {
           await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          await this.humanDelay(this.page, 3);
+          
+          // Wait for job cards or empty state or login modal to appear
+          await this.page.waitForSelector(
+            '.job-card-pc-container, div[class*="job-card"], div[class*="job-list"], a[href*="/job/"], [class*="login-modal"], .ant-modal-mask, [class*="no-data"], .no-data-box',
+            { timeout: 8000 }
+          ).catch(() => {});
 
-          const pageTitle = await this.page.title().catch(() => '');
-          const pageContent = await this.page.content().catch(() => '');
+          await this.humanDelay(this.page, 2);
 
-          if (pageTitle.includes('验证') || pageTitle.includes('Verification') || pageContent.includes('sec-captcha')) {
-            console.warn('[Liepin] Captcha / Verification page detected in browser window.');
-            notifyManualVerificationRequired('liepin', '猎聘网触发验证码，请在浏览器窗口中完成手动验证。');
-            const cleared = await waitForManualVerificationToClear(async () => {
-              const currentTitle = await this.page!.title().catch(() => '');
-              const currentContent = await this.page!.content().catch(() => '');
-              return currentTitle.includes('验证') || currentTitle.includes('Verification')
-                || currentContent.includes('sec-captcha');
-            }, (milliseconds) => this.page!.waitForTimeout(milliseconds));
-            if (cleared) notifyManualVerificationSuccess('liepin');
-            else console.warn('[Liepin] Manual verification timed out; continuing with best-effort extraction.');
+          // Check if intervention is needed before extraction
+          let assessment = await this.assessCurrentPageState();
+          if (assessment.state === 'verification_required' || assessment.state === 'login_required') {
+            const resolved = await this.checkAndHandleIntervention(keyword);
+            if (resolved) {
+              // Reload search URL after login/verification success to ensure clean render
+              await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+              await this.humanDelay(this.page, 2);
+            }
           }
 
-          // DOM card parsing for Liepin
-          const extracted = await this.page.evaluate(() => {
-            const cards = Array.from(document.querySelectorAll('.job-card-pc-container, div[class*="job-card"]'));
-            return cards.map((card) => {
-              const linkEl = card.querySelector('a[href*="/job/"]') || card.querySelector('a');
-              const href = (linkEl as HTMLAnchorElement)?.href || '';
-              const titleEl = card.querySelector('.ellipsis-1, [class*="job-title"], [class*="title"]');
+          // Robust DOM card parsing for Liepin
+          let extracted = await this.extractJobsFromPage();
 
-              // Find inner spans
-              const spans = Array.from(card.querySelectorAll('span, div')).map((e) => e.textContent?.trim() || '').filter(Boolean);
-
-              // Find salary (e.g. 10-15k, 20-30k)
-              const salaryMatch = spans.find((s) => /^\d+(?:-\d+)?k/i.test(s) || /^\d+(?:-\d+)?万/i.test(s));
-              const expMatch = spans.find((s) => s.includes('经验') || s.includes('年') || s.includes('应届'));
-              const eduMatch = spans.find((s) => s.includes('大专') || s.includes('本科') || s.includes('硕士') || s.includes('博士') || s.includes('学历不限'));
-              const compEl = card.querySelector('.company-name, [class*="company-name"], [class*="comp"]');
-              const cityEl = card.querySelector('.job-dq-box, [class*="job-area"], [class*="job-city"], [class*="location"]');
-
-              // Extract jobId from URL (e.g. /job/1976807335.shtml)
-              const jobIdMatch = href.match(/\/job\/(\d+)\.shtml/);
-              const jobId = jobIdMatch ? jobIdMatch[1] : href;
-
-              return {
-                content_id: jobId,
-                title: titleEl?.textContent?.trim() || '猎聘职位',
-                company_name: compEl?.textContent?.trim() || '',
-                salary: salaryMatch || '',
-                work_city: cityEl?.textContent?.trim() || '',
-                job_experience: expMatch || '',
-                education: eduMatch || '',
-                content_url: href,
-                published_at: Date.now(),
-              };
-            }).filter((x) => x.title || x.content_url);
-          });
+          // If no cards extracted on page 1, check if login or security challenge blocked it
+          if ((!extracted || extracted.length === 0) && pageNum === startPage) {
+            console.log(`[Liepin] 0 items extracted on page ${pageNum}. Performing deep status inspection...`);
+            assessment = await this.assessCurrentPageState();
+            if (assessment.state !== 'empty_result') {
+              const resolved = await this.checkAndHandleIntervention(keyword);
+              if (resolved) {
+                await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+                await this.humanDelay(this.page, 2);
+                extracted = await this.extractJobsFromPage();
+              }
+            }
+          }
 
           if (!extracted || extracted.length === 0) {
             console.log(`[Liepin] No job items extracted on page ${pageNum} for "${keyword}".`);
@@ -169,6 +322,89 @@ export class LiepinCrawler extends AbstractCrawler {
     }
 
     console.log('[Liepin] Job search execution completed.');
+  }
+
+  /**
+   * Multi-selector robust DOM extractor for Liepin job listings.
+   */
+  private async extractJobsFromPage(): Promise<Array<{
+    content_id: string;
+    title: string;
+    company_name: string;
+    salary: string;
+    work_city: string;
+    job_experience: string;
+    education: string;
+    content_url: string;
+    published_at: number;
+  }>> {
+    if (!this.page || this.page.isClosed()) return [];
+
+    return (await this.page.evaluate(() => {
+      // 1. Direct card selectors
+      let cards = Array.from(
+        document.querySelectorAll('.job-card-pc-container, div[class*="job-card"], div[class*="job-list-item"], li[class*="job-card"]')
+      );
+
+      // 2. Heuristic fallback: find anchors linking to /job/ and use their container
+      if (cards.length === 0) {
+        const jobLinks = Array.from(document.querySelectorAll('a[href*="/job/"]'));
+        const containerSet = new Set<Element>();
+        for (const a of jobLinks) {
+          const parentCard = a.closest('div[class*="card"], li, div[class*="item"], div[class*="box"]') || a.parentElement;
+          if (parentCard && parentCard !== document.body) {
+            containerSet.add(parentCard);
+          }
+        }
+        cards = Array.from(containerSet);
+      }
+
+      return cards.map((card) => {
+        const linkEl = card.querySelector('a[href*="/job/"]') || card.querySelector('a');
+        const href = (linkEl as HTMLAnchorElement)?.href || '';
+        const titleEl = card.querySelector('.ellipsis-1, [class*="job-title"], [class*="title"], h3, h4');
+
+        // Find inner text elements
+        const spans = Array.from(card.querySelectorAll('span, div, p, em, i, b'))
+          .map((e) => e.textContent?.trim() || '')
+          .filter(Boolean);
+
+        // Extract salary
+        const salaryMatch = spans.find(
+          (s) => /^\d+(?:-\d+)?\s*[kK万]/i.test(s) || /^\d+(?:-\d+)?\s*元(?:\/月)?$/i.test(s) || /^\d+-\d+薪$/i.test(s)
+        );
+        const expMatch = spans.find((s) => s.includes('经验') || /^\d+(?:-\d+)?年/.test(s) || s.includes('应届') || s.includes('在校'));
+        const eduMatch = spans.find((s) => s.includes('大专') || s.includes('本科') || s.includes('硕士') || s.includes('博士') || s.includes('学历不限') || s.includes('中专') || s.includes('高中'));
+        const compEl = card.querySelector('.company-name, [class*="company-name"], [class*="comp"], a[href*="/company/"]');
+        const cityEl = card.querySelector('.job-dq-box, [class*="job-area"], [class*="job-city"], [class*="location"], [class*="city"]');
+
+        // Extract jobId from URL (e.g. /job/1976807335.shtml)
+        const jobIdMatch = href.match(/\/job\/(\d+)\.shtml/);
+        const jobId = jobIdMatch ? jobIdMatch[1] : href;
+
+        return {
+          content_id: jobId,
+          title: titleEl?.textContent?.trim() || '',
+          company_name: compEl?.textContent?.trim() || '',
+          salary: salaryMatch || '',
+          work_city: cityEl?.textContent?.trim() || '',
+          job_experience: expMatch || '',
+          education: eduMatch || '',
+          content_url: href,
+          published_at: Date.now(),
+        };
+      }).filter((x) => (x.title || x.content_id) && x.content_url);
+    }).catch(() => [])) as Array<{
+      content_id: string;
+      title: string;
+      company_name: string;
+      salary: string;
+      work_city: string;
+      job_experience: string;
+      education: string;
+      content_url: string;
+      published_at: number;
+    }>;
   }
 
   private async parseDetails(): Promise<void> {
