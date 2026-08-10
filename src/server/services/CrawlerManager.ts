@@ -155,10 +155,7 @@ export class CrawlerTask {
 
   public startProcess(manager: CrawlerManager): void {
     // Save configuration options as dynamic config overrides
-    const configData: any = { ...this.config };
-    configData.cookies = ''; // Clear secret values before persisting config log
-
-    const runId = analyticsRepository.createRun(configData);
+    const runId = analyticsRepository.createRun({ ...this.config });
     this.currentRunId = runId;
     this.startedAt = new Date().toISOString();
     this.lastEventSequence = -1;

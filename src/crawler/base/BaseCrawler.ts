@@ -264,19 +264,6 @@ export abstract class AbstractCrawler {
     return await this.launchBrowser(playwright.chromium, playwrightProxy, userAgent, headless);
   }
 
-  protected async applyCookieHeader(
-    browserContext: BrowserContext,
-    cookieHeader: string,
-    domain: string,
-  ): Promise<void> {
-    if (!cookieHeader.trim()) return;
-    const cookies = cookieHeader.split(';').map((part) => part.trim()).filter(Boolean).flatMap((part) => {
-      const separator = part.indexOf('=');
-      if (separator <= 0) return [];
-      return [{ name: part.slice(0, separator).trim(), value: part.slice(separator + 1).trim(), domain, path: '/' }];
-    });
-    if (cookies.length) await browserContext.addCookies(cookies);
-  }
 }
 
 export function notifyLoginQrCodeRequired(platform: string, qrCodeBase64: string): void {

@@ -3,14 +3,12 @@ export interface CrawlerConfig {
   connector_id?: string
   capability?: ConnectorCapabilityId
   connector_options?: Record<string, unknown>
-  login_type: string
   crawler_type: string
   keywords: string
   specified_ids: string  // 详情模式下的帖子/视频ID
   creator_ids: string    // 创作者模式下的创作者ID
   start_page: number
   enable_comments: boolean
-  cookies: string
   headless: boolean
   loop_execution: boolean
   thread_id?: string
@@ -125,7 +123,7 @@ export interface ConnectorManifest {
   description: string
   auth: {
     required: boolean
-    methods: Array<'qrcode' | 'cookie' | 'none'>
+    methods: Array<'qrcode' | 'none'>
     description: string
   }
   runtime: {

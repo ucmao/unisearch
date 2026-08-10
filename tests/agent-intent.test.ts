@@ -307,6 +307,17 @@ test('completed task analysis stays on the local analysis path', () => {
   }
 });
 
+test('explicit follow-up collection runs before combined analysis', () => {
+  const message = '你再去小红书上搜索一下关键词“宝可梦”，并结合所有信息再分析一遍给我。';
+
+  assert.deepEqual(inferResearchPlatforms(message), ['xhs']);
+  assert.deepEqual(inferResearchKeywords(message), ['宝可梦']);
+  assert.equal(localIntentDecision(message, {
+    planStatus: 'completed',
+    hasCollectedData: true,
+  }).action, 'create_plan');
+});
+
 test('references to all collected data do not expand to every platform', () => {
   assert.deepEqual(inferResearchPlatforms('基于当前所有采集数据，输出一份结构化、含核心发现的调研简报'), []);
   assert.deepEqual(inferResearchPlatforms('分析全部数据并给出结论'), []);

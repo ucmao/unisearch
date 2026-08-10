@@ -60,7 +60,6 @@ export function CrawlerSearchHeader() {
   const statuses = useCrawlerStore((state) => state.statuses)
   const selectedPlatforms = useCrawlerStore((state) => state.selectedPlatforms)
   const setSelectedPlatforms = useCrawlerStore((state) => state.setSelectedPlatforms)
-  const platformCookies = useCrawlerStore((state) => state.platformCookies)
   const connectorOptions = useCrawlerStore((state) => state.connectorOptions)
 
   const { data: platforms } = usePlatforms()
@@ -157,14 +156,6 @@ export function CrawlerSearchHeader() {
       return
     }
 
-    if (config.login_type === 'cookie') {
-      const missingCookiePlatform = selectedPlatforms.find((platform) => !platformCookies[platform]?.trim())
-      if (missingCookiePlatform) {
-        toast.error(`请填写 ${platformLabels[missingCookiePlatform] || missingCookiePlatform} 的 Cookie`)
-        return
-      }
-    }
-
     const largeSearchTargets = selectedPlatforms
       .filter((platform) => PUBLIC_SEARCH_ENGINE_IDS.has(platform))
       .map((platform) => Number(connectorOptions[platform]?.max_items))
@@ -195,7 +186,6 @@ export function CrawlerSearchHeader() {
           connector_id: p,
           connector_options: connectorOptions[p] || {},
           keywords: finalKeywords,
-          cookies: config.login_type === 'cookie' ? platformCookies[p] || '' : '',
           thread_id: taskId,
           task_title: taskTitle,
         })

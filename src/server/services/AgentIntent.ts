@@ -422,6 +422,14 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
   if (['queued', 'running'].includes(String(status)) && STOP.test(value)) return { action: 'stop', reply: '好的，我正在停止当前采集任务。' };
   if (STATUS_QUERY.test(value)) return { action: 'status', reply: '' };
   if (EXPORT.test(value)) return { action: 'export', reply: '' };
+  // A follow-up can request both a new collection round and an analysis of the
+  // combined results (for example, "再去小红书搜索宝可梦，并结合所有信息分析").
+  // The new collection must happen first.  Previously the presence of any
+  // existing data plus the word "分析" routed the whole message to `analyze`,
+  // silently dropping the explicit platform search.
+  if (RESEARCH.test(value) && inferResearchPlatforms(value).length > 0 && hasResearchSubject(value)) {
+    return { action: 'create_plan', reply: '' };
+  }
   const canAnalyzeCollectedData = context.hasCollectedData
     || ['queued', 'running', 'completed', 'partially_completed'].includes(String(status));
   if (canAnalyzeCollectedData && ANALYZE.test(value)) return { action: 'analyze', reply: '' };

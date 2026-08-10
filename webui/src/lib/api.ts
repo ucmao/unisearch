@@ -34,14 +34,12 @@ export interface CrawlerConfig {
   connector_id?: string
   capability?: string
   connector_options?: Record<string, unknown>
-  login_type: string
   crawler_type: string
   keywords: string
   specified_ids?: string
   creator_ids?: string
   start_page: number
   enable_comments: boolean
-  cookies: string
   headless: boolean
   loop_execution: boolean
 }
@@ -308,7 +306,7 @@ export interface ResearchPlanData {
   connectorOptions?: Record<string, Record<string, unknown>>
   contentEnrichment: ContentEnrichmentOptions
   collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom'
-  loginType: 'qrcode' | 'cookie'
+  loginType: 'qrcode' | 'none'
   headless: boolean
   analysis: string[]
   analysisSource?: 'ai' | 'fallback' | 'user'
@@ -512,7 +510,6 @@ export const configApi = {
   getConnectors: () => api.get<{ connectors: ConnectorManifest[] }>('/config/connectors'),
   getOptions: () =>
     api.get<{
-      login_types: ConfigOption[]
       crawler_types: ConfigOption[]
     }>('/config/options'),
   clearAuthCredentials: (platform?: string) => api.post<{ status: string; message: string }>('/config/auth/clear', { platform }),

@@ -26,7 +26,6 @@ test('all seven creator capabilities expose zero as collect-until-end', () => {
       connector_options: { creator_ids: ['creator-1'], max_items: 0 },
       start_page: 1,
       enable_comments: false,
-      cookies: '',
       headless: false,
       loop_execution: false,
     });
@@ -57,7 +56,6 @@ test('legacy creator requests without an explicit capability still select creato
     connector_options: { creator_ids: ['creator-1'] },
     start_page: 1,
     enable_comments: false,
-    cookies: '',
     headless: false,
     loop_execution: false,
   });

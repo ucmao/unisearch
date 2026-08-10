@@ -4,11 +4,13 @@ import {
   connectToElectronChromium,
   getElectronCrawlerPage,
   notifyManualVerificationRequired,
+  notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { waitForManualVerificationToClear } from '../base/interactiveTimeouts';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 function extractUrlsOrIds(input: string): string[] {
@@ -28,11 +30,6 @@ export class Job51Crawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'job51');
-
-    if (activeConfig.COOKIES && this.browserContext) {
-      console.log('[51Job] Applying user-provided Cookie header...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.51job.com');
-    }
 
     const crawlerType = activeConfig.CRAWLER_TYPE || 'search';
     if (crawlerType === 'detail') {
@@ -79,7 +76,14 @@ export class Job51Crawler extends AbstractCrawler {
           if (pageTitle.includes('验证') || pageTitle.includes('Verification') || pageContent.includes('nc_1_wrapper') || pageContent.includes('sec-captcha')) {
             console.warn('[51Job] Captcha / Verification page detected in browser window.');
             notifyManualVerificationRequired('job51', '前程无忧触发滑块/人脸验证，请在浏览器窗口中完成手动验证。');
-            await this.page.waitForTimeout(5000);
+            const cleared = await waitForManualVerificationToClear(async () => {
+              const currentTitle = await this.page!.title().catch(() => '');
+              const currentContent = await this.page!.content().catch(() => '');
+              return currentTitle.includes('验证') || currentTitle.includes('Verification')
+                || currentContent.includes('nc_1_wrapper') || currentContent.includes('sec-captcha');
+            }, (milliseconds) => this.page!.waitForTimeout(milliseconds));
+            if (cleared) notifyManualVerificationSuccess('job51');
+            else console.warn('[51Job] Manual verification timed out; continuing with best-effort extraction.');
           }
 
           // Extract job items via window.__SEARCH_RESULT__ or DOM

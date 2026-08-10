@@ -1,4 +1,4 @@
-import { BrowserContext, CDPSession, Page } from 'playwright';
+import { BrowserContext, CDPSession, Locator, Page } from 'playwright';
 import {
   AbstractCrawler,
   connectToElectronChromium,
@@ -19,11 +19,11 @@ import {
   resolveRedirect,
 } from '../base/connectorHelpers';
 import { XhsSigner } from '../base/xhsSigner';
+import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 type XhsLoginState = 'authenticated' | 'unauthenticated' | 'verification' | 'unknown';
 
 const XHS_AUTH_COOKIES = new Set(['web_session', 'id_token', 'a1']);
-const LOGIN_WAIT_TIMEOUT_MS = 180_000;
 const LOGIN_INITIAL_SETTLE_MS = 1_500;
 const LOGIN_SUCCESS_SETTLE_MS = 3_000;
 
@@ -97,34 +97,12 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[XHS] Verifying login status...');
-    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      const existingAuthCookies = await this.authCookieNames();
-      if (existingAuthCookies === null) {
-        console.warn('[XHS] Could not inspect the page partition cookies; preserving the existing session instead of overwriting it.');
-      } else if (existingAuthCookies.length > 0) {
-        console.log(`[XHS] Reusing persisted authentication cookies (${existingAuthCookies.join(', ')}); skipped manual cookie import.`);
-      } else {
-        console.log('[XHS] No persisted authentication cookies found; importing configured cookies...');
-        const cookieDict = this.parseCookies(activeConfig.COOKIES);
-        const domain = activeConfig.XHS_INTERNATIONAL ? '.rednote.com' : '.xiaohongshu.com';
-        const cookiesToSet = Object.entries(cookieDict).map(([name, value]) => ({
-          name,
-          value,
-          domain,
-          path: '/',
-        }));
-        if (!this.cdpSession) this.cdpSession = await this.browserContext!.newCDPSession(this.page!);
-        await this.cdpSession.send('Network.setCookies', { cookies: cookiesToSet });
-        await this.page!.reload({ waitUntil: 'domcontentloaded' });
-      }
-    }
-
     await this.page!.waitForTimeout(LOGIN_INITIAL_SETTLE_MS);
     const startedAt = Date.now();
     let loginControlClicked = false;
     let loginNotificationSent = false;
 
-    while (Date.now() - startedAt < LOGIN_WAIT_TIMEOUT_MS) {
+    while (Date.now() - startedAt < MANUAL_LOGIN_TIMEOUT_MS) {
       const state = await this.inspectLoginState();
       if (state === 'verification') {
         await this.waitForManualVerification('小红书要求完成账号或设备安全验证');
@@ -243,9 +221,36 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     return /账号异常|登录环境异常|设备异常|安全验证|风险验证|扫码确认|确认当前登录|验证当前设备/.test(text);
   }
 
+  /** A normal QR/phone login dialog can sit above cached account chrome. */
+  private async hasVisibleLoginDialog(): Promise<boolean> {
+    if (!this.page) return false;
+    return this.page.evaluate(() => {
+      const selectors = [
+        '[role="dialog"]',
+        '.login-container',
+        '[class*="login-modal"]',
+        '[class*="login-container"]',
+        '[class*="qrcode"]',
+        '[class*="qr-code"]',
+      ];
+      return Array.from(document.querySelectorAll<HTMLElement>(selectors.join(','))).some((element) => {
+        if (element.getClientRects().length === 0) return false;
+        const text = element.innerText || element.textContent || '';
+        const hasLoginText = /扫码登录|手机号登录|验证码登录|密码登录|请使用小红书.*扫码|登录后/.test(text);
+        const hasLoginMechanism = Boolean(element.querySelector(
+          'input[type="tel"], input[placeholder*="手机号"], canvas, img[src*="qr"], [class*="qrcode"], [class*="qr-code"]',
+        ));
+        return hasLoginText && hasLoginMechanism;
+      });
+    }).catch(() => false);
+  }
+
   private async inspectLoginState(): Promise<XhsLoginState> {
     if (!this.page) return 'unknown';
     if (await this.hasManualVerification()) return 'verification';
+    // The login modal overlays a still-hydrated account page. It must win over
+    // profile links and cookies or we start crawling behind the QR code.
+    if (await this.hasVisibleLoginDialog()) return 'unauthenticated';
     if (await this.hasAccountProfileEvidence()) {
       this.lastPositiveLoginAt = Date.now();
       console.log('[XHS] Login state confirmed via account profile chrome.');
@@ -272,7 +277,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     notifyManualVerificationRequired('xhs', reason);
     const startedAt = Date.now();
     let stablePasses = 0;
-    while (Date.now() - startedAt < LOGIN_WAIT_TIMEOUT_MS) {
+    while (Date.now() - startedAt < MANUAL_VERIFICATION_TIMEOUT_MS) {
       if (await this.hasManualVerification()) {
         stablePasses = 0;
       } else {
@@ -288,6 +293,71 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     }
 
     throw new Error('小红书安全验证等待超时。请完成验证后重新运行任务。');
+  }
+
+  private async openSearchInput(timeoutMs = 15_000): Promise<Locator> {
+    // Prefer the site's stable search ids one by one. A selector union is
+    // returned in DOM order rather than selector order, so a broad
+    // `input[placeholder*="搜索"]` can accidentally win over the main search
+    // box and submit an unrelated control elsewhere on the page.
+    const directSelectors = [
+      'textarea#search-input:visible',
+      'textarea#search-input-in-feeds:visible',
+      'input#search-input:visible',
+      'input#search-input-in-feeds:visible',
+    ];
+    for (const selector of directSelectors) {
+      const input = this.page!.locator(selector).first();
+      if (await input.isVisible({ timeout: 300 }).catch(() => false)) return input;
+    }
+
+    const searchBox = this.page!.locator('.input-box.search-box-in-content').first();
+    await searchBox.waitFor({ state: 'visible', timeout: timeoutMs });
+    await searchBox.click();
+    const scopedInput = searchBox.locator('textarea:visible, input:visible').first();
+    await scopedInput.waitFor({ state: 'visible', timeout: 10_000 });
+    return scopedInput;
+  }
+
+  /** Ignore restored searches, lazy-loads and other in-flight search requests. */
+  private isSearchResponseForKeyword(response: any, keyword: string, page = 1): boolean {
+    const request = response.request();
+    if (request.method() !== 'POST' || !response.url().includes('/api/sns/web/v2/search/notes')) return false;
+    try {
+      const body = request.postDataJSON();
+      return String(body?.keyword || '').trim() === keyword.trim()
+        && Number(body?.page ?? 1) === page;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Login can be invalidated after the initial check; recover instead of timing out behind the modal. */
+  private async openSearchInputWithAuthRecovery(): Promise<Locator> {
+    const initialState = await this.inspectLoginState();
+    if (initialState === 'unauthenticated' || initialState === 'verification') {
+      console.warn(`[XHS] Search UI is blocked by login state (${initialState}); returning to the authentication flow.`);
+      await this.recoverSearchAuthentication();
+      return this.openSearchInput(30_000);
+    }
+
+    try {
+      return await this.openSearchInput();
+    } catch (error) {
+      const state = await this.inspectLoginState();
+      if (state === 'authenticated') throw error;
+      console.warn(`[XHS] Search UI is blocked by login state (${state}); returning to the authentication flow.`);
+      await this.recoverSearchAuthentication();
+      return this.openSearchInput(30_000);
+    }
+  }
+
+  private async recoverSearchAuthentication(): Promise<void> {
+    await this.handleLogin();
+    if (!this.page!.url().includes('/explore')) {
+      await this.page!.goto(`${this.indexUrl}/explore`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    }
+    await this.page!.waitForTimeout(LOGIN_INITIAL_SETTLE_MS);
   }
 
   public async search(): Promise<void> {
@@ -306,22 +376,18 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           await this.page!.goto(indexUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
 
-        const searchBox = this.page!.locator('.input-box.search-box-in-content').first();
-        await searchBox.waitFor({ state: 'visible', timeout: 15000 });
-        await searchBox.click();
-
-        const searchInput = this.page!
-          .locator('textarea#search-input:visible, textarea#search-input-in-feeds:visible')
-          .first();
-        await searchInput.waitFor({ state: 'visible', timeout: 10000 });
+        const searchInput = await this.openSearchInputWithAuthRecovery();
         await searchInput.fill(keyword);
+        const submittedKeyword = (await searchInput.inputValue()).trim();
+        if (submittedKeyword !== keyword.trim()) {
+          throw new Error(`Search input mismatch: expected "${keyword.trim()}", got "${submittedKeyword}"`);
+        }
 
         const [searchResponse] = await Promise.all([
-          this.page!.waitForResponse((response) => {
-            const url = response.url();
-            return response.request().method() === 'POST'
-              && url.includes('/api/sns/web/v2/search/notes');
-          }, { timeout: 30000 }),
+          this.page!.waitForResponse(
+            (response) => this.isSearchResponseForKeyword(response, keyword, 1),
+            { timeout: 30000 },
+          ),
           searchInput.press('Enter'),
         ]);
 
@@ -851,14 +917,4 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     }
   }
 
-  private parseCookies(cookieStr: string): Record<string, string> {
-    const dict: Record<string, string> = {};
-    cookieStr.split(';').forEach((cookie) => {
-      const parts = cookie.split('=');
-      if (parts.length >= 2) {
-        dict[parts[0].trim()] = parts.slice(1).join('=').trim();
-      }
-    });
-    return dict;
-  }
 }

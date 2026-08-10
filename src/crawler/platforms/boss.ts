@@ -18,6 +18,7 @@ import {
 } from './bossParsing';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
+import { MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 const SEARCH_RESPONSE_PATTERN = /\/wapi\/zpgeek\/search\/joblist(?:\.json)?(?:[?#]|$)/i;
 
@@ -60,11 +61,6 @@ export class BossCrawler extends AbstractCrawler {
     this.browserContext = await connectToElectronChromium(playwright);
     this.page = await getElectronCrawlerPage(this.browserContext, 'boss');
 
-    if (activeConfig.COOKIES && this.browserContext) {
-      console.log('[BOSS] Applying user-provided Cookie header...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.zhipin.com');
-    }
-
     const crawlerType = activeConfig.CRAWLER_TYPE || 'search';
     if (crawlerType === 'detail') {
       await this.collectDetails();
@@ -98,7 +94,7 @@ export class BossCrawler extends AbstractCrawler {
       notifyManualVerificationRequired('boss', `BOSS直聘访问频次受限 (${assessment.reason})，请在内置浏览器窗口中暂缓或解封。`);
     }
 
-    const maxWaitMs = 120_000;
+    const maxWaitMs = MANUAL_VERIFICATION_TIMEOUT_MS;
     const startTime = Date.now();
     console.log(`[BOSS] Waiting for manual resolution in browser window (up to ${maxWaitMs / 1000}s)...`);
 

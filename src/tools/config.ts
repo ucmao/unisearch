@@ -1,8 +1,7 @@
 export interface AppConfig {
   PLATFORM: string;
   KEYWORDS: string;
-  LOGIN_TYPE: 'qrcode' | 'cookie' | 'phone' | 'none';
-  COOKIES: string;
+  LOGIN_TYPE: 'qrcode' | 'none';
   CRAWLER_TYPE: 'search' | 'detail' | 'creator';
   
   HEADLESS: boolean;
@@ -90,7 +89,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   CREATOR_IDS: '',
   TARGET_URLS: '',
   LOGIN_TYPE: 'qrcode',
-  COOKIES: '',
   CRAWLER_TYPE: 'search',
   
   HEADLESS: true,
@@ -181,11 +179,15 @@ export function applyConfig(updates: any): AppConfig {
 
   // Explicit frontend-to-backend mappings
   if (updates.platform !== undefined) mappedUpdates.PLATFORM = updates.platform;
-  if (updates.login_type !== undefined) mappedUpdates.LOGIN_TYPE = updates.login_type;
+  if (updates.login_type !== undefined) {
+    if (updates.login_type !== 'qrcode' && updates.login_type !== 'none') {
+      throw new Error(`Unsupported login method: ${String(updates.login_type)}`);
+    }
+    mappedUpdates.LOGIN_TYPE = updates.login_type;
+  }
   if (updates.crawler_type !== undefined) mappedUpdates.CRAWLER_TYPE = updates.crawler_type;
   if (updates.keywords !== undefined) mappedUpdates.KEYWORDS = updates.keywords;
   if (updates.start_page !== undefined) mappedUpdates.START_PAGE = updates.start_page;
-  if (updates.cookies !== undefined) mappedUpdates.COOKIES = updates.cookies;
 
   if (updates.headless !== undefined) {
     mappedUpdates.HEADLESS = updates.headless;

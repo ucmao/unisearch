@@ -271,7 +271,6 @@ export class WorkflowRuntime {
           start_page: Number((connectorOptions as Record<string, unknown>).start_page) || 1,
           collection_depth: depth,
           enable_comments: resolvedComments,
-          cookies: '',
           headless: plan.headless,
           loop_execution: false,
           thread_id: workflow.thread_id,

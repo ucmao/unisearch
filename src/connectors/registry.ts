@@ -40,20 +40,16 @@ export function getConnectorCapability(manifest: ConnectorManifest, request: Con
 }
 
 export function normalizeConnectorRequest(input: ConnectorStartRequest): ConnectorStartRequest {
+  if ('cookies' in (input as object)) throw new Error('Unsupported connector field: cookies');
+  if (input.login_type && input.login_type !== 'qrcode' && input.login_type !== 'none') {
+    throw new Error(`Unsupported login method: ${String(input.login_type)}`);
+  }
   const connectorId = String(input.connector_id || input.platform || '');
   const manifest = getConnectorManifest(connectorId);
   if (!manifest) throw new Error(`Unsupported connector: ${connectorId}`);
   const capability = getConnectorCapability(manifest, input);
   if (!capability) throw new Error(`${manifest.name} requires a supported capability`);
-  let loginType = input.login_type;
-  if (!manifest.auth.required || manifest.auth.methods.includes('none')) {
-    loginType = 'none';
-  } else if (!loginType || !manifest.auth.methods.includes(loginType as 'qrcode' | 'cookie' | 'none')) {
-    loginType = manifest.auth.methods[0] as 'qrcode' | 'cookie' | 'none';
-  }
-  if (!manifest.auth.methods.includes(loginType as 'qrcode' | 'cookie' | 'none')) {
-    throw new Error(`${manifest.name} does not support login method: ${loginType}`);
-  }
+  const loginType = manifest.auth.required ? 'qrcode' : 'none';
 
   const options = input.connector_options || {};
   const normalized: ConnectorStartRequest = {
@@ -62,7 +58,7 @@ export function normalizeConnectorRequest(input: ConnectorStartRequest): Connect
     connector_id: connectorId,
     capability: capability.id,
     crawler_type: capability.runtimeMode,
-    login_type: loginType as 'qrcode' | 'cookie' | 'none',
+    login_type: loginType,
     connector_options: options,
   };
 

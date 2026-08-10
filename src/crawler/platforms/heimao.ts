@@ -10,6 +10,7 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 function extractUrlsOrIds(input: string): string[] {
   if (!input) return [];
@@ -28,12 +29,6 @@ export class HeimaoCrawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'heimao');
-
-    if (activeConfig.COOKIES && this.browserContext) {
-      console.log('[Heimao] Applying user-provided Cookie header to .sina.com.cn and .weibo.com...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.sina.com.cn');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.weibo.com');
-    }
 
     const crawlerType = activeConfig.CRAWLER_TYPE || 'search';
     if (crawlerType === 'detail') {
@@ -98,7 +93,7 @@ export class HeimaoCrawler extends AbstractCrawler {
 
       const startTime = Date.now();
       let clearPasses = 0;
-      while (Date.now() - startTime < 180 * 1000) {
+      while (Date.now() - startTime < MANUAL_VERIFICATION_TIMEOUT_MS) {
         await this.page.waitForTimeout(2000);
         const stillBlocked = await this.checkCaptchaOrLogin();
         if (stillBlocked) {

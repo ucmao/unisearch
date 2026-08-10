@@ -4,11 +4,13 @@ import {
   connectToElectronChromium,
   getElectronCrawlerPage,
   notifyManualVerificationRequired,
+  notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { waitForManualVerificationToClear } from '../base/interactiveTimeouts';
 import { buildJobSearchUrl, jobItemLimit, resolveJobLocation } from './jobSearch';
 
 function extractUrlsOrIds(input: string): string[] {
@@ -28,11 +30,6 @@ export class ZhaopinCrawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'zhaopin');
-
-    if (activeConfig.COOKIES && this.browserContext) {
-      console.log('[Zhaopin] Applying user-provided Cookie header...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.zhaopin.com');
-    }
 
     const crawlerType = activeConfig.CRAWLER_TYPE || 'search';
     if (crawlerType === 'detail') {
@@ -85,7 +82,14 @@ export class ZhaopinCrawler extends AbstractCrawler {
           if (pageTitle.includes('验证') || pageContent.includes('nc_1_wrapper') || pageContent.includes('sec-captcha')) {
             console.warn('[Zhaopin] Anti-spider slider captcha detected in built-in browser window.');
             notifyManualVerificationRequired('zhaopin', '智联招聘触发人脸/滑块验证，请在内置浏览器窗口中完成手动验证。');
-            await this.page.waitForTimeout(5000);
+            const cleared = await waitForManualVerificationToClear(async () => {
+              const currentTitle = await this.page!.title().catch(() => '');
+              const currentContent = await this.page!.content().catch(() => '');
+              return currentTitle.includes('验证') || currentContent.includes('nc_1_wrapper')
+                || currentContent.includes('sec-captcha');
+            }, (milliseconds) => this.page!.waitForTimeout(milliseconds));
+            if (cleared) notifyManualVerificationSuccess('zhaopin');
+            else console.warn('[Zhaopin] Manual verification timed out; continuing with best-effort extraction.');
           }
 
           // Method 1: Extract from window.__INITIAL_STATE__

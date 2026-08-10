@@ -8,6 +8,7 @@ import {
   notifyManualVerificationRequired,
   notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
+import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import {
@@ -148,10 +149,6 @@ export class KuaishouCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[KS] Checking login state...');
-    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.kuaishou.com');
-      await this.page!.reload({ waitUntil: 'domcontentloaded' });
-    }
     const initialApiState = await this.probeApiLoginState();
     let isLoggedIn = initialApiState === 'authenticated'
       || (initialApiState === 'unknown' && await this.checkLoginState());
@@ -172,7 +169,7 @@ export class KuaishouCrawler extends AbstractCrawler {
       notifyLoginRequired('kuaishou', reason);
 
       const startTime = Date.now();
-      while (Date.now() - startTime < 120 * 1000) {
+      while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
         const apiState = await this.probeApiLoginState();
         isLoggedIn = apiState === 'authenticated'
           || (apiState === 'unknown' && await this.checkLoginState());
@@ -321,7 +318,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     notifyManualVerificationRequired('kuaishou', reason);
     const startTime = Date.now();
     let stablePasses = 0;
-    while (Date.now() - startTime < 180 * 1000) {
+    while (Date.now() - startTime < MANUAL_VERIFICATION_TIMEOUT_MS) {
       if (await this.hasManualVerification()) {
         stablePasses = 0;
       } else {
@@ -342,7 +339,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     this.lastPositiveLoginAt = 0;
     notifyLoginRequired('kuaishou', reason);
     const startTime = Date.now();
-    while (Date.now() - startTime < 120 * 1000) {
+    while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
       const apiState = await this.probeApiLoginState();
       const isLoggedIn = apiState === 'authenticated'
         || (apiState === 'unknown' && await this.checkLoginState());

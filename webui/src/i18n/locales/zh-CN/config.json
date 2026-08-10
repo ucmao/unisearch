@@ -46,11 +46,6 @@
       "ks": "示例:\n3x84qugg4ch9zhs\nhttps://www.kuaishou.com/profile/xxx",
       "default": "输入创作者 ID 或 URL..."
     },
-    "loginMethod": "登录方式",
-    "loginMethodPlaceholder": "选择登录方式",
-    "cookies": "Cookies",
-    "cookiesHint": "粘贴 Cookie 字符串",
-    "cookiesPlaceholder": "在此粘贴 Cookies...",
     "commentExtraction": "评论抓取",
     "subComments": "子评论",
     "browserMode": "浏览器模式",
@@ -65,7 +60,6 @@
     "stopping": "停止中..."
   },
   "warning": {
-    "cookieSlider": "[提示] 小红书和抖音平台不建议使用 Cookie 登录，因为可能会触发滑块验证",
     "xhsToken": "[重要] 小红书 URL 必须包含 xsec_token 参数，请从浏览器复制完整 URL"
   }
 }

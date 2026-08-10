@@ -1,5 +1,12 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
+import {
+  AbstractCrawler,
+  connectToElectronChromium,
+  getElectronCrawlerPage,
+  notifyLoginRequired,
+  notifyLoginSuccess,
+} from '../base/BaseCrawler';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import {
@@ -11,6 +18,8 @@ import {
   searchPageBudget,
   stripHtml,
 } from '../base/connectorHelpers';
+
+type LoginState = 'logged_in' | 'logged_out' | 'unknown';
 
 export class ZhihuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -38,54 +47,67 @@ export class ZhihuCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[ZHIHU] Checking login state...');
-    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.zhihu.com');
-      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+    let loginState = await this.checkLoginState();
+
+    if (loginState === 'unknown') {
+      console.warn('[ZHIHU] Login state is inconclusive; no explicit login prompt was found. Continuing without manual-login wait.');
+      return;
     }
-    let isLoggedIn = await this.checkLoginState();
-    
-    if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
+
+    if (loginState === 'logged_out' && activeConfig.LOGIN_TYPE === 'qrcode') {
       console.log('[ZHIHU] User is not logged in. Waiting for manual login...');
+      notifyLoginRequired('zhihu', '知乎当前页面明确显示登录入口，请在内置浏览器中完成登录；登录后任务会自动继续。');
       try {
         await this.page!.click('.AppHeader-login, .SignFlow-tabs', { timeout: 3000 });
       } catch {}
 
       const startTime = Date.now();
-      while (Date.now() - startTime < 120 * 1000) {
-        isLoggedIn = await this.checkLoginState();
-        if (isLoggedIn) {
+      while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
+        loginState = await this.checkLoginState();
+        if (loginState === 'logged_in') {
           console.log('[ZHIHU] Login successful!');
+          notifyLoginSuccess('zhihu');
+          break;
+        }
+        if (loginState === 'unknown') {
+          console.log('[ZHIHU] Login prompt is no longer visible. Continuing collection.');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
       }
+      if (loginState === 'logged_out') {
+        console.warn('[ZHIHU] Manual-login wait timed out. Continuing collection with the current session.');
+      }
     }
   }
 
-  private async checkLoginState(): Promise<boolean> {
+  private async checkLoginState(): Promise<LoginState> {
     try {
       const visible = await this.page!.isVisible('.AppHeader-profile, .AppHeader-user', { timeout: 1000 });
-      if (visible) return true;
-    } catch {}
-    try {
-      const isLoginBtn = await this.page!.isVisible('.AppHeader-login, .SignFlow-tabs', { timeout: 1000 });
-      if (isLoginBtn) return false;
+      if (visible) return 'logged_in';
     } catch {}
     try {
       if (this.browserContext) {
         const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some((c) => c.name === 'z_c0');
+        const hasSession = cookies.some((cookie) => {
+          const domain = cookie.domain.replace(/^\./, '');
+          return (domain === 'zhihu.com' || domain.endsWith('.zhihu.com'))
+            && cookie.name === 'z_c0'
+            && Boolean(cookie.value);
+        });
         if (hasSession) {
-          const loginBtnExists = await this.page!.isVisible('.AppHeader-login, .SignFlow-tabs', { timeout: 1000 }).catch(() => false);
-          if (loginBtnExists) return false;
           console.log('[ZHIHU] Login state confirmed via cookies.');
-          return true;
+          return 'logged_in';
         }
       }
     } catch (err: any) {
       console.error('[ZHIHU] Error checking cookies:', err.message);
     }
-    return false;
+    try {
+      const isLoginBtn = await this.page!.isVisible('.AppHeader-login, .SignFlow-tabs', { timeout: 1000 });
+      if (isLoginBtn) return 'logged_out';
+    } catch {}
+    return 'unknown';
   }
 
   public async search(): Promise<void> {

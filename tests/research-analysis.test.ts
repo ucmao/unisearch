@@ -44,6 +44,13 @@ test('a single question attached to a collection request becomes an analysis goa
   assert.deepEqual(inferExplicitAnalysisGoals('采集分析报告中的公开案例'), []);
 });
 
+test('combined follow-up analysis keeps a meaningful goal instead of filler words', () => {
+  assert.deepEqual(
+    inferExplicitAnalysisGoals('你再去小红书上搜索一下关键词“宝可梦”，并结合所有信息再分析一遍给我。'),
+    ['结合所有采集结果综合分析'],
+  );
+});
+
 test('numbered platform or scope lists are not mistaken for analysis goals', () => {
   assert.deepEqual(inferExplicitAnalysisGoals('采集范围：\n1. 小红书\n2. 微博\n3. 知乎'), []);
   assert.deepEqual(inferExplicitAnalysisGoals('平台：\n1. 小红书\n2. 微博\n然后告诉我：\n1. 主要观点\n2. 用户反馈'), ['主要观点', '用户反馈']);

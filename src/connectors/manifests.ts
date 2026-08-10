@@ -153,8 +153,8 @@ const social = (
   id, version: '2.0.0', name, icon, category: 'social_media',
   description: `${name}公开内容发现、详情、主体、评论和 URL 解析连接器。`,
   auth: {
-    required: true, methods: ['qrcode', 'cookie'],
-    description: '使用平台独立登录态；Cookie 只随本次任务传入隔离子进程。',
+    required: true, methods: ['qrcode'],
+    description: '自动复用平台独立的 Chromium 持久登录态；未登录时在平台原生页面完成登录。',
   },
   runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
   capabilities: capabilities(id, name, nouns),
@@ -634,8 +634,8 @@ const aiWebQA = (
   id, version: '1.0.0', name, icon, category: 'ai_web_qa',
   description: `${name} 网页端 AI 智能问答、深度思考与联网新闻/资料引用自动化采集连接器。`,
   auth: {
-    required: false, methods: ['none', 'cookie'],
-    description: '支持加载平台 Cookie 或自动打开内置浏览器免登录/自动登录使用。',
+    required: false, methods: ['none'],
+    description: '自动复用平台独立的 Chromium 持久会话；公开功能无需登录，需要账号时在原生页面完成登录。',
   },
   runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
   capabilities: [
@@ -671,8 +671,8 @@ const jobPlatform = (
   id, version: '1.0.0', name, icon, category: 'job_platform',
   description: `${name}招聘岗位列表搜索与职位详情解析连接器。`,
   auth: {
-    required: false, methods: ['none', 'cookie'],
-    description: '支持公开职位搜索，遇风控滑块时自动接入人工验证/打码机制。',
+    required: false, methods: ['none'],
+    description: '自动复用平台独立的 Chromium 持久会话；公开职位无需登录，遇验证时在原生页面处理。',
   },
   runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
   capabilities: [
@@ -757,8 +757,8 @@ const complaintPlatform = (
   id, version: '1.0.0', name, icon, category: 'complaint_platform',
   description: `${name}维权投诉单搜索与投诉详情自动化解析连接器。`,
   auth: {
-    required: false, methods: ['none', 'cookie'],
-    description: '支持公开投诉搜寻，免登录抓取消费者投诉事件与涉诉商家。',
+    required: false, methods: ['none'],
+    description: '自动复用平台独立的 Chromium 持久会话，公开投诉内容无需登录。',
   },
   runtime: { engine: 'playwright', isolatedProcess: true, supportsHeadless: true },
   capabilities: [

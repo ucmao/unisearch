@@ -494,7 +494,7 @@ export function SettingsDialog({
                               </Button>
                             }
                             title={`清空【${platformsQuery.data?.find(p => p.value === selectedPlatformToClear)?.label || selectedPlatformToClear}】凭证`}
-                            description="确定要清空该平台的登录凭证吗？此操作将删除该平台本地保存的浏览器 Session 与 Cookie 登录缓存，下一次发起采集该平台时需要重新扫码登录。"
+                            description="确定要清空该平台的登录凭证吗？此操作将删除该平台本地保存的 Chromium Session 与登录缓存，下一次发起采集该平台时需要在原生页面重新登录。"
                             confirmLabel="确认清空"
                             onConfirm={async () => {
                               try {
@@ -520,7 +520,7 @@ export function SettingsDialog({
                             </Button>
                           }
                           title="清空所有登录身份验证"
-                          description="确定要清空所有平台的登录身份凭证吗？此操作将清除本地保存的所有浏览器 Cookie 及 Session 登录状态。下次发起采集时相关平台将需要重新扫码登录。此操作不会删除数据库中已保存的历史数据。"
+                          description="确定要清空所有平台的登录身份凭证吗？此操作将清除本地保存的所有 Chromium Session 登录状态。下次发起采集时相关平台将需要在原生页面重新登录。此操作不会删除数据库中已保存的历史数据。"
                           confirmLabel="确认清空所有"
                           onConfirm={async () => {
                             try {

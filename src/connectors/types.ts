@@ -71,7 +71,7 @@ export interface ConnectorManifest {
   description: string;
   auth: {
     required: boolean;
-    methods: Array<'qrcode' | 'cookie' | 'none'>;
+    methods: Array<'qrcode' | 'none'>;
     description: string;
   };
   runtime: {
@@ -87,7 +87,7 @@ export interface ConnectorStartRequest {
   connector_id?: string;
   capability?: ConnectorCapabilityId;
   connector_options?: Record<string, unknown>;
-  login_type: 'qrcode' | 'cookie' | 'phone' | 'none';
+  login_type?: 'qrcode' | 'none';
   crawler_type: 'search' | 'detail' | 'creator';
   keywords: string;
   specified_ids?: string;
@@ -95,7 +95,6 @@ export interface ConnectorStartRequest {
   start_page: number;
   collection_depth?: 'quick' | 'standard' | 'deep' | 'custom';
   enable_comments: boolean;
-  cookies: string;
   headless: boolean;
   loop_execution: boolean;
   thread_id?: string;

@@ -62,6 +62,12 @@ export function inferExplicitAnalysisGoals(text: string): string[] {
     const isExplicitDirective = /告诉|回答|解答|想知道|需要了解/.test(lastPreamble[0])
       || /一下/.test(lastPreamble[0])
       || /(?:^|[，,。；;\n]|然后|并|再|请|帮我)\s*$/.test(preamblePrefix);
+    if (
+      /^(?:一?下|一遍)(?:给我|看看)?$/.test(single)
+      && /结合.*(?:信息|数据|结果|内容)/.test(preamblePrefix)
+    ) {
+      return ['结合所有采集结果综合分析'];
+    }
     if (single && isExplicitDirective) return uniqueGoals([single]);
   }
 

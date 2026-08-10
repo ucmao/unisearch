@@ -16,12 +16,12 @@ const baseRequest: ConnectorStartRequest = {
   keywords: '科莱特',
   start_page: 1,
   enable_comments: false,
-  cookies: '',
   headless: false,
   loop_execution: false,
 };
 
 assert.equal(listConnectorManifests().length, 30);
+assert.ok(listConnectorManifests().every((manifest) => !manifest.auth.methods.includes('cookie' as never)));
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -42,6 +42,10 @@ assert.equal(normalized.platform, 'xhs');
 assert.equal(normalized.capability, 'keyword_search');
 assert.equal((normalized as any).crawler_max_notes_count, 42);
 assert.equal(normalized.enable_comments, true);
+assert.throws(
+  () => normalizeConnectorRequest({ ...baseRequest, cookies: 'secret' } as any),
+  /Unsupported connector field: cookies/,
+);
 
 for (const manifest of listConnectorManifests()) {
   const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv' || manifest.id === 'github_repositories' || manifest.id === 'rss_news'
@@ -115,10 +119,11 @@ const bossRequest = normalizeConnectorRequest({
   platform: 'boss',
   connector_id: 'boss',
   capability: 'keyword_search',
-  login_type: 'cookie',
+  login_type: 'qrcode',
   connector_options: { location: '上海', max_items: 500, start_page: 3 },
 });
 assert.equal(bossRequest.platform, 'boss');
+assert.equal(bossRequest.login_type, 'none');
 assert.equal((bossRequest as any).job_location, '上海');
 assert.equal((bossRequest as any).crawler_max_notes_count, 500);
 assert.equal(bossRequest.start_page, 3);

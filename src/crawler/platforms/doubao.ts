@@ -2,6 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, notifyLoginRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const DOUBAO_URL = 'https://www.doubao.com/chat/';
@@ -48,21 +49,16 @@ export class DoubaoCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     if (!this.page || !this.browserContext) return;
-    if (activeConfig.COOKIES) {
-      console.log('[DOUBAO] Applying provided cookies...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.doubao.com');
-      await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    }
     if (await this.isLoggedIn()) {
       notifyLoginSuccess('doubao');
       return;
     }
 
     notifyLoginRequired('doubao', '请在内置豆包窗口右上角完成登录；登录成功后任务会自动继续。');
-    console.log('[DOUBAO] Waiting up to 120s for manual login in crawler window...');
+    console.log('[DOUBAO] Waiting for manual login in crawler window...');
     await this.page.click('button:has-text("登录"), a:has-text("登录"), [class*="login-btn"], [class*="login-button"]')
       .catch(() => {});
-    const deadline = Date.now() + 120000;
+    const deadline = Date.now() + MANUAL_LOGIN_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (await this.isLoggedIn()) {
         console.log('[DOUBAO] Login verified successfully!');

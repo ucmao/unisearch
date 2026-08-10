@@ -40,8 +40,8 @@ function App() {
       <CrawlerAuthNotice />
 
       <Toaster
-
-        position="top-right"
+        position="top-center"
+        duration={4000}
         toastOptions={{
           className: 'glass-panel font-mono text-cyber-text-primary',
           style: { fontFamily: 'JetBrains Mono, monospace' },

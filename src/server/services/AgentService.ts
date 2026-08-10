@@ -274,10 +274,6 @@ export function normalizePlan(
   };
 }
 
-function isAnalysisIntent(text: string) {
-  return /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/.test(text);
-}
-
 export function looksLikeSimulatedPlanReply(text: string): boolean {
   return /(?:采集|调研|搜索)计划/.test(text)
     || /确认后(?:开始|执行)|确认无误.*(?:开始|执行)/s.test(text)
@@ -1024,7 +1020,7 @@ export class AgentService {
       return agentRepository.getThread(threadId);
     }
 
-    if (decision.action === 'analyze' || (latest && ['queued', 'running', 'completed', 'partially_completed'].includes(latest.status) && isAnalysisIntent(content))) {
+    if (decision.action === 'analyze') {
       const allThreadPlans = agentRepository.listPlans(threadId);
       const hasActiveOrCompletedPlan = allThreadPlans.some((p) => ['queued', 'running', 'completed', 'partially_completed'].includes(p.status));
       if (!hasActiveOrCompletedPlan && !latest) {

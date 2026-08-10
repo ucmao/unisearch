@@ -33,7 +33,7 @@ export interface ResearchPlan {
    * manifest; anything the user overrides explicitly lives in connectorOptions.
    */
   collectionDepth?: 'quick' | 'standard' | 'deep' | 'custom';
-  loginType: 'qrcode' | 'cookie' | 'none';
+  loginType: 'qrcode' | 'none';
   headless: boolean;
   customScopeDescription?: string;
   analysis: string[];

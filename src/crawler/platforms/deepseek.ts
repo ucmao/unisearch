@@ -2,6 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -54,16 +55,10 @@ export class DeepSeekCrawler extends AbstractCrawler {
   }
 
   private async handleLogin(): Promise<void> {
-    if (activeConfig.COOKIES && this.browserContext) {
-      console.log('[DEEPSEEK] Applying provided cookies...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.deepseek.com');
-      await this.page!.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    }
-
     console.log('[DEEPSEEK] Checking login status...');
     let isLoggedIn = await this.checkLoginState();
     if (!isLoggedIn) {
-      console.log('[DEEPSEEK] User is not logged in or login dialog is present. Waiting up to 120s for manual login in crawler window...');
+      console.log(`[DEEPSEEK] User is not logged in or login dialog is present. Waiting up to ${MANUAL_LOGIN_TIMEOUT_MS / 1000}s for manual login in crawler window...`);
 
       try {
         const loginBtnSelectors = [
@@ -82,7 +77,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
       } catch {}
 
       const startTime = Date.now();
-      const maxLoginWaitMs = 120000;
+      const maxLoginWaitMs = MANUAL_LOGIN_TIMEOUT_MS;
       let lastLogTs = 0;
 
       while (Date.now() - startTime < maxLoginWaitMs) {
@@ -100,7 +95,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
       }
 
       if (!isLoggedIn) {
-        console.warn('[DEEPSEEK] 120s login wait timeout. Will attempt to proceed if input box is ready.');
+        console.warn('[DEEPSEEK] Manual login wait timed out. Will attempt to proceed if input box is ready.');
       }
     } else {
       console.log('[DEEPSEEK] Login state verified.');

@@ -36,27 +36,6 @@ test('小红书登录状态不确定时不会主动点击登录', async () => {
   resetConfig();
 });
 
-test('已有持久化认证 Cookie 时不会用手工 Cookie 覆盖会话', async () => {
-  resetConfig();
-  applyConfig({ login_type: 'cookie', cookies: 'web_session=stale-value; a1=stale-device' });
-  const crawler = crawlerHarness();
-  let addedCookies = 0;
-  let reloads = 0;
-  crawler.browserContext = {
-    addCookies: async () => { addedCookies++; },
-    newCDPSession: async () => ({ send: async () => { addedCookies++; } }),
-  };
-  crawler.page.reload = async () => { reloads++; };
-  crawler.authCookieNames = async () => ['web_session', 'a1'];
-  crawler.inspectLoginState = async () => 'authenticated';
-
-  await crawler.handleLogin();
-
-  assert.equal(addedCookies, 0);
-  assert.equal(reloads, 0);
-  resetConfig();
-});
-
 test('认证 Cookie 通过页面 CDP 会话从小红书分区读取', async () => {
   resetConfig();
   const crawler = crawlerHarness();
@@ -88,6 +67,7 @@ test('认证 Cookie 通过页面 CDP 会话从小红书分区读取', async () =
 test('明确登录控件优先于残留 Cookie，避免把失效会话当成已登录', async () => {
   const crawler = crawlerHarness();
   crawler.hasManualVerification = async () => false;
+  crawler.hasVisibleLoginDialog = async () => false;
   crawler.hasAccountProfileEvidence = async () => false;
   crawler.authCookieNames = async () => ['web_session'];
   crawler.hasExplicitLoginPrompt = async () => true;
@@ -99,9 +79,51 @@ test('明确登录控件优先于残留 Cookie，避免把失效会话当成已�
 test('安全验证优先于其他登录证据并暂停正常登录流程', async () => {
   const crawler = crawlerHarness();
   crawler.hasManualVerification = async () => true;
+  crawler.hasVisibleLoginDialog = async () => true;
   crawler.hasAccountProfileEvidence = async () => true;
   crawler.authCookieNames = async () => ['web_session'];
   crawler.hasExplicitLoginPrompt = async () => false;
 
   assert.equal(await crawler.inspectLoginState(), 'verification');
+});
+
+test('普通登录二维码弹窗优先于背景中的个人主页和 Cookie', async () => {
+  const crawler = crawlerHarness();
+  crawler.hasManualVerification = async () => false;
+  crawler.hasVisibleLoginDialog = async () => true;
+  crawler.hasAccountProfileEvidence = async () => true;
+  crawler.authCookieNames = async () => ['web_session'];
+  crawler.hasExplicitLoginPrompt = async () => false;
+
+  assert.equal(await crawler.inspectLoginState(), 'unauthenticated');
+});
+
+test('搜索前发现登录弹窗时立即进入认证流程，不等待搜索框超时', async () => {
+  const crawler = crawlerHarness();
+  const searchInput = { fill: async () => {} };
+  let attempts = 0;
+  let loginRuns = 0;
+  crawler.openSearchInput = async () => { attempts++; return searchInput; };
+  crawler.inspectLoginState = async () => 'unauthenticated';
+  crawler.handleLogin = async () => { loginRuns++; };
+  crawler.page.url = () => 'https://www.xiaohongshu.com/explore';
+
+  assert.equal(await crawler.openSearchInputWithAuthRecovery(), searchInput);
+  assert.equal(loginRuns, 1);
+  assert.equal(attempts, 1);
+});
+
+test('小红书搜索只接收请求体关键词与页码匹配的响应', () => {
+  const crawler = crawlerHarness();
+  const response = (keyword: string, page = 1) => ({
+    url: () => 'https://edith.xiaohongshu.com/api/sns/web/v2/search/notes',
+    request: () => ({
+      method: () => 'POST',
+      postDataJSON: () => ({ keyword, page }),
+    }),
+  });
+
+  assert.equal(crawler.isSearchResponseForKeyword(response('宝可梦'), '宝可梦', 1), true);
+  assert.equal(crawler.isSearchResponseForKeyword(response('肚子里有蛔虫的症状'), '宝可梦', 1), false);
+  assert.equal(crawler.isSearchResponseForKeyword(response('宝可梦', 2), '宝可梦', 1), false);
 });

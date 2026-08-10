@@ -2,6 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import {
   configuredTargets,
   creatorItemLimit,
@@ -39,10 +40,6 @@ export class WeiboCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[WEIBO] Checking login state...');
-    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.weibo.com');
-      await this.page!.reload({ waitUntil: 'domcontentloaded' });
-    }
     let isLoggedIn = await this.checkLoginState();
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
@@ -52,7 +49,7 @@ export class WeiboCrawler extends AbstractCrawler {
       } catch {}
 
       const startTime = Date.now();
-      while (Date.now() - startTime < 120 * 1000) {
+      while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[WEIBO] Login successful!');

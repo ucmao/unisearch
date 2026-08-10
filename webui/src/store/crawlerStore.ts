@@ -23,7 +23,6 @@ interface CrawlerState {
 
   // Config template
   config: CrawlerConfig
-  platformCookies: { [platform: string]: string }
   connectorOptions: { [platform: string]: Record<string, unknown> }
 
   // Actions
@@ -35,7 +34,6 @@ interface CrawlerState {
   clearLogs: (platform: string) => void
   restoreLogs: (platform: string) => void
   updateConfig: (config: Partial<CrawlerConfig>) => void
-  setPlatformCookie: (platform: string, cookies: string) => void
   setConnectorOption: (platform: string, key: string, value: unknown) => void
   setSelectedPlatforms: (platforms: string[]) => void
   setActivePlatformTab: (platform: string) => void
@@ -65,14 +63,12 @@ const defaultConfig: CrawlerConfig = {
   connector_id: 'bili',
   capability: 'keyword_search',
   connector_options: {},
-  login_type: 'qrcode',
   crawler_type: 'search',
   keywords: '',
   specified_ids: '',
   creator_ids: '',
   start_page: 1,
   enable_comments: false,
-  cookies: '',
   headless: false,
   loop_execution: false,
 }
@@ -108,7 +104,6 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
   selectedPlatforms: ['bili'],
   activePlatformTab: 'bili',
   config: defaultConfig,
-  platformCookies: {},
   connectorOptions: {},
 
   setStatus: (platform, status) => {
@@ -257,11 +252,6 @@ export const useCrawlerStore = create<CrawlerState>((set, get) => ({
   updateConfig: (config) =>
     set((state) => ({
       config: { ...state.config, ...config },
-    })),
-
-  setPlatformCookie: (platform, cookies) =>
-    set((state) => ({
-      platformCookies: { ...state.platformCookies, [platform]: cookies },
     })),
 
   setConnectorOption: (platform, key, value) =>

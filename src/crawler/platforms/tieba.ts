@@ -1,5 +1,12 @@
 import { BrowserContext, Page } from 'playwright';
-import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
+import {
+  AbstractCrawler,
+  connectToElectronChromium,
+  getElectronCrawlerPage,
+  notifyLoginRequired,
+  notifyLoginSuccess,
+} from '../base/BaseCrawler';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import {
@@ -17,6 +24,7 @@ const TIEBA_MAX_SEARCH_PAGES = 30;
 /** `rn` the search page asks for itself; larger values are not honoured. */
 const TIEBA_SEARCH_PAGE_SIZE = 20;
 const TIEBA_SEARCH_API = '/mo/q/search/multsearch';
+type LoginState = 'logged_in' | 'logged_out' | 'unknown';
 
 /** A floor (楼层) of a thread — what Tieba calls a post and we store as a comment. */
 interface ThreadPost {
@@ -104,54 +112,67 @@ export class TiebaCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     console.log('[TIEBA] Checking login state...');
-    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      await this.applyCookieHeader(this.browserContext!, activeConfig.COOKIES, '.baidu.com');
-      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+    let loginState = await this.checkLoginState();
+
+    if (loginState === 'unknown') {
+      console.warn('[TIEBA] Login state is inconclusive; no explicit login prompt was found. Continuing without manual-login wait.');
+      return;
     }
-    let isLoggedIn = await this.checkLoginState();
-    
-    if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
+
+    if (loginState === 'logged_out' && activeConfig.LOGIN_TYPE === 'qrcode') {
       console.log('[TIEBA] User is not logged in. Waiting for manual login...');
+      notifyLoginRequired('tieba', '百度贴吧当前页面明确显示登录入口，请在内置浏览器中完成登录；登录后任务会自动继续。');
       try {
         await this.page!.click('.u_login, .header-login', { timeout: 3000 });
       } catch {}
 
       const startTime = Date.now();
-      while (Date.now() - startTime < 120 * 1000) {
-        isLoggedIn = await this.checkLoginState();
-        if (isLoggedIn) {
+      while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
+        loginState = await this.checkLoginState();
+        if (loginState === 'logged_in') {
           console.log('[TIEBA] Login successful!');
+          notifyLoginSuccess('tieba');
+          break;
+        }
+        if (loginState === 'unknown') {
+          console.log('[TIEBA] Login prompt is no longer visible. Continuing collection.');
           break;
         }
         await new Promise((r) => setTimeout(r, 1000));
       }
+      if (loginState === 'logged_out') {
+        console.warn('[TIEBA] Manual-login wait timed out. Continuing collection with the current session.');
+      }
     }
   }
 
-  private async checkLoginState(): Promise<boolean> {
+  private async checkLoginState(): Promise<LoginState> {
     try {
       const visible = await this.page!.isVisible('.u_username, .user_name', { timeout: 1000 });
-      if (visible) return true;
-    } catch {}
-    try {
-      const isLoginBtn = await this.page!.isVisible('.u_login, .header-login', { timeout: 1000 });
-      if (isLoginBtn) return false;
+      if (visible) return 'logged_in';
     } catch {}
     try {
       if (this.browserContext) {
         const cookies = await this.browserContext.cookies();
-        const hasSession = cookies.some((c) => c.name === 'STOKEN' || c.name === 'PTOKEN');
+        const hasSession = cookies.some((cookie) => {
+          const domain = cookie.domain.replace(/^\./, '');
+          return (domain === 'baidu.com' || domain.endsWith('.baidu.com'))
+            && ['BDUSS', 'BDUSS_BFESS', 'STOKEN', 'PTOKEN'].includes(cookie.name)
+            && Boolean(cookie.value);
+        });
         if (hasSession) {
-          const loginBtnExists = await this.page!.isVisible('.u_login, .header-login', { timeout: 1000 }).catch(() => false);
-          if (loginBtnExists) return false;
           console.log('[TIEBA] Login state confirmed via cookies.');
-          return true;
+          return 'logged_in';
         }
       }
     } catch (err: any) {
       console.error('[TIEBA] Error checking cookies:', err.message);
     }
-    return false;
+    try {
+      const isLoginBtn = await this.page!.isVisible('.u_login, .header-login', { timeout: 1000 });
+      if (isLoginBtn) return 'logged_out';
+    } catch {}
+    return 'unknown';
   }
 
   public async search(): Promise<void> {

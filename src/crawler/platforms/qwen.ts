@@ -2,6 +2,7 @@ import { BrowserContext, Page } from 'playwright';
 import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage, notifyLoginRequired, notifyLoginSuccess } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 const QWEN_URL = 'https://www.qianwen.com/';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -46,11 +47,6 @@ export class QwenCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     if (!this.page || !this.browserContext) return;
-    if (activeConfig.COOKIES) {
-      console.log('[QWEN] Applying provided cookies...');
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, '.qianwen.com');
-      await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    }
     if (await this.isLoggedIn()) {
       notifyLoginSuccess('qwen');
       return;
@@ -58,7 +54,7 @@ export class QwenCrawler extends AbstractCrawler {
     notifyLoginRequired('qwen', '请在内置通义千问窗口完成登录；登录成功后任务会自动继续。');
     await this.page.click('button:has-text("登录"), button:has-text("Log in"), a:has-text("登录"), [class*="login-btn"]')
       .catch(() => {});
-    const deadline = Date.now() + 120000;
+    const deadline = Date.now() + MANUAL_LOGIN_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (await this.isLoggedIn()) {
         notifyLoginSuccess('qwen');

@@ -68,7 +68,6 @@ test('public search engines accept explicit targets through 500 but reject large
       keywords: '测试',
       start_page: 1,
       enable_comments: false,
-      cookies: '',
       headless: true,
       loop_execution: false,
     };

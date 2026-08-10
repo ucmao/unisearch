@@ -256,7 +256,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         category: connector.category,
         description: connector.description,
         capabilities: connector.capabilities.map((capability) => capability.id),
-        requiresAuth: Boolean(connector.auth?.methods?.some((m) => m === 'qrcode' || m === 'cookie')),
+        requiresAuth: connector.auth.required,
       })),
     };
   });
@@ -265,10 +265,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.get('/api/config/options', async () => {
     return {
-      login_types: [
-        { value: 'qrcode', label: '二维码登录' },
-        { value: 'cookie', label: 'Cookie 登录' },
-      ],
       crawler_types: [
         { value: 'search', label: '关键词搜索' },
         { value: 'detail', label: '指定内容详情' },
@@ -280,8 +276,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.post('/api/config/auth/clear', async (request, reply) => {
     const body = (request.body as { platform?: string } | undefined) || {};
     const platform = body.platform?.trim();
+    const connector = platform ? listConnectorManifests().find((c) => c.id === platform) : undefined;
+    const platformLabel = connector?.name || platform;
 
-    if (platform && !listConnectorManifests().some((connector) => connector.id === platform)) {
+    if (platform && !connector) {
       return reply.code(400).send({ detail: `未知采集平台：${platform}` });
     }
 
@@ -289,7 +287,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     if (platform) {
       const state = crawlerStatus.platform_states?.[platform];
       if (state?.status === 'running') {
-        return reply.code(400).send({ detail: `请先停止【${platform}】平台的采集任务再清空凭证` });
+        return reply.code(400).send({ detail: `请先停止【${platformLabel}】平台的采集任务再清空凭证` });
       }
     } else {
       const isRunning = crawlerStatus.status === 'running' || Object.values(crawlerStatus.platform_states || {}).some((s: any) => s?.status === 'running');
@@ -317,7 +315,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         }
         return {
           status: 'ok',
-          message: `已成功清空【${platform}】平台的登录身份与缓存数据`,
+          message: `已成功清空【${platformLabel}】平台的登录身份与缓存数据`,
         };
       } else {
         await fs.promises.rm(browserDataDir, { recursive: true, force: true });

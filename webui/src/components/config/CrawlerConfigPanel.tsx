@@ -118,8 +118,6 @@ export function CrawlerConfigPanel() {
   const statuses = useCrawlerStore((state) => state.statuses)
   const selectedPlatforms = useCrawlerStore((state) => state.selectedPlatforms)
   const connectorOptions = useCrawlerStore((state) => state.connectorOptions)
-  const platformCookies = useCrawlerStore((state) => state.platformCookies)
-  const setPlatformCookie = useCrawlerStore((state) => state.setPlatformCookie)
   const { data: allConnectors = [] } = useConnectors()
   const selectedConnectors = useMemo(
     () => selectedPlatforms.map((id) => allConnectors.find((connector) => connector.id === id)).filter((connector): connector is ConnectorManifest => Boolean(connector)),
@@ -156,17 +154,6 @@ export function CrawlerConfigPanel() {
     updateConfig({ capability: selectedCapability.id, crawler_type: selectedCapability.runtimeMode })
   }, [config.capability, selectedCapability, updateConfig])
 
-  const loginMethods = useMemo(() => (
-    selectedConnectors.length
-      ? selectedConnectors[0].auth.methods.filter((method) => selectedConnectors.every((connector) => connector.auth.methods.includes(method)))
-      : []
-  ), [selectedConnectors])
-
-  useEffect(() => {
-    if (!loginMethods.length || loginMethods.includes(config.login_type as 'qrcode' | 'cookie' | 'none')) return
-    updateConfig({ login_type: loginMethods[0] })
-  }, [config.login_type, loginMethods, updateConfig])
-
   return (
     <aside className="relative min-w-0 overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-panel/35 p-4 glass-panel float-panel xl:h-full xl:overflow-y-auto">
       <div className="absolute inset-y-0 left-0 w-[2px] bg-gradient-to-b from-cyber-neon-purple via-cyber-neon-cyan to-transparent" />
@@ -183,7 +170,7 @@ export function CrawlerConfigPanel() {
           </div>
           <TabsList className="grid h-9 w-full grid-cols-3 bg-cyber-bg-tertiary/60 p-0.5">
             <TabsTrigger value="connector" className="text-[11px]">平台能力</TabsTrigger>
-            <TabsTrigger value="auth" className="text-[11px]">登录配置</TabsTrigger>
+            <TabsTrigger value="auth" className="text-[11px]">登录状态</TabsTrigger>
             <TabsTrigger value="advanced" className="text-[11px]">高级设置</TabsTrigger>
           </TabsList>
         </div>
@@ -251,29 +238,19 @@ export function CrawlerConfigPanel() {
         </TabsContent>
 
         <TabsContent value="auth" className="mt-0 space-y-3">
-          <Field label="登录方式" hint="仅展示所有已选 Connector 共同支持的方式">
-            <Select value={config.login_type} onValueChange={(value) => updateConfig({ login_type: value })} disabled={isDisabled || !loginMethods.length}>
-              <SelectTrigger className="h-9 text-xs font-mono"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {loginMethods.map((method) => <SelectItem key={method} value={method}>{method === 'cookie' ? 'Cookie 登录' : method === 'qrcode' ? '二维码登录' : '无需登录'}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </Field>
-          {config.login_type === 'cookie' ? selectedConnectors.map((connector) => (
-            <Field key={connector.id} label={`${connector.name} Cookie`} hint={connector.auth.description}>
-              <textarea
-                value={platformCookies[connector.id] || ''}
-                onChange={(event) => setPlatformCookie(connector.id, event.target.value)}
-                disabled={isDisabled}
-                className="min-h-[72px] w-full resize-y rounded-md border border-cyber-border-default bg-cyber-bg-tertiary/20 px-3 py-2 text-[10px] font-mono text-cyber-text-primary focus-visible:border-cyber-neon-cyan/50 focus-visible:outline-none"
-              />
-            </Field>
-          )) : (
-            <div className="flex items-center gap-3 rounded-lg border border-dashed border-cyber-border-subtle/50 p-4">
-              <KeyRound className="h-5 w-5 text-cyber-neon-cyan/70" />
-              <p className="text-[10px] text-cyber-text-muted">{config.login_type === 'none' ? '该 Connector 使用匿名公开接口，无需登录。' : '每个 Connector 使用独立浏览器会话完成二维码登录。'}</p>
+          <div className="flex items-start gap-3 rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/5 p-4">
+            <KeyRound className="mt-0.5 h-5 w-5 shrink-0 text-cyber-neon-cyan/70" />
+            <div>
+              <p className="text-xs font-mono text-cyber-text-primary">Chromium 持久登录态</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-cyber-text-muted">系统自动复用每个平台独立保存的浏览器会话，不需要手动输入 Cookie。首次未登录或登录过期时，请在打开的平台原生页面完成登录。</p>
             </div>
-          )}
+          </div>
+          {selectedConnectors.map((connector) => (
+            <div key={connector.id} className="rounded-lg border border-cyber-border-subtle/60 bg-cyber-bg-tertiary/10 p-3">
+              <p className="text-[10px] font-mono text-cyber-text-primary">{connector.name} · {connector.auth.required ? '需要登录态' : '公开访问'}</p>
+              <p className="mt-1 text-[9px] leading-relaxed text-cyber-text-muted">{connector.auth.description}</p>
+            </div>
+          ))}
         </TabsContent>
 
         <TabsContent value="advanced" className="mt-0 space-y-3">

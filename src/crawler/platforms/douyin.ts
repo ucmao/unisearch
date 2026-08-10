@@ -8,6 +8,7 @@ import {
   notifyManualVerificationRequired,
   notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
+import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import {
@@ -247,19 +248,6 @@ export class DouyinCrawler extends AbstractCrawler {
   private async handleLogin(): Promise<void> {
     console.log('[DY] Checking login state...');
 
-    if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      console.log('[DY] Logging in via cookies...');
-      const cookieDict = this.parseCookies(activeConfig.COOKIES);
-      const cookiesToSet = Object.entries(cookieDict).map(([name, value]) => ({
-        name,
-        value,
-        domain: '.douyin.com',
-        path: '/',
-      }));
-      await this.browserContext!.addCookies(cookiesToSet);
-      await this.page!.reload({ waitUntil: 'domcontentloaded' });
-    }
-
     let isLoggedIn = await this.checkLoginState();
     
     if (!isLoggedIn && activeConfig.LOGIN_TYPE === 'qrcode') {
@@ -271,7 +259,7 @@ export class DouyinCrawler extends AbstractCrawler {
       notifyLoginRequired('douyin', '抖音当前会话未登录，需要在采集浏览器中确认或完成登录');
 
       const startTime = Date.now();
-      while (Date.now() - startTime < 120 * 1000) {
+      while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
         isLoggedIn = await this.checkLoginState();
         if (isLoggedIn) {
           console.log('[DY] Login successful!');
@@ -285,7 +273,7 @@ export class DouyinCrawler extends AbstractCrawler {
         throw new Error('抖音登录等待超时。请点击登录提示中的“打开窗口”，完成登录后重新运行任务。');
       }
     } else if (!isLoggedIn) {
-      throw new Error('抖音登录状态无效，请改用二维码登录或更新 Cookie。');
+      throw new Error('抖音登录状态无效，请在内置 Chromium 窗口中重新登录。');
     }
   }
 
@@ -343,16 +331,6 @@ export class DouyinCrawler extends AbstractCrawler {
     return false;
   }
 
-  private parseCookies(cookieStr: string): Record<string, string> {
-    const dict: Record<string, string> = {};
-    cookieStr.split(';').forEach((cookie) => {
-      const parts = cookie.split('=');
-      if (parts.length >= 2) {
-        dict[parts[0].trim()] = parts.slice(1).join('=').trim();
-      }
-    });
-    return dict;
-  }
 
   private async hasManualVerification(): Promise<boolean> {
     const selectors = [
@@ -434,7 +412,7 @@ export class DouyinCrawler extends AbstractCrawler {
     console.warn(`[DY] Login is required: ${reason}`);
     notifyLoginRequired('douyin', reason);
     const startTime = Date.now();
-    while (Date.now() - startTime < 120 * 1000) {
+    while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
       if (await this.checkLoginState()) {
         console.log('[DY] Login successful. Resuming crawler...');
         notifyLoginSuccess('douyin');
@@ -481,7 +459,7 @@ export class DouyinCrawler extends AbstractCrawler {
     notifyManualVerificationRequired('douyin', `搜索“${keyword}”需要完成图形验证`);
     const startTime = Date.now();
     let stablePasses = 0;
-    while (Date.now() - startTime < 180 * 1000) {
+    while (Date.now() - startTime < MANUAL_VERIFICATION_TIMEOUT_MS) {
       if (await this.hasManualVerification()) {
         stablePasses = 0;
       } else {

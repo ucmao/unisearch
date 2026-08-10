@@ -8,6 +8,7 @@ import {
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 type PlatformId = 'yuanbao' | 'nami' | 'wenxin';
 
@@ -15,7 +16,6 @@ interface AiWebQaPlatform {
   id: PlatformId;
   name: string;
   url: string;
-  cookieDomain: string;
   ownDomains: string[];
   inputSelectors: string[];
   answerSelectors: string[];
@@ -50,7 +50,6 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     id: 'yuanbao',
     name: '腾讯元宝',
     url: 'https://yuanbao.tencent.com/',
-    cookieDomain: '.tencent.com',
     ownDomains: ['yuanbao.tencent.com', 'tencent.com'],
     inputSelectors: [
       'textarea[placeholder*="问元宝"]',
@@ -68,7 +67,6 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     id: 'nami',
     name: '纳米AI',
     url: 'https://www.n.cn/',
-    cookieDomain: '.n.cn',
     ownDomains: ['n.cn'],
     inputSelectors: [
       'textarea[placeholder*="纳米"]',
@@ -86,7 +84,6 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     id: 'wenxin',
     name: '文心一言',
     url: 'https://wenxin.baidu.com/',
-    cookieDomain: '.baidu.com',
     ownDomains: ['wenxin.baidu.com', 'baidu.com'],
     inputSelectors: [
       'textarea[placeholder*="文心"]',
@@ -142,10 +139,6 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
 
   private async handleLogin(): Promise<void> {
     if (!this.page || !this.browserContext) return;
-    if (activeConfig.COOKIES) {
-      await this.applyCookieHeader(this.browserContext, activeConfig.COOKIES, this.platform.cookieDomain);
-      await this.page.reload({ waitUntil: 'domcontentloaded' }).catch(() => {});
-    }
     if (await this.isReady()) {
       notifyLoginSuccess(this.platform.id);
       return;
@@ -155,7 +148,7 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     await this.page.click(
       'button:has-text("登录"), a:has-text("登录"), button:has-text("Log in"), [class*="login-btn"], [class*="login-button"]',
     ).catch(() => {});
-    const deadline = Date.now() + 120000;
+    const deadline = Date.now() + MANUAL_LOGIN_TIMEOUT_MS;
     while (Date.now() < deadline) {
       if (await this.isReady()) {
         notifyLoginSuccess(this.platform.id);
