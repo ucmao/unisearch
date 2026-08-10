@@ -189,5 +189,7 @@ test('only explicitly deferred collection waits for confirmation', () => {
 
 test('plain chat cannot impersonate a persisted collection plan', () => {
   assert.equal(looksLikeSimulatedPlanReply('GitHub 热点采集计划\n平台：GitHub\n关键词：热点\n确认后开始执行？'), true);
+  assert.equal(looksLikeSimulatedPlanReply('✅ 计划已生成，正在执行中…\n|平台|关键词|状态|\n|豆包|科莱特培训靠谱吗|进行中|'), true);
+  assert.equal(looksLikeSimulatedPlanReply('任务已创建并开始执行。'), true);
   assert.equal(looksLikeSimulatedPlanReply('可以采集 GitHub 的公开仓库信息。'), false);
 });

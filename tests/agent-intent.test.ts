@@ -312,6 +312,12 @@ test('running tasks allow partial analysis of already collected results', () => 
 });
 
 test('capability and model questions never become collection plans', () => {
+  for (const message of ['请问你有什么功能？', '你有哪些功能', '你会什么？', '你能提供什么功能？']) {
+    const decision = localIntentDecision(message);
+    assert.equal(decision.action, 'chat', message);
+    assert.equal(isSimpleConversation(message), true, message);
+    assert.match(decision.reply, /普通咨询.*不会创建采集任务/);
+  }
   for (const message of ['你支持什么平台', '你支持采集什么平台', '支持哪些平台？']) {
     const decision = localIntentDecision(message);
     assert.equal(decision.action, 'chat', message);
@@ -319,6 +325,13 @@ test('capability and model questions never become collection plans', () => {
     assert.match(decision.reply, /小红书.*抖音.*知乎/);
   }
   assert.equal(localIntentDecision('你用的是什么模型？').action, 'model_info');
+});
+
+test('query wording with explicit AI platforms creates a real collection plan', () => {
+  const message = '在Deepseek、豆包、文心、千问、元宝这五个AI平台，查询“科莱特培训靠谱吗”这个关键词';
+  assert.equal(localIntentDecision(message).action, 'create_plan');
+  assert.deepEqual(inferResearchPlatforms(message), ['deepseek', 'doubao', 'qwen', 'yuanbao', 'wenxin']);
+  assert.deepEqual(inferResearchKeywords(message), ['科莱特培训靠谱吗']);
 });
 
 test('realtime weather questions use the one-shot live answer path', () => {
