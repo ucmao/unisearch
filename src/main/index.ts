@@ -70,7 +70,7 @@ let mainWindow: BrowserWindow | null = null;
 let crawlerHubWindow: BrowserWindow | null = null;
 let crawlerHubRestoreMaximized = false;
 const crawlerViews = new Map<string, BrowserView>();
-type CrawlerTabStatus = 'running' | 'completed' | 'failed' | 'stopped';
+type CrawlerTabStatus = 'running' | 'completed' | 'partial' | 'failed' | 'stopped';
 const crawlerTabStates = new Map<string, CrawlerTabStatus>();
 let activeCrawlerPlatform: string | null = null;
 let isQuitting = false;
@@ -184,7 +184,8 @@ function closeCrawlerTab(platform: string): void {
 
 function crawlerHubHtml(): string {
   const activeState = activeCrawlerPlatform ? crawlerTabStates.get(activeCrawlerPlatform) : null;
-  const isRunningActive = activeCrawlerPlatform ? crawlerViews.has(activeCrawlerPlatform) : false;
+  const isRunningActive = activeState === 'running'
+    && Boolean(activeCrawlerPlatform && crawlerViews.has(activeCrawlerPlatform));
   const isDark = nativeTheme.shouldUseDarkColors;
 
   const tabs = Array.from(crawlerTabStates.entries()).map(([platform, status]) => {
@@ -209,6 +210,11 @@ function crawlerHubHtml(): string {
       statusTitle = `${label} 采集成功`;
       statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong>`;
       iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4bb98a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+    } else if (activeState === 'partial') {
+      const count = metrics?.itemCount ?? 0;
+      statusTitle = `${label} 仅获得部分结果`;
+      statusDesc = `<strong class="highlight-partial">共获取 ${count} 条数据。${metrics?.error || '未达到用户设置的数量上限。'}</strong>`;
+      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d99735" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
     } else if (activeState === 'failed') {
       const rawReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
       const errReason = /[。.]\s*$/.test(rawReason) ? rawReason : `${rawReason}。`;
@@ -225,7 +231,7 @@ function crawlerHubHtml(): string {
       <div class="summary-container">
         <div class="summary-card">
           <div class="icon-box ${badgeClass}">${iconSvg}</div>
-          <div class="status-badge ${badgeClass}">${activeState === 'completed' ? '采集完成' : activeState === 'failed' ? '采集失败' : '已停止'}</div>
+          <div class="status-badge ${badgeClass}">${activeState === 'completed' ? '采集完成' : activeState === 'partial' ? '部分完成' : activeState === 'failed' ? '采集失败' : '已停止'}</div>
           <h2 class="title">${statusTitle}</h2>
           <p class="description">${statusDesc}</p>
           <div class="btn-group">
@@ -247,18 +253,19 @@ function crawlerHubHtml(): string {
     .close-btn{margin-left:auto;padding:0 4px;font-size:13px;line-height:1;color:#9aa7b4;border-radius:4px;opacity:0.6;transition:all 0.15s ease}
     .close-btn:hover{color:#d66b7b;background:rgba(214,107,123,0.15);opacity:1}
     .dot{width:7px;height:7px;border-radius:50%;background:#59bdd6;box-shadow:0 0 0 3px rgba(89,189,214,.12);flex-shrink:0}
-    .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
+    .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.partial{background:#d99735;box-shadow:0 0 0 3px rgba(217,151,53,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
     
     .summary-container{display:flex;align-items:center;justify-content:center;height:calc(100vh - ${CRAWLER_TAB_HEIGHT}px);padding:20px;background:linear-gradient(135deg, #eef4f8 0%, #e2ecf3 100%)}
     .summary-card{margin:auto;max-width:440px;width:100%;background:#ffffff;border:1px solid #d0dee8;border-radius:16px;padding:32px 28px;text-align:center;box-shadow:0 12px 32px rgba(20,32,51,0.08);animation:fadeIn 0.25s ease-out}
     @keyframes fadeIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
     .icon-box{width:64px;height:64px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;border-radius:50%}
-    .icon-box.completed{background:#eaf8f2}.icon-box.failed{background:#fdf0f2}.icon-box.stopped{background:#f0f3f6}
+    .icon-box.completed{background:#eaf8f2}.icon-box.partial{background:#fff6e6}.icon-box.failed{background:#fdf0f2}.icon-box.stopped{background:#f0f3f6}
     .status-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600;margin-bottom:12px}
-    .status-badge.completed{color:#2e8b60;background:#e2f4ec}.status-badge.failed{color:#c04455;background:#fce6e9}.status-badge.stopped{color:#647482;background:#e6ecf1}
+    .status-badge.completed{color:#2e8b60;background:#e2f4ec}.status-badge.partial{color:#9a6415;background:#ffedcc}.status-badge.failed{color:#c04455;background:#fce6e9}.status-badge.stopped{color:#647482;background:#e6ecf1}
     .title{margin:0 0 10px;font-size:18px;font-weight:650;color:#142033}
     .description{margin:0 0 24px;font-size:13px;line-height:1.6;color:#506273}
     .highlight-text{color:#2e8b60;font-weight:600}
+    .highlight-partial{color:#9a6415;font-weight:600}
     .highlight-error{color:#c04455;font-weight:600}
     .btn-group{display:flex;gap:10px;justify-content:center}
     .btn{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.15s ease}
@@ -447,14 +454,18 @@ export async function prepareCrawlerWindow(platform: string, preserveCurrentPage
   // page; replacing a challenge with about:blank destroys the user's flow and
   // can make the worker interpret the marker page as a successful navigation.
   if (!preserveCurrentPage || !alreadyPrepared) await view.webContents.loadURL(crawlerMarkerUrl(platform));
-  if (!activeCrawlerPlatform || !crawlerViews.has(activeCrawlerPlatform)) activateCrawlerView(platform);
+  if (!activeCrawlerPlatform || activeCrawlerPlatform === platform || !crawlerViews.has(activeCrawlerPlatform)) {
+    activateCrawlerView(platform);
+  }
   else refreshCrawlerHubTabs();
   return true;
 }
 
 export function releaseCrawlerWindow(platform: string, status = 'completed', metrics?: CrawlerRunMetrics): boolean {
   const view = crawlerViews.get(platform);
-  const finalStatus: CrawlerTabStatus = status === 'failed' || status === 'stopped' ? status : 'completed';
+  const finalStatus: CrawlerTabStatus = ['partial', 'failed', 'stopped'].includes(status)
+    ? status as CrawlerTabStatus
+    : 'completed';
   crawlerTabStates.set(platform, finalStatus);
   if (metrics) {
     crawlerTabMetrics.set(platform, metrics);
@@ -463,6 +474,18 @@ export function releaseCrawlerWindow(platform: string, status = 'completed', met
   if (!view) {
     refreshCrawlerHubTabs();
     return false;
+  }
+
+  // Keep the last BOSS page available after an incomplete run. It may contain
+  // the login/challenge state the user needs to inspect before retrying; closing
+  // it and recreating only the marker page produces a misleading blank window.
+  if (platform === 'boss' && (finalStatus === 'partial' || finalStatus === 'failed') && !view.webContents.isDestroyed()) {
+    if (activeCrawlerPlatform === platform) {
+      crawlerHubWindow?.setBrowserView(view);
+      layoutActiveCrawlerView();
+    }
+    refreshCrawlerHubTabs();
+    return true;
   }
 
   const wasActive = activeCrawlerPlatform === platform;
@@ -494,7 +517,7 @@ export function isCrawlerWindowVisible(platform?: string): boolean {
 }
 
 export function hasActiveCrawlerViews(): boolean {
-  return crawlerViews.size > 0;
+  return Array.from(crawlerViews.keys()).some((platform) => crawlerTabStates.get(platform) === 'running');
 }
 
 /**

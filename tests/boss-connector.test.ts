@@ -32,6 +32,8 @@ test('BOSS runtime uses standard stealth identity setup', () => {
 
   assert.match(mainSource, /view\.webContents\.session\.setUserAgent\(CRAWLER_USER_AGENT/);
   assert.match(source, /getElectronCrawlerPage/);
+  assert.match(source, /preventWindowClose: true/);
+  assert.match(source, /Object\.defineProperty\(window, 'close'/);
 });
 
 test('zpData.jobList fixture is normalized without retaining duplicate labels or private data', () => {

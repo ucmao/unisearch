@@ -5,12 +5,15 @@ import {
   getElectronCrawlerPage,
   notifyLoginRequired,
   notifyManualVerificationRequired,
+  notifyCrawlerPageRecoveryRequired,
+  recoverElectronCrawlerPage,
 } from '../base/BaseCrawler';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { activeConfig } from '../../tools/config';
 import {
   buildBossDetailUrl,
   classifyBossPageState,
+  isExpectedBossRoute,
   parseBossDetailHtml,
   parseBossDomJobs,
   parseBossSearchPayload,
@@ -19,6 +22,7 @@ import {
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 import { MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
+import { ConnectorRuntimeError } from '../../core/contracts/errors';
 
 const SEARCH_RESPONSE_PATTERN = /\/wapi\/zpgeek\/search\/joblist(?:\.json)?(?:[?#]|$)/i;
 
@@ -81,7 +85,11 @@ export class BossCrawler extends AbstractCrawler {
       bodyText: bodyText.slice(0, 10_000),
     });
 
-    if (assessment.state === 'ready') return false;
+    if (assessment.state === 'ready') {
+      // about:blank is the Electron crawler placeholder, not proof that a
+      // login or verification challenge was completed.
+      return false;
+    }
 
     if (assessment.state === 'login_required') {
       console.warn(`[BOSS] Login required for ${context}. Requesting user login in browser window...`);
@@ -114,6 +122,10 @@ export class BossCrawler extends AbstractCrawler {
       });
 
       if (currentAssessment.state === 'ready') {
+        if (!isExpectedBossRoute(currentUrl, 'search')) {
+          console.warn(`[BOSS] Verification page left the expected search route (${currentUrl}); requesting page restoration.`);
+          return false;
+        }
         console.log(`[BOSS] Manual verification / login completed successfully for ${context}!`);
         await this.humanDelay(this.page, 2);
         return true;
@@ -150,10 +162,11 @@ export class BossCrawler extends AbstractCrawler {
     console.log(`[BOSS] Starting search for ${keywords.length} keyword(s), location "${location || '平台默认'}", limit ${maxItems} per keyword...`);
 
     for (const keyword of keywords) {
-      if (!this.page || this.page.isClosed()) break;
       console.log(`[BOSS] Searching for keyword: "${keyword}"...`);
       const collected = new Map<string, BossJobRecord>();
       const pendingResponses = new Set<Promise<void>>();
+      const listenedPages = new Set<Page>();
+      let pageRecoveryRequests = 0;
 
       const onResponse = (response: Response) => {
         if (!SEARCH_RESPONSE_PATTERN.test(response.url())) return;
@@ -172,7 +185,74 @@ export class BossCrawler extends AbstractCrawler {
         void task.finally(() => pendingResponses.delete(task));
       };
 
-      this.page.on('response', onResponse);
+      const attachResponseListener = (page: Page) => {
+        if (listenedPages.has(page)) return;
+        page.on('response', onResponse);
+        listenedPages.add(page);
+      };
+
+      const requireActivePage = async (
+        stage: string,
+        recoveryUrl = '',
+      ): Promise<{ page: Page; recovered: boolean }> => {
+        if (this.page && !this.page.isClosed()) {
+          attachResponseListener(this.page);
+          if (recoveryUrl && this.page.url().startsWith('about:blank#unisearch-crawler-')) {
+            const placeholder = this.page;
+            console.warn(`[BOSS] Restoring ${recoveryUrl} after the crawler placeholder interrupted ${stage}.`);
+            await placeholder.goto(recoveryUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch((error: any) => {
+              console.warn(`[BOSS] Placeholder restoration failed for ${recoveryUrl}: ${error.message}`);
+            });
+            if (placeholder.isClosed()) return requireActivePage(`${stage}占位页恢复后`, recoveryUrl);
+            return { page: placeholder, recovered: true };
+          }
+          return { page: this.page, recovered: false };
+        }
+        if (!this.browserContext) {
+          throw new ConnectorRuntimeError('PROCESS_CRASHED', `BOSS直聘采集浏览器在${stage}时已断开`, true);
+        }
+        const browserContext = this.browserContext;
+        const findReplacement = (attempts = 20) => recoverElectronCrawlerPage(
+          browserContext,
+          'boss',
+          (candidate) => {
+            try {
+              const hostname = new URL(candidate.url()).hostname;
+              return hostname === 'zhipin.com' || hostname.endsWith('.zhipin.com');
+            } catch {
+              return false;
+            }
+          },
+          attempts,
+        );
+        let replacement = await findReplacement();
+        if (!replacement && pageRecoveryRequests < 3) {
+          pageRecoveryRequests++;
+          console.warn(`[BOSS] Requesting crawler page rebuild after target closed during ${stage}.`);
+          notifyCrawlerPageRecoveryRequired('boss', `采集页面在${stage}时关闭`);
+          replacement = await findReplacement(50);
+        }
+        if (!replacement) {
+          throw new ConnectorRuntimeError(
+            'PROCESS_CRASHED',
+            `BOSS直聘采集页面在${stage}时关闭，且未发现可继续使用的页面`,
+            true,
+          );
+        }
+        this.page = replacement;
+        attachResponseListener(replacement);
+        console.warn(`[BOSS] Reattached to replacement browser page after target closed during ${stage}.`);
+        if (recoveryUrl && replacement.url() !== recoveryUrl) {
+          await replacement.goto(recoveryUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch((error: any) => {
+            console.warn(`[BOSS] Rebuilt page could not restore ${recoveryUrl}: ${error.message}`);
+          });
+          if (replacement.isClosed()) return requireActivePage(`${stage}恢复导航后`, recoveryUrl);
+        }
+        return { page: replacement, recovered: true };
+      };
+
+      await requireActivePage(`关键词“${keyword}”开始采集`);
+      let crawlError: unknown = null;
 
       try {
         let pageNum = startPage;
@@ -180,21 +260,28 @@ export class BossCrawler extends AbstractCrawler {
         let stalledPages = 0;
         const maxPages = searchPageBudget(maxItems, 30, 5, 100);
         while (collected.size < maxItems && scannedPages < maxPages) {
-          if (!this.page || this.page.isClosed()) break;
+          const { page } = await requireActivePage(`第 ${pageNum} 页加载前`);
           const beforePage = collected.size;
           const searchUrl = buildJobSearchUrl('boss', keyword, pageNum, location);
           console.log(`[BOSS] Navigating to search page ${pageNum}: ${searchUrl}`);
 
-          await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => {});
-          if (!this.page || this.page.isClosed()) break;
+          await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch((error: any) => {
+            console.warn(`[BOSS] Search page ${pageNum} navigation did not settle cleanly: ${error.message}`);
+          });
+          await requireActivePage(`第 ${pageNum} 页导航后`, searchUrl);
 
-          await this.humanDelay(this.page, 3);
+          await this.humanDelay(this.page!, 3);
           await Promise.allSettled(Array.from(pendingResponses));
-          if (!this.page || this.page.isClosed()) break;
+          const afterResponseWait = await requireActivePage(`第 ${pageNum} 页等待响应后`, searchUrl);
+          if (afterResponseWait.recovered) continue;
 
           await this.checkAndHandleVerification(`搜索关键词 "${keyword}"`);
           await Promise.allSettled(Array.from(pendingResponses));
-          if (!this.page || this.page.isClosed()) break;
+          const afterVerification = await requireActivePage(`第 ${pageNum} 页验证后`, searchUrl);
+          if (afterVerification.recovered) {
+            console.warn(`[BOSS] Retrying page ${pageNum} after rebuilding the verification page.`);
+            continue;
+          }
 
           await this.page.evaluate(() => window.scrollBy(0, 600)).catch(() => {});
           await this.humanDelay(this.page, 1.5);
@@ -226,10 +313,10 @@ export class BossCrawler extends AbstractCrawler {
           pageNum++;
           scannedPages++;
         }
+      } catch (error) {
+        crawlError = error;
       } finally {
-        if (this.page && !this.page.isClosed()) {
-          this.page.off('response', onResponse);
-        }
+        for (const listenedPage of listenedPages) listenedPage.off('response', onResponse);
         await Promise.allSettled(Array.from(pendingResponses));
       }
 
@@ -237,6 +324,7 @@ export class BossCrawler extends AbstractCrawler {
       for (let index = 0; index < jobs.length; index++) {
         await this.emitJob(jobs[index], keyword, index + 1);
       }
+      if (crawlError) throw crawlError;
       console.log(`[BOSS] Search successfully emitted ${jobs.length} job(s) for "${keyword}".`);
       reportKeywordSearchCompletion('BOSS直聘', keyword, jobs.length, maxItems, '平台结果已结束、重复或访问受限');
     }

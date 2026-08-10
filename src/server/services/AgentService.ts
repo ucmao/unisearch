@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ContentEnrichmentOptions, type ResearchPlan } from './AgentRepository';
-import { extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferExplicitResearchKeywords, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
@@ -151,7 +151,10 @@ export function normalizePlan(
   const isAdditive = isAdditivePlatformRequest(platformIntentText);
   const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
     .map((value: any) => String(value).trim()).filter(Boolean);
-  let keywords = Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
+  const explicitUserKeywords = inferExplicitResearchKeywords(platformIntentText);
+  let keywords = explicitUserKeywords.length
+    ? explicitUserKeywords
+    : Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
     // Models occasionally echo the merged clarification scaffold into a keyword,
     // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
     // through the deterministic subject extractor.
@@ -238,6 +241,23 @@ export function normalizePlan(
   const connectorOptions = input?.connectorOptions && typeof input.connectorOptions === 'object'
     ? { ...input.connectorOptions }
     : {};
+  const jobPlatforms = selectedPlatforms.filter((platform) => ['boss', 'zhaopin', 'job51', 'liepin'].includes(platform));
+  const explicitJobLocation = jobPlatforms.length
+    ? userText.match(/(?:在|城市(?:是|为|[:：])?|地区(?:是|为|[:：])?|地域(?:是|为|[:：])?|地点(?:是|为|[:：])?)\s*([\u4e00-\u9fa5]{2,12}?)(?:市)?(?=\s*(?:的|招聘|找|工作|岗位|职位|平均薪资|薪资|工资|，|,|。|；|;|$))/)?.[1]?.trim()
+    : '';
+  // Semantic extraction belongs to the planner. This deterministic validation
+  // fallback keeps an explicit recruitment location from being silently omitted
+  // (and thereby broadening the crawl) if one nested model field is missing.
+  if (explicitJobLocation) {
+    for (const platform of jobPlatforms) {
+      const existing = connectorOptions[platform] && typeof connectorOptions[platform] === 'object'
+        ? connectorOptions[platform]
+        : {};
+      if (!String(existing.location || '').trim()) {
+        connectorOptions[platform] = { ...existing, location: explicitJobLocation };
+      }
+    }
+  }
   if (selectedPlatforms.includes('aihot')) {
     connectorOptions.aihot = aiHotOptions(userText, connectorOptions.aihot || {});
   }

@@ -295,6 +295,33 @@ test('result count questions inspect the current task instead of creating a plan
   }
 });
 
+test('collection deliverables containing 多少 remain new research requests', () => {
+  const salaryRequest = '采集 Boss 直聘、智联猎聘、前程无忧，岗位是 FDE 工程师，告诉我这个岗位在福州的平均薪资是多少？';
+  assert.equal(localIntentDecision(salaryRequest).action, 'create_plan');
+  assert.deepEqual(inferResearchPlatforms(salaryRequest), ['boss', 'zhaopin', 'job51', 'liepin']);
+  assert.deepEqual(inferResearchKeywords(salaryRequest), ['FDE 工程师']);
+
+  assert.equal(localIntentDecision('在小红书采集投诉帖子，看看有多少人投诉').action, 'create_plan');
+  assert.equal(localIntentDecision('采集新能源汽车销量，告诉我增长了多少').action, 'clarify');
+});
+
+test('job plan normalization validates explicit locations and analysis goals', () => {
+  const { normalizePlan } = require('../src/server/services/AgentService');
+  const request = '采集 Boss 直聘、智联猎聘、前程无忧，岗位是 FDE 工程师，告诉我这个岗位在福州的平均薪资是多少？';
+  const plan = normalizePlan({
+    platforms: ['boss', 'zhaopin', 'job51', 'liepin'],
+    keywords: ['FDE', '现场应用工程师', '现场工程师', 'FAE', '福州', '福建'],
+    connectorOptions: {},
+    analysis: [],
+  }, request);
+
+  assert.deepEqual(plan.keywords, ['FDE 工程师']);
+  for (const platform of ['boss', 'zhaopin', 'job51', 'liepin']) {
+    assert.equal(plan.connectorOptions[platform].location, '福州', platform);
+  }
+  assert.deepEqual(plan.analysis, ['这个岗位在福州的平均薪资是多少？']);
+});
+
 test('CSV requests use the real export action', () => {
   for (const message of ['导出本次数据为 CSV', '下载CSV', '下载 Excel', '导出为 XLSX', '把采集结果导出成表格', '导出到 Obsidian', '生成 IMA 数据包']) {
     assert.equal(localIntentDecision(message, { planStatus: 'completed' }).action, 'export', message);

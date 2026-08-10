@@ -39,6 +39,18 @@ export interface CrawlerWindowCoordinator {
   prepareCrawlerWindow?: (platform: string, preserveCurrentPage?: boolean) => Promise<boolean> | boolean;
 }
 
+export type CrawlerRunStatus = 'completed' | 'partial' | 'failed' | 'stopped';
+
+export function resolveCrawlerRunStatus(
+  exitCode: number,
+  stopping: boolean,
+  partialResultMessage: string | null,
+): CrawlerRunStatus {
+  if (stopping) return 'stopped';
+  if (exitCode !== 0) return 'failed';
+  return partialResultMessage ? 'partial' : 'completed';
+}
+
 export class CrawlerTask {
   public platform: string;
   public config: CrawlerStartRequest;
@@ -53,6 +65,7 @@ export class CrawlerTask {
   private lastErrorMessage: string | null = null;
   private lastErrorCode: string | null = null;
   private lastFailureRetryable = false;
+  private partialResultMessage: string | null = null;
   private consecutiveRetryableFailures = 0;
   private liveItemCount = 0;
   private firstItemAt: number | null = null;
@@ -123,7 +136,7 @@ export class CrawlerTask {
   }
 
   private async finalizeRun(
-    status: 'completed' | 'failed' | 'stopped',
+    status: CrawlerRunStatus,
     exitCode: number | null,
     manager: CrawlerManager,
     errorMessage = ''
@@ -141,7 +154,7 @@ export class CrawlerTask {
       analyticsRepository.finishRun(runId, status, exitCode, contents, errorMessage);
       this.addLog(
         `运行分析已保存: 任务 ${runId.slice(0, 8)}, 包含 ${contents.length} 条记录`,
-        status === 'completed' ? 'success' : 'info',
+        status === 'completed' ? 'success' : status === 'partial' ? 'warning' : 'info',
         manager
       );
     } catch (err: any) {
@@ -162,6 +175,7 @@ export class CrawlerTask {
     this.lastErrorMessage = null;
     this.lastErrorCode = null;
     this.lastFailureRetryable = false;
+    this.partialResultMessage = null;
     this.liveItemCount = 0;
     this.firstItemAt = null;
 
@@ -286,6 +300,7 @@ export class CrawlerTask {
             } else if (event.type === 'progress' && event.message) {
               this.addLog(event.message, 'info', manager);
             } else if (event.type === 'warning') {
+              if (event.code === 'PARTIAL_RESULT') this.partialResultMessage = event.message;
               this.addLog(`[${event.code}] ${event.message}`, 'warning', manager);
             } else if (event.type === 'failed') {
               this.lastErrorMessage = `[${event.code}] ${event.message}`;
@@ -313,6 +328,23 @@ export class CrawlerTask {
         } else if (msg && msg.type === 'MANUAL_VERIFICATION_SUCCESS') {
           this.addLog(`${this.platform} 图形验证已完成`, 'success', manager);
           manager.emit('manual_verification_success', msg);
+        } else if (msg && msg.type === 'CRAWLER_PAGE_RECOVERY_REQUIRED') {
+          const prepareCrawlerWindow = manager.getWindowCoordinator().prepareCrawlerWindow;
+          if (!prepareCrawlerWindow) {
+            this.addLog(`无法重建 ${this.platform} 采集页面：桌面窗口协调器不可用`, 'error', manager);
+          } else {
+            void Promise.resolve(prepareCrawlerWindow(this.platform, false)).then((prepared) => {
+              this.addLog(
+                prepared
+                  ? `已重建 ${this.platform} 采集页面，正在恢复当前分页`
+                  : `重建 ${this.platform} 采集页面失败`,
+                prepared ? 'warning' : 'error',
+                manager,
+              );
+            }).catch((error: any) => {
+              this.addLog(`重建 ${this.platform} 采集页面失败：${error.message}`, 'error', manager);
+            });
+          }
         }
       });
 
@@ -325,16 +357,15 @@ export class CrawlerTask {
         const exitCode = code ?? -1;
         this.process = null;
 
-        let runStatus: 'completed' | 'failed' | 'stopped';
-        if (this.status === 'stopping') {
-          runStatus = 'stopped';
+        const runStatus = resolveCrawlerRunStatus(exitCode, this.status === 'stopping', this.partialResultMessage);
+        if (runStatus === 'stopped') {
           this.addLog('爬虫循环已手动停止', 'warning', manager);
-        } else if (exitCode === 0) {
+        } else if (runStatus === 'partial') {
+          this.addLog(`爬虫仅获得部分结果：${this.partialResultMessage}`, 'warning', manager);
+        } else if (runStatus === 'completed') {
           this.addLog('爬虫单次循环已成功结束', 'success', manager);
-          runStatus = 'completed';
         } else {
           this.addLog(`爬虫进程异常退出，退出码: ${exitCode}${this.lastErrorMessage ? ` (${this.lastErrorMessage})` : ''}`, 'error', manager);
-          runStatus = 'failed';
         }
 
         const durationSeconds = this.startedAt
@@ -343,7 +374,7 @@ export class CrawlerTask {
 
         const errorMessage = runStatus === 'failed'
           ? (this.lastErrorMessage || `进程退出码: ${exitCode}`)
-          : '';
+          : runStatus === 'partial' ? (this.partialResultMessage || '仅获得部分结果') : '';
         const { itemCount } = await this.finalizeRun(runStatus, exitCode, manager, errorMessage);
 
         if (runStatus === 'completed') this.consecutiveRetryableFailures = 0;
@@ -385,7 +416,7 @@ export class CrawlerTask {
             status: runStatus,
             itemCount,
             durationSeconds,
-            error: runStatus === 'failed' ? errorMessage : null,
+            error: runStatus === 'failed' || runStatus === 'partial' ? errorMessage : null,
           });
         }
       });

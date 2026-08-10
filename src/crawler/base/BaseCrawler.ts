@@ -13,6 +13,7 @@ const configuredCrawlerContexts = new WeakSet<BrowserContext>();
 interface CrawlerPageConfiguration {
   installStealth?: boolean;
   alignIdentity?: boolean;
+  preventWindowClose?: boolean;
 }
 
 async function configureCrawlerPage(
@@ -22,6 +23,19 @@ async function configureCrawlerPage(
 ): Promise<Page> {
   const installStealth = configuration.installStealth !== false;
   const alignIdentity = configuration.alignIdentity !== false;
+  if (configuration.preventWindowClose && typeof (page as any).addInitScript === 'function') {
+    await page.addInitScript(() => {
+      try {
+        // Some challenge shells call window.close() when they believe they were
+        // opened as a disposable popup. This page is the persistent crawler
+        // surface, so closing it would also remove the user's login UI.
+        Object.defineProperty(window, 'close', {
+          configurable: true,
+          value: () => undefined,
+        });
+      } catch {}
+    }).catch(() => {});
+  }
   if (installStealth && !configuredCrawlerContexts.has(browserContext)) {
     const stealthPath = resolveRuntimeResource('libs', 'stealth.min.js');
     if (fs.existsSync(stealthPath) && typeof (browserContext as any).addInitScript === 'function') {
@@ -144,7 +158,7 @@ export async function getElectronCrawlerPage(browserContext: BrowserContext, pla
   // BOSS Direct Hire detects heavy stealth.min.js Function.prototype.toString proxies.
   // We use clean identity alignment and lightweight webdriver masking for BOSS.
   const pageConfiguration: CrawlerPageConfiguration = platform === 'boss'
-    ? { installStealth: false, alignIdentity: true }
+    ? { installStealth: false, alignIdentity: true, preventWindowClose: true }
     : {};
   for (let attempt = 0; attempt < attempts; attempt++) {
     const page = browserContext.pages().find((candidate) => candidate.url().includes(marker));
@@ -169,6 +183,36 @@ export async function getElectronCrawlerPage(browserContext: BrowserContext, pla
   }
   const available = fallbackPages.map((page) => page.url()).join(', ');
   throw new Error(`未找到平台 ${platform} 的专用采集页面。当前 CDP 页面: ${available || '无'}`);
+}
+
+/**
+ * Electron may replace a BrowserView's CDP target during a cross-origin
+ * navigation. Playwright then marks the old Page as closed even though the
+ * replacement target is already present in the same persistent context.
+ */
+export async function recoverElectronCrawlerPage(
+  browserContext: BrowserContext,
+  platform: string,
+  matches: (page: Page) => boolean,
+  attempts = 20,
+  retryDelayMs = 100,
+): Promise<Page | null> {
+  const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
+  const pageConfiguration: CrawlerPageConfiguration = platform === 'boss'
+    ? { installStealth: false, alignIdentity: true, preventWindowClose: true }
+    : {};
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const pages = browserContext.pages();
+    const replacement = pages.find((candidate) => !candidate.isClosed() && (
+      candidate.url().includes(marker) || matches(candidate)
+    ));
+    if (replacement) return configureCrawlerPage(browserContext, replacement, pageConfiguration);
+    if (attempt + 1 < attempts && retryDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
+  }
+  return null;
 }
 
 export function getSystemExecutablePath(): string | undefined {
@@ -314,4 +358,8 @@ export function notifyManualVerificationRequired(platform: string, reason: strin
 
 export function notifyManualVerificationSuccess(platform: string): void {
   if (process.send) process.send({ type: 'MANUAL_VERIFICATION_SUCCESS', platform });
+}
+
+export function notifyCrawlerPageRecoveryRequired(platform: string, reason: string): void {
+  if (process.send) process.send({ type: 'CRAWLER_PAGE_RECOVERY_REQUIRED', platform, reason });
 }

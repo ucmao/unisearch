@@ -43,7 +43,12 @@ const CONFIRM_VERB = '(?:采集|搜索|搜|抓取|收集|执行|跑|干活)';
 const CONFIRM = new RegExp(`^(?:确认|确认并执行|(?:开始|立即|马上|现在|直接|这就)?(?:就)?${CONFIRM_VERB}(?:吧|了)?|开始|开始吧|直接开始|开搜|按默认|按默认直接开始|按默认 直接开始|按照默认|按照默认直接开始|按照默认 直接开始|执行这个计划|开跑|跑起来|可以|可以的|好的?|行|没问题|就这样|ok|okay|就按(?:这个|该计划|上面的计划)(?:来|执行|开始)?|按(?:这个|该计划|上面的计划)(?:来|执行|开始)?)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
 const FORCE_EXECUTE = new RegExp(`^(?:执行|开跑|跑起来)${CONFIRM_PARTICLE}[!！,.，。~～\\s]*$`, 'i');
 const STOP = /(?:停止|停下|停一下|暂停|取消)(?:采集|任务|执行)?|(?:stop|cancel)(?:\s+(?:task|run))?/i;
-const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|状态|进度|怎么样|完成)|(?:多少|几条).*(?:信息|内容|数据|结果)|采集到了吗|(?:执行|开始|开跑|跑起来)(?:了)?吗/i;
+// Keep the local status fast path deliberately narrow. Natural-language
+// collection goals often contain words such as “多少” (“采集招聘网站，平均薪资
+// 是多少”), but that does not make them questions about an existing run. Only
+// phrases that explicitly refer to task state/progress or already-collected
+// result counts are deterministic enough to bypass semantic routing.
+const STATUS_QUERY = /(?:任务).*(?:情况|状态|进度|怎么样|完成)|(?:采集|收集|抓取)(?:任务)?(?:到|了|得).*(?:多少|几条|情况|状态|进度|怎么样|完成)|(?:采集|收集|抓取)(?:进度|情况|状态|结果|数据).*(?:多少|几条|怎么样|如何|完成)|(?:多少|几条).*(?:已采集|已收集|已抓取|采集结果|收集结果|抓取结果)|采集到了吗|(?:执行|开始|开跑|跑起来)(?:了)?吗/i;
 const EXPORT = /(?:导出|下载|生成).*(?:Excel|XLSX|CSV|表格|数据|结果|Markdown|Obsidian|JSON|IMA)|(?:Excel|XLSX|CSV|表格|Markdown|Obsidian|JSON|IMA).*(?:导出|下载|生成)/i;
 const ANALYZE = /分析|总结|结论|对比|洞察|报告|简报|提炼|挖掘|梳理|剖析|交叉(?:验证|核验)|原因|评价|评价如何|怎么看|归纳|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/i;
 const REVISE_ACTION = '(?:加上|增加|添加|再加|也要|去掉|删除|移除|不要|改成|改为|换成|换一个|更换|替换|修改|调整|只要)';
@@ -131,13 +136,13 @@ function cleanResearchSubject(text: string): string {
     .replace(/@\S+/g, ' ')
     .replace(/(?:用\s*)?(?:RSS\s*(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)(?:\s*(?:查|搜索|读取))?/gi, ' ')
     .replace(/GitHub(?:仓库|趋势|热门项目)?/gi, ' ')
-    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|arXiv|论文库|学术论文|学术文献|科研论文|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
-    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|arXiv|论文库|学术论文|学术文献|科研论文|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
+    .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*(?:黑猫投诉|黑猫|智联招聘|智联|前程无忧|51job|猎聘网|猎聘|arXiv|论文库|学术论文|学术文献|科研论文|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心|平台)+/gi, ' ')
+    .replace(/(?:黑猫投诉|黑猫|智联招聘|智联|前程无忧|51job|猎聘网|猎聘|arXiv|论文库|学术论文|学术文献|科研论文|AI\s*HOT|AI热点|AI热榜|小红书|抖音|快手|B站|哔哩哔哩|微博|百度贴吧|贴吧|知乎|百度网页|百度搜索|百度|必应中国|必应|360搜索|360|搜狗搜索|搜狗|头条搜索|DeepSeek|Kimi(?:\s*AI)?|豆包|Doubao|通义千问|千问|Qwen|腾讯元宝|元宝|纳米\s*AI(?:搜索)?|文心一言|文心言|文小言|文心)(?:除外|不用|不要|不采|不抓|不搜)?/gi, ' ')
     .replace(/关键词(?:[:：]|\s)+/gi, ' ')
     .replace(/(?:这|这些|上述)?\s*(?:[\d一二两三四五六七八九十]+\s*个?)?\s*AI\s*平台/gi, ' ')
     .replace(/关键词/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
-    .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|多|加|再|也|还|额外|另外|此外/gi, ' ')
+    .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|加|再|也|还|额外|另外|此外/gi, ' ')
     .replace(/采集|收集|抓取|搜索|搜|查询|检索|查找|查一下|调查|调研|研究|监测|分析/gi, ' ')
     .replace(/(?:的)?(?:舆情|口碑|竞品|评论|评价|帖子|论文|内容|信息|数据|讨论|报告)/gi, ' ')
     .replace(/(^|\s)(?:在|从|上|里|中)(?=\s|$)/g, ' ')
@@ -158,7 +163,11 @@ export function isAdditivePlatformRequest(text: string): boolean {
   return /(?:多|加|再|包含|额外|同时)(?:采集|抓取|搜索|加|用|在|查|入)?/i.test(text);
 }
 
-export function inferResearchKeywords(text: string): string[] {
+/**
+ * Keywords the user explicitly authored. These are authoritative plan inputs,
+ * unlike the broader fallback subject inferred from a natural-language request.
+ */
+export function inferExplicitResearchKeywords(text: string): string[] {
   const quoted = Array.from(text.matchAll(/[“"']([^”"']{1,30})[”"']/g)).map((match) => match[1].trim());
   if (quoted.length) return Array.from(new Set(quoted)).slice(0, 12);
 
@@ -166,6 +175,23 @@ export function inferResearchKeywords(text: string): string[] {
   if (explicit?.[1]) {
     return splitExplicitKeywords(explicit[1], text);
   }
+
+  // Recruitment requests commonly separate the actual search phrase from the
+  // requested analysis: “岗位是 FDE 工程师，告诉我……平均薪资是多少”. Prefer the
+  // explicitly labelled job title so platform names, location and deliverables
+  // cannot leak into the crawler keyword.
+  const explicitJobTitle = text.match(/(?:岗位|职位)(?:名称)?\s*(?:是|为|[:：])\s*([^，。；;！？?\n]{2,60})/i);
+  if (explicitJobTitle?.[1]) {
+    const jobTitle = explicitJobTitle[1].trim().replace(/^(?:一个|一份)\s*/, '').replace(/\s*(?:岗位|职位)$/, '').trim();
+    if (jobTitle.length >= 2) return [jobTitle.slice(0, 40)];
+  }
+
+  return [];
+}
+
+export function inferResearchKeywords(text: string): string[] {
+  const explicitKeywords = inferExplicitResearchKeywords(text);
+  if (explicitKeywords.length) return explicitKeywords;
 
   const academicQueries = Array.from(text.matchAll(
     /(?:查询|查找|搜索|检索)(?:一下)?(?:关于|有关)?\s*([^，。；;！？?\n]{2,60}?)(?:的)?(?:学术论文|学术文献|科研论文)/gi,

@@ -1,0 +1,19 @@
+{
+  "flag": 1,
+  "data": {
+    "dqs": {
+      "410": {
+        "level": "",
+        "code": "410",
+        "category": -1,
+        "parentCode": "",
+        "areaNumber": "",
+        "abroadFlag": "0",
+        "parentNames": [
+          "全国"
+        ],
+        "name": "全国"
+      }
+    }
+  }
+}
