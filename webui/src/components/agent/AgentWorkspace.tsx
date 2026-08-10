@@ -717,7 +717,7 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
       }
       const sources = message.metadata?.sources
       if (Array.isArray(sources) && sources.length > 0) {
-        const isTransientWeb = ['live_search', 'direct_web_read'].includes(message.metadata?.retrieval)
+        const isTransientWeb = ['live_search', 'direct_web_read', 'research_loop'].includes(message.metadata?.retrieval)
         const keywords = isTransientWeb
           ? []
           : message.metadata?.keywords || plan?.plan?.keywords || []
@@ -796,9 +796,12 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
         {!isUser && (message.metadata?.analysis_coverage || (Array.isArray(message.metadata?.sources) && message.metadata.sources.length > 0)) ? (
           <CollapsibleSourcesBar
             sources={message.metadata?.sources}
-            keywords={['live_search', 'direct_web_read'].includes(message.metadata?.retrieval) ? [] : message.metadata?.keywords || plan?.plan?.keywords}
+            keywords={['live_search', 'direct_web_read', 'research_loop'].includes(message.metadata?.retrieval) ? [] : message.metadata?.keywords || plan?.plan?.keywords}
             retrieval={message.metadata?.retrieval}
             coverage={message.metadata?.analysis_coverage as AnalysisCoverage}
+            knowledgeScope={message.metadata?.knowledge_scope}
+            evidenceCounts={message.metadata?.evidence_counts}
+            degraded={message.metadata?.research_degraded}
             onCitationClick={onCitationClick}
           />
         ) : null}

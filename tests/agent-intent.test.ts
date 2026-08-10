@@ -380,6 +380,8 @@ test('unspecified collection depth defaults to quick first results', () => {
   assert.equal(inferCollectionDepth('采集小红书上的新品反馈'), 'quick');
   assert.equal(hasExplicitCollectionDepth('采集小红书上的新品反馈'), false);
   assert.equal(hasExplicitCollectionDepth('调研新品舆情并做深入分析'), false);
+  assert.equal(hasExplicitCollectionDepth('深度调研并采集抖音上的课程评价'), true);
+  assert.equal(inferCollectionDepth('深度调研并采集抖音上的课程评价'), 'deep');
   assert.equal(hasExplicitCollectionDepth('尽量全面采集小红书上的新品反馈'), true);
   assert.equal(inferCollectionDepth('按常规范围采集'), 'standard');
 });

@@ -66,7 +66,7 @@ agentToolRegistry.register({
   inputSchema: z.object({
     query: z.string().trim().min(1).max(300),
     limit: z.number().int().min(1).max(12).default(8),
-    scope: z.enum(['global', 'thread']).default('global'),
+    scope: z.enum(['global', 'thread']).default('thread'),
   }).strict(),
   execute: async (input, context): Promise<KnowledgeToolEvidence[]> => knowledgeIndex.search(input.query, {
     limit: input.limit,

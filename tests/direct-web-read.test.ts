@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ConnectorRuntimeError } from '../src/core/contracts/errors';
 import { DirectWebReadService, directWebSourceCitations } from '../src/server/services/DirectWebReadService';
+import { assessWebContentQuality } from '../src/services/web-reader-service';
 
 function article(url: string, description: string) {
   return {
@@ -65,4 +66,14 @@ test('invalid direct web targets never fall through to the browser', async () =>
   });
   await assert.rejects(() => service.read(['http://127.0.0.1/admin']), /不允许访问本机或私有网络/);
   assert.equal(browserReads, 0);
+});
+
+test('web content quality distinguishes metadata, partial text, and full article bodies', () => {
+  assert.equal(assessWebContentQuality(article('https://example.com/meta', '测试文章')), 'metadata_only');
+  assert.equal(assessWebContentQuality(article('https://example.com/partial', '只有一段不完整的页面内容。'.repeat(8))), 'partial');
+  assert.equal(assessWebContentQuality({
+    ...article('https://example.com/full', '第一段正文内容足够完整。'.repeat(30)),
+    extraction_method: 'semantic_container',
+    content_paragraph_count: 5,
+  }), 'full');
 });

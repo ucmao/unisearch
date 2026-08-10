@@ -16,6 +16,7 @@ export interface ResearchEvidence {
   sourceUrl?: string;
   publishedAt?: string;
   evidenceType: 'knowledge' | 'search' | 'web_page';
+  contentQuality?: 'full' | 'partial' | 'metadata_only';
 }
 
 export interface ResearchLoopState {

@@ -55,6 +55,14 @@ export interface QuickReportResult {
   evidenceSelection: Omit<EvidenceSelection, 'evidence'>;
 }
 
+function sanitizeEvidenceText(value: string): string {
+  return value
+    .replace(/\uFFFD+/g, '')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function citedSourceIds(answer: string, sourceIds: Set<string>): Set<string> {
   const cited = new Set<string>();
   for (const match of answer.matchAll(/\[([^\]]+)\]/gi)) {
@@ -145,7 +153,7 @@ export class QuickReportGenerator {
       keyword: item.keyword,
       subject: item.subject,
       sourceUrl: item.sourceUrl,
-      excerpt: item.content.slice(0, 700),
+      excerpt: sanitizeEvidenceText(item.content).slice(0, 700),
       score: item.score,
       matchedQueries: item.matchedQueries,
       selectionReason: item.selectionReason,
@@ -210,6 +218,10 @@ export class QuickReportGenerator {
             '2. 主题、观点、原因、风险、机会和建议只能根据代表性证据归纳，并在关键事实后标注 [S1] 格式来源。引用编号只能使用 [S1] 开始的有效证据编号，严禁把行业代码、数据主键或原始数字（如 100021）当作来源编号标注。',
             '3. 不得声称逐篇阅读了全部文档，不得根据代表性证据重新估算总体比例，不得补造资料中没有的字段。',
             '4. 明确区分数据发现、证据不足和建议；不要重复输出数据范围说明，也不要自行添加参考资料列表。',
+            '5. 点赞、收藏、评论等互动量只能表示传播或参与程度，不能据此判定正面口碑、内容质量或事实真伪；没有评论文本时不得概括用户情绪。',
+            '6. 时间字段缺失或覆盖不足时不得声称某主题正在增长、上升或成为趋势；只能描述当前样本中较常见。',
+            '7. 单个创作者、广告或投诉内容中的说法必须明确归因，不能扩写为平台或行业事实。比例和派生指标只能使用确定性统计中直接提供的同口径指标，不得拿均值、中位数或不同样本字段自行相除。',
+            '8. 不得输出乱码替换字符；损坏文本应视为不可用证据。多个引用分别写为 [S1][S2]，不要写引用范围。',
           ].filter(Boolean).join('\n'),
         }], {
           materials,

@@ -106,6 +106,10 @@ test('default registry exposes all three approved read-only research tools', () 
     'direct_web_read', 'knowledge_query', 'live_search',
   ]);
   assert.equal(agentToolRegistry.list().every((tool) => tool.readOnly), true);
+  assert.equal(
+    agentToolRegistry.get<any, any>('knowledge_query').inputSchema.parse({ query: '当前任务资料' }).scope,
+    'thread',
+  );
   assert.throws(
     () => agentToolRegistry.get<any, any>('knowledge_query').inputSchema.parse({ query: '', scope: 'global' }),
     /String must contain at least 1 character/,

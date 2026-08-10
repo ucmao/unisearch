@@ -614,7 +614,7 @@ export class AgentService {
     })) {
       runTrace.recordRoute('research_loop', 'explicit_opt_in');
       try {
-        onStatus?.({ phase: 'web_search', message: '正在进行多来源只读研究…', retrieval: 'research_loop' });
+        onStatus?.({ phase: 'web_search', message: '正在进行深度研究…', retrieval: 'research_loop' });
         const updatedThread = agentRepository.getThread(threadId);
         const result = await researchLoop.run(content, {
           threadId,
@@ -622,14 +622,23 @@ export class AgentService {
           trace: runTrace,
           signal,
           onDelta,
+          onStatus,
         });
         ensureMessageNotAborted(signal);
+        const evidenceCounts = result.sources.reduce((counts, source) => {
+          counts[source.evidenceType]++;
+          if (source.evidenceType === 'web_page' && source.contentQuality === 'full') counts.full_web_page++;
+          return counts;
+        }, { knowledge: 0, search: 0, web_page: 0, full_web_page: 0 });
         agentRepository.addMessage(threadId, 'assistant', 'text', result.answer, {
           action: 'research_loop',
           retrieval: 'research_loop',
           sources: result.sources,
           research_steps: result.steps,
           stop_reason: result.stopReason,
+          research_degraded: result.degraded,
+          knowledge_scope: result.knowledgeScope,
+          evidence_counts: evidenceCounts,
         });
         this.scheduleThreadTitle(threadId);
         this.scheduleMemoryCapture(threadId, content);

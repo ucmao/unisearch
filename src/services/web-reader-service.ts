@@ -35,6 +35,24 @@ export interface WebReaderParsedArticle {
   published_at?: string | number;
   images: string[];
   source_keyword?: string;
+  content_quality?: WebContentQuality;
+  extraction_method?: 'semantic_container' | 'body_fallback';
+  content_paragraph_count?: number;
+}
+
+export type WebContentQuality = 'full' | 'partial' | 'metadata_only';
+
+export function assessWebContentQuality(article: WebReaderParsedArticle): WebContentQuality {
+  if (article.content_quality) return article.content_quality;
+  const body = article.description.trim();
+  const paragraphs = article.content_paragraph_count
+    ?? body.split(/\n\s*\n/).filter((item) => item.trim().length >= 20).length;
+  const sentences = (body.match(/[。！？.!?]/g) || []).length;
+  const hasSubstantialBody = body.length >= 300 && paragraphs >= 3 && sentences >= 3;
+  const strongBodyFallback = body.length >= 800 && paragraphs >= 5 && sentences >= 6;
+  if (article.extraction_method === 'body_fallback' ? strongBodyFallback : hasSubstantialBody) return 'full';
+  if (body.length >= 80 && body !== article.title && body !== article.summary) return 'partial';
+  return 'metadata_only';
 }
 
 function cleanText(value: unknown): string {
@@ -238,9 +256,14 @@ export class WebReaderService {
       '.detail-content', '.body-content',
     ];
     let container: cheerio.Cheerio<any> | null = null;
+    let extractionMethod: 'semantic_container' | 'body_fallback' = 'body_fallback';
     for (const selector of candidates) {
       const found = $(selector);
-      if (found.length) { container = found.first(); break; }
+      if (found.length) {
+        container = found.first();
+        extractionMethod = 'semantic_container';
+        break;
+      }
     }
     container ||= $('body');
     const paragraphs: string[] = [];
@@ -260,7 +283,7 @@ export class WebReaderService {
     addImage($('meta[property="og:image"]').attr('content'));
     container.find('img').each((_, element) => addImage($(element).attr('src') || $(element).attr('data-src')));
 
-    return {
+    const parsed: WebReaderParsedArticle = {
       content_id: url,
       title: title || '未知标题网页',
       summary: summary || title,
@@ -270,7 +293,11 @@ export class WebReaderService {
       site_name: siteName,
       ...(publishedAt ? { published_at: publishedAt } : {}),
       images: [...images].slice(0, 10),
+      extraction_method: extractionMethod,
+      content_paragraph_count: paragraphs.length,
     };
+    parsed.content_quality = assessWebContentQuality(parsed);
+    return parsed;
   }
 }
 

@@ -1,5 +1,6 @@
 import { ConnectorRuntimeError } from '../../core/contracts/errors';
 import {
+  assessWebContentQuality,
   webReaderService,
   type WebReaderOptions,
   type WebReaderParsedArticle,
@@ -40,7 +41,8 @@ export class DirectWebReadService {
     let httpError: unknown;
     try {
       httpArticle = await this.reader.read(url, options);
-      if (httpArticle.description.trim().length >= 80 || !this.reader.readWithBrowser) return httpArticle;
+      httpArticle.content_quality = assessWebContentQuality(httpArticle);
+      if (httpArticle.content_quality === 'full' || !this.reader.readWithBrowser) return httpArticle;
     } catch (error) {
       if (error instanceof ConnectorRuntimeError && error.code === 'INVALID_INPUT') throw error;
       httpError = error;
@@ -49,7 +51,8 @@ export class DirectWebReadService {
 
     try {
       const browserArticle = await this.reader.readWithBrowser!(url, options);
-      if (browserArticle.description.trim()) return browserArticle;
+      browserArticle.content_quality = assessWebContentQuality(browserArticle);
+      if (!httpArticle || qualityRank(browserArticle) > qualityRank(httpArticle)) return browserArticle;
     } catch (browserError) {
       if (!httpArticle) throw httpError || browserError;
     }
@@ -74,6 +77,10 @@ export class DirectWebReadService {
     }
     return { articles, failures };
   }
+}
+
+function qualityRank(article: WebReaderParsedArticle): number {
+  return { metadata_only: 0, partial: 1, full: 2 }[assessWebContentQuality(article)];
 }
 
 export function directWebSourceCitations(articles: WebReaderParsedArticle[]): DirectWebSourceCitation[] {
