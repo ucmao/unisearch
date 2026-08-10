@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 10;
+export const DATABASE_SCHEMA_VERSION = 11;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -79,6 +79,9 @@ export function initSchema(db: Database): void {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       last_used_at TEXT,
+      evidence_count INTEGER NOT NULL DEFAULT 1,
+      source_message_ids_json TEXT NOT NULL DEFAULT '[]',
+      last_confirmed_at TEXT,
       FOREIGN KEY(source_thread_id) REFERENCES agent_threads(thread_id) ON DELETE SET NULL,
       FOREIGN KEY(source_message_id) REFERENCES agent_messages(message_id) ON DELETE SET NULL
     );

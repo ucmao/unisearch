@@ -257,6 +257,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         description: connector.description,
         capabilities: connector.capabilities.map((capability) => capability.id),
         requiresAuth: connector.auth.required,
+        runtimeEngine: connector.runtime?.engine,
       })),
     };
   });

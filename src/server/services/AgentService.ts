@@ -326,6 +326,7 @@ function conversationMessages(thread: any): Array<{ role: 'user' | 'assistant'; 
 export class AgentService {
   private workflowTick: Promise<void> | null = null;
   private memoryCaptureQueue: Promise<void> = Promise.resolve();
+  private processedMemoryMessageIds = new Set<string>();
   private timer: NodeJS.Timeout;
   constructor() {
     this.timer = setInterval(() => this.tick().catch((error) => console.error('[AgentService]', error)), 1500);
@@ -390,8 +391,8 @@ export class AgentService {
     return { texts, images: images.slice(0, 5) };
   }
 
-  private recallMemories(): ConversationMemory[] {
-    return agentRepository.retrieveMemories().map((memory) => ({
+  private recallMemories(query: string): ConversationMemory[] {
+    return agentRepository.retrieveMemories(query).map((memory) => ({
       category: memory.category,
       content: memory.content,
       source: memory.memory_key.startsWith('user_manual_') ? 'manual' : 'automatic',
@@ -406,24 +407,40 @@ export class AgentService {
     const trimmed = latestUserText.trim();
     if (!trimmed || /^(好|嗯|对|是的|收到|ok|1|666|Thanks|谢谢)$/i.test(trimmed)) return;
 
-    const thread = agentRepository.getThread(threadId);
-    const userMessages = (thread?.messages || []).filter((message: any) => message.role === 'user');
-    if (!userMessages.length) return;
+    const sourceThread = agentRepository.getThread(threadId);
+    const sourceMessage = [...(sourceThread?.messages || [])]
+      .reverse()
+      .find((message: any) => message.role === 'user' && String(message.content).trim() === trimmed);
+    if (!sourceMessage) return;
+    const sourceMessageId = String(sourceMessage.message_id);
 
-    const recent = userMessages.slice(-6).map((message: any) => ({
-      messageId: String(message.message_id),
-      content: String(message.content).slice(0, 1200),
-    }));
     this.memoryCaptureQueue = this.memoryCaptureQueue.then(async () => {
+      if (this.processedMemoryMessageIds.has(sourceMessageId)) return;
+      const recent = [{ messageId: sourceMessageId, content: trimmed.slice(0, 1200) }];
+
       const allMemories = agentRepository.listMemories();
-      const existingSummaries = allMemories
+      const existingMemories = allMemories
         .filter((memory) => !memory.memory_key.startsWith('user_manual_'))
-        .map((memory) => ({ category: memory.category, content: memory.content }));
+        .map((memory) => ({
+          memoryKey: memory.memory_key,
+          category: memory.category,
+          content: memory.content,
+          status: memory.status === 'candidate' ? 'candidate' as const : 'active' as const,
+          confidence: memory.confidence,
+          evidenceCount: memory.evidence_count || 1,
+        }));
       const manualMemories = allMemories
         .filter((memory) => memory.memory_key.startsWith('user_manual_'))
         .map((memory) => memory.content);
-      const summaries = await modelService.consolidateMemories(recent, existingSummaries, manualMemories);
-      if (summaries) agentRepository.replaceAutomaticMemorySummaries(summaries);
+      const result = await modelService.consolidateMemories(recent, existingMemories, manualMemories, settings.captureMode);
+      if (!result) return;
+
+      agentRepository.applyAutomaticMemoryMutations(
+        result.mutations,
+        settings.captureMode,
+        threadId,
+      );
+      this.processedMemoryMessageIds.add(sourceMessageId);
     }).catch((error) => console.warn('[MemoryCapture]', error.message || error));
   }
 
@@ -709,7 +726,7 @@ export class AgentService {
         const messages = conversationMessages(updatedThread);
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
         const materials = this.collectMaterials(updatedThread);
-        const memories = this.recallMemories();
+        const memories = this.recallMemories(content);
         const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal, onDelta })).trim();
         ensureMessageNotAborted(signal);
         if (!reply) throw new Error('模型没有返回文本内容');
@@ -894,7 +911,7 @@ export class AgentService {
       const messages = conversationMessages(updatedThread);
       const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
       const materials = this.collectMaterials(updatedThread);
-      const memories = this.recallMemories();
+      const memories = this.recallMemories(content);
 
       let reply = decision.reply.trim();
       if (decision.action === 'chat') {

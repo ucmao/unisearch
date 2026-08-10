@@ -221,6 +221,7 @@ export interface Platform {
   description?: string
   capabilities?: string[]
   requiresAuth?: boolean
+  runtimeEngine?: string
 }
 
 export interface SkillDefinition {
@@ -416,6 +417,9 @@ export interface AgentMemory {
   created_at: string
   updated_at: string
   last_used_at?: string | null
+  evidence_count: number
+  source_message_ids_json: string
+  last_confirmed_at?: string | null
 }
 
 // API functions

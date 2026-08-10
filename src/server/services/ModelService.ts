@@ -33,9 +33,28 @@ export interface ConversationMemory {
   source: 'manual' | 'automatic';
 }
 
-export interface ConsolidatedMemorySummary {
+export interface ExistingAutomaticMemory {
+  memoryKey: string;
   category: ConversationMemory['category'];
   content: string;
+  status: 'active' | 'candidate';
+  confidence: number;
+  evidenceCount: number;
+}
+
+export interface AutomaticMemoryMutation {
+  action: 'upsert' | 'forget';
+  memoryKey: string;
+  category?: ConversationMemory['category'];
+  content?: string;
+  confidence?: number;
+  importance?: number;
+  explicit?: boolean;
+  evidenceMessageIds?: string[];
+}
+
+export interface MemoryConsolidationResult {
+  mutations: AutomaticMemoryMutation[];
 }
 
 type ConversationMessage = { role: 'user' | 'assistant'; content: string };
@@ -781,50 +800,74 @@ ${specializedRules}
 
   async consolidateMemories(
     userMessages: Array<{ messageId: string; content: string }>,
-    existingSummaries: ConsolidatedMemorySummary[],
+    existingMemories: ExistingAutomaticMemory[],
     manualMemories: string[],
-  ): Promise<ConsolidatedMemorySummary[] | null> {
+    captureMode: 'conservative' | 'balanced' = 'balanced',
+  ): Promise<MemoryConsolidationResult | null> {
     if (!userMessages.length) return null;
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是本地 AI 助手的自动记忆整理器。请把已有自动记忆和用户近期发言整合为四份简短、持续更新的摘要，不要新增零散记忆。
+        content: `你是本地 AI 助手的长期记忆管理员。你只处理“原子记忆”：每条记忆只表达一个可独立更新的长期事实。当前提取模式为 ${captureMode}。
 
-四类摘要：
-1. 身份与称呼（identity）：如自称、称呼、职业角色
-2. 长期偏好（preference）：习惯、语言、样式、格式规范等
-3. 长期背景（context）：项目背景、平台属性
-4. 明确规则（rule）：希望助手长期遵循的具体要求
+允许的四类：
+- identity：用户明确陈述的称呼、职业或长期角色。兴趣和历史任务不属于身份。
+- preference：用户明确表达且未来仍有帮助的稳定偏好。
+- context：用户明确说明的长期项目、持续职责或稳定环境；一次搜索对象不属于背景。
+- rule：用户明确要求助手在未来持续遵守的规则。单次任务要求不属于规则。
 
-整理原则：
-- 必须输出 identity、preference、context、rule 四项，每类恰好一次；没有内容时使用空字符串。
-- 合并同类信息，不要逐条罗列重复事实；新信息与旧信息冲突时保留较新的明确表达。
-- 保留仍然有效的旧摘要，不要因为本轮没有提及就删除。
-- manual_memories 是用户手动保存的权威内容，不要在自动摘要中重复，也不能修改或否定。
-- 不要把临时一次性问答、单次采集搜索要求、临时情绪当成记忆。
-- 用户明确要求忘记某项自动记忆时，从对应摘要中移除。
-- 严禁保存敏感安全隐私（密码、API Key、验证码、支付账号、证件号等）。
-- 内容（content）使用简洁清晰的第三人称描述。
+严格写入标准：
+1. 只从 user_messages 中提取新证据；existing_memories 只用于匹配、更新和冲突判断，不能当作新证据。
+2. 搜索、采集、核验、比较、购买咨询等一次性请求，以及请求中出现的品牌、人物、产品、价格、天气和事件，一律不记忆。
+3. “帮我查 X”“研究 X”“分析 X”不代表用户喜欢 X，也不代表长期背景。
+4. 只有用户明确说“我叫/我是/我喜欢/我希望以后/请记住/以后都/不要再”等，或含义同样明确时，才可写入。conservative 模式下，含糊推断必须跳过。
+5. explicit 只有在用户明确要求记住、忘记，或明确声明长期规则时才为 true。
+6. 每条 content 不超过 80 个汉字，使用中性第三人称；禁止合并多个事实、列举历史任务或复述过程。
+7. memoryKey 使用稳定的英文语义键，如 identity.preferred_name、preference.response_language；同一概念必须复用已有键。
+8. 新信息与旧信息冲突时，对同一键执行 upsert；用户要求忘记时执行 forget。未变化的旧记忆不要重新输出。
+9. manual_memories 是用户手动保存的权威内容，禁止重复、修改、否定或删除。
+10. 严禁保存密码、API Key、验证码、支付账号、证件号、精确住址、健康和其他敏感隐私。
+11. 最多输出 8 个 mutation；没有合格内容时输出空数组。
 
-只输出 JSON，格式如下：
-{"summaries":[{"category":"identity","content":"..."},{"category":"preference","content":"..."},{"category":"context","content":"..."},{"category":"rule","content":"..."}]}`,
+confidence 表示“用户确实表达了该长期事实”的把握，importance 表示未来复用价值，均为 0 到 1。evidenceMessageIds 只能引用 user_messages 中真实存在的 messageId。
+
+只输出 JSON：
+{"mutations":[{"action":"upsert","memoryKey":"preference.response_language","category":"preference","content":"用户偏好使用简体中文交流","confidence":0.98,"importance":0.9,"explicit":false,"evidenceMessageIds":["message-id"]},{"action":"forget","memoryKey":"preference.response_language","explicit":true,"evidenceMessageIds":["message-id"]}]}`,
       },
       {
         role: 'user',
-        content: `<existing_summaries_json>${JSON.stringify(existingSummaries)}</existing_summaries_json>\n<manual_memories_json>${JSON.stringify(manualMemories)}</manual_memories_json>\n<user_messages_json>${JSON.stringify(userMessages)}</user_messages_json>`,
+        content: `<existing_memories_json>${JSON.stringify(existingMemories)}</existing_memories_json>\n<manual_memories_json>${JSON.stringify(manualMemories)}</manual_memories_json>\n<user_messages_json>${JSON.stringify(userMessages)}</user_messages_json>`,
       },
-    ], 1200);
+    ], 1000);
     try {
-      const parsed = parseModelJson<{ summaries?: ConsolidatedMemorySummary[] }>(content);
-      if (!Array.isArray(parsed.summaries)) return null;
+      const parsed = parseModelJson<{ mutations?: AutomaticMemoryMutation[] }>(content);
+      if (!Array.isArray(parsed.mutations)) return null;
       const categories: ConversationMemory['category'][] = ['identity', 'preference', 'context', 'rule'];
-      const values = new Map<ConversationMemory['category'], string>();
-      for (const summary of parsed.summaries) {
-        if (!categories.includes(summary?.category) || values.has(summary.category)) return null;
-        values.set(summary.category, String(summary.content || '').trim().slice(0, 500));
+      const validMessageIds = new Set(userMessages.map((message) => message.messageId));
+      const mutations: AutomaticMemoryMutation[] = [];
+      const seen = new Set<string>();
+      for (const mutation of parsed.mutations.slice(0, 8)) {
+        if (!['upsert', 'forget'].includes(String(mutation?.action))) return null;
+        const memoryKey = String(mutation.memoryKey || '').trim().slice(0, 100);
+        if (!memoryKey || seen.has(`${mutation.action}:${memoryKey}`)) continue;
+        if (mutation.action === 'upsert' && (!mutation.category || !categories.includes(mutation.category))) return null;
+        const evidenceMessageIds = Array.isArray(mutation.evidenceMessageIds)
+          ? mutation.evidenceMessageIds.map(String).filter((value) => validMessageIds.has(value)).slice(0, 6)
+          : [];
+        if (!evidenceMessageIds.length) continue;
+        mutations.push({
+          action: mutation.action,
+          memoryKey,
+          category: mutation.action === 'upsert' ? mutation.category : undefined,
+          content: mutation.action === 'upsert' ? String(mutation.content || '').trim().replace(/\s+/g, ' ').slice(0, 180) : undefined,
+          confidence: Math.max(0, Math.min(1, Number(mutation.confidence) || 0)),
+          importance: Math.max(0, Math.min(1, Number(mutation.importance) || 0.5)),
+          explicit: Boolean(mutation.explicit),
+          evidenceMessageIds,
+        });
+        seen.add(`${mutation.action}:${memoryKey}`);
       }
-      if (!categories.every((category) => values.has(category))) return null;
-      return categories.map((category) => ({ category, content: values.get(category) || '' }));
+      return { mutations };
     } catch {
       return null;
     }

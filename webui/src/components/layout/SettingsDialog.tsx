@@ -16,7 +16,9 @@ import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -53,6 +55,13 @@ const sections: { value: SettingsSection; label: string; description: string; ic
   { value: 'storage', label: '存储', description: '看板数据清理', icon: Database },
   { value: 'memory', label: '记忆', description: '长期偏好与背景', icon: Brain },
 ]
+
+const BROWSER_PLATFORM_CATEGORIES: Record<string, string> = {
+  social_media: '社交媒体',
+  ai_web_qa: 'AI 问答平台',
+  job_platform: '招聘求职',
+  complaint_platform: '消费维权',
+}
 
 function getError(error: any) {
   return error?.response?.data?.detail || error?.message || '操作失败'
@@ -96,6 +105,7 @@ export function SettingsDialog({
   const [storageTab, setStorageTab] = useState<'crawl' | 'threads'>('threads')
   const [isAddingMemory, setIsAddingMemory] = useState(false)
   const [newMemoryContent, setNewMemoryContent] = useState('')
+  const [newMemoryCategory, setNewMemoryCategory] = useState<AgentMemory['category']>('rule')
   const [selectedPlatformToClear, setSelectedPlatformToClear] = useState<string>('')
   const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
   const dialogOpen = open ?? internalOpen
@@ -187,7 +197,7 @@ export function SettingsDialog({
     onError: (error) => toast.error(getError(error)),
   })
   const createMemory = useMutation({
-    mutationFn: (content: string) => agentApi.createMemory({ content }),
+    mutationFn: (input: { content: string; category: AgentMemory['category'] }) => agentApi.createMemory(input),
     onSuccess: () => {
       setNewMemoryContent('')
       setIsAddingMemory(false)
@@ -457,9 +467,9 @@ export function SettingsDialog({
 
                     <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                       <div>
-                        <div className="text-sm font-medium text-cyber-text-primary">登录身份与凭证</div>
+                        <div className="text-sm font-medium text-cyber-text-primary">登录身份与浏览器缓存</div>
                         <div className="mt-1 text-xs leading-5 text-cyber-text-muted">
-                          清空各平台或所有平台在本地保存的无头浏览器 Cookie、Session 会话及自动化状态缓存。
+                          清空各平台或全部平台在本地保存的 Chromium 独立分区会话（含 Cookie、Session、登录凭据及自动化状态缓存）。
                         </div>
                       </div>
 
@@ -469,15 +479,29 @@ export function SettingsDialog({
                             value={selectedPlatformToClear}
                             onValueChange={setSelectedPlatformToClear}
                           >
-                            <SelectTrigger className="h-9 w-44 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
-                              <SelectValue placeholder="选择指定平台..." />
+                            <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                              <SelectValue placeholder="选择平台..." />
                             </SelectTrigger>
-                            <SelectContent>
-                              {(platformsQuery.data || []).filter((p) => p.requiresAuth !== false).map((p) => (
-                                <SelectItem key={p.value} value={p.value} className="text-xs">
-                                  {p.label} ({p.value})
-                                </SelectItem>
-                              ))}
+                            <SelectContent className="max-h-72">
+                              {Object.entries(BROWSER_PLATFORM_CATEGORIES)
+                                .map(([category, label]) => {
+                                  const items = (platformsQuery.data || []).filter(
+                                    (p) => (p.category === category) && (p.runtimeEngine === 'playwright' || p.category in BROWSER_PLATFORM_CATEGORIES)
+                                  )
+                                  if (items.length === 0) return null
+                                  return (
+                                    <SelectGroup key={category}>
+                                      <SelectLabel className="px-2 py-1.5 text-[11px] font-semibold text-cyber-neon-cyan/90">
+                                        {label}
+                                      </SelectLabel>
+                                      {items.map((p) => (
+                                        <SelectItem key={p.value} value={p.value} className="text-xs">
+                                          {p.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectGroup>
+                                  )
+                                })}
                             </SelectContent>
                           </Select>
 
@@ -493,13 +517,13 @@ export function SettingsDialog({
                                 清空指定平台凭证
                               </Button>
                             }
-                            title={`清空【${platformsQuery.data?.find(p => p.value === selectedPlatformToClear)?.label || selectedPlatformToClear}】凭证`}
-                            description="确定要清空该平台的登录凭证吗？此操作将删除该平台本地保存的 Chromium Session 与登录缓存，下一次发起采集该平台时需要在原生页面重新登录。"
+                            title={`清空【${platformsQuery.data?.find(p => p.value === selectedPlatformToClear)?.label || selectedPlatformToClear}】凭证与会话缓存`}
+                            description="确定要清空该平台的会话凭证吗？此操作将清除该平台本地保存的 Chromium 独立分区（含 Cookie、Session、登录凭据及自动化缓存）。"
                             confirmLabel="确认清空"
                             onConfirm={async () => {
                               try {
                                 const res = await configApi.clearAuthCredentials(selectedPlatformToClear)
-                                toast.success(res.data.message || '已成功清空该平台登录凭证')
+                                toast.success(res.data.message || '已成功清空该平台登录凭证与会话缓存')
                               } catch (err: any) {
                                 toast.error(getError(err))
                                 throw err
@@ -519,13 +543,13 @@ export function SettingsDialog({
                               清空所有凭证
                             </Button>
                           }
-                          title="清空所有登录身份验证"
-                          description="确定要清空所有平台的登录身份凭证吗？此操作将清除本地保存的所有 Chromium Session 登录状态。下次发起采集时相关平台将需要在原生页面重新登录。此操作不会删除数据库中已保存的历史数据。"
+                          title="清空所有浏览器平台凭证与缓存"
+                          description="确定要清空所有浏览器平台的登录凭证与会话缓存吗？此操作将清除本地保存的所有 Chromium 独立分区登录状态与缓存。下次发起采集时相关平台将以全新状态运行。此操作不会删除数据库中已保存的历史数据。"
                           confirmLabel="确认清空所有"
                           onConfirm={async () => {
                             try {
                               const res = await configApi.clearAuthCredentials()
-                              toast.success(res.data.message || '已成功清空所有登录凭证')
+                              toast.success(res.data.message || '已成功清空所有登录凭证与会话缓存')
                             } catch (err: any) {
                               toast.error(getError(err))
                               throw err
@@ -725,7 +749,7 @@ export function SettingsDialog({
                           size="sm"
                           variant="outline"
                           className="h-8 gap-1.5 border-cyber-neon-cyan/30 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
-                          onClick={() => { setIsAddingMemory(true); setNewMemoryContent('') }}
+                          onClick={() => { setIsAddingMemory(true); setNewMemoryContent(''); setNewMemoryCategory('rule') }}
                         >
                           <Plus className="h-3.5 w-3.5" />
                           新建记忆
@@ -734,8 +758,17 @@ export function SettingsDialog({
 
                       {isAddingMemory ? (
                         <div className="mb-3 rounded-xl border border-cyber-neon-cyan/40 bg-cyber-bg-secondary/60 p-3">
-                          <p className="mb-1.5 text-xs font-medium text-cyber-neon-cyan">添加自定义记忆/硬性偏好：</p>
+                          <p className="mb-1.5 text-xs font-medium text-cyber-neon-cyan">添加一条明确、长期有效的记忆：</p>
                           <div className="flex gap-2">
+                            <Select value={newMemoryCategory} onValueChange={(value: AgentMemory['category']) => setNewMemoryCategory(value)}>
+                              <SelectTrigger className="h-8 w-24 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="identity">身份</SelectItem>
+                                <SelectItem value="preference">偏好</SelectItem>
+                                <SelectItem value="context">背景</SelectItem>
+                                <SelectItem value="rule">规则</SelectItem>
+                              </SelectContent>
+                            </Select>
                             <Input
                               autoFocus
                               placeholder="例如：爬虫数据导出 CSV 时默认使用 UTF-8 编码"
@@ -743,7 +776,7 @@ export function SettingsDialog({
                               onChange={(e) => setNewMemoryContent(e.target.value)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && newMemoryContent.trim()) {
-                                  createMemory.mutate(newMemoryContent.trim())
+                                  createMemory.mutate({ content: newMemoryContent.trim(), category: newMemoryCategory })
                                 }
                               }}
                               className="h-8 text-xs flex-1"
@@ -752,7 +785,7 @@ export function SettingsDialog({
                               size="sm"
                               className="h-8 bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 font-medium shadow-xs"
                               disabled={!newMemoryContent.trim() || createMemory.isPending}
-                              onClick={() => createMemory.mutate(newMemoryContent.trim())}
+                              onClick={() => createMemory.mutate({ content: newMemoryContent.trim(), category: newMemoryCategory })}
                             >
                               保存
                             </Button>
@@ -781,7 +814,7 @@ export function SettingsDialog({
                                     <span className={memory.memory_key.startsWith('user_manual_')
                                       ? 'rounded border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/10 px-2 py-0.5 text-[10px] font-medium text-cyber-neon-cyan'
                                       : 'rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary'}>
-                                      {memory.memory_key.startsWith('user_manual_') ? '手动添加' : '自动整理'}
+                                      {memory.memory_key.startsWith('user_manual_') ? '手动固定' : memory.status === 'candidate' ? '待确认' : '自动提取'}
                                     </span>
                                     {memory.category ? (
                                       <span className="rounded bg-cyber-bg-secondary px-2 py-0.5 text-[10px] font-medium text-cyber-text-muted">
@@ -796,6 +829,8 @@ export function SettingsDialog({
                                   )}
                                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
                                     <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>
+                                    {!memory.memory_key.startsWith('user_manual_') && memory.evidence_count > 1 ? <span>· {memory.evidence_count} 次依据</span> : null}
+                                    {memory.status === 'candidate' ? <span>· 尚未用于对话</span> : null}
                                   </div>
                                 </div>
                                 <div className="flex shrink-0 items-center gap-1">
