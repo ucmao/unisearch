@@ -197,7 +197,7 @@ export class BossCrawler extends AbstractCrawler {
       ): Promise<{ page: Page; recovered: boolean }> => {
         if (this.page && !this.page.isClosed()) {
           attachResponseListener(this.page);
-          if (recoveryUrl && this.page.url().startsWith('about:blank#unisearch-crawler-')) {
+          if (recoveryUrl && (this.page.url().includes('#unisearch-crawler-') || this.page.url().startsWith('about:blank'))) {
             const placeholder = this.page;
             console.warn(`[BOSS] Restoring ${recoveryUrl} after the crawler placeholder interrupted ${stage}.`);
             await placeholder.goto(recoveryUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 }).catch((error: any) => {

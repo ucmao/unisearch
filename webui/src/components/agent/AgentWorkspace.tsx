@@ -926,11 +926,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   })
 
   const toggleBrowserWindow = useMutation({
-    mutationFn: async () => (await browserApi.toggleWindow('toggle')).data,
+    mutationFn: async (platform?: string) => (await browserApi.toggleWindow('toggle', platform)).data,
     onSuccess: (data) => {
       client.setQueryData(['browser-window-status'], data)
       if (data.can_open === false) {
-        toast.info('当前没有可查看的采集浏览器窗口（该任务为后台 HTTP 接口采集）')
+        toast.info('当前没有可查看的采集浏览器窗口（该任务为后台 HTTP 接口采集或已结束）')
       }
     },
     onError: (error) => toast.error(getError(error)),
@@ -1741,9 +1741,33 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     () => (threadsQuery.data || []).filter((thread) => ['queued', 'running'].includes(thread.plan_status || '')),
     [threadsQuery.data],
   )
-  const isCollecting = (threadsQuery.data || []).some((thread) => thread.plan_status === 'running')
   // Collection and message generation are independent and scoped to the selected task.
   const isPlanRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
+  const currentPlanPlatforms = useMemo(() => {
+    if (!activePlan?.steps) return []
+    return Array.from(
+      new Set(
+        activePlan.steps
+          .filter((s) => s.kind === 'connector' || (s.kind !== 'processor' && s.step_key !== 'business-analysis'))
+          .map((s) => s.platform)
+          .filter(Boolean)
+      )
+    )
+  }, [activePlan])
+  const activeBrowserPlatforms = useMemo(
+    () => browserWindowQuery.data?.active_platforms || [],
+    [browserWindowQuery.data?.active_platforms]
+  )
+  const currentThreadHasActiveBrowser = useMemo(() => {
+    if (!isPlanRunning) return false
+    if (activeBrowserPlatforms.length > 0) {
+      return currentPlanPlatforms.some((platform) => activeBrowserPlatforms.includes(platform))
+    }
+    return Boolean(browserWindowQuery.data?.can_open)
+  }, [isPlanRunning, activeBrowserPlatforms, currentPlanPlatforms, browserWindowQuery.data?.can_open])
+  const currentThreadPreferredPlatform = useMemo(() => {
+    return currentPlanPlatforms.find((p) => activeBrowserPlatforms.includes(p)) || currentPlanPlatforms[0]
+  }, [currentPlanPlatforms, activeBrowserPlatforms])
   const isCurrentPlanStopping = Boolean(activePlan && stoppingPlanIds.has(activePlan.plan_id))
   const isCurrentMessageStopping = Boolean(selectedId && stoppingMessageThreadIds.has(selectedId))
   const currentRegeneratingMessageId = selectedId ? regeneratingMessageByThread[selectedId] : undefined
@@ -1967,7 +1991,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         ? 'bg-cyber-neon-cyan/10 font-semibold text-cyber-text-primary border border-cyber-neon-cyan/30 shadow-sm'
                         : threadMenuId === thread.thread_id
                           ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary/95 font-medium'
-                          : 'font-normal text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85'
+                          : 'font-normal text-cyber-text-primary/80 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
                     }`}
                   >
                     {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}
@@ -2140,12 +2164,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <h1 className="truncate text-sm font-medium">{threadQuery.data?.title || (selectedId ? '新任务' : 'UniSearch 首页')}</h1>
           </div>
           <div className="flex items-center gap-1 app-no-drag">
-            {/* 采集结束后依然保留入口：失败平台要回看页面，下次任务前要预登录 */}
-            {(isCollecting || browserWindowQuery.data?.can_open) && <Button
+            {/* 仅在当前选中的任务处于采集中且存在活跃的浏览器视窗时展示地球图标 */}
+            {currentThreadHasActiveBrowser && <Button
               size="icon"
               variant="ghost"
               className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
-              onClick={() => toggleBrowserWindow.mutate()}
+              onClick={() => toggleBrowserWindow.mutate(currentThreadPreferredPlatform)}
               disabled={toggleBrowserWindow.isPending}
               title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
               aria-label={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}

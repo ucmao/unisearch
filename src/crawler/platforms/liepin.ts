@@ -12,7 +12,7 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
-import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
+import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 export type LiepinPageState =

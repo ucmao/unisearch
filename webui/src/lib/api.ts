@@ -676,9 +676,10 @@ export const envApi = {
 }
 
 export const browserApi = {
-  getWindowStatus: () => api.get<{ success: boolean; visible: boolean; has_views?: boolean; can_open?: boolean }>('/browser/window'),
-  toggleWindow: (action: 'show' | 'hide' | 'toggle' = 'toggle') =>
-    api.post<{ success: boolean; visible: boolean; toggled?: boolean; has_views?: boolean; can_open?: boolean }>('/browser/window', { action }),
+  getWindowStatus: () =>
+    api.get<{ success: boolean; visible: boolean; has_views?: boolean; can_open?: boolean; active_platforms?: string[] }>('/browser/window'),
+  toggleWindow: (action: 'show' | 'hide' | 'toggle' = 'toggle', platform?: string) =>
+    api.post<{ success: boolean; visible: boolean; toggled?: boolean; has_views?: boolean; can_open?: boolean; active_platforms?: string[] }>('/browser/window', { action, platform }),
 }
 
 export default api

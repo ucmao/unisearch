@@ -5,7 +5,7 @@ import net from 'net';
 import { randomInt } from 'crypto';
 import { startServer, stopServer } from '../server';
 import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../tools/browserIdentity';
-import { platformLabel, listConnectorManifests } from '../connectors/registry';
+import { platformLabel, listConnectorManifests, getConnectorManifest } from '../connectors/registry';
 import { clearCrawlerCredentialSessions } from '../tools/authCredentials';
 import { fitWindowBoundsToDisplays, loadWindowState, saveWindowState } from './windowState';
 import type { SavedWindowState } from './windowState';
@@ -129,8 +129,53 @@ function getAppIconPath(): string | undefined {
   return fs.existsSync(iconPath) ? iconPath : undefined;
 }
 
+function crawlerMarkerHtml(platform: string): string {
+  const isDark = nativeTheme.shouldUseDarkColors;
+  const label = platformLabel(platform);
+  const manifest = getConnectorManifest(platform);
+  const isHttp = manifest?.runtime?.engine === 'http';
+  const statusText = isHttp ? '数据接口高速同步中' : '正在连接采集节点...';
+  const subText = isHttp ? '后台静默解析传输中 · 无需渲染网页' : '即将载入目标页面';
+
+  return `<!doctype html><html class="${isDark ? 'dark' : ''}"><head><meta charset="utf-8"><style>
+    *{box-sizing:border-box}html,body{margin:0;height:100%;overflow:hidden;background:#f0f4f8;color:#142033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;display:flex;align-items:center;justify-content:center}
+    .card-running{display:flex;flex-direction:column;align-items:center;gap:12px;animation:fadeIn 0.2s ease-out}
+    .pulse-wrapper{position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center}
+    .pulse-ring{position:absolute;width:100%;height:100%;border-radius:50%;background:#38bdf8;opacity:0.25;animation:pulse 2s cubic-bezier(0.24,0,0.38,1) infinite}
+    .pulse-dot{width:10px;height:10px;border-radius:50%;background:#0284c7;box-shadow:0 0 8px rgba(2,132,199,0.5)}
+    .title-running{font-size:13px;font-weight:600;color:#334155;letter-spacing:0.2px}
+    .subtitle-running{font-size:12px;color:#94a3b8;margin-top:2px}
+    @keyframes pulse{0%{transform:scale(0.6);opacity:0.8}70%{transform:scale(1.4);opacity:0}100%{transform:scale(1.4);opacity:0}}
+    @keyframes fadeIn{from{opacity:0;transform:scale(0.98)}to{opacity:1;transform:scale(1)}}
+    html.dark, body.dark{background:#1e1f22 !important;color:#bcbec4 !important}
+    html.dark .pulse-ring{background:#38bdf8;opacity:0.2}
+    html.dark .pulse-dot{background:#38bdf8;box-shadow:0 0 10px rgba(56,189,248,0.6)}
+    html.dark .title-running{color:#bcbec4}
+    html.dark .subtitle-running{color:#6c707e}
+    @media(prefers-color-scheme:dark){
+      html,body{background:#1e1f22 !important;color:#bcbec4 !important}
+      .pulse-ring{background:#38bdf8;opacity:0.2}
+      .pulse-dot{background:#38bdf8;box-shadow:0 0 10px rgba(56,189,248,0.6)}
+      .title-running{color:#bcbec4}
+      .subtitle-running{color:#6c707e}
+    }
+  </style></head><body class="${isDark ? 'dark' : ''}">
+    <div class="card-running">
+      <div class="pulse-wrapper">
+        <div class="pulse-ring"></div>
+        <div class="pulse-dot"></div>
+      </div>
+      <div style="text-align:center">
+        <div class="title-running">${label} · ${statusText}</div>
+        <div class="subtitle-running">${subText}</div>
+      </div>
+    </div>
+  </body></html>`;
+}
+
 function crawlerMarkerUrl(platform: string): string {
-  return `about:blank#unisearch-crawler-${encodeURIComponent(platform)}`;
+  const html = crawlerMarkerHtml(platform);
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}#unisearch-crawler-${encodeURIComponent(platform)}`;
 }
 
 const CRAWLER_TAB_HEIGHT = 48;
@@ -198,49 +243,74 @@ function crawlerHubHtml(): string {
   let bodyContent = '';
   if (activeCrawlerPlatform && !isRunningActive && activeState) {
     const label = platformLabel(activeCrawlerPlatform);
-    const metrics = crawlerTabMetrics.get(activeCrawlerPlatform);
-    let statusTitle: string;
-    let statusDesc: string;
-    let iconSvg: string;
-    const badgeClass = activeState;
+    if (activeState === 'running') {
+      const manifest = getConnectorManifest(activeCrawlerPlatform);
+      const isHttp = manifest?.runtime?.engine === 'http';
+      const statusText = isHttp ? '数据接口高速同步中' : '正在连接采集节点...';
+      const subText = isHttp ? '后台静默解析传输中 · 无需渲染网页界面' : '即将载入目标页面';
 
-    if (activeState === 'completed') {
-      const count = metrics?.itemCount ?? 0;
-      const duration = metrics?.durationSeconds !== undefined ? `，耗时 ${metrics.durationSeconds} 秒` : '';
-      statusTitle = `${label} 采集成功`;
-      statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong>`;
-      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4bb98a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
-    } else if (activeState === 'partial') {
-      const count = metrics?.itemCount ?? 0;
-      statusTitle = `${label} 仅获得部分结果`;
-      statusDesc = `<strong class="highlight-partial">共获取 ${count} 条数据。${metrics?.error || '未达到用户设置的数量上限。'}</strong>`;
-      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d99735" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
-    } else if (activeState === 'failed') {
-      const rawReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
-      const errReason = /[。.]\s*$/.test(rawReason) ? rawReason : `${rawReason}。`;
-      statusTitle = `${label} 采集中断`;
-      statusDesc = `<strong class="highlight-error">${errReason}</strong>`;
-      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d66b7b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
-    } else {
-      statusTitle = `${label} 任务已停止`;
-      statusDesc = '收到用户中断指令，平台采集已被手动停止。<br>网页与关联进程资源已完整卸载归还系统。';
-      iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#9aa7b4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>`;
-    }
-
-    bodyContent = `
-      <div class="summary-container">
-        <div class="summary-card">
-          <div class="icon-box ${badgeClass}">${iconSvg}</div>
-          <div class="status-badge ${badgeClass}">${activeState === 'completed' ? '采集完成' : activeState === 'partial' ? '部分完成' : activeState === 'failed' ? '采集失败' : '已停止'}</div>
-          <h2 class="title">${statusTitle}</h2>
-          <p class="description">${statusDesc}</p>
-          <div class="btn-group">
-            <a class="btn primary" href="unisearch-action://focus-main">返回主界面看板</a>
-            <a class="btn secondary" href="unisearch-action://close-tab/${encodeURIComponent(activeCrawlerPlatform)}">关闭此标签页</a>
+      bodyContent = `
+        <div class="summary-container">
+          <div class="card-running">
+            <div class="pulse-wrapper">
+              <div class="pulse-ring"></div>
+              <div class="pulse-dot"></div>
+            </div>
+            <div style="text-align:center">
+              <div class="title-running">${label} · ${statusText}</div>
+              <div class="subtitle-running">${subText}</div>
+            </div>
+            <div class="btn-group" style="margin-top:8px">
+              <a class="btn secondary" href="unisearch-action://focus-main">返回主界面看板</a>
+            </div>
           </div>
         </div>
-      </div>
-    `;
+      `;
+    } else {
+      const metrics = crawlerTabMetrics.get(activeCrawlerPlatform);
+      let statusTitle: string;
+      let statusDesc: string;
+      let iconSvg: string;
+      const badgeClass = activeState;
+
+      if (activeState === 'completed') {
+        const count = metrics?.itemCount ?? 0;
+        const duration = metrics?.durationSeconds !== undefined ? `，耗时 ${metrics.durationSeconds} 秒` : '';
+        statusTitle = `${label} 采集成功`;
+        statusDesc = `<strong class="highlight-text">共获取 ${count} 条数据${duration}。</strong>`;
+        iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4bb98a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+      } else if (activeState === 'partial') {
+        const count = metrics?.itemCount ?? 0;
+        statusTitle = `${label} 仅获得部分结果`;
+        statusDesc = `<strong class="highlight-partial">共获取 ${count} 条数据。${metrics?.error || '未达到用户设置的数量上限。'}</strong>`;
+        iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d99735" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`;
+      } else if (activeState === 'failed') {
+        const rawReason = metrics?.error ? `错误提示：${metrics.error}` : '错误提示：页面响应超时或触发风控验证拦截';
+        const errReason = /[。.]\s*$/.test(rawReason) ? rawReason : `${rawReason}。`;
+        statusTitle = `${label} 采集中断`;
+        statusDesc = `<strong class="highlight-error">${errReason}</strong>`;
+        iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#d66b7b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+      } else {
+        statusTitle = `${label} 任务已停止`;
+        statusDesc = '收到用户中断指令，平台采集已被手动停止。<br>网页与关联进程资源已完整卸载归还系统。';
+        iconSvg = `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#9aa7b4" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg>`;
+      }
+
+      bodyContent = `
+        <div class="summary-container">
+          <div class="summary-card">
+            <div class="icon-box ${badgeClass}">${iconSvg}</div>
+            <div class="status-badge ${badgeClass}">${activeState === 'completed' ? '采集完成' : activeState === 'partial' ? '部分完成' : activeState === 'failed' ? '采集失败' : '已停止'}</div>
+            <h2 class="title">${statusTitle}</h2>
+            <p class="description">${statusDesc}</p>
+            <div class="btn-group">
+              <a class="btn primary" href="unisearch-action://focus-main">返回主界面看板</a>
+              <a class="btn secondary" href="unisearch-action://close-tab/${encodeURIComponent(activeCrawlerPlatform)}">关闭此标签页</a>
+            </div>
+          </div>
+        </div>
+      `;
+    }
   }
 
   return `<!doctype html><html class="${isDark ? 'dark' : ''}"><head><meta charset="utf-8"><style>
@@ -256,6 +326,13 @@ function crawlerHubHtml(): string {
     .dot.completed{background:#4bb98a;box-shadow:0 0 0 3px rgba(75,185,138,.12)}.dot.partial{background:#d99735;box-shadow:0 0 0 3px rgba(217,151,53,.12)}.dot.failed{background:#d66b7b;box-shadow:0 0 0 3px rgba(214,107,123,.12)}.dot.stopped{background:#9aa7b4;box-shadow:0 0 0 3px rgba(154,167,180,.12)}
     
     .summary-container{display:flex;align-items:center;justify-content:center;height:calc(100vh - ${CRAWLER_TAB_HEIGHT}px);padding:20px;background:linear-gradient(135deg, #eef4f8 0%, #e2ecf3 100%)}
+    .card-running{display:flex;flex-direction:column;align-items:center;gap:12px;animation:fadeIn 0.2s ease-out}
+    .pulse-wrapper{position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center}
+    .pulse-ring{position:absolute;width:100%;height:100%;border-radius:50%;background:#38bdf8;opacity:0.25;animation:pulse 2s cubic-bezier(0.24,0,0.38,1) infinite}
+    .pulse-dot{width:10px;height:10px;border-radius:50%;background:#0284c7;box-shadow:0 0 8px rgba(2,132,199,0.5)}
+    .title-running{font-size:13px;font-weight:600;color:#334155;letter-spacing:0.2px}
+    .subtitle-running{font-size:12px;color:#94a3b8;margin-top:2px}
+    @keyframes pulse{0%{transform:scale(0.6);opacity:0.8}70%{transform:scale(1.4);opacity:0}100%{transform:scale(1.4);opacity:0}}
     .summary-card{margin:auto;max-width:440px;width:100%;background:#ffffff;border:1px solid #d0dee8;border-radius:16px;padding:32px 28px;text-align:center;box-shadow:0 12px 32px rgba(20,32,51,0.08);animation:fadeIn 0.25s ease-out}
     @keyframes fadeIn{from{opacity:0;transform:scale(0.97)}to{opacity:1;transform:scale(1)}}
     .icon-box{width:64px;height:64px;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;border-radius:50%}
@@ -285,6 +362,10 @@ function crawlerHubHtml(): string {
     html.dark .close-btn, body.dark .close-btn { color: #868a91 !important; }
     html.dark .close-btn:hover, body.dark .close-btn:hover { color: #f25c6e !important; background: rgba(242,92,110,0.2) !important; }
     html.dark .summary-container, body.dark .summary-container { background: #1e1f22 !important; }
+    html.dark .pulse-ring, body.dark .pulse-ring { background: #38bdf8; opacity: 0.2; }
+    html.dark .pulse-dot, body.dark .pulse-dot { background: #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,0.6); }
+    html.dark .title-running, body.dark .title-running { color: #bcbec4; }
+    html.dark .subtitle-running, body.dark .subtitle-running { color: #6c707e; }
     html.dark .summary-card, body.dark .summary-card { background: #2b2d30 !important; border-color: #393b40 !important; box-shadow: 0 12px 32px rgba(0,0,0,0.4) !important; }
     html.dark .title, body.dark .title { color: #bcbec4 !important; }
     html.dark .description, body.dark .description { color: #868a91 !important; }
@@ -304,6 +385,10 @@ function crawlerHubHtml(): string {
       .close-btn { color: #868a91 !important; }
       .close-btn:hover { color: #f25c6e !important; background: rgba(242,92,110,0.2) !important; }
       .summary-container { background: #1e1f22 !important; }
+      .pulse-ring { background: #38bdf8; opacity: 0.2; }
+      .pulse-dot { background: #38bdf8; box-shadow: 0 0 10px rgba(56,189,248,0.6); }
+      .title-running { color: #bcbec4; }
+      .subtitle-running { color: #6c707e; }
       .summary-card { background: #2b2d30 !important; border-color: #393b40 !important; box-shadow: 0 12px 32px rgba(0,0,0,0.4) !important; }
       .title { color: #bcbec4 !important; }
       .description { color: #868a91 !important; }
@@ -461,31 +546,14 @@ export async function prepareCrawlerWindow(platform: string, preserveCurrentPage
   return true;
 }
 
-export function releaseCrawlerWindow(platform: string, status = 'completed', metrics?: CrawlerRunMetrics): boolean {
+export function releaseCrawlerWindow(platform: string, _status = 'completed', _metrics?: CrawlerRunMetrics): boolean {
   const view = crawlerViews.get(platform);
-  const finalStatus: CrawlerTabStatus = ['partial', 'failed', 'stopped'].includes(status)
-    ? status as CrawlerTabStatus
-    : 'completed';
-  crawlerTabStates.set(platform, finalStatus);
-  if (metrics) {
-    crawlerTabMetrics.set(platform, metrics);
-  }
+  crawlerTabStates.delete(platform);
+  crawlerTabMetrics.delete(platform);
 
   if (!view) {
     refreshCrawlerHubTabs();
     return false;
-  }
-
-  // Keep the last BOSS page available after an incomplete run. It may contain
-  // the login/challenge state the user needs to inspect before retrying; closing
-  // it and recreating only the marker page produces a misleading blank window.
-  if (platform === 'boss' && (finalStatus === 'partial' || finalStatus === 'failed') && !view.webContents.isDestroyed()) {
-    if (activeCrawlerPlatform === platform) {
-      crawlerHubWindow?.setBrowserView(view);
-      layoutActiveCrawlerView();
-    }
-    refreshCrawlerHubTabs();
-    return true;
   }
 
   const wasActive = activeCrawlerPlatform === platform;
@@ -499,6 +567,8 @@ export function releaseCrawlerWindow(platform: string, status = 'completed', met
     const nextRunning = Array.from(crawlerViews.keys())[0];
     if (nextRunning) {
       activateCrawlerView(nextRunning);
+    } else {
+      activeCrawlerPlatform = null;
     }
   }
   refreshCrawlerHubTabs();
@@ -517,23 +587,22 @@ export function isCrawlerWindowVisible(platform?: string): boolean {
 }
 
 export function hasActiveCrawlerViews(): boolean {
-  return Array.from(crawlerViews.keys()).some((platform) => crawlerTabStates.get(platform) === 'running');
+  return crawlerViews.size > 0;
 }
 
-/**
- * Views are destroyed when a platform finishes, but the user still needs to get
- * into the browser afterwards — to see what a failed platform was actually
- * looking at, or to log in before starting the next run. Any platform we have
- * ever opened a tab for can be reopened on demand.
- */
 export function canOpenCrawlerWindow(): boolean {
-  return crawlerViews.size > 0 || crawlerTabStates.size > 0;
+  return crawlerViews.size > 0;
+}
+
+export function getActiveCrawlerPlatforms(): string[] {
+  return Array.from(crawlerViews.keys());
 }
 
 function resolveCrawlerPlatform(platform?: string): string | null {
+  if (platform && crawlerViews.has(platform)) return platform;
   if (platform && crawlerTabStates.has(platform)) return platform;
-  if (activeCrawlerPlatform && crawlerTabStates.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
-  return crawlerTabStates.keys().next().value ?? null;
+  if (activeCrawlerPlatform && crawlerViews.has(activeCrawlerPlatform)) return activeCrawlerPlatform;
+  return crawlerViews.keys().next().value ?? crawlerTabStates.keys().next().value ?? null;
 }
 
 export function showCrawlerWindow(platform?: string): boolean {
@@ -542,11 +611,7 @@ export function showCrawlerWindow(platform?: string): boolean {
   const hub = createCrawlerHubWindow();
   const existing = crawlerViews.get(resolvedPlatform);
   if (!existing || existing.webContents.isDestroyed()) {
-    // Reopen a released tab instead of showing an empty hub. createCrawlerView
-    // marks the tab 'running', which would be a lie here, so restore its state.
-    const previousState = crawlerTabStates.get(resolvedPlatform);
     const view = createCrawlerView(resolvedPlatform);
-    if (previousState) crawlerTabStates.set(resolvedPlatform, previousState);
     if (!view.webContents.isDestroyed()) {
       void view.webContents.loadURL(crawlerMarkerUrl(resolvedPlatform)).catch(() => {});
     }
@@ -726,6 +791,7 @@ app.on('ready', async () => {
       isCrawlerWindowVisible,
       hasActiveCrawlerViews,
       canOpenCrawlerWindow,
+      getActiveCrawlerPlatforms,
       showCrawlerWindow,
       hideCrawlerWindow,
       toggleCrawlerWindow,

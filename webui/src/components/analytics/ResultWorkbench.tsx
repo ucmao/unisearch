@@ -986,7 +986,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     setSelectedDocument(null)
     setColumnDialogOpen(false)
     setExportDialogOpen(false)
-  }, [currentViewState, scope])
+
+    // 手风琴模式：切换范围时自动同步侧栏展开状态
+    if (nextScope === 'all') {
+      setExpandedTasks(new Set())
+    } else if (nextScope.startsWith('thread:')) {
+      const threadId = nextScope.slice(7)
+      setExpandedTasks(new Set([threadId]))
+    } else if (nextScope.startsWith('plan:')) {
+      const planId = nextScope.slice(5)
+      const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === planId))
+      if (parentTask) {
+        setExpandedTasks(new Set([parentTask.thread_id]))
+      }
+    }
+  }, [currentViewState, scope, tasks])
 
   const previousInitialScope = useRef<string | null>(null)
   useEffect(() => {
@@ -1080,35 +1094,33 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
   }
 
-  // 当任务首次载入或选中某个任务/轮次时，自动展开对应文件夹
+  // 首次载入或根据当前选中任务智能初始化展开状态（手风琴模式：仅展开当前任务，全部数据时默认折叠）
   useEffect(() => {
     if (tasks.length && !initializedTaskExpansion.current) {
       initializedTaskExpansion.current = true
-      setExpandedTasks(new Set(tasks.map((t) => t.thread_id)))
-    }
-  }, [tasks])
-
-  useEffect(() => {
-    if (selectedThreadId) {
-      setExpandedTasks((prev) => new Set([...prev, selectedThreadId]))
-    } else if (selectedWorkflowId) {
-      const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === selectedWorkflowId))
-      if (parentTask) {
-        setExpandedTasks((prev) => new Set([...prev, parentTask.thread_id]))
+      if (selectedThreadId) {
+        setExpandedTasks(new Set([selectedThreadId]))
+      } else if (selectedWorkflowId) {
+        const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === selectedWorkflowId))
+        if (parentTask) {
+          setExpandedTasks(new Set([parentTask.thread_id]))
+        }
+      } else {
+        setExpandedTasks(new Set())
       }
     }
-  }, [selectedThreadId, selectedWorkflowId, tasks])
+  }, [tasks, selectedThreadId, selectedWorkflowId])
 
   const toggleTaskExpand = (threadId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation()
     setExpandedTasks((prev) => {
-      const next = new Set(prev)
-      if (next.has(threadId)) {
+      if (prev.has(threadId)) {
+        const next = new Set(prev)
         next.delete(threadId)
-      } else {
-        next.add(threadId)
+        return next
       }
-      return next
+      // 手风琴模式：展开此任务，同时收起其他任务
+      return new Set([threadId])
     })
   }
 
@@ -1150,7 +1162,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
           className={`group relative flex w-full items-center rounded-xl p-3 text-left transition-all cursor-pointer ${
             scope === 'all'
               ? 'bg-cyber-neon-cyan/15 font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-[0_0_12px_rgba(0,240,255,0.1)] shadow-xs'
-              : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85 border border-transparent'
+              : 'font-medium text-cyber-text-primary/80 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary border border-transparent'
           }`}
         >
           <div className="flex min-w-0 items-center gap-3">
@@ -1216,15 +1228,16 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
               <div key={task.thread_id} className="select-none">
                 {/* 1级节点：任务文件夹行（极简紧凑 32px） */}
                 <div
-                  className={`group flex h-[32px] w-full items-center gap-1.5 rounded-xl px-2 text-left transition-all cursor-pointer ${
+                  className={`group flex h-[32px] w-full items-center gap-1.5 rounded-xl px-1.5 text-left transition-all cursor-pointer ${
                     isTaskSelected
                       ? 'bg-cyber-neon-cyan/15 font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-[0_0_10px_rgba(0,240,255,0.08)] shadow-xs'
-                      : 'font-medium text-cyber-text-primary/75 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary/85 border border-transparent'
+                      : 'font-medium text-cyber-text-primary/80 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary border border-transparent'
                   }`}
                   onClick={() => {
-                    switchScope(`thread:${task.thread_id}`)
-                    if (!isExpanded && hasRounds) {
-                      setExpandedTasks((prev) => new Set([...prev, task.thread_id]))
+                    if (scope === `thread:${task.thread_id}`) {
+                      toggleTaskExpand(task.thread_id)
+                    } else {
+                      switchScope(`thread:${task.thread_id}`)
                     }
                     if (mobile) setMobileScopeOpen(false)
                   }}
@@ -1250,7 +1263,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                   )}
 
                   {/* 文件夹图标 */}
-                  <div className="flex h-4 w-4 shrink-0 items-center justify-center">
+                  <div className="flex h-4 w-4 shrink-0 items-center justify-center -ml-0.5">
                     {isExpanded ? (
                       <FolderOpen className={`h-3.5 w-3.5 ${isTaskSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted/75'}`} />
                     ) : (
@@ -1260,7 +1273,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
 
                   {/* 任务标题 */}
                   <span className={`min-w-0 flex-1 truncate text-[13px] leading-snug transition-colors ${
-                    isTaskSelected ? 'text-cyber-neon-cyan font-semibold' : 'text-cyber-text-primary/75 group-hover:text-cyber-text-primary'
+                    isTaskSelected ? 'text-cyber-neon-cyan font-semibold' : 'text-cyber-text-primary/80 group-hover:text-cyber-text-primary'
                   }`} title={task.task_title || task.thread_id}>
                     {task.task_title || task.thread_id}
                   </span>
@@ -1297,9 +1310,9 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                   </div>
                 </div>
 
-                {/* 2级节点：采集轮次子树（极简纯净 28px） */}
+                {/* 2级节点：采集轮次子树（清晰树状错层缩进 28px） */}
                 {isExpanded && hasRounds && (
-                  <div className="ml-3.5 pl-2.5 my-0.5 space-y-0.5 border-l border-cyber-border-subtle/50">
+                  <div className="ml-[18px] pl-3 my-0.5 space-y-0.5 border-l border-cyber-border-subtle/60">
                     {task.rounds.map((round) => {
                       const isRoundSelected = scope === `plan:${round.plan_id}`
                       const roundItemCount = round.runs.reduce(

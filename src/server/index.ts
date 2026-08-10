@@ -52,6 +52,7 @@ export interface ServerWindowControls {
   isCrawlerWindowVisible?: (platform?: string) => boolean;
   hasActiveCrawlerViews?: () => boolean;
   canOpenCrawlerWindow?: () => boolean;
+  getActiveCrawlerPlatforms?: () => string[];
   showCrawlerWindow?: (platform?: string) => boolean;
   hideCrawlerWindow?: (platform?: string) => boolean;
   toggleCrawlerWindow?: (platform?: string) => boolean;
@@ -220,9 +221,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       success: true,
       visible: windowControls.isCrawlerWindowVisible?.() ?? false,
       has_views: windowControls.hasActiveCrawlerViews?.() ?? false,
-      // has_views only covers platforms that are crawling *right now*; can_open
-      // also covers finished ones, whose tabs can be reopened for inspection.
       can_open: windowControls.canOpenCrawlerWindow?.() ?? false,
+      active_platforms: windowControls.getActiveCrawlerPlatforms?.() ?? [],
     };
   });
 
@@ -240,9 +240,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       const visible = windowControls.isCrawlerWindowVisible?.(platform) ?? false;
       const hasViews = windowControls.hasActiveCrawlerViews?.() ?? false;
       const canOpen = windowControls.canOpenCrawlerWindow?.() ?? false;
-      return { success: true, visible, toggled, has_views: hasViews, can_open: canOpen };
+      const activePlatforms = windowControls.getActiveCrawlerPlatforms?.() ?? [];
+      return { success: true, visible, toggled, has_views: hasViews, can_open: canOpen, active_platforms: activePlatforms };
     } catch (err: any) {
-      return { success: false, error: err.message, visible: false, has_views: false, can_open: false };
+      return { success: false, error: err.message, visible: false, has_views: false, can_open: false, active_platforms: [] };
     }
   });
 
