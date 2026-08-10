@@ -18,6 +18,8 @@ export interface IntentContext {
   previousUserText?: string;
   previousAssistantText?: string;
   hasPreviousPlanKeywords?: boolean;
+  /** The thread already owns persisted collection results, regardless of the latest plan status. */
+  hasCollectedData?: boolean;
   /** Connector ids the user explicitly picked from the "@" mention menu (see useMentionCommands). */
   mentionedConnectors?: string[];
   /** Business Skill ids the user explicitly picked from the "@" mention menu. */
@@ -43,7 +45,7 @@ const FORCE_EXECUTE = new RegExp(`^(?:执行|开跑|跑起来)${CONFIRM_PARTICLE
 const STOP = /(?:停止|停下|停一下|暂停|取消)(?:采集|任务|执行)?|(?:stop|cancel)(?:\s+(?:task|run))?/i;
 const STATUS_QUERY = /(?:任务|采集|收集|抓取).*(?:多少|几条|情况|状态|进度|怎么样|完成)|(?:多少|几条).*(?:信息|内容|数据|结果)|采集到了吗|(?:执行|开始|开跑|跑起来)(?:了)?吗/i;
 const EXPORT = /(?:导出|下载|生成).*(?:Excel|XLSX|CSV|表格|数据|结果|Markdown|Obsidian|JSON|IMA)|(?:Excel|XLSX|CSV|表格|Markdown|Obsidian|JSON|IMA).*(?:导出|下载|生成)/i;
-const ANALYZE = /分析|总结|结论|对比|洞察|报告|原因|评价|评价如何|怎么看|归纳|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/i;
+const ANALYZE = /分析|总结|结论|对比|洞察|报告|简报|提炼|挖掘|梳理|剖析|交叉(?:验证|核验)|原因|评价|评价如何|怎么看|归纳|舆情|趋势|正负面|正面|负面|都要|全都要|侧重/i;
 const REVISE_ACTION = '(?:加上|增加|添加|再加|也要|去掉|删除|移除|不要|改成|改为|换成|换一个|更换|替换|修改|调整|只要)';
 const REVISE_FIELD = '(?:RSS|Atom|订阅源|GitHub|小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条搜索|arXiv|论文库|AI HOT|AI热点|AI热榜|DeepSeek|Kimi|豆包|千问|通义千问|Qwen|元宝|腾讯元宝|纳米AI|纳米 AI|文心|文心一言|文心言|文小言|BOSS\\s*直聘|zhipin\\.com|平台|关键词|评论|页|后台|分析目标|分析维度|关注重点)';
 const REVISE = new RegExp(`(?:${REVISE_ACTION}.*${REVISE_FIELD}|${REVISE_FIELD}.*${REVISE_ACTION})`, 'i');
@@ -245,7 +247,10 @@ export function inferResearchPlatforms(text: string): string[] {
     matchedPlatforms = ['boss', 'zhaopin', 'job51', 'liepin'];
   } else if (/(?:所有|全部|全|主流)\s*AI\s*(?:搜索|问答|类|Web\s*QA)/i.test(text)) {
     matchedPlatforms = ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'];
-  } else if (/(?:全部|所有|全)(?:支持的)?(?:\s*\d+\s*个)?(?:平台)?|全网|各平台/i.test(text)) {
+  } else if (
+    /(?:全部|所有|全)(?:支持的)?(?:\s*\d+\s*个)?平台|全网|^(?:全部|所有|全)[。！!？?\s]*$/i.test(text.trim())
+    || /(?:采集|收集|抓取|搜索|查询|检索|调查|调研|研究|监测|了解|看看).{0,20}各平台|各平台.{0,20}(?:采集|收集|抓取|搜索|查询|检索|调查|调研|研究|监测|了解|看看)/i.test(text)
+  ) {
     matchedPlatforms = [...ALL_PLATFORM_IDS];
   } else {
     const aliases: Array<[RegExp, string]> = [
@@ -417,8 +422,10 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
   if (['queued', 'running'].includes(String(status)) && STOP.test(value)) return { action: 'stop', reply: '好的，我正在停止当前采集任务。' };
   if (STATUS_QUERY.test(value)) return { action: 'status', reply: '' };
   if (EXPORT.test(value)) return { action: 'export', reply: '' };
-  if (['queued', 'running'].includes(String(status)) && ANALYZE.test(value)) return { action: 'analyze', reply: '' };
-  if (['completed', 'partially_completed'].includes(String(status)) && (ANALYZE.test(value) || /^(?:都要|全都要|正面|负面|趋势|舆情|都可以|没问题|好的?)$/i.test(value))) return { action: 'analyze', reply: '' };
+  const canAnalyzeCollectedData = context.hasCollectedData
+    || ['queued', 'running', 'completed', 'partially_completed'].includes(String(status));
+  if (canAnalyzeCollectedData && ANALYZE.test(value)) return { action: 'analyze', reply: '' };
+  if (['completed', 'partially_completed'].includes(String(status)) && /^(?:都要|全都要|正面|负面|趋势|舆情|都可以|没问题|好的?)$/i.test(value)) return { action: 'analyze', reply: '' };
   if (status === 'awaiting_confirmation' && (REVISE.test(value) || isAnalysisRevisionRequest(value))) return { action: 'revise_plan', reply: '' };
 
   if (context.awaitingClarification && !/^(?:不知道|还?没想好|不确定|随便)$/.test(value)) {

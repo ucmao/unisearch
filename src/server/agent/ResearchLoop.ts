@@ -527,12 +527,17 @@ export class ResearchLoop {
     const remainingAnswerMs = Math.max(5_000, timeoutMs - (this.now() - started) - 1_000);
     const answerTimeoutSignal = AbortSignal.timeout(remainingAnswerMs);
     const answerSignal = options.signal ? AbortSignal.any([options.signal, answerTimeoutSignal]) : answerTimeoutSignal;
+    let streamedAnyDelta = false;
     try {
       answer = await this.model.answerResearch(
         options.messages,
         finalizedEvidence,
         answerSignal,
-        undefined,
+        (delta) => {
+          streamedAnyDelta = true;
+          emitSourcesOnce();
+          options.onDelta?.(delta);
+        },
       );
       const invalidReason = invalidResearchAnswerReason(answer, finalizedEvidence);
       if (invalidReason) {
@@ -547,8 +552,10 @@ export class ResearchLoop {
       stopReason = `${stopReason}；${answerFailure}`;
       answer = fallbackResearchAnswer(question, finalizedEvidence, stopReason);
     }
-    emitSourcesOnce();
-    options.onDelta?.(answer);
+    if (!streamedAnyDelta) {
+      emitSourcesOnce();
+      options.onDelta?.(answer);
+    }
     options.trace.finish(stopReason);
     return {
       answer: answer.trim(),

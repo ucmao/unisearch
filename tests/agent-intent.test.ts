@@ -302,8 +302,43 @@ test('CSV requests use the real export action', () => {
 });
 
 test('completed task analysis stays on the local analysis path', () => {
-  for (const message of ['分析结果呀，gpt 5.6模型有哪些？', '根据刚才结果总结一下', '分析这个 CSV 的结论']) {
+  for (const message of ['分析结果呀，gpt 5.6模型有哪些？', '根据刚才结果总结一下', '分析这个 CSV 的结论', '基于当前所有采集数据，输出一份结构化、含核心发现的调研简报']) {
     assert.equal(localIntentDecision(message, { planStatus: 'completed' }).action, 'analyze', message);
+  }
+});
+
+test('references to all collected data do not expand to every platform', () => {
+  assert.deepEqual(inferResearchPlatforms('基于当前所有采集数据，输出一份结构化、含核心发现的调研简报'), []);
+  assert.deepEqual(inferResearchPlatforms('分析全部数据并给出结论'), []);
+  assert.deepEqual(inferResearchPlatforms('采集全部平台'), [
+    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
+    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao',
+    'boss', 'zhaopin', 'job51', 'liepin',
+  ]);
+  assert.deepEqual(inferResearchPlatforms('全部'), [
+    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
+    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao',
+    'boss', 'zhaopin', 'job51', 'liepin',
+  ]);
+});
+
+test('sidebar analysis suggestions always analyze existing data without expanding collection scope', () => {
+  const prompts = [
+    '对比分析各平台在内容侧重、受众态度与讨论热度上的分布差异',
+    '提炼全部采集内容中的核心论点、高赞观点与关键事实要点',
+    '深入挖掘评论区与正文中用户集中吐槽的痛点、诉求与负面反馈',
+    '梳理数据中多方争论的核心矛盾、分歧立场与代表性辩论观点',
+    '对不同信源与平台提供的信息进行交叉验证，指出存疑或矛盾点',
+    '基于当前所有采集数据，输出一份结构化、含核心发现的调研简报',
+  ];
+
+  for (const prompt of prompts) {
+    assert.deepEqual(inferResearchPlatforms(prompt), [], prompt);
+    for (const planStatus of ['completed', 'partially_completed', 'failed', 'stopped']) {
+      assert.equal(localIntentDecision(prompt, { planStatus, hasCollectedData: true }).action, 'analyze', `${planStatus}: ${prompt}`);
+    }
   }
 });
 

@@ -5,7 +5,7 @@
 
 **基于 Electron + TypeScript 的多平台 AI 内容调研与采集工具**
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Node Version](https://img.shields.io/badge/node-20+-blue.svg)](https://nodejs.org/) [![Electron](https://img.shields.io/badge/electron-42+-blue.svg)](https://www.electronjs.org/) [![Support](https://img.shields.io/badge/support-30%20Connectors-brightgreen.svg)](#-支持的采集平台与信源)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![Node Version](https://img.shields.io/badge/node-22.12+-blue.svg)](https://nodejs.org/) [![Electron](https://img.shields.io/badge/electron-42+-blue.svg)](https://www.electronjs.org/) [![Support](https://img.shields.io/badge/support-30%20Connectors-brightgreen.svg)](#-支持的采集平台与信源)
 
 <p align="center">
 <a href="#-系统架构">系统架构</a> •
@@ -93,7 +93,7 @@ flowchart LR
 
 ### 📋 前置要求
 
-* **Node.js** >= 20.0.0 ([下载地址](https://nodejs.org/))
+* **Node.js** >= 22.12.0 ([下载地址](https://nodejs.org/))
 
 ### 📦 安装依赖
 

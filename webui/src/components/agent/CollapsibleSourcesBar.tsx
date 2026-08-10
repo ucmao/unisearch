@@ -31,7 +31,7 @@ interface CollapsibleSourcesBarProps {
 
 
 export function CollapsibleSourcesBar({
-  sources = [], keywords = [], retrieval, coverage, knowledgeScope, evidenceCounts, degraded, onCitationClick,
+  sources = [], keywords = [], retrieval, coverage, onCitationClick,
 }: CollapsibleSourcesBarProps) {
   const [expanded, setExpanded] = useState(false)
   const platformLabels = usePlatformLabels()
@@ -51,22 +51,7 @@ export function CollapsibleSourcesBar({
       return `已读取网页，参考 ${sources.length} 篇资料`
     }
     if (retrieval === 'research_loop') {
-      const derived = {
-        knowledge: sources.filter((source) => source.evidenceType === 'knowledge').length,
-        search: sources.filter((source) => source.evidenceType === 'search').length,
-        web_page: sources.filter((source) => source.evidenceType === 'web_page').length,
-        full_web_page: sources.filter((source) => source.evidenceType === 'web_page' && source.contentQuality === 'full').length,
-      }
-      if (!evidenceCounts && derived.knowledge + derived.search + derived.web_page === 0) {
-        return `已取得多来源研究证据，参考 ${sources.length} 条混合资料（旧记录未区分来源类型）`
-      }
-      const counts = { ...derived, ...(evidenceCounts || {}) }
-      const scopeLabel = knowledgeScope === 'global' ? '全局知识库' : '当前任务知识库'
-      const webLabel = counts.web_page > 0 && counts.full_web_page < counts.web_page
-        ? `网页读取 ${counts.web_page}（完整正文 ${counts.full_web_page}）`
-        : `网页正文 ${counts.web_page}`
-      const stateLabel = degraded ? '多来源研究已降级，保留' : '已取得多来源研究证据，参考'
-      return `${stateLabel} ${sources.length} 条资料（${scopeLabel} ${counts.knowledge}、搜索摘要 ${counts.search}、${webLabel}）`
+      return `已完成深度研究，参考 ${sources.length} 处来源`
     }
     // 计算数量呈现：若有全量大盘 totalDocs 且大盘数大于精读数，显示斜杠形式 (如 12/30)，否则降级为单数字 (如 12)
     const docStat = totalDocs > readDocs ? `${readDocs}/${totalDocs}` : `${readDocs}`

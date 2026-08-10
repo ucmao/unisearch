@@ -558,6 +558,7 @@ export class AgentService {
       previousUserText: lastUserMessage?.content,
       previousAssistantText: lastAssistantMessage?.content,
       hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
+      hasCollectedData: agentRepository.getThreadContents(threadId, 1).length > 0,
       mentionedConnectors: activeMentionedConnectors,
       mentionedSkills: explicitlySelectedSkill || inheritedSkillId ? [activeSkill?.id || ''].filter(Boolean) : [],
     });
