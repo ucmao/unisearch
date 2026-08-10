@@ -5,11 +5,6 @@ export interface AppConfig {
   COOKIES: string;
   CRAWLER_TYPE: 'search' | 'detail' | 'creator';
   
-  ENABLE_IP_PROXY: boolean;
-  IP_PROXY_POOL_COUNT: number;
-  IP_PROXY_PROVIDER_NAME: string;
-  STATIC_PROXY_URL: string;
-
   HEADLESS: boolean;
   SAVE_LOGIN_STATE: boolean;
   
@@ -98,11 +93,6 @@ export const DEFAULT_CONFIG: AppConfig = {
   COOKIES: '',
   CRAWLER_TYPE: 'search',
   
-  ENABLE_IP_PROXY: false,
-  IP_PROXY_POOL_COUNT: 2,
-  IP_PROXY_PROVIDER_NAME: 'static',
-  STATIC_PROXY_URL: '',
-
   HEADLESS: true,
   SAVE_LOGIN_STATE: true,
   

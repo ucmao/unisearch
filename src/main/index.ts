@@ -63,7 +63,7 @@ app.commandLine.appendSwitch('remote-allow-origins', '*');
 app.commandLine.appendSwitch('user-agent', CRAWLER_USER_AGENT);
 app.commandLine.appendSwitch('lang', CRAWLER_LOCALE);
 app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
-// Avoid WebRTC bypassing a configured HTTP proxy and exposing a different local/public IP.
+// Keep crawler pages from exposing local network addresses through direct WebRTC UDP.
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 
 let mainWindow: BrowserWindow | null = null;

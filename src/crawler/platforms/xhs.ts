@@ -1,10 +1,12 @@
-import { BrowserContext, Page } from 'playwright';
+import { BrowserContext, CDPSession, Page } from 'playwright';
 import {
   AbstractCrawler,
   connectToElectronChromium,
   getElectronCrawlerPage,
   notifyLoginRequired,
   notifyLoginSuccess,
+  notifyManualVerificationRequired,
+  notifyManualVerificationSuccess,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
@@ -18,10 +20,19 @@ import {
 } from '../base/connectorHelpers';
 import { XhsSigner } from '../base/xhsSigner';
 
+type XhsLoginState = 'authenticated' | 'unauthenticated' | 'verification' | 'unknown';
+
+const XHS_AUTH_COOKIES = new Set(['web_session', 'id_token', 'a1']);
+const LOGIN_WAIT_TIMEOUT_MS = 180_000;
+const LOGIN_INITIAL_SETTLE_MS = 1_500;
+const LOGIN_SUCCESS_SETTLE_MS = 3_000;
+
 export class XiaoHongShuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
   private signer: XhsSigner | null = null;
+  private cdpSession: CDPSession | null = null;
+  private lastPositiveLoginAt = 0;
 
   private get apiHost(): string {
     return activeConfig.XHS_INTERNATIONAL ? 'webapi.rednote.com' : 'edith.xiaohongshu.com';
@@ -87,127 +98,196 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   private async handleLogin(): Promise<void> {
     console.log('[XHS] Verifying login status...');
     if (activeConfig.LOGIN_TYPE === 'cookie' && activeConfig.COOKIES) {
-      console.log('[XHS] Logging in via cookies...');
-      const cookieDict = this.parseCookies(activeConfig.COOKIES);
-      const domain = activeConfig.XHS_INTERNATIONAL ? '.rednote.com' : '.xiaohongshu.com';
-      
-      const cookiesToSet = Object.entries(cookieDict).map(([name, value]) => ({
-        name,
-        value,
-        domain,
-        path: '/',
-      }));
-      
-      await this.browserContext!.addCookies(cookiesToSet);
-      await this.page!.reload({ waitUntil: 'domcontentloaded' });
+      const existingAuthCookies = await this.authCookieNames();
+      if (existingAuthCookies === null) {
+        console.warn('[XHS] Could not inspect the page partition cookies; preserving the existing session instead of overwriting it.');
+      } else if (existingAuthCookies.length > 0) {
+        console.log(`[XHS] Reusing persisted authentication cookies (${existingAuthCookies.join(', ')}); skipped manual cookie import.`);
+      } else {
+        console.log('[XHS] No persisted authentication cookies found; importing configured cookies...');
+        const cookieDict = this.parseCookies(activeConfig.COOKIES);
+        const domain = activeConfig.XHS_INTERNATIONAL ? '.rednote.com' : '.xiaohongshu.com';
+        const cookiesToSet = Object.entries(cookieDict).map(([name, value]) => ({
+          name,
+          value,
+          domain,
+          path: '/',
+        }));
+        if (!this.cdpSession) this.cdpSession = await this.browserContext!.newCDPSession(this.page!);
+        await this.cdpSession.send('Network.setCookies', { cookies: cookiesToSet });
+        await this.page!.reload({ waitUntil: 'domcontentloaded' });
+      }
     }
 
-    // Wait for manual login or verification if needed
-    let isLoggedIn = await this.checkLoginState();
-    if (!isLoggedIn) {
-      console.log('[XHS] User is not logged in. Waiting up to 120 seconds for manual login (QR Code scan)...');
-      
-      // Try to open login dialog if not popped up
-      try {
-        const loginBtnSelectors = [
-          'xpath=//*[@id="app"]/div[1]/div[2]/div[1]/ul/div[1]/button',
-          'button:has-text("登录")',
-          '.login-btn',
-          '.login-button',
-          'a:has-text("登录")',
-          'span:has-text("登录")'
-        ];
-        for (const selector of loginBtnSelectors) {
-          try {
-            const btn = this.page!.locator(selector);
-            if (await btn.isVisible({ timeout: 1000 })) {
-              await btn.click({ timeout: 2000 });
-              break;
-            }
-          } catch {}
+    await this.page!.waitForTimeout(LOGIN_INITIAL_SETTLE_MS);
+    const startedAt = Date.now();
+    let loginControlClicked = false;
+    let loginNotificationSent = false;
+
+    while (Date.now() - startedAt < LOGIN_WAIT_TIMEOUT_MS) {
+      const state = await this.inspectLoginState();
+      if (state === 'verification') {
+        await this.waitForManualVerification('小红书要求完成账号或设备安全验证');
+        continue;
+      }
+      if (state === 'authenticated') {
+        await this.page!.waitForTimeout(LOGIN_SUCCESS_SETTLE_MS);
+        const stableState = await this.inspectLoginState();
+        if (stableState === 'verification') {
+          await this.waitForManualVerification('登录后触发小红书安全确认');
+          continue;
         }
-      } catch {
-        // Ignored, might already be open
-      }
-
-      notifyLoginRequired('xhs', '小红书当前会话未登录，需要在采集浏览器中确认或完成登录');
-
-      const startTime = Date.now();
-      while (Date.now() - startTime < 120 * 1000) {
-        isLoggedIn = await this.checkLoginState();
-        if (isLoggedIn) {
-          console.log('[XHS] Login successful!');
-          notifyLoginSuccess('xhs');
-          break;
+        if (stableState !== 'unauthenticated') {
+          console.log(loginNotificationSent ? '[XHS] Login successful and session stabilized.' : '[XHS] Login confirmed.');
+          if (loginNotificationSent) notifyLoginSuccess('xhs');
+          return;
         }
-        await new Promise((r) => setTimeout(r, 1000));
       }
 
-      if (!isLoggedIn) {
-        throw new Error('小红书登录等待超时。请在内置采集浏览器中完成登录后重新运行任务。');
+      if (state === 'unauthenticated' && !loginControlClicked) {
+        loginControlClicked = await this.clickExplicitLoginControl();
       }
-    } else {
-      console.log('[XHS] Login confirmed.');
+      if ((state === 'unauthenticated' || Date.now() - startedAt > 10_000) && !loginNotificationSent) {
+        const reason = state === 'unauthenticated'
+          ? '小红书明确显示当前会话未登录，请在采集浏览器中完成登录'
+          : '小红书登录状态暂时无法确认，请在采集浏览器中检查登录或验证页面';
+        notifyLoginRequired('xhs', reason);
+        loginNotificationSent = true;
+      }
+      await this.page!.waitForTimeout(1_000);
+    }
+
+    throw new Error('小红书登录或安全验证等待超时。请在内置采集浏览器中完成验证后重新运行任务。');
+  }
+
+  /** Authentication cookie names from the Electron page's actual session partition. */
+  private async authCookieNames(): Promise<string[] | null> {
+    if (!this.page || !this.browserContext) return null;
+    try {
+      if (!this.cdpSession) this.cdpSession = await this.browserContext.newCDPSession(this.page);
+      const { cookies } = await this.cdpSession.send('Network.getCookies', {
+        urls: [this.indexUrl, `https://${this.apiHost}`],
+      });
+      return (cookies || [])
+        .filter((cookie: any) => XHS_AUTH_COOKIES.has(cookie.name) && String(cookie.value || '').trim().length > 0)
+        .map((cookie: any) => cookie.name);
+    } catch (error: any) {
+      console.warn(`[XHS] Failed to inspect partition cookies through CDP: ${error?.message || error}`);
+      this.cdpSession = null;
+      return null;
     }
   }
 
-  private async checkLoginState(): Promise<boolean> {
-    // 1. Wait a bit for page load to stabilize
-    await this.page!.waitForTimeout(1000);
+  /** Positive account evidence must come from the site chrome, not an author card in the feed. */
+  private async hasAccountProfileEvidence(): Promise<boolean> {
+    if (!this.page) return false;
+    return this.page.evaluate(() => Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href*="/user/profile/"]')).some((link) => {
+      if (link.getClientRects().length === 0) return false;
+      const href = link.getAttribute('href') || '';
+      if (!/\/user\/profile\/[^/?#]+/.test(href)) return false;
+      if (href.includes('parent_page_channel_type=web_profile_board')) return true;
+      return Boolean(link.closest('header, nav, aside, [class*="sidebar"], [class*="side-bar"], [class*="channel-list"]'));
+    })).catch(() => false);
+  }
 
-    // 2. Check logged-out indicators first. Public navigation items such as
-    // "/publish" can be visible to visitors and must not be used as proof of login.
-    if (this.page!.url().includes('/login')) {
-      return false;
-    }
+  /** Only an exact, visible login control in account/navigation chrome is negative evidence. */
+  private async hasExplicitLoginPrompt(): Promise<boolean> {
+    if (!this.page) return false;
+    const legacyButton = this.page.locator('xpath=//*[@id="app"]/div[1]/div[2]/div[1]/ul/div[1]/button');
+    if (await legacyButton.isVisible({ timeout: 300 }).catch(() => false)) return true;
+    return this.page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('button, a')).some((element) => {
+      if (element.textContent?.trim() !== '登录' || element.getClientRects().length === 0) return false;
+      const excluded = element.closest('[class*="comment"], [class*="note-item"], [class*="feed-card"]');
+      if (excluded) return false;
+      return Boolean(element.closest('header, nav, aside, [class*="sidebar"], [class*="side-bar"], [class*="login"]'));
+    })).catch(() => false);
+  }
 
-    const loginSelectors = [
+  private async clickExplicitLoginControl(): Promise<boolean> {
+    if (!this.page || !(await this.hasExplicitLoginPrompt())) return false;
+    const selectors = [
       'xpath=//*[@id="app"]/div[1]/div[2]/div[1]/ul/div[1]/button',
-      'button:has-text("登录")',
-      'a:has-text("登录")',
-      'span:has-text("登录")',
-      '.login-btn',
-      '.login-button',
-      '.login-container'
+      'header button, header a, nav button, nav a, aside button, aside a',
+      '[class*="sidebar"] button, [class*="sidebar"] a, [class*="side-bar"] button, [class*="side-bar"] a',
+      '[class*="login"] button, [class*="login"] a',
     ];
-    for (const selector of loginSelectors) {
-      try {
-        const visible = await this.page!.isVisible(selector, { timeout: 500 }).catch(() => false);
-        if (visible) return false;
-      } catch {}
-    }
-
-    // 3. A profile link with a concrete user id is account-specific.
-    const profileSelector = "a[href*='/user/profile/']";
-    try {
-      const profileLinks = this.page!.locator(profileSelector);
-      const count = await profileLinks.count();
+    for (const selector of selectors) {
+      const candidates = this.page.locator(selector);
+      const count = Math.min(await candidates.count().catch(() => 0), 100);
       for (let index = 0; index < count; index++) {
-        const link = profileLinks.nth(index);
-        if (!(await link.isVisible().catch(() => false))) continue;
-
-        const href = await link.getAttribute('href');
-        if (href && /\/user\/profile\/[^/?#]+/.test(href)) {
-          console.log(`[XHS] Login state confirmed via account profile link: ${href}`);
-          return true;
-        }
-      }
-    } catch {}
-
-    // 4. A session cookie is the fallback when the responsive layout hides the
-    // profile link. Logged-out UI above always takes precedence over this check.
-    try {
-      const cookies = await this.browserContext!.cookies();
-      const hasWebSession = cookies.some((c) => c.name === 'web_session' && c.value.trim().length > 0);
-      if (hasWebSession) {
-        console.log('[XHS] Login state confirmed via cookies.');
+        const candidate = candidates.nth(index);
+        const text = (await candidate.textContent().catch(() => ''))?.trim();
+        if (selector !== selectors[0] && text !== '登录') continue;
+        if (!(await candidate.isVisible().catch(() => false))) continue;
+        await candidate.click({ timeout: 2_000 }).catch(() => {});
+        console.log('[XHS] Opened the explicit account login control.');
         return true;
       }
-    } catch (err: any) {
-      console.error('[XHS] Error checking cookies:', err.message);
+    }
+    return false;
+  }
+
+  private async hasManualVerification(): Promise<boolean> {
+    if (!this.page) return false;
+    const selectors = [
+      '[class*="captcha"]',
+      '[class*="verify-modal"]',
+      '[class*="risk-modal"]',
+      'iframe[src*="captcha"]',
+      'iframe[src*="verify"]',
+    ];
+    for (const selector of selectors) {
+      if (await this.page.isVisible(selector, { timeout: 250 }).catch(() => false)) return true;
+    }
+    const text = await this.page.locator('body').innerText({ timeout: 1_000 }).catch(() => '');
+    return /账号异常|登录环境异常|设备异常|安全验证|风险验证|扫码确认|确认当前登录|验证当前设备/.test(text);
+  }
+
+  private async inspectLoginState(): Promise<XhsLoginState> {
+    if (!this.page) return 'unknown';
+    if (await this.hasManualVerification()) return 'verification';
+    if (await this.hasAccountProfileEvidence()) {
+      this.lastPositiveLoginAt = Date.now();
+      console.log('[XHS] Login state confirmed via account profile chrome.');
+      return 'authenticated';
     }
 
-    return false;
+    const cookieNames = await this.authCookieNames();
+    const explicitLogin = this.page.url().includes('/login') || await this.hasExplicitLoginPrompt();
+    if (explicitLogin) return 'unauthenticated';
+    if (cookieNames?.length) {
+      this.lastPositiveLoginAt = Date.now();
+      console.log(`[XHS] Login state confirmed via partition cookies (${cookieNames.join(', ')}).`);
+      return 'authenticated';
+    }
+    if (Date.now() - this.lastPositiveLoginAt < 30_000) {
+      console.log('[XHS] Retaining recently confirmed login state while account chrome is loading.');
+      return 'authenticated';
+    }
+    return 'unknown';
+  }
+
+  private async waitForManualVerification(reason: string): Promise<void> {
+    console.warn(`[XHS] Manual verification detected: ${reason}`);
+    notifyManualVerificationRequired('xhs', reason);
+    const startedAt = Date.now();
+    let stablePasses = 0;
+    while (Date.now() - startedAt < LOGIN_WAIT_TIMEOUT_MS) {
+      if (await this.hasManualVerification()) {
+        stablePasses = 0;
+      } else {
+        stablePasses++;
+        if (stablePasses >= 2) {
+          notifyManualVerificationSuccess('xhs');
+          console.log('[XHS] Manual verification completed; waiting for the account session to stabilize.');
+          await this.page!.waitForTimeout(LOGIN_SUCCESS_SETTLE_MS);
+          return;
+        }
+      }
+      await this.page!.waitForTimeout(1_000);
+    }
+
+    throw new Error('小红书安全验证等待超时。请完成验证后重新运行任务。');
   }
 
   public async search(): Promise<void> {

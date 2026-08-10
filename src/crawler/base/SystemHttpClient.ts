@@ -1,5 +1,4 @@
 import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
-import { activeConfig } from '../../tools/config';
 
 export interface SystemRequestOptions extends AxiosRequestConfig {
   mode?: 'desktop' | 'mobile';
@@ -129,18 +128,6 @@ export class SystemHttpClient {
         timeout: options.timeout || 8000,
         maxRedirects: options.maxRedirects ?? 5,
       };
-
-      // Proxy integration
-      if (activeConfig.ENABLE_IP_PROXY && activeConfig.STATIC_PROXY_URL) {
-        try {
-          const parsedProxy = new URL(activeConfig.STATIC_PROXY_URL);
-          axiosConfig.proxy = {
-            protocol: parsedProxy.protocol.replace(':', ''),
-            host: parsedProxy.hostname,
-            port: Number(parsedProxy.port || 80),
-          };
-        } catch {}
-      }
 
       try {
         const response = await axios({ url, ...axiosConfig });
