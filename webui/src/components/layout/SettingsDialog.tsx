@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -106,7 +106,7 @@ export function SettingsDialog({
   const [isAddingMemory, setIsAddingMemory] = useState(false)
   const [newMemoryContent, setNewMemoryContent] = useState('')
   const [newMemoryCategory, setNewMemoryCategory] = useState<AgentMemory['category']>('rule')
-  const [selectedPlatformToClear, setSelectedPlatformToClear] = useState<string>('')
+  const [selectedAuthPlatform, setSelectedAuthPlatform] = useState<string>('xhs')
   const providerDrafts = useRef<Partial<Record<ModelProfile['provider'], ModelForm>>>({})
   const dialogOpen = open ?? internalOpen
 
@@ -138,6 +138,20 @@ export function SettingsDialog({
     queryKey: ['config-platforms'],
     queryFn: async () => (await configApi.getPlatforms()).data.platforms,
     enabled: dialogOpen && activeSection === 'collection',
+  })
+  const authStatusQuery = useQuery({
+    queryKey: ['config-auth-status'],
+    queryFn: async () => (await configApi.getAuthStatus()).data.credentials,
+    enabled: dialogOpen && activeSection === 'collection',
+    refetchInterval: dialogOpen && activeSection === 'collection' ? 3000 : false,
+  })
+  const openAuthWindow = useMutation({
+    mutationFn: async (platform: string) => (await configApi.openAuthWindow(platform)).data,
+    onSuccess: (data) => {
+      toast.success(data.message || '已唤起平台登录窗口')
+      queryClient.invalidateQueries({ queryKey: ['config-auth-status'] })
+    },
+    onError: (error) => toast.error(getError(error)),
   })
   const memoriesQuery = useQuery({
     queryKey: ['agent-memories'],
@@ -465,98 +479,103 @@ export function SettingsDialog({
                       </Select>
                     </div>
 
+                    {/* 卡片 2: 平台账号预登录 */}
                     <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                       <div>
-                        <div className="text-sm font-medium text-cyber-text-primary">登录身份与浏览器缓存</div>
+                        <div className="text-sm font-medium text-cyber-text-primary">平台账号预登录</div>
                         <div className="mt-1 text-xs leading-5 text-cyber-text-muted">
-                          清空各平台或全部平台在本地保存的 Chromium 独立分区会话（含 Cookie、Session、登录凭据及自动化状态缓存）。
+                          在独立沙箱中主动登录平台账号（扫码或验证码），登录态将自动保存供采集任务直接复用。
                         </div>
                       </div>
 
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-cyber-border-subtle/60 pt-4">
-                        <div className="flex items-center gap-2">
-                          <Select
-                            value={selectedPlatformToClear}
-                            onValueChange={setSelectedPlatformToClear}
-                          >
-                            <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
-                              <SelectValue placeholder="选择平台..." />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-72">
-                              {Object.entries(BROWSER_PLATFORM_CATEGORIES)
-                                .map(([category, label]) => {
-                                  const items = (platformsQuery.data || []).filter(
-                                    (p) => (p.category === category) && (p.runtimeEngine === 'playwright' || p.category in BROWSER_PLATFORM_CATEGORIES)
-                                  )
-                                  if (items.length === 0) return null
-                                  return (
-                                    <SelectGroup key={category}>
-                                      <SelectLabel className="px-2 py-1.5 text-[11px] font-semibold text-cyber-neon-cyan/90">
-                                        {label}
-                                      </SelectLabel>
-                                      {items.map((p) => (
-                                        <SelectItem key={p.value} value={p.value} className="text-xs">
-                                          {p.label}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectGroup>
-                                  )
-                                })}
-                            </SelectContent>
-                          </Select>
+                        <Select
+                          value={selectedAuthPlatform}
+                          onValueChange={setSelectedAuthPlatform}
+                        >
+                          <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                            <SelectValue placeholder="选择平台..." />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-72">
+                            {Object.entries(BROWSER_PLATFORM_CATEGORIES).map(([category, label]) => {
+                              const items = (platformsQuery.data || []).filter(
+                                (p) => (p.category === category) && (p.runtimeEngine === 'playwright' || p.category in BROWSER_PLATFORM_CATEGORIES)
+                              )
+                              if (items.length === 0) return null
+                              return (
+                                <SelectGroup key={category}>
+                                  <SelectLabel className="px-2 py-1.5 text-[11px] font-semibold text-cyber-neon-cyan/90">
+                                    {label}
+                                  </SelectLabel>
+                                  {items.map((p) => (
+                                    <SelectItem
+                                      key={p.value}
+                                      value={p.value}
+                                      className="text-xs"
+                                      extra={
+                                        authStatusQuery.data?.[p.value]?.hasCredentials ? (
+                                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-sm" title="已保存登录凭据" />
+                                        ) : null
+                                      }
+                                    >
+                                      {p.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              )
+                            })}
+                          </SelectContent>
+                        </Select>
 
-                          <DeleteConfirmDialog
-                            trigger={
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-9 shrink-0 gap-1.5 border-cyber-border-subtle text-cyber-text-secondary hover:text-cyber-text-primary px-3 text-xs"
-                                disabled={!selectedPlatformToClear}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                清空指定平台凭证
-                              </Button>
-                            }
-                            title={`清空【${platformsQuery.data?.find(p => p.value === selectedPlatformToClear)?.label || selectedPlatformToClear}】凭证与会话缓存`}
-                            description="确定要清空该平台的会话凭证吗？此操作将清除该平台本地保存的 Chromium 独立分区（含 Cookie、Session、登录凭据及自动化缓存）。"
-                            confirmLabel="确认清空"
-                            onConfirm={async () => {
-                              try {
-                                const res = await configApi.clearAuthCredentials(selectedPlatformToClear)
-                                toast.success(res.data.message || '已成功清空该平台登录凭证与会话缓存')
-                              } catch (err: any) {
-                                toast.error(getError(err))
-                                throw err
-                              }
-                            }}
-                          />
-                        </div>
-
-                        <DeleteConfirmDialog
-                          trigger={
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              className="h-9 shrink-0 gap-1.5 px-3.5 text-xs font-medium"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              清空所有凭证
-                            </Button>
-                          }
-                          title="清空所有浏览器平台凭证与缓存"
-                          description="确定要清空所有浏览器平台的登录凭证与会话缓存吗？此操作将清除本地保存的所有 Chromium 独立分区登录状态与缓存。下次发起采集时相关平台将以全新状态运行。此操作不会删除数据库中已保存的历史数据。"
-                          confirmLabel="确认清空所有"
-                          onConfirm={async () => {
-                            try {
-                              const res = await configApi.clearAuthCredentials()
-                              toast.success(res.data.message || '已成功清空所有登录凭证与会话缓存')
-                            } catch (err: any) {
-                              toast.error(getError(err))
-                              throw err
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-9 shrink-0 gap-1.5 border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan px-3.5 text-xs font-medium"
+                          disabled={!selectedAuthPlatform || openAuthWindow.isPending}
+                          onClick={() => {
+                            if (selectedAuthPlatform) {
+                              openAuthWindow.mutate(selectedAuthPlatform)
                             }
                           }}
-                        />
+                        >
+                          {openAuthWindow.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LogIn className="h-3.5 w-3.5" />}
+                          前往登录
+                        </Button>
                       </div>
+                    </div>
+
+                    {/* 卡片 3: 凭证与缓存重置 */}
+                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                      <div>
+                        <div className="text-sm font-medium text-cyber-text-primary">凭证与缓存重置</div>
+                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">一键清空所有平台在本地保存的登录凭据与会话缓存。</div>
+                      </div>
+
+                      <DeleteConfirmDialog
+                        trigger={
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-9 shrink-0 gap-1.5 px-3.5 text-xs font-medium"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            清空所有凭证
+                          </Button>
+                        }
+                        title="清空所有浏览器平台凭证与缓存"
+                        description="确定要清空所有浏览器平台的登录凭证与会话缓存吗？此操作将清除本地保存的所有 Chromium 独立分区登录状态与缓存。下次发起采集时相关平台将以全新状态运行。此操作不会删除数据库中已保存的历史数据。"
+                        confirmLabel="确认清空所有"
+                        onConfirm={async () => {
+                          try {
+                            const res = await configApi.clearAuthCredentials()
+                            queryClient.invalidateQueries({ queryKey: ['config-auth-status'] })
+                            toast.success(res.data.message || '已成功清空所有登录凭证与会话缓存')
+                          } catch (err: any) {
+                            toast.error(getError(err))
+                            throw err
+                          }
+                        }}
+                      />
                     </div>
                   </div>
                 ) : null}
@@ -573,11 +592,10 @@ export function SettingsDialog({
                   <button
                     type="button"
                     onClick={() => setStorageTab('threads')}
-                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs transition-colors ${
-                      storageTab === 'threads'
-                        ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold'
-                        : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'
-                    }`}
+                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs transition-colors ${storageTab === 'threads'
+                      ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold'
+                      : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'
+                      }`}
                   >
                     <MessageSquare className="h-4 w-4" />
                     <span>会话历史</span>
@@ -585,11 +603,10 @@ export function SettingsDialog({
                   <button
                     type="button"
                     onClick={() => setStorageTab('crawl')}
-                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs transition-colors ${
-                      storageTab === 'crawl'
-                        ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold'
-                        : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'
-                    }`}
+                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-xs transition-colors ${storageTab === 'crawl'
+                      ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold'
+                      : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'
+                      }`}
                   >
                     <Database className="h-4 w-4" />
                     <span>采集存储</span>
@@ -807,47 +824,47 @@ export function SettingsDialog({
                           </div>
                         ) : null}
                         {memoriesQuery.data?.map((memory) => (
-                            <div key={memory.memory_id} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-3.5 transition-colors hover:border-cyber-border-default">
-                              <div className="flex items-start gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                                    <span className={memory.memory_key.startsWith('user_manual_')
-                                      ? 'rounded border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/10 px-2 py-0.5 text-[10px] font-medium text-cyber-neon-cyan'
-                                      : 'rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary'}>
-                                      {memory.memory_key.startsWith('user_manual_') ? '手动固定' : memory.status === 'candidate' ? '待确认' : '自动提取'}
+                          <div key={memory.memory_id} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-3.5 transition-colors hover:border-cyber-border-default">
+                            <div className="flex items-start gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+                                  <span className={memory.memory_key.startsWith('user_manual_')
+                                    ? 'rounded border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/10 px-2 py-0.5 text-[10px] font-medium text-cyber-neon-cyan'
+                                    : 'rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary'}>
+                                    {memory.memory_key.startsWith('user_manual_') ? '手动固定' : memory.status === 'candidate' ? '待确认' : '自动提取'}
+                                  </span>
+                                  {memory.category ? (
+                                    <span className="rounded bg-cyber-bg-secondary px-2 py-0.5 text-[10px] font-medium text-cyber-text-muted">
+                                      {{ identity: '身份', preference: '偏好', context: '背景', rule: '规则' }[memory.category] || memory.category}
                                     </span>
-                                    {memory.category ? (
-                                      <span className="rounded bg-cyber-bg-secondary px-2 py-0.5 text-[10px] font-medium text-cyber-text-muted">
-                                        {{ identity: '身份', preference: '偏好', context: '背景', rule: '规则' }[memory.category] || memory.category}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  {editMemoryId === memory.memory_id ? (
-                                    <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />
-                                  ) : (
-                                    <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>
-                                  )}
-                                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
-                                    <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>
-                                    {!memory.memory_key.startsWith('user_manual_') && memory.evidence_count > 1 ? <span>· {memory.evidence_count} 次依据</span> : null}
-                                    {memory.status === 'candidate' ? <span>· 尚未用于对话</span> : null}
-                                  </div>
+                                  ) : null}
                                 </div>
-                                <div className="flex shrink-0 items-center gap-1">
-                                  {editMemoryId === memory.memory_id ? (
-                                    <>
-                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
-                                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => { setEditMemoryId(memory.memory_id); setEditMemoryContent(memory.content) }} title="编辑"><Pencil className="h-3.5 w-3.5" /></Button>
-                                      <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-neon-pink" disabled={deleteMemory.isPending} onClick={() => deleteMemory.mutate(memory.memory_id)} title="删除"><Trash2 className="h-3.5 w-3.5" /></Button>
-                                    </>
-                                  )}
+                                {editMemoryId === memory.memory_id ? (
+                                  <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />
+                                ) : (
+                                  <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>
+                                )}
+                                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
+                                  <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>
+                                  {!memory.memory_key.startsWith('user_manual_') && memory.evidence_count > 1 ? <span>· {memory.evidence_count} 次依据</span> : null}
+                                  {memory.status === 'candidate' ? <span>· 尚未用于对话</span> : null}
                                 </div>
                               </div>
+                              <div className="flex shrink-0 items-center gap-1">
+                                {editMemoryId === memory.memory_id ? (
+                                  <>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => { setEditMemoryId(memory.memory_id); setEditMemoryContent(memory.content) }} title="编辑"><Pencil className="h-3.5 w-3.5" /></Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-neon-pink" disabled={deleteMemory.isPending} onClick={() => deleteMemory.mutate(memory.memory_id)} title="删除"><Trash2 className="h-3.5 w-3.5" /></Button>
+                                  </>
+                                )}
+                              </div>
                             </div>
+                          </div>
                         ))}
                       </div>
                     </div>

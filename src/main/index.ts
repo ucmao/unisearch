@@ -6,7 +6,7 @@ import { randomInt } from 'crypto';
 import { startServer, stopServer } from '../server';
 import { CRAWLER_ACCEPT_LANGUAGE, CRAWLER_LOCALE, CRAWLER_USER_AGENT } from '../tools/browserIdentity';
 import { platformLabel, listConnectorManifests, getConnectorManifest } from '../connectors/registry';
-import { clearCrawlerCredentialSessions } from '../tools/authCredentials';
+import { clearCrawlerCredentialSessions, getCrawlerCredentialStatus } from '../tools/authCredentials';
 import { fitWindowBoundsToDisplays, loadWindowState, saveWindowState } from './windowState';
 import type { SavedWindowState } from './windowState';
 
@@ -646,11 +646,74 @@ export function toggleCrawlerWindow(platform?: string): boolean {
   return showCrawlerWindow(resolvedPlatform);
 }
 
+export const PLATFORM_ENTRY_URLS: Record<string, string> = {
+  xhs: 'https://www.xiaohongshu.com/explore',
+  douyin: 'https://www.douyin.com',
+  kuaishou: 'https://www.kuaishou.com',
+  bili: 'https://www.bilibili.com',
+  weibo: 'https://weibo.com',
+  tieba: 'https://tieba.baidu.com',
+  zhihu: 'https://www.zhihu.com',
+  boss: 'https://www.zhipin.com',
+  zhaopin: 'https://passport.zhaopin.com/login',
+  job51: 'https://login.51job.com',
+  liepin: 'https://www.liepin.com',
+  heimao: 'https://tousu.sina.com.cn',
+  deepseek: 'https://chat.deepseek.com',
+  kimi: 'https://kimi.moonshot.cn',
+  doubao: 'https://www.doubao.com/chat',
+  qwen: 'https://tongyi.aliyun.com/qianwen',
+  yuanbao: 'https://yuanbao.tencent.com/chat',
+  nami: 'https://www.namiapps.com',
+  wenxin: 'https://yiyan.baidu.com',
+  toutiao: 'https://www.toutiao.com',
+  baidu: 'https://www.baidu.com',
+  bing: 'https://www.bing.com',
+  so360: 'https://www.so.com',
+  sogou: 'https://www.sogou.com',
+  arxiv: 'https://arxiv.org',
+  github_repositories: 'https://github.com',
+  rss_news: 'https://news.google.com',
+  aihot: 'https://tophub.today',
+};
+
+export async function openPlatformAuthWindow(platform: string, targetUrl?: string): Promise<boolean> {
+  const hub = createCrawlerHubWindow();
+  const urlToLoad = targetUrl?.trim() || PLATFORM_ENTRY_URLS[platform] || `https://${platform}.com`;
+
+  let view = crawlerViews.get(platform);
+  if (!view || view.webContents.isDestroyed()) {
+    view = createCrawlerView(platform);
+  }
+
+  crawlerTabStates.set(platform, 'running');
+
+  try {
+    const currentUrl = view.webContents.getURL();
+    if (!currentUrl || currentUrl === 'about:blank' || currentUrl.startsWith('data:text/html')) {
+      void view.webContents.loadURL(urlToLoad).catch((err) => {
+        console.warn(`[Electron] Failed to load URL ${urlToLoad} for ${platform}:`, err);
+      });
+    }
+  } catch (err) {
+    console.warn(`[Electron] Error preparing view for ${platform}:`, err);
+  }
+
+  if (!activateCrawlerView(platform)) return false;
+  if (hub.isMinimized()) hub.restore();
+  hub.show();
+  if (crawlerHubRestoreMaximized && !hub.isMaximized()) hub.maximize();
+  crawlerHubRestoreMaximized = false;
+  hub.focus();
+  return true;
+}
+
 // IPC Handlers
 ipcMain.handle('crawler-window-status', (_event, platform?: string) => isCrawlerWindowVisible(platform));
 ipcMain.handle('crawler-window-show', (_event, platform: string) => showCrawlerWindow(platform));
 ipcMain.handle('crawler-window-hide', (_event, platform: string) => hideCrawlerWindow(platform));
 ipcMain.handle('crawler-window-toggle', (_event, platform: string) => toggleCrawlerWindow(platform));
+ipcMain.handle('crawler-platform-open-auth', (_event, platform: string, url?: string) => openPlatformAuthWindow(platform, url));
 
 // Helper to find a free port
 function getFreePort(startPort = 8080): Promise<number> {
@@ -773,6 +836,18 @@ export async function clearCrawlerSessionData(platform?: string): Promise<void> 
   );
 }
 
+export async function getCrawlerSessionDataStatus(platform?: string) {
+  const { session } = require('electron');
+  const platformIds = platform
+    ? [platform]
+    : listConnectorManifests().map((connector) => connector.id);
+
+  return getCrawlerCredentialStatus(
+    platformIds,
+    (partitionName) => session.fromPartition(partitionName),
+  );
+}
+
 app.on('ready', async () => {
   try {
     process.env.UNISEARCH_RESOURCES_DIR = app.isPackaged ? process.resourcesPath : app.getAppPath();
@@ -796,6 +871,8 @@ app.on('ready', async () => {
       hideCrawlerWindow,
       toggleCrawlerWindow,
       clearCrawlerSessionData,
+      openPlatformWindow: openPlatformAuthWindow,
+      getCrawlerCredentialStatus: getCrawlerSessionDataStatus,
     });
     console.log('[Electron] Fastify server started successfully. Launching UI.');
 

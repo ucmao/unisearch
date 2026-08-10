@@ -31,3 +31,32 @@ export async function clearCrawlerCredentialSessions(
     throw new Error(`以下浏览器会话未能清空：${failures.join('；')}`);
   }
 }
+
+export interface CrawlerCredentialPlatformStatus {
+  hasCredentials: boolean;
+  cookieCount: number;
+}
+
+export async function getCrawlerCredentialStatus(
+  platformIds: Iterable<string>,
+  sessionFromPartition: (partition: string) => CredentialSession,
+): Promise<Record<string, CrawlerCredentialPlatformStatus>> {
+  const result: Record<string, CrawlerCredentialPlatformStatus> = {};
+  for (const platformId of platformIds) {
+    try {
+      const session = sessionFromPartition(`persist:unisearch-crawler-${platformId}`);
+      const cookies = await session.cookies.get({});
+      const cookieCount = cookies?.length || 0;
+      result[platformId] = {
+        hasCredentials: cookieCount > 0,
+        cookieCount,
+      };
+    } catch {
+      result[platformId] = {
+        hasCredentials: false,
+        cookieCount: 0,
+      };
+    }
+  }
+  return result;
+}

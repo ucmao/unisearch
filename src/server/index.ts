@@ -57,6 +57,8 @@ export interface ServerWindowControls {
   hideCrawlerWindow?: (platform?: string) => boolean;
   toggleCrawlerWindow?: (platform?: string) => boolean;
   clearCrawlerSessionData?: (platform?: string) => Promise<void> | void;
+  openPlatformWindow?: (platform: string, url?: string) => Promise<boolean> | boolean;
+  getCrawlerCredentialStatus?: (platform?: string) => Promise<Record<string, { hasCredentials: boolean; cookieCount: number }>> | Record<string, { hasCredentials: boolean; cookieCount: number }>;
 }
 
 export async function startServer(port = 8080, windowControls: ServerWindowControls = {}): Promise<number> {
@@ -326,6 +328,48 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       }
     } catch (err: any) {
       return reply.code(500).send({ detail: `清空登录身份凭证失败: ${err?.message || '文件系统异常'}` });
+    }
+  });
+
+  fastify.post('/api/config/auth/open', async (request, reply) => {
+    const body = (request.body as { platform?: string; url?: string } | undefined) || {};
+    const platform = body.platform?.trim();
+    if (!platform) {
+      return reply.code(400).send({ detail: '请指定要打开登录的平台' });
+    }
+    const connector = listConnectorManifests().find((c) => c.id === platform);
+    const platformLabel = connector?.name || platform;
+    if (!connector) {
+      return reply.code(400).send({ detail: `未知采集平台：${platform}` });
+    }
+
+    try {
+      const opened = await windowControls.openPlatformWindow?.(platform, body.url);
+      return {
+        status: 'ok',
+        opened: opened ?? true,
+        platform,
+        message: `已唤起【${platformLabel}】独立沙箱浏览器窗口，请在窗口中完成登录或换号`,
+      };
+    } catch (err: any) {
+      return reply.code(500).send({ detail: `唤起平台登录窗口失败: ${err?.message || '未知错误'}` });
+    }
+  });
+
+  fastify.get('/api/config/auth/status', async (request) => {
+    const { platform } = (request.query as { platform?: string }) || {};
+    try {
+      const statuses = (await windowControls.getCrawlerCredentialStatus?.(platform?.trim() || undefined)) || {};
+      return {
+        status: 'ok',
+        credentials: statuses,
+      };
+    } catch (err: any) {
+      return {
+        status: 'error',
+        credentials: {},
+        error: err?.message || '获取凭证状态失败',
+      };
     }
   });
 

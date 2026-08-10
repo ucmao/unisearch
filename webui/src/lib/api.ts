@@ -509,6 +509,11 @@ function cleanAnalyticsParams<T extends Record<string, unknown>>(params: T): T {
   ])) as T
 }
 
+export interface PlatformAuthCredentialStatus {
+  hasCredentials: boolean;
+  cookieCount: number;
+}
+
 export const configApi = {
   getPlatforms: () => api.get<{ platforms: Platform[] }>('/config/platforms'),
   getConnectors: () => api.get<{ connectors: ConnectorManifest[] }>('/config/connectors'),
@@ -517,6 +522,12 @@ export const configApi = {
       crawler_types: ConfigOption[]
     }>('/config/options'),
   clearAuthCredentials: (platform?: string) => api.post<{ status: string; message: string }>('/config/auth/clear', { platform }),
+  openAuthWindow: (platform: string, url?: string) =>
+    api.post<{ status: string; opened: boolean; platform: string; message: string }>('/config/auth/open', { platform, url }),
+  getAuthStatus: (platform?: string) =>
+    api.get<{ status: string; credentials: Record<string, PlatformAuthCredentialStatus> }>('/config/auth/status', {
+      params: platform ? { platform } : undefined,
+    }),
 }
 
 export const agentApi = {
