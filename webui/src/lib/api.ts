@@ -411,7 +411,10 @@ export interface RetrievalProfile {
   apiKeyConfigured: boolean
   embeddingModel: string
   rerankerEnabled: boolean
+  rerankerUseEmbeddingService: boolean
   rerankerBaseUrl: string
+  rerankerApiKey?: string
+  rerankerApiKeyConfigured: boolean
   rerankerModel: string
   timeoutMs: number
 }
@@ -544,7 +547,7 @@ export const configApi = {
 
 export const retrievalApi = {
   getProfile: () => api.get<RetrievalProfile>('/knowledge/retrieval-profile'),
-  saveProfile: (profile: Partial<RetrievalProfile> & { apiKey?: string; clearApiKey?: boolean }) =>
+  saveProfile: (profile: Partial<RetrievalProfile> & { apiKey?: string; clearApiKey?: boolean; rerankerApiKey?: string; clearRerankerApiKey?: boolean }) =>
     api.put<RetrievalProfile>('/knowledge/retrieval-profile', profile),
   testProfile: () => api.post<{
     success: boolean

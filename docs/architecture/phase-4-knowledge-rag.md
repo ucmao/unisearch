@@ -45,9 +45,10 @@ FFmpeg、Pandoc 和 Whisper 使用系统命令，`GET /api/processors` 返回真
 和可选重排发送到用户配置的 API。未配置 API 或远程调用失败时自动降级为 FTS5 关键词检索，并向
 用户显示检索提示；采集、文档入库和分析流程不会因此被阻断。
 
-设置页的“知识检索”支持配置 Provider、API Base URL、API Key、Embedding 模型，以及独立开关的
-Reranker Base URL 和模型。Embedding Provider、Base URL 或模型变化时直接清空向量缓存，后续自动
-重建，不保留旧向量兼容逻辑。
+设置页的“知识检索”支持配置 Provider、API Base URL、API Key 和 Embedding 模型。Reranker 默认
+复用 Embedding 服务的地址与凭证，也可切换为另一家服务并独立配置 Base URL、API Key 和模型。
+Embedding Provider、Base URL 或模型变化时直接清空向量缓存，后续自动重建，不保留旧向量
+兼容逻辑。
 
 ## RAG
 

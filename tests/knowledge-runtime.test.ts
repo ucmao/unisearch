@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -104,26 +104,71 @@ test('remote embeddings are cached as binary vectors and optional reranking is a
   }
 });
 
-test('retrieval profile is new-format only and supports clearing credentials', () => {
+test('retrieval profile supports shared or independent reranker credentials', () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'unisearch-retrieval-'));
   const configPath = path.join(directory, 'retrieval-profile.json');
   try {
     const service = new RetrievalService(configPath);
     assert.equal(service.getProfile(false).apiKeyConfigured, false);
+    assert.equal(service.getProfile(false).rerankerUseEmbeddingService, true);
     const saved = service.saveProfile({
       provider: 'custom',
       baseUrl: 'https://vectors.example/v1/',
       embeddingModel: 'embedding-v1',
       rerankerEnabled: true,
+      rerankerUseEmbeddingService: false,
       rerankerBaseUrl: 'https://rerank.example/v1/',
       rerankerModel: 'reranker-v1',
       apiKey: 'retrieval-secret',
+      rerankerApiKey: 'reranker-secret',
     });
     assert.equal(saved.baseUrl, 'https://vectors.example/v1');
     assert.equal(saved.apiKeyConfigured, true);
+    assert.equal(saved.rerankerBaseUrl, 'https://rerank.example/v1');
+    assert.equal(saved.rerankerApiKeyConfigured, true);
     assert.equal(service.getProfile(true).apiKey, 'retrieval-secret');
+    assert.equal(service.getProfile(true).rerankerApiKey, 'reranker-secret');
+    assert.equal(service.saveProfile({ clearRerankerApiKey: true }).rerankerApiKeyConfigured, false);
     assert.equal(service.saveProfile({ clearApiKey: true }).apiKeyConfigured, false);
-    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 1);
+    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 2);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('version 1 retrieval profiles preserve shared and separate reranker behavior', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'unisearch-retrieval-v1-'));
+  const configPath = path.join(directory, 'retrieval-profile.json');
+  try {
+    writeFileSync(configPath, JSON.stringify({
+      version: 1,
+      provider: 'custom',
+      baseUrl: 'https://vectors.example/v1',
+      apiKey: 'legacy-secret',
+      embeddingModel: 'embedding-v1',
+      rerankerEnabled: true,
+      rerankerBaseUrl: 'https://rerank.example/v1',
+      rerankerModel: 'reranker-v1',
+      timeoutMs: 10000,
+    }));
+    const separate = new RetrievalService(configPath).getProfile(true);
+    assert.equal(separate.rerankerUseEmbeddingService, false);
+    assert.equal(separate.rerankerApiKey, 'legacy-secret');
+
+    writeFileSync(configPath, JSON.stringify({
+      version: 1,
+      provider: 'siliconflow',
+      baseUrl: 'https://api.siliconflow.cn/v1',
+      apiKey: 'legacy-secret',
+      embeddingModel: 'BAAI/bge-m3',
+      rerankerEnabled: true,
+      rerankerBaseUrl: 'https://api.siliconflow.cn/v1',
+      rerankerModel: 'BAAI/bge-reranker-v2-m3',
+      timeoutMs: 10000,
+    }));
+    const shared = new RetrievalService(configPath).getProfile(false);
+    assert.equal(shared.rerankerUseEmbeddingService, true);
+    assert.equal(shared.rerankerApiKeyConfigured, true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

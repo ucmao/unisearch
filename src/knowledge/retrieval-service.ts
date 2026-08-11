@@ -12,21 +12,25 @@ export interface RetrievalProfile {
   apiKeyConfigured: boolean;
   embeddingModel: string;
   rerankerEnabled: boolean;
+  rerankerUseEmbeddingService: boolean;
   rerankerBaseUrl: string;
+  rerankerApiKey?: string;
+  rerankerApiKeyConfigured: boolean;
   rerankerModel: string;
   timeoutMs: number;
 }
 
-interface StoredRetrievalProfile extends Omit<RetrievalProfile, 'apiKeyConfigured'> {
-  version: 1;
+interface StoredRetrievalProfile extends Omit<RetrievalProfile, 'apiKeyConfigured' | 'rerankerApiKeyConfigured'> {
+  version: 2;
 }
 
 const DEFAULT_PROFILE: StoredRetrievalProfile = {
-  version: 1,
+  version: 2,
   provider: 'siliconflow',
   baseUrl: 'https://api.siliconflow.cn/v1',
   embeddingModel: 'BAAI/bge-m3',
   rerankerEnabled: false,
+  rerankerUseEmbeddingService: true,
   rerankerBaseUrl: 'https://api.siliconflow.cn/v1',
   rerankerModel: 'BAAI/bge-reranker-v2-m3',
   timeoutMs: 60000,
@@ -67,16 +71,28 @@ export class RetrievalService {
 
   private readStored(): StoredRetrievalProfile {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<StoredRetrievalProfile>;
-      if (parsed.version !== 1) return { ...DEFAULT_PROFILE };
+      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<Omit<StoredRetrievalProfile, 'version'>> & { version?: number };
+      if (parsed.version !== 1 && parsed.version !== 2) return { ...DEFAULT_PROFILE };
+      const baseUrl = normalizedBaseUrl(String(parsed.baseUrl || DEFAULT_PROFILE.baseUrl));
+      const rerankerBaseUrl = normalizedBaseUrl(String(parsed.rerankerBaseUrl || parsed.baseUrl || DEFAULT_PROFILE.rerankerBaseUrl));
+      const migratedFromV1 = parsed.version === 1;
+      const rerankerUseEmbeddingService = migratedFromV1
+        ? rerankerBaseUrl === baseUrl
+        : parsed.rerankerUseEmbeddingService !== false;
       return {
         ...DEFAULT_PROFILE,
         ...parsed,
-        version: 1,
+        version: 2,
         provider: parsed.provider === 'custom' ? 'custom' : 'siliconflow',
-        baseUrl: normalizedBaseUrl(String(parsed.baseUrl || DEFAULT_PROFILE.baseUrl)),
+        baseUrl,
         embeddingModel: String(parsed.embeddingModel || DEFAULT_PROFILE.embeddingModel).trim(),
-        rerankerBaseUrl: normalizedBaseUrl(String(parsed.rerankerBaseUrl || parsed.baseUrl || DEFAULT_PROFILE.rerankerBaseUrl)),
+        rerankerUseEmbeddingService,
+        rerankerBaseUrl,
+        rerankerApiKey: typeof parsed.rerankerApiKey === 'string'
+          ? parsed.rerankerApiKey
+          : migratedFromV1 && !rerankerUseEmbeddingService && typeof parsed.apiKey === 'string'
+            ? parsed.apiKey
+            : undefined,
         rerankerModel: String(parsed.rerankerModel || DEFAULT_PROFILE.rerankerModel).trim(),
         timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
         apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : undefined,
@@ -95,30 +111,41 @@ export class RetrievalService {
       apiKeyConfigured: Boolean(stored.apiKey),
       embeddingModel: stored.embeddingModel,
       rerankerEnabled: stored.rerankerEnabled,
+      rerankerUseEmbeddingService: stored.rerankerUseEmbeddingService,
       rerankerBaseUrl: stored.rerankerBaseUrl,
+      ...(includeSecret ? { rerankerApiKey: stored.rerankerApiKey || '' } : {}),
+      rerankerApiKeyConfigured: stored.rerankerUseEmbeddingService ? Boolean(stored.apiKey) : Boolean(stored.rerankerApiKey),
       rerankerModel: stored.rerankerModel,
       timeoutMs: stored.timeoutMs,
     };
   }
 
-  saveProfile(input: Partial<RetrievalProfile> & { clearApiKey?: boolean }): RetrievalProfile {
+  saveProfile(input: Partial<RetrievalProfile> & { clearApiKey?: boolean; clearRerankerApiKey?: boolean }): RetrievalProfile {
     const previous = this.readStored();
     const provider = input.provider === 'custom' ? 'custom' : input.provider === 'siliconflow' ? 'siliconflow' : previous.provider;
     const inputApiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
+    const inputRerankerApiKey = typeof input.rerankerApiKey === 'string' ? input.rerankerApiKey.trim() : '';
     const next: StoredRetrievalProfile = {
-      version: 1,
+      version: 2,
       provider,
       baseUrl: normalizedBaseUrl(input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl)),
       embeddingModel: String(input.embeddingModel === undefined ? previous.embeddingModel : input.embeddingModel).trim(),
       rerankerEnabled: input.rerankerEnabled === undefined ? previous.rerankerEnabled : Boolean(input.rerankerEnabled),
+      rerankerUseEmbeddingService: input.rerankerUseEmbeddingService === undefined
+        ? previous.rerankerUseEmbeddingService
+        : Boolean(input.rerankerUseEmbeddingService),
       rerankerBaseUrl: normalizedBaseUrl(input.rerankerBaseUrl === undefined ? previous.rerankerBaseUrl : String(input.rerankerBaseUrl)),
+      rerankerApiKey: input.clearRerankerApiKey ? undefined : inputRerankerApiKey || previous.rerankerApiKey,
       rerankerModel: String(input.rerankerModel === undefined ? previous.rerankerModel : input.rerankerModel).trim(),
       timeoutMs: Math.max(5000, Math.min(180000, Number(input.timeoutMs) || previous.timeoutMs)),
       apiKey: input.clearApiKey ? undefined : inputApiKey || previous.apiKey,
     };
     if (!next.baseUrl || !next.embeddingModel) throw new Error('Embedding API 地址和模型名称不能为空');
-    if (next.rerankerEnabled && (!next.rerankerBaseUrl || !next.rerankerModel)) {
-      throw new Error('启用重排时，Reranker API 地址和模型名称不能为空');
+    if (next.rerankerEnabled && !next.rerankerModel) {
+      throw new Error('启用重排时，Reranker 模型名称不能为空');
+    }
+    if (next.rerankerEnabled && !next.rerankerUseEmbeddingService && !next.rerankerBaseUrl) {
+      throw new Error('使用独立重排服务时，Reranker API 地址不能为空');
     }
     fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
     fs.writeFileSync(this.configPath, JSON.stringify(next, null, 2), { mode: 0o600 });
@@ -162,16 +189,18 @@ export class RetrievalService {
     if (!profile.rerankerEnabled || !documents.length) {
       return documents.map((_, index) => ({ index, score: 0 })).slice(0, topN);
     }
-    if (!profile.apiKey) throw new Error('尚未配置重排 API Key');
+    const rerankerBaseUrl = profile.rerankerUseEmbeddingService ? profile.baseUrl : profile.rerankerBaseUrl;
+    const rerankerApiKey = profile.rerankerUseEmbeddingService ? profile.apiKey : profile.rerankerApiKey;
+    if (!rerankerApiKey) throw new Error('尚未配置重排 API Key');
     try {
-      const response = await axios.post(endpoint(profile.rerankerBaseUrl, 'rerank'), {
+      const response = await axios.post(endpoint(rerankerBaseUrl, 'rerank'), {
         model: profile.rerankerModel,
         query,
         documents,
         top_n: Math.max(1, Math.min(documents.length, topN)),
         return_documents: false,
       }, {
-        headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${rerankerApiKey}`, 'Content-Type': 'application/json' },
         timeout: profile.timeoutMs,
       });
       const results = Array.isArray(response.data?.results) ? response.data.results : [];
