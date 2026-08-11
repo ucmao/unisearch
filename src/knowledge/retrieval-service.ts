@@ -11,27 +11,19 @@ export interface RetrievalProfile {
   apiKey?: string;
   apiKeyConfigured: boolean;
   embeddingModel: string;
-  rerankerEnabled: boolean;
-  rerankerUseEmbeddingService: boolean;
-  rerankerBaseUrl: string;
-  rerankerApiKey?: string;
-  rerankerApiKeyConfigured: boolean;
   rerankerModel: string;
   timeoutMs: number;
 }
 
-interface StoredRetrievalProfile extends Omit<RetrievalProfile, 'apiKeyConfigured' | 'rerankerApiKeyConfigured'> {
-  version: 2;
+interface StoredRetrievalProfile extends Omit<RetrievalProfile, 'apiKeyConfigured'> {
+  version: 3;
 }
 
 const DEFAULT_PROFILE: StoredRetrievalProfile = {
-  version: 2,
+  version: 3,
   provider: 'siliconflow',
   baseUrl: 'https://api.siliconflow.cn/v1',
   embeddingModel: 'BAAI/bge-m3',
-  rerankerEnabled: false,
-  rerankerUseEmbeddingService: true,
-  rerankerBaseUrl: 'https://api.siliconflow.cn/v1',
   rerankerModel: 'BAAI/bge-reranker-v2-m3',
   timeoutMs: 60000,
 };
@@ -54,9 +46,9 @@ function publicApiError(error: any): string {
       || error?.message
       || '检索模型服务调用失败',
   );
-  if ([401, 403].includes(status)) return 'API Key 无效、无权限或已失效';
-  if (status === 404) return 'API 地址或模型名称不存在';
-  if (status === 429) return 'API 请求超出频率限制';
+  if ([401, 403].includes(status)) return 'API Key 无效、无权限或已失效 (401/403)';
+  if (status === 404) return 'API 地址或模型名称不存在 (404)';
+  if (status === 429) return 'API 请求超出频率限制 (429)';
   if (/timeout|timed out|ETIMEDOUT/i.test(raw)) return '检索模型服务连接超时';
   if (/ENOTFOUND|ECONNREFUSED|network|socket/i.test(raw)) return '无法连接检索模型服务';
   return raw.slice(0, 180);
@@ -71,31 +63,16 @@ export class RetrievalService {
 
   private readStored(): StoredRetrievalProfile {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<Omit<StoredRetrievalProfile, 'version'>> & { version?: number };
-      if (parsed.version !== 1 && parsed.version !== 2) return { ...DEFAULT_PROFILE };
-      const baseUrl = normalizedBaseUrl(String(parsed.baseUrl || DEFAULT_PROFILE.baseUrl));
-      const rerankerBaseUrl = normalizedBaseUrl(String(parsed.rerankerBaseUrl || parsed.baseUrl || DEFAULT_PROFILE.rerankerBaseUrl));
-      const migratedFromV1 = parsed.version === 1;
-      const rerankerUseEmbeddingService = migratedFromV1
-        ? rerankerBaseUrl === baseUrl
-        : parsed.rerankerUseEmbeddingService !== false;
+      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<StoredRetrievalProfile>;
+      if (parsed.version !== 3) return { ...DEFAULT_PROFILE };
       return {
-        ...DEFAULT_PROFILE,
-        ...parsed,
-        version: 2,
+        version: 3,
         provider: parsed.provider === 'custom' ? 'custom' : 'siliconflow',
-        baseUrl,
+        baseUrl: normalizedBaseUrl(String(parsed.baseUrl || DEFAULT_PROFILE.baseUrl)),
         embeddingModel: String(parsed.embeddingModel || DEFAULT_PROFILE.embeddingModel).trim(),
-        rerankerUseEmbeddingService,
-        rerankerBaseUrl,
-        rerankerApiKey: typeof parsed.rerankerApiKey === 'string'
-          ? parsed.rerankerApiKey
-          : migratedFromV1 && !rerankerUseEmbeddingService && typeof parsed.apiKey === 'string'
-            ? parsed.apiKey
-            : undefined,
-        rerankerModel: String(parsed.rerankerModel || DEFAULT_PROFILE.rerankerModel).trim(),
-        timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
         apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : undefined,
+        rerankerModel: typeof parsed.rerankerModel === 'string' ? parsed.rerankerModel.trim() : DEFAULT_PROFILE.rerankerModel,
+        timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
       };
     } catch {
       return { ...DEFAULT_PROFILE };
@@ -110,43 +87,30 @@ export class RetrievalService {
       ...(includeSecret ? { apiKey: stored.apiKey || '' } : {}),
       apiKeyConfigured: Boolean(stored.apiKey),
       embeddingModel: stored.embeddingModel,
-      rerankerEnabled: stored.rerankerEnabled,
-      rerankerUseEmbeddingService: stored.rerankerUseEmbeddingService,
-      rerankerBaseUrl: stored.rerankerBaseUrl,
-      ...(includeSecret ? { rerankerApiKey: stored.rerankerApiKey || '' } : {}),
-      rerankerApiKeyConfigured: stored.rerankerUseEmbeddingService ? Boolean(stored.apiKey) : Boolean(stored.rerankerApiKey),
       rerankerModel: stored.rerankerModel,
       timeoutMs: stored.timeoutMs,
     };
   }
 
-  saveProfile(input: Partial<RetrievalProfile> & { clearApiKey?: boolean; clearRerankerApiKey?: boolean }): RetrievalProfile {
+  saveProfile(input: Partial<RetrievalProfile> & { clearApiKey?: boolean }): RetrievalProfile {
     const previous = this.readStored();
     const provider = input.provider === 'custom' ? 'custom' : input.provider === 'siliconflow' ? 'siliconflow' : previous.provider;
     const inputApiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
-    const inputRerankerApiKey = typeof input.rerankerApiKey === 'string' ? input.rerankerApiKey.trim() : '';
+
     const next: StoredRetrievalProfile = {
-      version: 2,
+      version: 3,
       provider,
       baseUrl: normalizedBaseUrl(input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl)),
       embeddingModel: String(input.embeddingModel === undefined ? previous.embeddingModel : input.embeddingModel).trim(),
-      rerankerEnabled: input.rerankerEnabled === undefined ? previous.rerankerEnabled : Boolean(input.rerankerEnabled),
-      rerankerUseEmbeddingService: input.rerankerUseEmbeddingService === undefined
-        ? previous.rerankerUseEmbeddingService
-        : Boolean(input.rerankerUseEmbeddingService),
-      rerankerBaseUrl: normalizedBaseUrl(input.rerankerBaseUrl === undefined ? previous.rerankerBaseUrl : String(input.rerankerBaseUrl)),
-      rerankerApiKey: input.clearRerankerApiKey ? undefined : inputRerankerApiKey || previous.rerankerApiKey,
+      apiKey: input.clearApiKey ? undefined : inputApiKey || previous.apiKey,
       rerankerModel: String(input.rerankerModel === undefined ? previous.rerankerModel : input.rerankerModel).trim(),
       timeoutMs: Math.max(5000, Math.min(180000, Number(input.timeoutMs) || previous.timeoutMs)),
-      apiKey: input.clearApiKey ? undefined : inputApiKey || previous.apiKey,
     };
-    if (!next.baseUrl || !next.embeddingModel) throw new Error('Embedding API 地址和模型名称不能为空');
-    if (next.rerankerEnabled && !next.rerankerModel) {
-      throw new Error('启用重排时，Reranker 模型名称不能为空');
+
+    if (!next.baseUrl || !next.embeddingModel) {
+      throw new Error('API 地址和向量模型名称不能为空');
     }
-    if (next.rerankerEnabled && !next.rerankerUseEmbeddingService && !next.rerankerBaseUrl) {
-      throw new Error('使用独立重排服务时，Reranker API 地址不能为空');
-    }
+
     fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
     fs.writeFileSync(this.configPath, JSON.stringify(next, null, 2), { mode: 0o600 });
     return this.getProfile(false);
@@ -155,7 +119,9 @@ export class RetrievalService {
   async embed(texts: string[]): Promise<number[][]> {
     if (!texts.length) return [];
     const profile = this.getProfile(true);
-    if (!profile.apiKey) throw new Error('尚未配置语义检索 API Key');
+    if (!profile.apiKey) {
+      throw new Error('尚未配置知识检索 API Key');
+    }
     try {
       const response = await axios.post(endpoint(profile.baseUrl, 'embeddings'), {
         model: profile.embeddingModel,
@@ -186,21 +152,19 @@ export class RetrievalService {
 
   async rerank(query: string, documents: string[], topN: number): Promise<Array<{ index: number; score: number }>> {
     const profile = this.getProfile(true);
-    if (!profile.rerankerEnabled || !documents.length) {
+    if (!profile.rerankerModel || !documents.length) {
       return documents.map((_, index) => ({ index, score: 0 })).slice(0, topN);
     }
-    const rerankerBaseUrl = profile.rerankerUseEmbeddingService ? profile.baseUrl : profile.rerankerBaseUrl;
-    const rerankerApiKey = profile.rerankerUseEmbeddingService ? profile.apiKey : profile.rerankerApiKey;
-    if (!rerankerApiKey) throw new Error('尚未配置重排 API Key');
+    if (!profile.apiKey) throw new Error('尚未配置知识检索 API Key');
     try {
-      const response = await axios.post(endpoint(rerankerBaseUrl, 'rerank'), {
+      const response = await axios.post(endpoint(profile.baseUrl, 'rerank'), {
         model: profile.rerankerModel,
         query,
         documents,
         top_n: Math.max(1, Math.min(documents.length, topN)),
         return_documents: false,
       }, {
-        headers: { Authorization: `Bearer ${rerankerApiKey}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
         timeout: profile.timeoutMs,
       });
       const results = Array.isArray(response.data?.results) ? response.data.results : [];
@@ -217,16 +181,22 @@ export class RetrievalService {
   }
 
   async testConnection(): Promise<{ success: true; message: string; latency_ms: number; dimensions: number; reranker_tested: boolean }> {
-    const started = Date.now();
-    const vectors = await this.embed(['UniSearch 语义检索连接测试']);
     const profile = this.getProfile(false);
-    if (profile.rerankerEnabled) await this.rerank('苹果', ['苹果手机', '香蕉水果'], 1);
+    if (!profile.apiKeyConfigured) {
+      throw new Error('尚未配置 API Key，请先填写 Key 后再测试连接');
+    }
+    const started = Date.now();
+    const vectors = await this.embed(['UniSearch 检索连接测试']);
+    const hasRerank = Boolean(profile.rerankerModel.trim());
+    if (hasRerank) {
+      await this.rerank('苹果', ['苹果手机', '香蕉水果'], 1);
+    }
     return {
       success: true,
-      message: profile.rerankerEnabled ? 'Embedding 与 Reranker 连接成功' : 'Embedding 连接成功',
+      message: hasRerank ? '向量与重排模型连接成功' : '向量模型连接成功',
       latency_ms: Date.now() - started,
       dimensions: vectors[0].length,
-      reranker_tested: profile.rerankerEnabled,
+      reranker_tested: hasRerank,
     };
   }
 }

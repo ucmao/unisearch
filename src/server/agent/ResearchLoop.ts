@@ -76,11 +76,11 @@ export function isSearchRedirectUrl(value: string | undefined): boolean {
 }
 
 export function requiresFullPageEvidence(question: string): boolean {
-  return /核验|查证|核实|是否真实|是否已经?.*(?:发布|上线|宣布)|真假|骗局/i.test(question);
+  return /核验|查证|核实|是否真实|是否已经?.*(?:发布|上线|宣布)|真假|骗局|是不是|还是不是|是否为|是否属于|合作(?:伙伴|关系)?|资质|认证|授权|代理|牌照|供应商|入驻/i.test(question);
 }
 
 export function requiresPrimaryEvidence(question: string): boolean {
-  return /官方|是否已经?.*(?:公开)?(?:发布|上线|宣布)|有没有发布/i.test(question);
+  return /官方|官网|第一方|是否已经?.*(?:公开)?(?:发布|上线|宣布)|有没有发布|合作(?:伙伴|关系)?|资质|认证|授权|代理/i.test(question);
 }
 
 export function shouldUseGlobalKnowledgeScope(question: string): boolean {
@@ -123,7 +123,8 @@ function isLikelyPrimaryEvidence(item: ResearchEvidence): boolean {
   if (item.evidenceType !== 'web_page' || item.contentQuality !== 'full') return false;
   try {
     const host = new URL(item.sourceUrl || '').hostname.toLowerCase();
-    return /(?:^|\.)(?:gov\.cn|gov|apple\.com|microsoft\.com|openai\.com|google\.com|github\.com)$/.test(host);
+    return /(?:^|\.)(?:gov\.cn|gov|apple\.com|microsoft\.com|openai\.com|google\.com|github\.com|sap\.com|oracle\.com|huawei\.com|aliyun\.com|tencent\.com)$/.test(host)
+      || /官网|官方/i.test(item.title);
   } catch {
     return false;
   }
@@ -257,8 +258,8 @@ export class ResearchLoop {
   ): Promise<ResearchLoopResult> {
     const started = this.now();
     const maxSteps = Math.max(1, Math.min(5, options.maxSteps || 5));
-    const timeoutMs = Math.max(5_000, Math.min(60_000, options.timeoutMs || 60_000));
-    const explorationTimeoutMs = Math.min(34_000, Math.max(10_000, Math.floor(timeoutMs * 0.55)));
+    const timeoutMs = Math.max(5_000, Math.min(240_000, options.timeoutMs || 180_000));
+    const explorationTimeoutMs = Math.min(100_000, Math.max(15_000, Math.floor(timeoutMs * 0.55)));
     const explorationTimeoutSignal = AbortSignal.timeout(explorationTimeoutMs);
     const operationSignal = options.signal ? AbortSignal.any([options.signal, explorationTimeoutSignal]) : explorationTimeoutSignal;
     const evidence = new Map<string, ResearchEvidence>();
@@ -524,7 +525,7 @@ export class ResearchLoop {
 
     let answer: string;
     let degraded = hadRecoverableFailure;
-    const remainingAnswerMs = Math.max(5_000, timeoutMs - (this.now() - started) - 1_000);
+    const remainingAnswerMs = Math.max(35_000, timeoutMs - (this.now() - started) - 1_000);
     const answerTimeoutSignal = AbortSignal.timeout(remainingAnswerMs);
     const answerSignal = options.signal ? AbortSignal.any([options.signal, answerTimeoutSignal]) : answerTimeoutSignal;
     let streamedAnyDelta = false;

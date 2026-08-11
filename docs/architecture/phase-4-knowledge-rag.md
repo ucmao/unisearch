@@ -42,13 +42,14 @@ FFmpeg、Pandoc 和 Whisper 使用系统命令，`GET /api/processors` 返回真
 - 每个研究 Workflow 在 Document 处理结束后自动执行索引步骤。
 
 项目不再包含本地哈希 Embedding。文档、Chunk、FTS 和向量缓存仍保存在本地 SQLite，只有向量计算
-和可选重排发送到用户配置的 API。未配置 API 或远程调用失败时自动降级为 FTS5 关键词检索，并向
-用户显示检索提示；采集、文档入库和分析流程不会因此被阻断。
+和可选重排发送到用户配置的 API。未配置 API 或远程调用失败时自动降级为 FTS5 关键词检索，
+并向用户显示降级检索提示；采集、文档入库和分析流程不会因此被阻断。
 
-设置页的“知识检索”支持配置 Provider、API Base URL、API Key 和 Embedding 模型。Reranker 默认
-复用 Embedding 服务的地址与凭证，也可切换为另一家服务并独立配置 Base URL、API Key 和模型。
-Embedding Provider、Base URL 或模型变化时直接清空向量缓存，后续自动重建，不保留旧向量
-兼容逻辑。
+知识检索与 LLM 模型设置对齐，作为核心底层引擎直接平铺展示：
+- 顶部提供实时就绪状态看板（已就绪 / 尚未配置 API Key）。
+- 统一配置一套 Base URL 与 API Key，平铺配置向量模型（必填）与重排模型（选填，填入即启用）。
+- 提供快捷服务商预设（硅基流动 / 自定义兼容接口），一键填入默认参数。
+API 地址或模型变化时直接清空向量缓存，后续自动重建。
 
 ## RAG
 

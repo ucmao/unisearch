@@ -195,7 +195,7 @@ export class KnowledgeIndex {
   async embedMissing(options: KnowledgeSearchOptions = {}): Promise<{ embedded: number; warning?: string }> {
     const profile = this.retrieval.getProfile(false);
     if (!profile.apiKeyConfigured) {
-      return { embedded: 0, warning: '未配置语义检索 API，已建立本地关键词索引' };
+      return { embedded: 0, warning: '未配置知识检索 API Key，已建立本地关键词索引' };
     }
     const scoped = scope(options);
     let embedded = 0;
@@ -288,7 +288,7 @@ export class KnowledgeIndex {
       return {
         items: lexical.slice(0, boundedLimit).map((item, index) => this.result(item.chunkId, 1 / (index + 1))).filter(Boolean) as KnowledgeSearchResult[],
         mode: 'lexical',
-        warning: '当前未配置语义检索 API，正在使用关键词检索，可能遗漏同义表达。',
+        warning: '未配置知识检索 API Key，当前使用本地分词检索兜底。',
       };
     }
 
@@ -325,7 +325,7 @@ export class KnowledgeIndex {
         .map(([chunkId, score]) => this.result(chunkId, score))
         .filter(Boolean) as KnowledgeSearchResult[];
       const mode: KnowledgeRetrievalMode = lexical.length ? 'hybrid' : 'semantic';
-      if (!profile.rerankerEnabled || fused.length < 2) {
+      if (!profile.rerankerModel.trim() || fused.length < 2) {
         return { items: fused.slice(0, boundedLimit), mode };
       }
       try {

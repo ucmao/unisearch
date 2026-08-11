@@ -10,10 +10,13 @@ import {
   requiresKnowledgeRetrieval,
   requiresWebRetrieval,
   requiredSourceQuery,
+  requiresFullPageEvidence,
+  requiresPrimaryEvidence,
   shouldUseGlobalKnowledgeScope,
   shouldUseExperimentalResearchLoop,
   type ResearchLoopModel,
 } from '../src/server/agent/ResearchLoop';
+import { cleanSearchQuery, filterRelevantSearchResults } from '../src/server/services/LiveSearchService';
 import type { ResearchEvidence, ResearchLoopState, ResearchStepDecision } from '../src/server/agent/ResearchTypes';
 
 class ScriptedModel implements ResearchLoopModel {
@@ -355,3 +358,111 @@ test('research loop refuses web reads for URLs it did not discover', async () =>
   assert.equal(toolCalls, 0);
   assert.equal(result.stopReason, '连续两步没有新增证据');
 });
+
+test('research loop default timeout allows 180s budget without premature termination', async () => {
+  let simulatedTime = 1000;
+  const model: ResearchLoopModel = {
+    async decideResearchStep(_q, _e, state) {
+      if (state.step === 1) {
+        simulatedTime += 60_000; // 模拟耗时 60 秒 (在 100s 探索预算内)
+        return { action: 'live_search', query: '测试主题', reason: '搜索公开证据' };
+      }
+      return { action: 'finish', reason: '证据已充足' };
+    },
+    async answerResearch() {
+      simulatedTime += 50_000; // 模拟综合阶段耗时 50 秒 (总耗时 110 秒，在 180s 内正常完成)
+      return '深度综合结论 [S1]';
+    },
+  };
+  const executor = fakeExecutor(() => [{
+    id: 'S1', title: '测试证据', source: 'search', sourceUrl: 'https://example.com/test',
+    excerpt: '测试摘要内容', fetchedAt: new Date().toISOString(),
+  }]);
+  const result = await new ResearchLoop(model, executor, () => simulatedTime).run('请深入调研某企业', {
+    threadId: 'thread-1', messages: [{ role: 'user', content: '请深入调研某企业' }], trace: new AgentRunTrace('thread-1'),
+  });
+
+  assert.equal(result.degraded, false);
+  assert.equal(result.answer, '深度综合结论 [S1]');
+  assert.equal(result.stopReason, '证据已充足');
+});
+
+test('qualification and partnership questions trigger full page evidence reading', async () => {
+  const question = '你能不能深入调研一下科莱特集团这家公司，还是不是 SAP 银牌合作伙伴？';
+  assert.equal(requiresFullPageEvidence(question), true);
+  assert.equal(requiresPrimaryEvidence(question), true);
+
+  const model = new ScriptedModel([
+    { action: 'live_search', query: '科莱特集团 SAP 合作伙伴', reason: '先搜索' },
+    { action: 'finish', reason: '仅有摘要' },
+    { action: 'finish', reason: '已读取官网全文' },
+  ]);
+  const calls: string[] = [];
+  const executor = fakeExecutor((name) => {
+    calls.push(name);
+    if (name === 'live_search') {
+      return [{
+        id: 'S1', title: '科莱特官网 - SAP合作伙伴', source: 'search', sourceUrl: 'https://www.co-driver.com.cn/sap',
+        excerpt: '科莱特集团是SAP战略合作伙伴...', fetchedAt: new Date().toISOString(),
+      }];
+    }
+    return {
+      articles: [{
+        content_id: '1',
+        content_url: 'https://www.co-driver.com.cn/sap',
+        title: '科莱特官网 - SAP合作伙伴',
+        summary: '',
+        description: '科莱特集团自2014年起成为SAP合作伙伴，目前为SAP服务商与认证伙伴。'.repeat(10),
+        creator_name: '',
+        site_name: '科莱特官网',
+        images: [],
+        content_quality: 'full',
+      }],
+      failures: [],
+    };
+  });
+
+  const result = await new ResearchLoop(model, executor).run(question, {
+    threadId: 'thread-1', messages: [{ role: 'user', content: question }], trace: new AgentRunTrace('thread-1'),
+  });
+
+  assert.deepEqual(calls, ['live_search', 'direct_web_read']);
+  assert.equal(result.evidence[0].contentQuality, 'full');
+});
+
+test('query cleaning and search noise filtering remove irrelevant pages', () => {
+  const rawQuery = '你能不能深入调研一下科莱特集团这家公司，还是不是 SAP 银牌合作伙伴？';
+  const cleaned = cleanSearchQuery(rawQuery);
+  assert.match(cleaned, /科莱特集团/);
+  assert.match(cleaned, /SAP/);
+  assert.doesNotMatch(cleaned, /你能不能|深入调研一下|这家公司/);
+
+  const drafts = [
+    {
+      title: '科莱特集团(数智化转型与人才培训... - 百度百科',
+      source: 'baidu' as const,
+      sourceUrl: 'https://baike.baidu.com/item/科莱特集团',
+      excerpt: '科莱特集团成立于2014年，专注企业数智化转型与SAP服务。',
+    },
+    {
+      title: '5 USD to EUR - Convert US dollars to Euros | Wise',
+      source: 'bing' as const,
+      sourceUrl: 'https://wise.com/gb/currency-converter/usd-to-eur-rate',
+      excerpt: 'Convert 5 USD to EUR with the Wise Currency Converter. Analyze historical currency charts.',
+    },
+    {
+      title: '科莱特集团 - 企业数智化转型与人才教育服务商',
+      source: 'sogou' as const,
+      sourceUrl: 'https://www.kelai.com/index.html',
+      excerpt: '提供ERP+RPA+AI全生态解决方案，SAP官方认证服务。',
+    },
+  ];
+
+  const filtered = filterRelevantSearchResults(drafts, rawQuery);
+  assert.equal(filtered.length, 2);
+  assert.equal(filtered.some((d) => d.sourceUrl.includes('wise.com')), false);
+  assert.equal(filtered[0].title.includes('科莱特'), true);
+  assert.equal(filtered[1].title.includes('科莱特'), true);
+});
+
+

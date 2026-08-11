@@ -252,6 +252,59 @@ function deduplicate(drafts: EvidenceDraft[]): EvidenceDraft[] {
   });
 }
 
+export function cleanSearchQuery(rawQuery: string): string {
+  const trimmed = rawQuery.replace(/\s+/g, ' ').trim();
+  if (!trimmed || trimmed.length <= 15) return trimmed;
+  // 剥离常见的长口语引导句式
+  const cleaned = trimmed
+    .replace(/^(?:请(?:问|你)?|你(?:能|可以)?(?:不?能|帮我)?|麻烦(?:你|帮我)?)\s*/gi, '')
+    .replace(/(?:深入|深度)?(?:调研|研究|核验|查证|检索|搜索|查一下|看下)(?:一下)?\s*/gi, '')
+    .replace(/(?:这家|这个|关于)\s*(?:公司|企业|机构|产品|项目)?(?:\s*的资料|\s*资料)?\s*/gi, '')
+    .replace(/(?:到底|究竟)\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned || trimmed;
+}
+
+export function extractCoreQueryTerms(query: string): string[] {
+  const terms = query
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2);
+  const stopWords = new Set(['调研', '研究', '核验', '查证', '搜索', '查询', '公司', '企业', '机构', '产品', '关于', '以及', '还是', '是不是', '是否']);
+  return terms.filter((term) => !stopWords.has(term.toLowerCase()));
+}
+
+export function filterRelevantSearchResults(drafts: EvidenceDraft[], rawQuery: string): EvidenceDraft[] {
+  const terms = extractCoreQueryTerms(rawQuery);
+  if (!terms.length) return drafts;
+
+  // 针对明显的垃圾/工具网站进行模式过滤
+  const noiseUrlPattern = /(?:currency|exchange-rate|converter|forex|wise\.com\/.*convert|ip138|tool\.chinaz)/i;
+
+  const scored = drafts.map((draft) => {
+    if (noiseUrlPattern.test(draft.sourceUrl)) {
+      return { draft, score: -10 };
+    }
+    const text = `${draft.title} ${draft.excerpt}`.toLowerCase();
+    let matches = 0;
+    for (const term of terms) {
+      if (text.includes(term.toLowerCase())) {
+        matches++;
+      }
+    }
+    return { draft, score: matches };
+  });
+
+  const relevant = scored.filter((item) => item.score > 0).map((item) => item.draft);
+  // 如果全部过滤掉，则回退为除去硬性噪声 URL 后的条目，保证鲁棒性
+  if (!relevant.length) {
+    return drafts.filter((draft) => !noiseUrlPattern.test(draft.sourceUrl));
+  }
+  return relevant;
+}
+
 export function toLiveSourceCitations(evidence: SearchEvidence[]): LiveSourceCitation[] {
   return evidence.map(({ id, title, source, sourceUrl, fetchedAt }) => ({
     id, title, source, sourceUrl, fetchedAt,
@@ -273,8 +326,9 @@ export class LiveSearchService {
       maxReadItems?: number;
     } = {},
   ): Promise<SearchEvidence[]> {
-    const query = rawQuery.replace(/\s+/g, ' ').trim().slice(0, 300);
-    if (!query) return [];
+    const rawTrimmed = rawQuery.replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!rawTrimmed) return [];
+    const query = cleanSearchQuery(rawTrimmed).slice(0, 300) || rawTrimmed;
     const perProvider = 4;
     const requestOptions = {
       mode: 'desktop',
@@ -307,7 +361,9 @@ export class LiveSearchService {
     options.signal?.throwIfAborted();
     const groups = settled.map((result) => result.status === 'fulfilled' ? result.value : []);
     const fetchedAt = new Date().toISOString();
-    const evidence = deduplicate(roundRobin(groups))
+    const deduped = deduplicate(roundRobin(groups));
+    const filtered = filterRelevantSearchResults(deduped, rawTrimmed);
+    const evidence = filtered
       .slice(0, Math.max(1, Math.min(12, options.limit || 8)))
       .map((draft, index) => ({ ...draft, id: `S${index + 1}`, fetchedAt }));
     if (!options.readMode || options.readMode === 'snippet') return evidence;
