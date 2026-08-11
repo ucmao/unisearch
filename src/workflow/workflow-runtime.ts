@@ -35,7 +35,7 @@ export class WorkflowRuntime {
     workflowEngine.registerHandler('processor.search-results.select', (input, context) =>
       this.selectSearchUrls(input, context));
     workflowEngine.registerHandler('analyzer.knowledge.index', (_input, context) =>
-      Promise.resolve(knowledgeIndex.rebuild({ workflowId: context.workflowId })));
+      knowledgeIndex.rebuildWithEmbeddings({ workflowId: context.workflowId }));
     workflowEngine.registerHandler('analyzer.dataset.profile', (input, context) =>
       analysisService.run('dataset.profile', context.workflowId, input));
     workflowEngine.registerHandler('analyzer.business.insight', (_input, context) =>
@@ -116,7 +116,7 @@ export class WorkflowRuntime {
         action: analysisAction,
         plan_id: workflow.plan_id,
         skill_id: skill?.id,
-        retrieval: 'stratified_hybrid_rag',
+        retrieval: result.evidenceSelection.retrievalMode,
         sources: result.sources,
         analysis_coverage: result.coverage,
         evidence_selection: result.evidenceSelection,

@@ -1106,7 +1106,7 @@ export class AgentService {
             },
           });
           agentRepository.addMessage(threadId, 'assistant', 'analysis', report.answer, {
-            retrieval: 'stratified_hybrid_rag',
+            retrieval: report.evidenceSelection.retrievalMode,
             sources: report.sources,
             partial: isPartialAnalysis,
             analysis_coverage: report.coverage,
@@ -1559,7 +1559,7 @@ export class AgentService {
               });
               agentRepository.addMessage(final.thread_id, 'assistant', 'analysis', report.answer, {
                 plan_id: final.plan_id,
-                retrieval: 'stratified_hybrid_rag',
+                retrieval: report.evidenceSelection.retrievalMode,
                 sources: report.sources,
                 dataset_profile_report_id: datasetProfileReport.report_id,
                 analysis_report_id: analysisReport.report_id,

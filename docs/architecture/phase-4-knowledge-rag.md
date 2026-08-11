@@ -9,7 +9,7 @@ Connector
   -> Document Version
   -> Processor Worker
   -> Chunk
-  -> SQLite FTS + Local Embedding
+  -> SQLite FTS + Remote Embedding API
   -> Hybrid Retrieval
   -> Citation RAG
   -> Analyzer / Exporter
@@ -36,12 +36,18 @@ FFmpeg、Pandoc 和 Whisper 使用系统命令，`GET /api/processors` 返回真
 
 - 文本按最长 800 字符、120 字符重叠切分。
 - `document_chunks_fts` 提供 SQLite FTS5 全文检索。
-- `document_chunk_embeddings` 保存 256 维本地哈希嵌入。
-- 混合检索通过倒数排名融合合并全文与向量结果。
+- `document_chunk_embeddings` 以 Float32 BLOB 缓存远程 Embedding API 返回的向量。
+- 默认预设为硅基流动 `BAAI/bge-m3`，也支持自定义兼容 Embedding API。
+- 混合检索通过倒数排名融合合并全文与向量结果，可选调用 Reranker API 精排。
 - 每个研究 Workflow 在 Document 处理结束后自动执行索引步骤。
 
-本地哈希嵌入不需要模型下载，适合作为离线基线。未来接入外部或 ONNX Embedding 时只需要新增
-Embedding Provider，不改变 Chunk、检索或 RAG API。
+项目不再包含本地哈希 Embedding。文档、Chunk、FTS 和向量缓存仍保存在本地 SQLite，只有向量计算
+和可选重排发送到用户配置的 API。未配置 API 或远程调用失败时自动降级为 FTS5 关键词检索，并向
+用户显示检索提示；采集、文档入库和分析流程不会因此被阻断。
+
+设置页的“知识检索”支持配置 Provider、API Base URL、API Key、Embedding 模型，以及独立开关的
+Reranker Base URL 和模型。Embedding Provider、Base URL 或模型变化时直接清空向量缓存，后续自动
+重建，不保留旧向量兼容逻辑。
 
 ## RAG
 
@@ -96,7 +102,10 @@ Obsidian 输出 Vault、索引和 Frontmatter；IMA 输出 Markdown Sources 与 
 - `GET /api/processors`
 - `POST /api/documents/:document_id/process`
 - `GET /api/documents/:document_id/versions`
-- `POST /api/knowledge/index/rebuild`
+- `GET /api/knowledge/retrieval-profile`
+- `PUT /api/knowledge/retrieval-profile`
+- `POST /api/knowledge/retrieval-profile/test`
+- `POST /api/knowledge/rebuild`
 - `GET /api/knowledge/search`
 - `POST /api/knowledge/rag`
 - `GET /api/analyzers`
@@ -106,4 +115,4 @@ Obsidian 输出 Vault、索引和 Frontmatter；IMA 输出 Markdown Sources 与 
 
 ## Schema
 
-数据库 schema version 为 10。继续采用断代策略，不包含旧库迁移代码。
+数据库 schema version 为 12。继续采用断代策略，不包含旧库迁移代码；旧版本数据库在打开时直接重建。

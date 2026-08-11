@@ -23,6 +23,7 @@ import { processorWorkerExecutor } from '../processor/processor-worker-executor'
 import { listProcessorCapabilities } from '../processor/capabilities';
 import { documentProcessorRegistry } from '../document/processor-registry';
 import { knowledgeIndex } from '../knowledge/knowledge-index';
+import { retrievalService } from '../knowledge/retrieval-service';
 import { ragService } from '../knowledge/rag-service';
 import { analyzerRegistry, analysisService } from '../analyzers/registry';
 import { exporterRegistry, exportService } from '../exporters/registry';
@@ -649,6 +650,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       const result = await processorWorkerExecutor.run(processorIds, [document]);
       const processed = documentEngine.saveProcessed(result.documents[0], result.artifacts);
       knowledgeIndex.indexDocument(document_id);
+      await knowledgeIndex.embedMissing();
       return { document: processed, artifacts: result.artifacts };
     } catch (error: any) {
       return reply.status(400).send({ detail: error.message });
@@ -666,8 +668,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       keyword?: string;
       limit?: string;
     };
-    return {
-      items: knowledgeIndex.search(String(query.q || ''), {
+    return knowledgeIndex.searchDetailed(String(query.q || ''), {
         workflowId: query.workflow_id,
         threadId: query.thread_id,
         platform: query.platform,
@@ -675,8 +676,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
         subjectType: query.subject_type,
         keyword: query.keyword,
         limit: Number(query.limit) || 8,
-      }),
-    };
+      });
   });
 
   fastify.post('/api/knowledge/rag', async (request, reply) => {
@@ -752,6 +752,29 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/agent/memory-settings', async () => agentRepository.getMemorySettings());
+
+  fastify.get('/api/knowledge/retrieval-profile', async () => retrievalService.getProfile(false));
+
+  fastify.put('/api/knowledge/retrieval-profile', async (request, reply) => {
+    try {
+      const previous = retrievalService.getProfile(false);
+      const profile = retrievalService.saveProfile(request.body as any);
+      if (previous.provider !== profile.provider || previous.baseUrl !== profile.baseUrl || previous.embeddingModel !== profile.embeddingModel) {
+        knowledgeIndex.clearEmbeddings();
+      }
+      return profile;
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/knowledge/retrieval-profile/test', async (_request, reply) => {
+    try {
+      return await retrievalService.testConnection();
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
 
   fastify.put('/api/agent/memory-settings', async (request) =>
     agentRepository.updateMemorySettings(request.body as any));
@@ -1161,7 +1184,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.post('/api/knowledge/rebuild', async (request, reply) => {
     const body = (request.body || {}) as { workflow_id?: string; thread_id?: string };
     try {
-      const result = knowledgeIndex.rebuild({ workflowId: body.workflow_id, threadId: body.thread_id });
+      const result = await knowledgeIndex.rebuildWithEmbeddings({ workflowId: body.workflow_id, threadId: body.thread_id });
       return { status: 'ok', ...result };
     } catch (err: any) {
       return reply.status(500).send({ detail: err.message });

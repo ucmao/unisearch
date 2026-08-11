@@ -68,19 +68,22 @@ agentToolRegistry.register({
     limit: z.number().int().min(1).max(12).default(8),
     scope: z.enum(['global', 'thread']).default('thread'),
   }).strict(),
-  execute: async (input, context): Promise<KnowledgeToolEvidence[]> => knowledgeIndex.search(input.query, {
-    limit: input.limit,
-    ...(input.scope === 'thread' ? { threadId: context.threadId } : {}),
-  }).map((item) => ({
-    chunkId: item.chunkId,
-    documentId: item.documentId,
-    title: item.title,
-    content: item.content.slice(0, 2_000),
-    sourceUrl: item.sourceUrl,
-    source: item.source,
-    kind: item.kind,
-    score: item.score,
-  })),
+  execute: async (input, context): Promise<KnowledgeToolEvidence[]> => {
+    const items = await knowledgeIndex.search(input.query, {
+      limit: input.limit,
+      ...(input.scope === 'thread' ? { threadId: context.threadId } : {}),
+    });
+    return items.map((item) => ({
+      chunkId: item.chunkId,
+      documentId: item.documentId,
+      title: item.title,
+      content: item.content.slice(0, 2_000),
+      sourceUrl: item.sourceUrl,
+      source: item.source,
+      kind: item.kind,
+      score: item.score,
+    }));
+  },
   summarizeInput: (input) => `query=${JSON.stringify(input.query)}，scope=${input.scope}，limit=${input.limit}`,
   summarizeOutput: (output) => `知识库返回 ${output.length} 条证据`,
 });

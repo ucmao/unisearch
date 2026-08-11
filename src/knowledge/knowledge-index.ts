@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../database/connection';
 import { DocumentEngine } from '../document/document-engine';
@@ -7,25 +6,42 @@ import {
   knowledgeTokens,
   type KnowledgeProjectionMetadata,
 } from './knowledge-projector';
+import { retrievalService, type RetrievalService } from './retrieval-service';
 
-const EMBEDDING_MODEL = 'unisearch-hash-embedding-v2';
-const EMBEDDING_DIMENSIONS = 256;
+function vectorBuffer(vector: number[]): Buffer {
+  const buffer = Buffer.allocUnsafe(vector.length * Float32Array.BYTES_PER_ELEMENT);
+  vector.forEach((value, index) => buffer.writeFloatLE(value, index * Float32Array.BYTES_PER_ELEMENT));
+  return buffer;
+}
 
-export function localEmbedding(text: string): number[] {
-  const vector = new Array<number>(EMBEDDING_DIMENSIONS).fill(0);
-  for (const token of knowledgeTokens(text)) {
-    const digest = createHash('sha256').update(token).digest();
-    const index = digest.readUInt16BE(0) % EMBEDDING_DIMENSIONS;
-    vector[index] += digest[2] % 2 ? 1 : -1;
+function vectorFromBuffer(value: Buffer): number[] {
+  const vector = new Array<number>(Math.floor(value.byteLength / Float32Array.BYTES_PER_ELEMENT));
+  for (let index = 0; index < vector.length; index++) {
+    vector[index] = value.readFloatLE(index * Float32Array.BYTES_PER_ELEMENT);
   }
-  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
-  return vector.map((value) => value / norm);
+  return vector;
 }
 
 function cosine(left: number[], right: number[]): number {
-  let score = 0;
-  for (let index = 0; index < Math.min(left.length, right.length); index++) score += left[index] * right[index];
-  return score;
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  const length = Math.min(left.length, right.length);
+  for (let index = 0; index < length; index++) {
+    dot += left[index] * right[index];
+    leftNorm += left[index] * left[index];
+    rightNorm += right[index] * right[index];
+  }
+  return dot / ((Math.sqrt(leftNorm) * Math.sqrt(rightNorm)) || 1);
+}
+
+function ftsQuery(value: string): string {
+  const tokens = knowledgeTokens(value)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1)
+    .slice(0, 16);
+  const unique = [...new Set(tokens.length ? tokens : [value.trim()])];
+  return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(' OR ');
 }
 
 export interface KnowledgeSearchOptions {
@@ -58,9 +74,54 @@ export interface KnowledgeSearchResult {
   score: number;
 }
 
+export type KnowledgeRetrievalMode = 'lexical' | 'semantic' | 'hybrid' | 'hybrid_reranked';
+
+export interface KnowledgeSearchResponse {
+  items: KnowledgeSearchResult[];
+  mode: KnowledgeRetrievalMode;
+  warning?: string;
+}
+
+function scope(options: KnowledgeSearchOptions): { sql: string; params: unknown[] } {
+  const filters: string[] = [];
+  const params: unknown[] = [];
+  if (options.workflowId) {
+    filters.push(`EXISTS (
+      SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+      WHERE ds.document_id=c.document_id AND r.workflow_id=?
+    )`);
+    params.push(options.workflowId);
+  } else if (options.threadId) {
+    filters.push(`EXISTS (
+      SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+      WHERE ds.document_id=c.document_id AND r.thread_id=?
+    )`);
+    params.push(options.threadId);
+  }
+  for (const [jsonPath, filter] of [
+    ['$.platform', options.platform],
+    ['$.kind', options.kind],
+    ['$.subject.type', options.subjectType],
+    ['$.keyword', options.keyword],
+  ] as const) {
+    if (!filter) continue;
+    filters.push(`json_extract(c.metadata_json, '${jsonPath}')=?`);
+    params.push(filter);
+  }
+  return { sql: filters.length ? `AND ${filters.join(' AND ')}` : '', params };
+}
+
 export class KnowledgeIndex {
-  constructor(private readonly databaseProvider: () => Database = getDb) {}
+  constructor(
+    private readonly databaseProvider: () => Database = getDb,
+    private readonly retrieval: Pick<RetrievalService, 'getProfile' | 'embed' | 'rerank'> = retrievalService,
+  ) {}
+
   private get db(): Database { return this.databaseProvider(); }
+
+  clearEmbeddings(): number {
+    return this.db.prepare('DELETE FROM document_chunk_embeddings').run().changes;
+  }
 
   indexDocument(documentId: string): number {
     const document = new DocumentEngine(this.databaseProvider).get(documentId);
@@ -78,11 +139,6 @@ export class KnowledgeIndex {
       const insertFts = this.db.prepare(`
         INSERT INTO document_chunks_fts (chunk_id, document_id, title, content) VALUES (?, ?, ?, ?)
       `);
-      const insertEmbedding = this.db.prepare(`
-        INSERT INTO document_chunk_embeddings
-          (chunk_id, model, dimensions, vector_json, created_at)
-        VALUES (?, ?, ?, ?, ?)
-      `);
       for (const chunk of chunks) {
         insertChunk.run(
           chunk.chunkId,
@@ -97,13 +153,6 @@ export class KnowledgeIndex {
           now,
         );
         insertFts.run(chunk.chunkId, chunk.documentId, chunk.title, chunk.content);
-        insertEmbedding.run(
-          chunk.chunkId,
-          EMBEDDING_MODEL,
-          EMBEDDING_DIMENSIONS,
-          JSON.stringify(localEmbedding(`${chunk.title}\n${chunk.content}`)),
-          now,
-        );
       }
     })();
     return chunks.length;
@@ -132,86 +181,181 @@ export class KnowledgeIndex {
     return { documents: documentIds.length, chunks: chunkCount };
   }
 
-  search(query: string, options: KnowledgeSearchOptions = {}): KnowledgeSearchResult[] {
-    const value = query.trim();
-    if (!value) return [];
-    const boundedLimit = Math.max(1, Math.min(50, options.limit || 8));
-    const filters: string[] = [];
-    const filterParams: any[] = [];
-    if (options.workflowId) {
-      filters.push(`EXISTS (
-        SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
-        WHERE ds.document_id=c.document_id AND r.workflow_id=?
-      )`);
-      filterParams.push(options.workflowId);
-    } else if (options.threadId) {
-      filters.push(`EXISTS (
-        SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
-        WHERE ds.document_id=c.document_id AND r.thread_id=?
-      )`);
-      filterParams.push(options.threadId);
-    }
-    for (const [path, filter] of [
-      ['$.platform', options.platform],
-      ['$.kind', options.kind],
-      ['$.subject.type', options.subjectType],
-      ['$.keyword', options.keyword],
-    ] as const) {
-      if (!filter) continue;
-      filters.push(`json_extract(c.metadata_json, '${path}')=?`);
-      filterParams.push(filter);
-    }
-    const scopeSql = filters.length ? `AND ${filters.join(' AND ')}` : '';
+  async rebuildWithEmbeddings(options: { workflowId?: string; threadId?: string } = {}): Promise<{
+    documents: number;
+    chunks: number;
+    embedded: number;
+    warning?: string;
+  }> {
+    const rebuilt = this.rebuild(options);
+    const embedded = await this.embedMissing(options);
+    return { ...rebuilt, ...embedded };
+  }
 
-    let lexical: any[];
+  async embedMissing(options: KnowledgeSearchOptions = {}): Promise<{ embedded: number; warning?: string }> {
+    const profile = this.retrieval.getProfile(false);
+    if (!profile.apiKeyConfigured) {
+      return { embedded: 0, warning: '未配置语义检索 API，已建立本地关键词索引' };
+    }
+    const scoped = scope(options);
+    let embedded = 0;
     try {
-      lexical = this.db.prepare(`
+      while (true) {
+        const rows = this.db.prepare(`
+          SELECT c.chunk_id, c.title, c.content
+          FROM document_chunks c
+          LEFT JOIN document_chunk_embeddings e
+            ON e.chunk_id=c.chunk_id AND e.provider=? AND e.model=?
+          WHERE e.chunk_id IS NULL ${scoped.sql}
+          ORDER BY c.document_id, c.ordinal
+          LIMIT 32
+        `).all(profile.provider, profile.embeddingModel, ...scoped.params) as Array<{
+          chunk_id: string;
+          title: string;
+          content: string;
+        }>;
+        if (!rows.length) break;
+        const vectors = await this.retrieval.embed(rows.map((row) => `${row.title}\n${row.content}`));
+        const now = new Date().toISOString();
+        this.db.transaction(() => {
+          const save = this.db.prepare(`
+            INSERT INTO document_chunk_embeddings
+              (chunk_id, provider, model, dimensions, vector_blob, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(chunk_id) DO UPDATE SET
+              provider=excluded.provider,
+              model=excluded.model,
+              dimensions=excluded.dimensions,
+              vector_blob=excluded.vector_blob,
+              created_at=excluded.created_at
+          `);
+          rows.forEach((row, index) => {
+            save.run(row.chunk_id, profile.provider, profile.embeddingModel, vectors[index].length, vectorBuffer(vectors[index]), now);
+          });
+        })();
+        embedded += rows.length;
+      }
+      return { embedded };
+    } catch (error: any) {
+      return { embedded, warning: `语义索引生成失败，已降级为关键词检索：${error.message}` };
+    }
+  }
+
+  private lexicalRanks(value: string, options: KnowledgeSearchOptions, limit: number): Array<{ chunkId: string; score: number }> {
+    const scoped = scope(options);
+    try {
+      const rows = this.db.prepare(`
         SELECT c.chunk_id, bm25(document_chunks_fts) AS rank
         FROM document_chunks_fts
         JOIN document_chunks c ON c.chunk_id=document_chunks_fts.chunk_id
-        WHERE document_chunks_fts MATCH ? ${scopeSql}
+        WHERE document_chunks_fts MATCH ? ${scoped.sql}
         ORDER BY rank LIMIT ?
-      `).all(`"${value.replace(/"/g, '""')}"`, ...filterParams, boundedLimit * 4) as any[];
+      `).all(ftsQuery(value), ...scoped.params, limit) as Array<{ chunk_id: string; rank: number }>;
+      return rows.map((row) => ({ chunkId: row.chunk_id, score: row.rank }));
     } catch {
-      lexical = [];
+      return [];
+    }
+  }
+
+  private result(chunkId: string, score: number): KnowledgeSearchResult | null {
+    const row = this.db.prepare('SELECT * FROM document_chunks WHERE chunk_id=?').get(chunkId) as any;
+    if (!row) return null;
+    const metadata = JSON.parse(row.metadata_json) as KnowledgeSearchResult['metadata'];
+    return {
+      chunkId,
+      documentId: row.document_id,
+      title: row.title,
+      content: row.content,
+      sourceUrl: metadata.sourceUrl,
+      source: metadata.platform,
+      kind: metadata.kind,
+      keyword: metadata.keyword,
+      subject: metadata.subject,
+      citations: metadata.citations,
+      metadata,
+      score,
+    };
+  }
+
+  async searchDetailed(query: string, options: KnowledgeSearchOptions = {}): Promise<KnowledgeSearchResponse> {
+    const value = query.trim();
+    if (!value) return { items: [], mode: 'lexical' };
+    const boundedLimit = Math.max(1, Math.min(50, options.limit || 8));
+    const candidateLimit = Math.min(100, Math.max(20, boundedLimit * 4));
+    const lexical = this.lexicalRanks(value, options, candidateLimit);
+    const profile = this.retrieval.getProfile(false);
+    if (!profile.apiKeyConfigured) {
+      return {
+        items: lexical.slice(0, boundedLimit).map((item, index) => this.result(item.chunkId, 1 / (index + 1))).filter(Boolean) as KnowledgeSearchResult[],
+        mode: 'lexical',
+        warning: '当前未配置语义检索 API，正在使用关键词检索，可能遗漏同义表达。',
+      };
     }
 
-    const embedding = localEmbedding(value);
-    const candidates = this.db.prepare(`
-      SELECT c.chunk_id, e.vector_json
-      FROM document_chunks c
-      JOIN document_chunk_embeddings e ON e.chunk_id=c.chunk_id AND e.model=?
-      WHERE 1=1 ${scopeSql}
-      LIMIT 5000
-    `).all(EMBEDDING_MODEL, ...filterParams) as any[];
-    const semantic = candidates
-      .map((row) => ({ chunkId: row.chunk_id, score: cosine(embedding, JSON.parse(row.vector_json)) }))
-      .sort((left, right) => right.score - left.score)
-      .slice(0, boundedLimit * 4);
-    const scores = new Map<string, number>();
-    lexical.forEach((row, index) => scores.set(row.chunk_id, (scores.get(row.chunk_id) || 0) + 0.55 / (60 + index + 1)));
-    semantic.forEach((row, index) => scores.set(row.chunkId, (scores.get(row.chunkId) || 0) + 0.45 / (60 + index + 1)));
-    const ranked = [...scores.entries()].sort((left, right) => right[1] - left[1]).slice(0, boundedLimit);
-    const get = this.db.prepare('SELECT * FROM document_chunks WHERE chunk_id=?');
-    return ranked.flatMap(([chunkId, score]) => {
-      const row = get.get(chunkId) as any;
-      if (!row) return [];
-      const metadata = JSON.parse(row.metadata_json) as KnowledgeSearchResult['metadata'];
-      return [{
-        chunkId,
-        documentId: row.document_id,
-        title: row.title,
-        content: row.content,
-        sourceUrl: metadata.sourceUrl,
-        source: metadata.platform,
-        kind: metadata.kind,
-        keyword: metadata.keyword,
-        subject: metadata.subject,
-        citations: metadata.citations,
-        metadata,
-        score,
-      }];
-    });
+    const indexState = await this.embedMissing(options);
+    if (indexState.warning) {
+      return {
+        items: lexical.slice(0, boundedLimit).map((item, index) => this.result(item.chunkId, 1 / (index + 1))).filter(Boolean) as KnowledgeSearchResult[],
+        mode: 'lexical',
+        warning: indexState.warning,
+      };
+    }
+
+    try {
+      const queryVector = (await this.retrieval.embed([value]))[0];
+      const scoped = scope(options);
+      const candidates = this.db.prepare(`
+        SELECT c.chunk_id, e.vector_blob
+        FROM document_chunks c
+        JOIN document_chunk_embeddings e
+          ON e.chunk_id=c.chunk_id AND e.provider=? AND e.model=?
+        WHERE 1=1 ${scoped.sql}
+        LIMIT 5000
+      `).all(profile.provider, profile.embeddingModel, ...scoped.params) as Array<{ chunk_id: string; vector_blob: Buffer }>;
+      const semantic = candidates
+        .map((row) => ({ chunkId: row.chunk_id, score: cosine(queryVector, vectorFromBuffer(row.vector_blob)) }))
+        .sort((left, right) => right.score - left.score)
+        .slice(0, candidateLimit);
+      const scores = new Map<string, number>();
+      lexical.forEach((row, index) => scores.set(row.chunkId, (scores.get(row.chunkId) || 0) + 0.55 / (60 + index + 1)));
+      semantic.forEach((row, index) => scores.set(row.chunkId, (scores.get(row.chunkId) || 0) + 0.45 / (60 + index + 1)));
+      const fused = [...scores.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, candidateLimit)
+        .map(([chunkId, score]) => this.result(chunkId, score))
+        .filter(Boolean) as KnowledgeSearchResult[];
+      const mode: KnowledgeRetrievalMode = lexical.length ? 'hybrid' : 'semantic';
+      if (!profile.rerankerEnabled || fused.length < 2) {
+        return { items: fused.slice(0, boundedLimit), mode };
+      }
+      try {
+        const ranked = await this.retrieval.rerank(
+          value,
+          fused.map((item) => `${item.title}\n${item.content}`),
+          boundedLimit,
+        );
+        return {
+          items: ranked.map((rank) => ({ ...fused[rank.index], score: rank.score })),
+          mode: 'hybrid_reranked',
+        };
+      } catch (error: any) {
+        return {
+          items: fused.slice(0, boundedLimit),
+          mode,
+          warning: `重排服务不可用，已保留混合检索排序：${error.message}`,
+        };
+      }
+    } catch (error: any) {
+      return {
+        items: lexical.slice(0, boundedLimit).map((item, index) => this.result(item.chunkId, 1 / (index + 1))).filter(Boolean) as KnowledgeSearchResult[],
+        mode: 'lexical',
+        warning: `语义检索不可用，已降级为关键词检索：${error.message}`,
+      };
+    }
+  }
+
+  async search(query: string, options: KnowledgeSearchOptions = {}): Promise<KnowledgeSearchResult[]> {
+    return (await this.searchDetailed(query, options)).items;
   }
 }
 

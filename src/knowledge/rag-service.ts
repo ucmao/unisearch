@@ -3,6 +3,10 @@ import { modelService } from '../server/services/ModelService';
 
 export interface RagAnswer {
   answer: string;
+  retrieval: {
+    mode: 'lexical' | 'semantic' | 'hybrid' | 'hybrid_reranked';
+    warning?: string;
+  };
   sources: Array<{
     id: string;
     chunkId: string;
@@ -48,7 +52,8 @@ export class RagService {
     options: KnowledgeSearchOptions = {},
     onDelta?: (delta: string) => void,
   ): Promise<RagAnswer> {
-    const results = this.index.search(question, { ...options, limit: options.limit || 8 });
+    const retrieval = await this.index.searchDetailed(question, { ...options, limit: options.limit || 8 });
+    const results = retrieval.items;
     const sources = results.map((result, index) => ({
       id: `S${index + 1}`,
       chunkId: result.chunkId,
@@ -62,7 +67,10 @@ export class RagService {
       excerpt: result.content.slice(0, 500),
       score: result.score,
     }));
-    if (!sources.length) return { answer: '知识库中没有检索到可以支持回答的资料。', sources: [] };
+    if (!sources.length) {
+      const warning = retrieval.warning ? `\n\n> ${retrieval.warning}` : '';
+      return { answer: `知识库中没有检索到可以支持回答的资料。${warning}`, sources: [], retrieval: { mode: retrieval.mode, warning: retrieval.warning } };
+    }
 
     const referencesSection = buildReferencesSection(sources);
 
@@ -76,6 +84,7 @@ export class RagService {
           referencesSection,
         ].join('\n'),
         sources,
+        retrieval: { mode: retrieval.mode, warning: retrieval.warning },
       };
     }
 
@@ -100,7 +109,8 @@ export class RagService {
       },
     ], { materials, onDelta });
 
-    return { answer: rawAnswer.trim(), sources };
+    const answer = retrieval.warning ? `${rawAnswer.trim()}\n\n> ${retrieval.warning}` : rawAnswer.trim();
+    return { answer, sources, retrieval: { mode: retrieval.mode, warning: retrieval.warning } };
   }
 }
 

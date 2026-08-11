@@ -404,6 +404,18 @@ export interface RuntimeSettings {
   maxConcurrentCrawlers: number
 }
 
+export interface RetrievalProfile {
+  provider: 'siliconflow' | 'custom'
+  baseUrl: string
+  apiKey?: string
+  apiKeyConfigured: boolean
+  embeddingModel: string
+  rerankerEnabled: boolean
+  rerankerBaseUrl: string
+  rerankerModel: string
+  timeoutMs: number
+}
+
 export interface AgentMemory {
   memory_id: string
   category: 'identity' | 'preference' | 'context' | 'rule'
@@ -528,6 +540,19 @@ export const configApi = {
     api.get<{ status: string; credentials: Record<string, PlatformAuthCredentialStatus> }>('/config/auth/status', {
       params: platform ? { platform } : undefined,
     }),
+}
+
+export const retrievalApi = {
+  getProfile: () => api.get<RetrievalProfile>('/knowledge/retrieval-profile'),
+  saveProfile: (profile: Partial<RetrievalProfile> & { apiKey?: string; clearApiKey?: boolean }) =>
+    api.put<RetrievalProfile>('/knowledge/retrieval-profile', profile),
+  testProfile: () => api.post<{
+    success: boolean
+    message: string
+    latency_ms: number
+    dimensions: number
+    reranker_tested: boolean
+  }>('/knowledge/retrieval-profile/test', null, { timeout: 180000 }),
 }
 
 export const agentApi = {

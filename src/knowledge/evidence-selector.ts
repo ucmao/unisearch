@@ -1,5 +1,5 @@
 import type { DatasetProfile } from '../analyzers/dataset-profiler';
-import { knowledgeIndex, type KnowledgeSearchResult } from './knowledge-index';
+import { knowledgeIndex, type KnowledgeRetrievalMode, type KnowledgeSearchResult } from './knowledge-index';
 
 export type EvidenceSelectionReason = 'high_relevance' | 'preferred_type' | 'platform_representative' | 'kind_representative';
 
@@ -27,6 +27,8 @@ export interface EvidenceSelection {
   preferredKinds: string[];
   byPlatform: Record<string, number>;
   byKind: Record<string, number>;
+  retrievalMode: KnowledgeRetrievalMode;
+  retrievalWarnings: string[];
   evidence: SelectedEvidence[];
 }
 
@@ -108,9 +110,9 @@ function counts(values: string[]): Record<string, number> {
 }
 
 export class EvidenceSelector {
-  constructor(private readonly index: Pick<typeof knowledgeIndex, 'search'> = knowledgeIndex) {}
+  constructor(private readonly index: Pick<typeof knowledgeIndex, 'searchDetailed'> = knowledgeIndex) {}
 
-  select(request: EvidenceSelectionRequest): EvidenceSelection {
+  async select(request: EvidenceSelectionRequest): Promise<EvidenceSelection> {
     const targetDocumentCount = dynamicEvidenceDocumentLimit(request.datasetProfile.documentCount);
     const queries = decomposeEvidenceQueries(request);
     const preferredKinds = inferPreferredKinds(queries);
@@ -123,18 +125,25 @@ export class EvidenceSelector {
         preferredKinds,
         byPlatform: {},
         byKind: {},
+        retrievalMode: 'lexical',
+        retrievalWarnings: [],
         evidence: [],
       };
     }
 
     const candidateLimit = Math.min(50, Math.max(30, targetDocumentCount * 3));
     const documents = new Map<string, RankedDocument>();
+    const retrievalModes = new Set<KnowledgeRetrievalMode>();
+    const retrievalWarnings = new Set<string>();
     for (const query of queries) {
-      const results = this.index.search(query, {
+      const search = await this.index.searchDetailed(query, {
         threadId: request.threadId,
         workflowId: request.workflowId,
         limit: candidateLimit,
       });
+      retrievalModes.add(search.mode);
+      if (search.warning) retrievalWarnings.add(search.warning);
+      const results = search.items;
       results.forEach((result, rank) => {
         const rankScore = 1 / (rank + 1);
         const current = documents.get(result.documentId) || {
@@ -212,6 +221,13 @@ export class EvidenceSelector {
       matchedQueries: [...document.matchedQueries],
       selectionReason: reason,
     }));
+    const retrievalMode: KnowledgeRetrievalMode = retrievalModes.has('hybrid_reranked')
+      ? 'hybrid_reranked'
+      : retrievalModes.has('hybrid')
+        ? 'hybrid'
+        : retrievalModes.has('semantic')
+          ? 'semantic'
+          : 'lexical';
     return {
       targetDocumentCount,
       candidateDocumentCount: documents.size,
@@ -220,6 +236,8 @@ export class EvidenceSelector {
       preferredKinds,
       byPlatform: counts(evidence.map((item) => item.source)),
       byKind: counts(evidence.map((item) => item.kind)),
+      retrievalMode,
+      retrievalWarnings: [...retrievalWarnings],
       evidence,
     };
   }

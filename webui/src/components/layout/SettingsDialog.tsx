@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,13 +22,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { agentApi, configApi, dataApi, type AgentMemory, type MemorySettings, type ModelProfile, type RuntimeSettings } from '@/lib/api'
+import { agentApi, configApi, dataApi, retrievalApi, type AgentMemory, type MemorySettings, type ModelProfile, type RetrievalProfile, type RuntimeSettings } from '@/lib/api'
 import { useThemeStore, type PetMode } from '@/store/themeStore'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
-export type SettingsSection = 'appearance' | 'models' | 'collection' | 'storage' | 'memory'
+export type SettingsSection = 'appearance' | 'models' | 'retrieval' | 'collection' | 'storage' | 'memory'
 type ModelForm = Partial<ModelProfile> & { apiKey?: string; clearApiKey?: boolean }
+type RetrievalForm = Partial<RetrievalProfile> & { apiKey?: string; clearApiKey?: boolean }
 
 const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: '浅色', icon: Sun },
@@ -51,6 +52,7 @@ const MODEL_PROVIDER_DEFAULTS = {
 const sections: { value: SettingsSection; label: string; description: string; icon: typeof Palette }[] = [
   { value: 'appearance', label: '外观', description: '主题与显示', icon: Palette },
   { value: 'models', label: '模型', description: 'AI 服务与凭证', icon: KeyRound },
+  { value: 'retrieval', label: '知识检索', description: '向量与重排 API', icon: Search },
   { value: 'collection', label: '采集', description: '并发与资源', icon: Gauge },
   { value: 'storage', label: '存储', description: '看板数据清理', icon: Database },
   { value: 'memory', label: '记忆', description: '长期偏好与背景', icon: Brain },
@@ -99,6 +101,7 @@ export function SettingsDialog({
   const [internalOpen, setInternalOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection)
   const [form, setForm] = useState<ModelForm>({})
+  const [retrievalForm, setRetrievalForm] = useState<RetrievalForm>({})
   const [showApiKey, setShowApiKey] = useState(false)
   const [editMemoryId, setEditMemoryId] = useState<string | null>(null)
   const [editMemoryContent, setEditMemoryContent] = useState('')
@@ -123,6 +126,11 @@ export function SettingsDialog({
     queryKey: ['agent-model-profiles'],
     queryFn: async () => (await agentApi.getModelProfiles()).data,
     enabled: dialogOpen && activeSection === 'models',
+  })
+  const retrievalProfileQuery = useQuery({
+    queryKey: ['knowledge-retrieval-profile'],
+    queryFn: async () => (await retrievalApi.getProfile()).data,
+    enabled: dialogOpen && activeSection === 'retrieval',
   })
   const memorySettingsQuery = useQuery({
     queryKey: ['agent-memory-settings'],
@@ -175,6 +183,12 @@ export function SettingsDialog({
     }
   }, [profilesQuery.data])
 
+  useEffect(() => {
+    if (retrievalProfileQuery.data) {
+      setRetrievalForm({ ...retrievalProfileQuery.data, apiKey: '', clearApiKey: false })
+    }
+  }, [retrievalProfileQuery.data])
+
   const save = useMutation({
     mutationFn: () => agentApi.saveModelProfile(form),
     onSuccess: ({ data }) => {
@@ -194,6 +208,26 @@ export function SettingsDialog({
       queryClient.invalidateQueries({ queryKey: ['agent-model-profile'] })
       queryClient.invalidateQueries({ queryKey: ['agent-model-profiles'] })
       toast.success(`${data.message} · ${data.latency_ms}ms`)
+    },
+    onError: (error) => toast.error(`连接失败：${getError(error)}`),
+  })
+  const saveRetrieval = useMutation({
+    mutationFn: () => retrievalApi.saveProfile(retrievalForm),
+    onSuccess: ({ data }) => {
+      queryClient.setQueryData(['knowledge-retrieval-profile'], data)
+      setRetrievalForm({ ...data, apiKey: '', clearApiKey: false })
+      toast.success('知识检索配置已保存；更换向量模型后将自动重建索引')
+    },
+    onError: (error) => toast.error(getError(error)),
+  })
+  const testRetrieval = useMutation({
+    mutationFn: async () => {
+      await retrievalApi.saveProfile(retrievalForm)
+      return (await retrievalApi.testProfile()).data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['knowledge-retrieval-profile'] })
+      toast.success(`${data.message} · ${data.dimensions} 维 · ${data.latency_ms}ms`)
     },
     onError: (error) => toast.error(`连接失败：${getError(error)}`),
   })
@@ -375,7 +409,7 @@ export function SettingsDialog({
               <div className="mx-auto max-w-2xl">
                 <DialogHeader>
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">模型</DialogTitle>
-                  <DialogDescription>配置 AI 服务、模型和本机凭证。采集数据只会在发起 AI 分析时发送。</DialogDescription>
+                  <DialogDescription>配置对话与分析使用的 AI 服务、模型和本机凭证。</DialogDescription>
                 </DialogHeader>
                 {profilesQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取模型配置…</div>
@@ -445,6 +479,111 @@ export function SettingsDialog({
                       </Button>
                       <Button onClick={() => save.mutate()} disabled={save.isPending || test.isPending}>
                         {save.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}保存配置
+                      </Button>
+                    </DialogFooter>
+                  </div>
+                )}
+              </div>
+            ) : activeSection === 'retrieval' ? (
+              <div className="mx-auto max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="font-sans text-xl text-cyber-text-primary">知识检索</DialogTitle>
+                  <DialogDescription>使用云端 Embedding 生成语义向量，并可选用 Reranker 精排候选资料。文档片段会发送到所配置的服务。</DialogDescription>
+                </DialogHeader>
+                {retrievalProfileQuery.isLoading ? (
+                  <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取知识检索配置…</div>
+                ) : (
+                  <div className="mt-7 space-y-5">
+                    <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 text-xs leading-5 text-cyber-text-secondary">
+                      未配置 API 时，采集与本地存储不受影响，分析会自动降级为 SQLite FTS5 关键词检索。配置后，采集任务结束时会在后台批量生成并缓存向量。
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-medium text-cyber-text-secondary">服务提供商</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['siliconflow', 'custom'] as const).map((provider) => (
+                          <button
+                            key={provider}
+                            type="button"
+                            onClick={() => setRetrievalForm((current) => provider === 'siliconflow' ? {
+                              ...current,
+                              provider,
+                              baseUrl: 'https://api.siliconflow.cn/v1',
+                              embeddingModel: 'BAAI/bge-m3',
+                              rerankerBaseUrl: 'https://api.siliconflow.cn/v1',
+                              rerankerModel: 'BAAI/bge-reranker-v2-m3',
+                            } : { ...current, provider })}
+                            className={`rounded-lg border px-3 py-2.5 text-xs transition-colors ${retrievalForm.provider === provider ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'}`}
+                          >
+                            {provider === 'siliconflow' ? '硅基流动' : '自定义兼容接口'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs text-cyber-text-secondary">Embedding API Base URL</span>
+                      <Input
+                        value={retrievalForm.baseUrl || ''}
+                        onChange={(event) => setRetrievalForm({ ...retrievalForm, baseUrl: event.target.value })}
+                        placeholder="https://api.siliconflow.cn/v1"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="text-xs text-cyber-text-secondary">Embedding 模型</span>
+                      <Input
+                        value={retrievalForm.embeddingModel || ''}
+                        onChange={(event) => setRetrievalForm({ ...retrievalForm, embeddingModel: event.target.value })}
+                        placeholder="BAAI/bge-m3"
+                      />
+                    </label>
+                    <label className="block space-y-1.5">
+                      <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
+                        <span>API Key</span>
+                        {retrievalForm.apiKeyConfigured || retrievalForm.apiKey ? (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />已配置</span>
+                        ) : null}
+                      </span>
+                      <div className="relative flex items-center">
+                        <Input
+                          type={showApiKey ? 'text' : 'password'}
+                          value={retrievalForm.apiKey || ''}
+                          onChange={(event) => setRetrievalForm({ ...retrievalForm, apiKey: event.target.value, clearApiKey: event.target.value === '' })}
+                          placeholder={retrievalForm.apiKeyConfigured ? '••••••••••••••••（输入新 Key 可覆盖）' : '填写 API Key'}
+                          className={retrievalForm.apiKey ? 'pr-9' : ''}
+                        />
+                        {retrievalForm.apiKey ? (
+                          <button type="button" title={showApiKey ? '隐藏 Key' : '显示 Key'} onClick={() => setShowApiKey(!showApiKey)} className="absolute right-2.5 rounded-md p-1 text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary">
+                            {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                          </button>
+                        ) : null}
+                      </div>
+                    </label>
+                    <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                      <div className="flex items-center justify-between gap-5">
+                        <div>
+                          <div className="text-sm font-medium text-cyber-text-primary">启用 Reranker 精排</div>
+                          <div className="mt-1 text-xs text-cyber-text-muted">对混合召回的候选片段再次排序；关闭时不影响语义检索。</div>
+                        </div>
+                        <SettingToggle checked={Boolean(retrievalForm.rerankerEnabled)} onChange={(rerankerEnabled) => setRetrievalForm({ ...retrievalForm, rerankerEnabled })} />
+                      </div>
+                      {retrievalForm.rerankerEnabled ? (
+                        <div className="mt-4 space-y-4 border-t border-cyber-border-subtle pt-4">
+                          <label className="block space-y-1.5">
+                            <span className="text-xs text-cyber-text-secondary">Reranker API Base URL</span>
+                            <Input value={retrievalForm.rerankerBaseUrl || ''} onChange={(event) => setRetrievalForm({ ...retrievalForm, rerankerBaseUrl: event.target.value })} placeholder="https://api.siliconflow.cn/v1" />
+                          </label>
+                          <label className="block space-y-1.5">
+                            <span className="text-xs text-cyber-text-secondary">Reranker 模型</span>
+                            <Input value={retrievalForm.rerankerModel || ''} onChange={(event) => setRetrievalForm({ ...retrievalForm, rerankerModel: event.target.value })} placeholder="BAAI/bge-reranker-v2-m3" />
+                          </label>
+                        </div>
+                      ) : null}
+                    </div>
+                    <DialogFooter className="gap-2 border-t border-cyber-border-subtle pt-5 sm:space-x-0">
+                      <Button variant="outline" onClick={() => testRetrieval.mutate()} disabled={testRetrieval.isPending || saveRetrieval.isPending}>
+                        {testRetrieval.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}测试连接
+                      </Button>
+                      <Button onClick={() => saveRetrieval.mutate()} disabled={saveRetrieval.isPending || testRetrieval.isPending}>
+                        {saveRetrieval.isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}保存配置
                       </Button>
                     </DialogFooter>
                   </div>

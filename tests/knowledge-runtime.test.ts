@@ -8,7 +8,7 @@ import { initSchema } from '../src/database/schema';
 import { buildRawItem } from '../src/connectors/output/connector-output';
 import { mapRawItemToCanonicalDocument } from '../src/connectors/mappers/canonical-document-mapper';
 import { DocumentEngine } from '../src/document/document-engine';
-import { KnowledgeIndex, localEmbedding } from '../src/knowledge/knowledge-index';
+import { KnowledgeIndex } from '../src/knowledge/knowledge-index';
 import { KNOWLEDGE_PROJECTOR_VERSION, knowledgeProjector } from '../src/knowledge/knowledge-projector';
 import { AnalysisService } from '../src/analyzers/registry';
 import { exporterRegistry } from '../src/exporters/registry';
@@ -17,6 +17,7 @@ import { RagService } from '../src/knowledge/rag-service';
 import { profileDataset } from '../src/analyzers/dataset-profiler';
 import { EvidenceSelector, decomposeEvidenceQueries, dynamicEvidenceDocumentLimit } from '../src/knowledge/evidence-selector';
 import { buildQuickAnalysisCoverage, buildQuickReportBoundary, QuickReportGenerator } from '../src/analyzers/quick-report-generator';
+import { RetrievalService } from '../src/knowledge/retrieval-service';
 
 function database() {
   const db = new Database(':memory:');
@@ -43,7 +44,7 @@ test('knowledge index chunks Documents and supports hybrid retrieval', async () 
     const document = await seed(db);
     const index = new KnowledgeIndex(() => db);
     assert.deepEqual(index.rebuild(), { documents: 1, chunks: 1 });
-    const results = index.search('Workflow Connector', { limit: 5 });
+    const results = await index.search('Workflow Connector', { limit: 5 });
     assert.equal(results[0].documentId, document.documentId);
     assert.match(results[0].content, /Document Engine/);
     assert.equal(results[0].metadata.projectorVersion, KNOWLEDGE_PROJECTOR_VERSION);
@@ -51,10 +52,80 @@ test('knowledge index chunks Documents and supports hybrid retrieval', async () 
     assert.equal(results[0].metadata.assets[0].role, 'thumbnail');
     assert.equal(results[0].metadata.totalChunks, 1);
     assert.equal(typeof results[0].metadata.characterStart, 'number');
-    assert.equal(localEmbedding('测试').length, 256);
-    assert.deepEqual(localEmbedding('测试'), localEmbedding('测试'));
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM document_chunk_embeddings').get() as any).count, 0);
   } finally {
     db.close();
+  }
+});
+
+test('remote embeddings are cached as binary vectors and optional reranking is applied', async () => {
+  const db = database();
+  try {
+    const relevant = await seed(db);
+    await new DocumentEngine(() => db).ingest(buildRawItem('emitSearchEngineResult', {
+      engine: 'bing',
+      content_id: 'rag-2',
+      title: '汽车保养记录',
+      snippet: '定期更换机油并检查轮胎气压。',
+      real_url: 'https://example.com/car',
+    }));
+    let reranked = false;
+    const retrieval = {
+      getProfile: () => ({
+        provider: 'custom',
+        baseUrl: 'https://embedding.example/v1',
+        apiKeyConfigured: true,
+        embeddingModel: 'semantic-test',
+        rerankerEnabled: true,
+        rerankerBaseUrl: 'https://embedding.example/v1',
+        rerankerModel: 'reranker-test',
+        timeoutMs: 10000,
+      }),
+      embed: async (texts: string[]) => texts.map((text) => /Workflow|Connector|安排任务/.test(text) ? [1, 0] : [0, 1]),
+      rerank: async (_query: string, documents: string[], topN: number) => {
+        reranked = true;
+        return documents
+          .map((document, index) => ({ index, score: /Workflow/.test(document) ? 0.99 : 0.1 }))
+          .sort((left, right) => right.score - left.score)
+          .slice(0, topN);
+      },
+    } as any;
+    const index = new KnowledgeIndex(() => db, retrieval);
+    index.rebuild();
+    const result = await index.searchDetailed('如何安排任务', { limit: 2 });
+    assert.equal(result.mode, 'hybrid_reranked');
+    assert.equal(result.items[0].documentId, relevant.documentId);
+    assert.equal(reranked, true);
+    const stored = db.prepare('SELECT dimensions, vector_blob FROM document_chunk_embeddings LIMIT 1').get() as any;
+    assert.equal(stored.dimensions, 2);
+    assert.ok(Buffer.isBuffer(stored.vector_blob));
+  } finally {
+    db.close();
+  }
+});
+
+test('retrieval profile is new-format only and supports clearing credentials', () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'unisearch-retrieval-'));
+  const configPath = path.join(directory, 'retrieval-profile.json');
+  try {
+    const service = new RetrievalService(configPath);
+    assert.equal(service.getProfile(false).apiKeyConfigured, false);
+    const saved = service.saveProfile({
+      provider: 'custom',
+      baseUrl: 'https://vectors.example/v1/',
+      embeddingModel: 'embedding-v1',
+      rerankerEnabled: true,
+      rerankerBaseUrl: 'https://rerank.example/v1/',
+      rerankerModel: 'reranker-v1',
+      apiKey: 'retrieval-secret',
+    });
+    assert.equal(saved.baseUrl, 'https://vectors.example/v1');
+    assert.equal(saved.apiKeyConfigured, true);
+    assert.equal(service.getProfile(true).apiKey, 'retrieval-secret');
+    assert.equal(service.saveProfile({ clearApiKey: true }).apiKeyConfigured, false);
+    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 1);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -129,7 +200,7 @@ test('RAG returns ranked citations and an honest fallback without a model key', 
   }
 });
 
-test('Evidence Selector dynamically sizes, deduplicates and prioritizes target document types', () => {
+test('Evidence Selector dynamically sizes, deduplicates and prioritizes target document types', async () => {
   assert.equal(dynamicEvidenceDocumentLimit(0), 0);
   assert.equal(dynamicEvidenceDocumentLimit(8), 8);
   assert.equal(dynamicEvidenceDocumentLimit(212), 22);
@@ -152,8 +223,14 @@ test('Evidence Selector dynamically sizes, deduplicates and prioritizes target d
     metadata: {},
     score: 1 - index / 100,
   })) as any[];
-  const selector = new EvidenceSelector({ search: () => [results[0], { ...results[0], chunkId: 'duplicate-chunk' }, ...results.slice(1)] } as any);
-  const selection = selector.select({
+  const selector = new EvidenceSelector({
+    searchDetailed: async () => ({
+      items: [results[0], { ...results[0], chunkId: 'duplicate-chunk' }, ...results.slice(1)],
+      mode: 'lexical',
+      warning: '当前未配置语义检索 API',
+    }),
+  } as any);
+  const selection = await selector.select({
     workflowId: 'workflow-1',
     workflowGoal: 'FDE 岗位市场调研',
     userRequest: '分析薪酬和岗位要求',
@@ -167,6 +244,8 @@ test('Evidence Selector dynamically sizes, deduplicates and prioritizes target d
   assert.equal(selection.evidence.filter((item) => item.kind === 'job').length, 15);
   assert.ok(selection.evidence.some((item) => item.selectionReason === 'platform_representative'));
   assert.ok(selection.evidence.every((item) => item.matchedQueries.length === selection.queries.length));
+  assert.equal(selection.retrievalMode, 'lexical');
+  assert.deepEqual(selection.retrievalWarnings, ['当前未配置语义检索 API']);
 });
 
 test('quick analysis coverage distinguishes full statistics from representative evidence', () => {
@@ -203,6 +282,8 @@ test('Quick Report Generator separates selection, generation and program-owned r
     preferredKinds: ['job'],
     byPlatform: { job51: 1, liepin: 1 },
     byKind: { job: 2 },
+    retrievalMode: 'hybrid',
+    retrievalWarnings: [],
     evidence: [
       {
         id: 'S1', chunkId: 'chunk-1', documentId: 'doc-1', title: '岗位一', content: '薪资 20-30K',
@@ -224,7 +305,7 @@ test('Quick Report Generator separates selection, generation and program-owned r
       return '全量统计显示共有 212 条；代表性岗位显示相关要求 [S1][S2]。';
     },
   } as any;
-  const generator = new QuickReportGenerator({ select: () => selection } as any, model);
+  const generator = new QuickReportGenerator({ select: async () => selection } as any, model);
   const result = await generator.generate({
     workflowId: 'workflow-1',
     workflowGoal: 'FDE 岗位市场调研',

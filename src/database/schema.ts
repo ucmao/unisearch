@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 11;
+export const DATABASE_SCHEMA_VERSION = 12;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -350,14 +350,16 @@ export function initSchema(db: Database): void {
       ON document_chunks(document_id, ordinal);
 
     CREATE TABLE IF NOT EXISTS document_chunk_embeddings (
-      chunk_id TEXT NOT NULL,
+      chunk_id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
       model TEXT NOT NULL,
       dimensions INTEGER NOT NULL,
-      vector_json TEXT NOT NULL,
+      vector_blob BLOB NOT NULL,
       created_at TEXT NOT NULL,
-      PRIMARY KEY(chunk_id, model),
       FOREIGN KEY(chunk_id) REFERENCES document_chunks(chunk_id) ON DELETE CASCADE
     );
+    CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_model
+      ON document_chunk_embeddings(provider, model);
 
     CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
       chunk_id UNINDEXED,

@@ -135,7 +135,7 @@ export class QuickReportGenerator {
   ) {}
 
   async generate(request: QuickReportRequest): Promise<QuickReportResult> {
-    const selection = this.selector.select({
+    const selection = await this.selector.select({
       threadId: request.threadId,
       workflowId: request.workflowId,
       workflowGoal: request.workflowGoal,
@@ -235,7 +235,7 @@ export class QuickReportGenerator {
                   phase: 'reasoning',
                   message: '',
                   sources,
-                  retrieval: 'stratified_hybrid_rag',
+                  retrieval: selection.retrievalMode,
                   analysis_coverage: initialCoverage,
                 });
               } catch {}
@@ -250,7 +250,7 @@ export class QuickReportGenerator {
                     streaming: true,
                     plan_id: request.workflowId,
                     sources,
-                    retrieval: 'stratified_hybrid_rag',
+                    retrieval: selection.retrievalMode,
                     analysis_coverage: initialCoverage,
                   });
                 } catch {}
@@ -268,6 +268,9 @@ export class QuickReportGenerator {
       }
     }
 
+    if (selection.retrievalWarnings.length) {
+      body = `${body}\n\n> 检索提示：${selection.retrievalWarnings.join('；')}`;
+    }
     const coverage = buildQuickAnalysisCoverage(request.datasetProfile, selection.evidence, body, Boolean(request.partial));
     return {
       title: request.reportName,
@@ -282,6 +285,8 @@ export class QuickReportGenerator {
         preferredKinds: selection.preferredKinds,
         byPlatform: selection.byPlatform,
         byKind: selection.byKind,
+        retrievalMode: selection.retrievalMode,
+        retrievalWarnings: selection.retrievalWarnings,
       },
     };
   }
