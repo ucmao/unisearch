@@ -62,7 +62,6 @@ app.commandLine.appendSwitch('remote-allow-origins', '*');
 // Never expose Electron/UniSearch tokens from any current or future WebContents.
 app.commandLine.appendSwitch('user-agent', CRAWLER_USER_AGENT);
 app.commandLine.appendSwitch('lang', CRAWLER_LOCALE);
-app.commandLine.appendSwitch('disable-blink-features', 'AutomationControlled');
 // Keep crawler pages from exposing local network addresses through direct WebRTC UDP.
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 
@@ -675,8 +674,7 @@ export const PLATFORM_ENTRY_URLS: Record<string, string> = {
   chinaso: 'https://www.chinaso.com',
   arxiv: 'https://arxiv.org',
   github_repositories: 'https://github.com',
-  rss_news: 'https://news.google.com',
-  aihot: 'https://tophub.today',
+  aihot: 'https://aihot.virxact.com',
 };
 
 export async function openPlatformAuthWindow(platform: string, targetUrl?: string): Promise<boolean> {

@@ -2,6 +2,7 @@ import * as cheerio from 'cheerio';
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
 import { canonicalSearchResultUrl } from '../../crawler/platforms/search_engine';
 import { webReaderService, type WebReaderParsedArticle } from '../../services/web-reader-service';
+import { listLiveSearchConnectorIds } from '../../connectors/registry';
 
 export type LiveSearchProvider = 'baidu' | 'bing' | 'sogou' | 'so360' | 'toutiao' | 'quark' | 'chinaso';
 
@@ -447,39 +448,42 @@ export class LiveSearchService {
       signal: options.signal,
     };
     const suv = `SUV=${Date.now() * 1000 + Math.floor(Math.random() * 1000)}`;
-    const requests = [
-      this.client.get(`https://www.baidu.com/s?wd=${encodeURIComponent(query)}&pn=0&rn=10&tn=baidu`, {
+    const requests: Array<{ provider: LiveSearchProvider; execute: () => Promise<EvidenceDraft[]> }> = [
+      { provider: 'baidu', execute: () => this.client.get(`https://www.baidu.com/s?wd=${encodeURIComponent(query)}&pn=0&rn=10&tn=baidu`, {
         ...requestOptions,
         headers: { Cookie: 'BDUSS=dummy;' },
-      }).then((response) => parseBaiduSearchHtml(response.data, perProvider)),
-      this.client.get(`https://cn.bing.com/search?q=${encodeURIComponent(query)}&first=1`, requestOptions)
-        .then((response) => parseBingSearchHtml(response.data, perProvider)),
-      this.client.get(`https://www.sogou.com/web?query=${encodeURIComponent(query)}`, {
+      }).then((response) => parseBaiduSearchHtml(response.data, perProvider)) },
+      { provider: 'bing', execute: () => this.client.get(`https://cn.bing.com/search?q=${encodeURIComponent(query)}&first=1`, requestOptions)
+        .then((response) => parseBingSearchHtml(response.data, perProvider)) },
+      { provider: 'sogou', execute: () => this.client.get(`https://www.sogou.com/web?query=${encodeURIComponent(query)}`, {
         ...requestOptions,
         headers: { Cookie: suv },
         referer: 'https://www.sogou.com/',
-      }).then((response) => parseSogouSearchHtml(response.data, perProvider)),
-      this.client.get(`https://www.so.com/s?q=${encodeURIComponent(query)}&pn=1`, requestOptions)
-        .then((response) => parseSo360SearchHtml(response.data, perProvider)),
-      this.client.get(`https://so.toutiao.com/search?keyword=${encodeURIComponent(query)}&pd=synthesis&dvpf=pc`, {
+      }).then((response) => parseSogouSearchHtml(response.data, perProvider)) },
+      { provider: 'so360', execute: () => this.client.get(`https://www.so.com/s?q=${encodeURIComponent(query)}&pn=1`, requestOptions)
+        .then((response) => parseSo360SearchHtml(response.data, perProvider)) },
+      { provider: 'toutiao', execute: () => this.client.get(`https://so.toutiao.com/search?keyword=${encodeURIComponent(query)}&pd=synthesis&dvpf=pc`, {
         ...requestOptions,
         referer: 'https://so.toutiao.com/',
         autoCookie: false,
-      }).then((response) => parseToutiaoSearchHtml(response.data, perProvider)),
-      this.client.get(`https://m.sm.cn/s?q=${encodeURIComponent(query)}&page=1&layout=html`, {
+      }).then((response) => parseToutiaoSearchHtml(response.data, perProvider)) },
+      { provider: 'quark', execute: () => this.client.get(`https://m.sm.cn/s?q=${encodeURIComponent(query)}&page=1&layout=html`, {
         ...requestOptions,
         mode: 'mobile',
         referer: 'https://m.sm.cn/',
         headers: {
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1 Quark/6.5.0.1234',
         },
-      }).then((response) => parseQuarkSearchHtml(response.data, perProvider)),
-      this.client.get(`https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(query)}&pn=1`, {
+      }).then((response) => parseQuarkSearchHtml(response.data, perProvider)) },
+      { provider: 'chinaso', execute: () => this.client.get(`https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(query)}&pn=1`, {
         ...requestOptions,
         referer: 'https://www.chinaso.com/',
-      }).then((response) => parseChinaSoSearchHtml(response.data, perProvider)),
+      }).then((response) => parseChinaSoSearchHtml(response.data, perProvider)) },
     ];
-    const settled = await Promise.allSettled(requests);
+    const enabledProviders = new Set(listLiveSearchConnectorIds());
+    const settled = await Promise.allSettled(
+      requests.filter(({ provider }) => enabledProviders.has(provider)).map(({ execute }) => execute()),
+    );
     options.signal?.throwIfAborted();
     const groups = settled.map((result) => result.status === 'fulfilled' ? result.value : []);
     const fetchedAt = new Date().toISOString();

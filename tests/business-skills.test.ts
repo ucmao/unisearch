@@ -60,7 +60,7 @@ test('input catalog exposes four business skills and three deterministic tools',
   );
 
   const search = skillRegistry.get('web-search-research');
-  assert.deepEqual(search.defaults?.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+  assert.deepEqual(search.defaults?.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
   assert.deepEqual(search.defaults?.analysis, []);
   assert.equal(search.execution.autoAnalyzeOnCompletion, false);
 
@@ -108,7 +108,7 @@ test('tool defaults choose their deterministic connector capability', () => {
     false,
     search,
   );
-  assert.deepEqual(searchPlan.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+  assert.deepEqual(searchPlan.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
   assert.equal(searchPlan.capability, 'keyword_search');
   assert.deepEqual(searchPlan.keywords, ['Agent', 'RAG']);
   assert.deepEqual(searchPlan.analysis, []);

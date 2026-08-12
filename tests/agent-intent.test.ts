@@ -169,7 +169,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso',
-    'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
+    'arxiv', 'github_repositories', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
   ]);
 });
 
@@ -238,16 +238,14 @@ test('GitHub repository requests select the merged connector and remove the plat
   assert.equal(localIntentDecision('看看 GitHub AI 热门项目').action, 'create_plan');
 });
 
-test('RSS requests select the news Feed connector and remove the source name from keywords', () => {
-  assert.deepEqual(inferResearchPlatforms('用 RSS 新闻查 AI 监管'), ['rss_news']);
-  assert.deepEqual(inferResearchPlatforms('读取 Atom Feed 最新文章'), ['rss_news']);
-  assert.deepEqual(inferResearchPlatforms('监控订阅源更新'), ['rss_news']);
-  assert.deepEqual(inferResearchKeywords('用 RSS 新闻查 AI 监管'), ['AI 监管']);
-  assert.equal(localIntentDecision('看看 RSS 最新新闻').action, 'create_plan');
-});
-
 test('AI HOT requests select the connector and can omit keywords', () => {
+  const { normalizePlan } = require('../src/server/services/AgentService');
   assert.deepEqual(inferResearchPlatforms('看看 AI HOT 当前热点'), ['aihot']);
+  assert.deepEqual(inferResearchPlatforms('搜索 AI 资讯搜索里的 OpenAI 动态'), ['aihot']);
+  assert.deepEqual(inferResearchPlatforms('看看最近的 AI 行业资讯'), ['aihot']);
+  assert.deepEqual(inferResearchPlatforms('给我今天的 AI 日报'), ['aihot']);
+  assert.deepEqual(normalizePlan({ platforms: ['AI 资讯搜索（AI HOT）'], keywords: ['OpenAI'] }, '搜索 OpenAI 近期动态').platforms, ['aihot']);
+  assert.equal(inferResearchPlatforms('用 AI 搜索回答这个问题').includes('aihot'), false);
   assert.equal(localIntentDecision('看看 AI HOT 当前热点').action, 'create_plan');
   for (const message of [
     '你去看一下AI hot有什么新闻吗？',
@@ -350,13 +348,13 @@ test('references to all collected data do not expand to every platform', () => {
   assert.deepEqual(inferResearchPlatforms('分析全部数据并给出结论'), []);
   assert.deepEqual(inferResearchPlatforms('采集全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
-    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso', 'arxiv', 'github_repositories', 'aihot',
     'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao',
     'boss', 'zhaopin', 'job51', 'liepin',
   ]);
   assert.deepEqual(inferResearchPlatforms('全部'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
-    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso', 'arxiv', 'github_repositories', 'aihot',
     'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao',
     'boss', 'zhaopin', 'job51', 'liepin',
   ]);

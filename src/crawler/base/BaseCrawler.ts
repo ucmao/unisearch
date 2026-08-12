@@ -1,43 +1,28 @@
 import { BrowserType, BrowserContext, Page } from 'playwright';
 import axios from 'axios';
-import fs from 'fs';
 import path from 'path';
 import { BrowserLauncher, PlaywrightModule } from '../../tools/browser';
 import { activeConfig } from '../../tools/config';
 import { buildCrawlerUserAgent, CRAWLER_LOCALE, CRAWLER_TIMEZONE, CRAWLER_USER_AGENT } from '../../tools/browserIdentity';
 import { connectorEventEmitter } from '../../core/contracts/connector-event-emitter';
-import { getBrowserDataDir, resolveRuntimeResource } from '../../tools/runtimePaths';
-
-const configuredCrawlerContexts = new WeakSet<BrowserContext>();
+import { getBrowserDataDir } from '../../tools/runtimePaths';
 
 interface CrawlerPageConfiguration {
-  installStealth?: boolean;
-  alignIdentity?: boolean;
-  maskWebdriver?: boolean;
+  maskWebdriver: boolean;
   preventWindowClose?: boolean;
 }
 
 function crawlerPageConfiguration(platform: string): CrawlerPageConfiguration {
-  if (platform === 'boss') {
-    return { installStealth: false, alignIdentity: true, maskWebdriver: true, preventWindowClose: true };
-  }
-  if (platform === 'quark') {
-    // Alibaba's interactive challenge validates the browser again after the
-    // user drags the slider. Old generic stealth patches and webdriver
-    // descriptor overrides can make that server-side validation fail even
-    // for a genuine manual gesture. Keep this persistent BrowserView clean.
-    return { installStealth: false, alignIdentity: true, maskWebdriver: false, preventWindowClose: true };
-  }
-  return {};
+  const maskWebdriver = platform === 'boss' || platform === 'kuaishou';
+  const preventWindowClose = platform === 'boss' || platform === 'quark';
+  return { maskWebdriver, preventWindowClose };
 }
 
 async function configureCrawlerPage(
   browserContext: BrowserContext,
   page: Page,
-  configuration: CrawlerPageConfiguration = {},
+  configuration: CrawlerPageConfiguration,
 ): Promise<Page> {
-  const installStealth = configuration.installStealth !== false;
-  const alignIdentity = configuration.alignIdentity !== false;
   if (configuration.preventWindowClose && typeof (page as any).addInitScript === 'function') {
     await page.addInitScript(() => {
       try {
@@ -51,7 +36,7 @@ async function configureCrawlerPage(
       } catch {}
     }).catch(() => {});
   }
-  if (configuration.maskWebdriver !== false && typeof (page as any).addInitScript === 'function') {
+  if (configuration.maskWebdriver && typeof (page as any).addInitScript === 'function') {
     await page.addInitScript(() => {
       try {
         Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
@@ -60,16 +45,6 @@ async function configureCrawlerPage(
       } catch {}
     }).catch(() => {});
   }
-  if (installStealth && !configuredCrawlerContexts.has(browserContext)) {
-    const stealthPath = resolveRuntimeResource('libs', 'stealth.min.js');
-    if (fs.existsSync(stealthPath) && typeof (browserContext as any).addInitScript === 'function') {
-      await browserContext.addInitScript({ path: stealthPath }).catch((error: any) => {
-        console.warn(`[BaseCrawler] Failed to install shared stealth script: ${error.message}`);
-      });
-    }
-    configuredCrawlerContexts.add(browserContext);
-  }
-  if (!alignIdentity) return page;
   try {
     if (typeof (browserContext as any).newCDPSession !== 'function' || typeof (page as any).addInitScript !== 'function') {
       return page;
@@ -243,7 +218,6 @@ export function createHeadlessLaunchOptions(): any {
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
       '--headless=new',
     ],
   };
@@ -293,7 +267,6 @@ export abstract class AbstractCrawler {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
       ],
     };
     const execPath = getSystemExecutablePath();

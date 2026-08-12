@@ -93,7 +93,9 @@ test('live search fans out without creating persistent document records', async 
 
   assert.deepEqual(evidence.map((item) => item.id), ['S1', 'S2', 'S3', 'S4', 'S5']);
   assert.deepEqual(evidence.map((item) => item.source), ['baidu', 'bing', 'sogou', 'so360', 'toutiao']);
-  assert.equal(requests.length, 7);
+  assert.equal(requests.length, 5);
+  assert.equal(requests.some((request) => request.url.includes('m.sm.cn')), false);
+  assert.equal(requests.some((request) => request.url.includes('chinaso.com')), false);
   assert.equal(requests.every((request) => request.options?.maxRetries === 1), true);
   assert.equal(requests.every((request) => request.options?.timeout === 4_000), true);
 

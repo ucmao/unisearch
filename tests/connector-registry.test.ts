@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import {
   connectorCatalogForAI,
+  listLiveSearchConnectorIds,
   listConnectorManifests,
+  listWebSearchConnectorIds,
   normalizeConnectorRequest,
 } from '../src/connectors/registry';
 import type { ConnectorStartRequest } from '../src/connectors/types';
@@ -20,8 +22,11 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 32);
+assert.equal(listConnectorManifests().length, 31);
 assert.ok(listConnectorManifests().every((manifest) => !manifest.auth.methods.includes('cookie' as never)));
+assert.deepEqual(listWebSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
+assert.deepEqual(listLiveSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+assert.equal(listConnectorManifests().find((manifest) => manifest.id === 'quark')?.searchSurfaces?.mayRequireInteraction, true);
 assert.deepEqual(
   listConnectorManifests()
     .filter((manifest) => manifest.category === 'ai_web_qa')
@@ -48,7 +53,7 @@ assert.throws(
 );
 
 for (const manifest of listConnectorManifests()) {
-  const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv' || manifest.id === 'github_repositories' || manifest.id === 'rss_news'
+  const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv' || manifest.id === 'github_repositories'
     ? ['keyword_search', 'content_detail']
     : manifest.id === 'heimao'
     ? ['keyword_search', 'content_detail', 'comments']
@@ -100,10 +105,9 @@ assert.match(catalog, /zhaopin=智联招聘/);
 assert.match(catalog, /boss=BOSS直聘/);
 assert.match(catalog, /heimao=黑猫投诉/);
 assert.match(catalog, /toutiao=头条搜索/);
-assert.match(catalog, /aihot=AI HOT/);
+assert.match(catalog, /aihot=AI 资讯搜索（AI HOT）/);
 assert.match(catalog, /arxiv=arXiv/);
 assert.match(catalog, /github_repositories=GitHub 仓库/);
-assert.match(catalog, /rss_news=RSS 新闻/);
 
 const bossManifest = listConnectorManifests().find((manifest) => manifest.id === 'boss');
 assert.ok(bossManifest);
@@ -168,23 +172,6 @@ assert.equal((githubRequest as any).github_repositories_period, 'monthly');
 assert.equal((githubRequest as any).github_repositories_language, 'python');
 assert.equal((githubRequest as any).crawler_max_notes_count, 50);
 assert.equal(githubRequest.start_page, 3);
-
-const rssRequest = normalizeConnectorRequest({
-  ...baseRequest,
-  platform: 'rss_news',
-  connector_id: 'rss_news',
-  login_type: 'qrcode',
-  keywords: '',
-  connector_options: {
-    source: 'bbc_technology',
-    period: '24h',
-    max_items: 40,
-  },
-});
-assert.equal(rssRequest.login_type, 'none');
-assert.equal((rssRequest as any).rss_news_source, 'bbc_technology');
-assert.equal((rssRequest as any).rss_news_period, '24h');
-assert.equal((rssRequest as any).crawler_max_notes_count, 40);
 
 const aiHotRequest = normalizeConnectorRequest({
   ...baseRequest,

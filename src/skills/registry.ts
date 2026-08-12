@@ -1,5 +1,6 @@
 import { skillDefinitionSchema, type SkillDefinition, type SkillDefinitionInput } from '../core/skills/types';
 import { CREATOR_TARGET_GUIDANCE } from '../connectors/creator-targets';
+import { listWebSearchConnectorIds } from '../connectors/registry';
 
 export class SkillRegistry {
   private readonly skills = new Map<string, SkillDefinition>();
@@ -51,7 +52,7 @@ skillRegistry.register({
   id: 'web-search-research',
   version: '1.0.0',
   name: '网页聚合搜索',
-  description: '聚合百度、必应、360、搜狗和头条，支持多关键词、快速/标准/深度采集与可选网页正文读取，默认不分析结果。',
+  description: '聚合百度、必应、360、搜狗、头条、神马和中国搜索，支持多关键词、快速/标准/深度采集与可选网页正文读取，默认不分析结果。',
   category: 'tool',
   icon: 'search',
   mentionable: true,
@@ -68,7 +69,7 @@ skillRegistry.register({
     outputs: ['documents'],
   },
   defaults: {
-    platforms: ['baidu', 'bing', 'so360', 'sogou', 'toutiao'],
+    platforms: listWebSearchConnectorIds(),
     capability: 'keyword_search',
     collectionDepth: 'quick',
     contentEnrichment: {
@@ -81,7 +82,11 @@ skillRegistry.register({
     autoStartWhenExplicitlyInvoked: true,
     autoAnalyzeOnCompletion: false,
   },
-  limitations: ['只读取公开可访问的 HTML 网页。', '搜索结果与正文读取均受站点反爬和网络状态影响。'],
+  limitations: [
+    '只读取公开可访问的 HTML 网页。',
+    '搜索结果与正文读取均受站点反爬和网络状态影响。',
+    '神马搜索可能触发浏览器安全验证，需要用户在内置浏览器中手动完成。',
+  ],
 });
 
 skillRegistry.register({

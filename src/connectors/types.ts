@@ -79,6 +79,16 @@ export interface ConnectorManifest {
     isolatedProcess: boolean;
     supportsHeadless: boolean;
   };
+  /**
+   * Search-surface policy is declared by web-search connectors so callers do
+   * not have to maintain their own drifting provider allowlists.
+   */
+  searchSurfaces?: {
+    /** Safe for the short-lived, non-interactive HTTP live-search path. */
+    liveSearch: boolean;
+    /** May stop and ask the user to complete a browser challenge. */
+    mayRequireInteraction: boolean;
+  };
   capabilities: ConnectorCapability[];
 }
 

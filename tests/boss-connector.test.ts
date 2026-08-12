@@ -26,14 +26,17 @@ test('authorized CDP probe stays passive and cannot navigate or poll pages', () 
   assert.doesNotMatch(source, /BOSS_PROBE_OPEN_FIRST_DETAIL/);
 });
 
-test('BOSS runtime uses standard stealth identity setup', () => {
+test('crawler runtime uses clean identity defaults with a narrow webdriver allowlist', () => {
   const source = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'crawler', 'base', 'BaseCrawler.ts'), 'utf8');
   const mainSource = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'main', 'index.ts'), 'utf8');
 
   assert.match(mainSource, /view\.webContents\.session\.setUserAgent\(CRAWLER_USER_AGENT/);
   assert.match(source, /getElectronCrawlerPage/);
-  assert.match(source, /preventWindowClose: true/);
+  assert.match(source, /platform === 'boss' \|\| platform === 'quark'/);
   assert.match(source, /Object\.defineProperty\(window, 'close'/);
+  assert.match(source, /platform === 'boss' \|\| platform === 'kuaishou'/);
+  assert.doesNotMatch(source, /stealth\.min|installStealth|configuredCrawlerContexts/);
+  assert.doesNotMatch(mainSource, /AutomationControlled/);
 });
 
 test('zpData.jobList fixture is normalized without retaining duplicate labels or private data', () => {

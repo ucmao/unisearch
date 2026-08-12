@@ -164,6 +164,11 @@ const searchEngine = (
   id: string,
   name: string,
   icon: string,
+  options: {
+    engine: 'http' | 'hybrid';
+    liveSearch: boolean;
+    mayRequireInteraction?: boolean;
+  },
 ): ConnectorManifest => ({
   id, version: '1.0.0', name, icon, category: 'web_search',
   description: `${name}公开网页全网搜索与摘要数据采集连接器。`,
@@ -171,7 +176,11 @@ const searchEngine = (
     required: false, methods: ['none'],
     description: '无需登录，直接通过 HTTP 接口免认证全网搜索。',
   },
-  runtime: { engine: 'hybrid', isolatedProcess: true, supportsHeadless: true },
+  runtime: { engine: options.engine, isolatedProcess: true, supportsHeadless: true },
+  searchSurfaces: {
+    liveSearch: options.liveSearch,
+    mayRequireInteraction: options.mayRequireInteraction === true,
+  },
   capabilities: [
     {
       id: 'keyword_search', label: '关键词全网搜索', description: `在${name}上按关键词进行网页搜索并提取结果摘要。`, runtimeMode: 'search',
@@ -388,108 +397,9 @@ const githubRepositories: ConnectorManifest = {
   ],
 };
 
-const RSS_NEWS_OUTPUTS: ConnectorOutputField[] = [
-  { key: 'content_id', label: 'Feed 条目 ID', type: 'string', required: true },
-  { key: 'guid', label: 'RSS/Atom GUID', type: 'string' },
-  { key: 'title', label: '标题', type: 'string', required: true },
-  { key: 'summary', label: 'Feed 摘要', type: 'string' },
-  { key: 'creator_name', label: '新闻源', type: 'string' },
-  { key: 'author', label: '作者', type: 'string' },
-  { key: 'content_url', label: '原文链接', type: 'string' },
-  { key: 'feed_url', label: 'Feed URL', type: 'string', required: true },
-  { key: 'feed_title', label: 'Feed 标题', type: 'string' },
-  { key: 'categories', label: '分类', type: 'string_list' },
-  { key: 'published_at', label: '发布时间', type: 'string' },
-  { key: 'updated_at', label: '更新时间', type: 'string' },
-  { key: 'language', label: '语言', type: 'string' },
-  { key: 'rank', label: '结果排名', type: 'number' },
-];
-
-const rssNews: ConnectorManifest = {
-  id: 'rss_news', version: '1.0.0', name: 'RSS 新闻', icon: 'rss', category: 'web_search',
-  description: '合并国际新闻 RSS 摘要与通用 RSS/Atom 订阅源读取能力，采集标题、Feed 摘要和原文链接。',
-  auth: {
-    required: false, methods: ['none'],
-    description: '读取发布方公开提供的 RSS/Atom URL，无需账号或 API Key。',
-  },
-  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
-  capabilities: [
-    {
-      id: 'keyword_search', label: '最新新闻与关键词过滤',
-      description: '从内置公开 Feed 读取最新条目，可按标题、摘要和分类进行本地关键词过滤。关键词为空时返回最新条目。',
-      runtimeMode: 'search', budgetModel: 'scroll_count',
-      depthBudget: { quick: 15, standard: 40, deep: 100 },
-      inputFields: [
-        {
-          key: 'source', label: '新闻源', description: '平衡视角会读取 BBC World、NPR 与 Al Jazeera；也可只读取单一 Feed。',
-          type: 'select', default: 'balanced', runtimeConfigKey: 'rss_news_source',
-          options: [
-            { value: 'balanced', label: '平衡视角（BBC + NPR + Al Jazeera）' },
-            { value: 'bbc_world', label: 'BBC 世界新闻' },
-            { value: 'bbc_top', label: 'BBC 头条' },
-            { value: 'bbc_business', label: 'BBC 商业' },
-            { value: 'bbc_technology', label: 'BBC 科技' },
-            { value: 'npr_top', label: 'NPR 新闻' },
-            { value: 'aljazeera_all', label: 'Al Jazeera' },
-          ],
-        },
-        {
-          key: 'period', label: '时间范围', description: '按 Feed 中的发布时间过滤；没有时间戳的条目仍会保留。',
-          type: 'select', default: '7d', runtimeConfigKey: 'rss_news_period',
-          options: [
-            { value: '24h', label: '最近 24 小时' },
-            { value: '7d', label: '最近 7 天' },
-            { value: '30d', label: '最近 30 天' },
-            { value: 'all', label: 'Feed 当前全部条目' },
-          ],
-        },
-        {
-          key: 'max_items', label: '最大采集数量', description: '全部选定 Feed 合并、去重后的最大入库条目数。',
-          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
-        },
-      ],
-      outputType: 'rss_news_item', outputFields: RSS_NEWS_OUTPUTS,
-      limitations: [
-        '只保存 Feed 自带的标题、摘要、来源和原文链接，不抓取新闻正文、图片、音视频或付费内容。',
-        'BBC Feed 仅适合个人非商业阅读并须保留 BBC News 署名与原文链接；商业使用需另行取得许可。',
-        'NPR、Al Jazeera 及自定义 Feed 的再利用条件由各发布方决定，用户需遵守对应条款。',
-        'Feed 是当前快照，不支持历史翻页；采集深度仅控制合并后的最大条目数。',
-      ],
-    },
-    {
-      id: 'content_detail', label: '读取自定义 Feed',
-      description: '读取一个或多个公开 RSS、RDF 或 Atom URL，并按时间和关键词过滤条目。',
-      runtimeMode: 'detail', budgetModel: 'single_target',
-      inputFields: [
-        targetField('公开 RSS/Atom URL'),
-        {
-          key: 'period', label: '时间范围', description: '按 Feed 中的发布时间过滤。',
-          type: 'select', default: '7d', runtimeConfigKey: 'rss_news_period',
-          options: [
-            { value: '24h', label: '最近 24 小时' },
-            { value: '7d', label: '最近 7 天' },
-            { value: '30d', label: '最近 30 天' },
-            { value: 'all', label: 'Feed 当前全部条目' },
-          ],
-        },
-        {
-          key: 'max_items', label: '最大采集数量', description: '多个 Feed 合并、去重后的最大入库条目数。',
-          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
-        },
-      ],
-      outputType: 'rss_news_item', outputFields: RSS_NEWS_OUTPUTS,
-      limitations: [
-        '拒绝 localhost、私有 IP 和本地网络 URL，单个 Feed 响应最大 5 MB。',
-        '仅解析 Feed 当前提供的元数据，不提供订阅状态、已读状态或历史监控数据库。',
-        '使用自定义 Feed 前应确认发布方允许相应用途。',
-      ],
-    },
-  ],
-};
-
 const aiHot: ConnectorManifest = {
-  id: 'aihot', version: '1.0.0', name: 'AI HOT', icon: 'flame', category: 'web_search',
-  description: 'AI HOT 精选资讯、当前多源热点、AI 日报与事件时间线连接器。',
+  id: 'aihot', version: '1.0.0', name: 'AI 资讯搜索（AI HOT）', icon: 'flame', category: 'web_search',
+  description: '基于 AI HOT 官方内容库，按关键词检索最近 24 小时或 7 天内收录的 AI 行业资讯，并支持当前热点榜、AI 日报和热点事件时间线。它是 AI 垂直资讯搜索源，不是通用网页搜索或 AI 问答平台。',
   auth: {
     required: false, methods: ['none'],
     description: '官方公开 API v1，匿名只读，无需 API Key。',
@@ -497,26 +407,26 @@ const aiHot: ConnectorManifest = {
   runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
   capabilities: [
     {
-      id: 'keyword_search', label: 'AI 资讯与热点',
-      description: '查询最近 AI 资讯，或直接采集当前热点和最新日报。资讯模式支持关键词、分类与时间窗口。',
+      id: 'keyword_search', label: 'AI 资讯关键词搜索',
+      description: '在 AI HOT 最近收录的 AI 资讯中进行服务端关键词搜索，可结合时间窗口、内容池和分类筛选；关键词为空时返回最近资讯。也可切换到当前热点榜或最新日报。',
       runtimeMode: 'search', budgetModel: 'true_pagination',
       depthBudget: { quick: 20, standard: 50, deep: 100 },
       inputFields: [
         {
-          key: 'content_mode', label: '内容模式', description: '资讯查询使用关键词和筛选条件；热点与日报不需要关键词。',
+          key: 'content_mode', label: '内容模式', description: '默认在最近 AI 资讯中按关键词搜索；热点榜和日报是无需关键词的固定内容入口。',
           type: 'select', default: 'items', runtimeConfigKey: 'aihot_content_mode',
           options: [
-            { value: 'items', label: '最近 AI 资讯' },
-            { value: 'hot_topics', label: '当前多源热点' },
+            { value: 'items', label: '关键词搜索与最近资讯' },
+            { value: 'hot_topics', label: '当前 AI 热点榜' },
             { value: 'latest_daily', label: '最新 AI 日报' },
           ],
         },
         {
-          key: 'items_mode', label: '资讯范围', description: '精选适合默认调研；公开池覆盖更多最近内容。仅资讯模式生效。',
+          key: 'items_mode', label: '检索内容池', description: '精选池适合默认调研；公开池覆盖最近 7 天内更多已收录内容，但内容更杂。仅关键词搜索与最近资讯模式生效。',
           type: 'select', default: 'selected', runtimeConfigKey: 'aihot_items_mode',
           options: [
-            { value: 'selected', label: '精选' },
-            { value: 'all', label: '最近 7 天公开池' },
+            { value: 'selected', label: '编辑精选内容' },
+            { value: 'all', label: '最近 7 天公开内容池' },
           ],
         },
         {
@@ -556,9 +466,10 @@ const aiHot: ConnectorManifest = {
         { key: 'score', label: '精选评分', type: 'number' },
       ],
       limitations: [
+        '关键词搜索仅覆盖 AI HOT 已收录的 AI 资讯，不是全网搜索；普通资讯查询仅支持最近 24 小时或 7 天。',
         '摘要和翻译由 AI 生成，数字、政策与原话等重要事实需回原文核对。',
-        '正文不在 items 响应中；输出保留 AI HOT attribution、canonical 与原文链接。',
-        '热点与日报是当前快照，不包含 snapshot + changes 的长期镜像同步。',
+        '资讯接口不返回新闻正文，只保留 AI HOT 阅读页、摘要和第三方原文链接。',
+        '热点榜与日报是当前快照，不提供长期历史搜索或项目内持续同步。',
       ],
     },
     {
@@ -891,16 +802,15 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   social('weibo', '微博', 'message-circle', { content: '博文', creator: '用户', comment: '评论与回复' }),
   social('tieba', '百度贴吧', 'messages-square', { content: '帖子', creator: '吧/用户主体', comment: '楼层回复' }),
   social('zhihu', '知乎', 'help-circle', { content: '问题/回答/文章', creator: '作者', comment: '评论与回复' }),
-  searchEngine('baidu', '百度搜索', 'search'),
-  searchEngine('bing', '必应搜索', 'globe'),
-  searchEngine('so360', '360搜索', 'compass'),
-  searchEngine('sogou', '搜狗搜索', 'search'),
-  searchEngine('toutiao', '头条搜索', 'newspaper'),
-  searchEngine('quark', '神马搜索', 'zap'),
-  searchEngine('chinaso', '中国搜索', 'shield'),
+  searchEngine('baidu', '百度搜索', 'search', { engine: 'http', liveSearch: true }),
+  searchEngine('bing', '必应搜索', 'globe', { engine: 'hybrid', liveSearch: true }),
+  searchEngine('so360', '360搜索', 'compass', { engine: 'http', liveSearch: true }),
+  searchEngine('sogou', '搜狗搜索', 'search', { engine: 'http', liveSearch: true }),
+  searchEngine('toutiao', '头条搜索', 'newspaper', { engine: 'hybrid', liveSearch: true }),
+  searchEngine('quark', '神马搜索', 'zap', { engine: 'hybrid', liveSearch: false, mayRequireInteraction: true }),
+  searchEngine('chinaso', '中国搜索', 'shield', { engine: 'hybrid', liveSearch: false }),
   arxiv,
   githubRepositories,
-  rssNews,
   aiHot,
   webReader,
   utilityParser('media_parser', '综合无水印解析', 'link'),

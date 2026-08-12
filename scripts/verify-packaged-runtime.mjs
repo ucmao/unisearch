@@ -47,7 +47,7 @@ for (const moduleName of ['playwright', 'playwright-core', 'better-sqlite3']) {
 }
 
 const resourcesRoot = path.dirname(unpacked);
-for (const relativePath of ['libs/stealth.min.js', 'resources/hit_stopwords.txt']) {
+for (const relativePath of ['resources/hit_stopwords.txt']) {
   if (!fs.existsSync(path.join(resourcesRoot, relativePath))) {
     throw new Error(`安装包缺少只读资源: ${relativePath}`);
   }

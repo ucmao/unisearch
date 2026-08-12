@@ -121,8 +121,6 @@ export class BrowserLauncher {
       '--disable-sync',
       '--disable-dev-shm-usage',
       '--no-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--exclude-switches=enable-automation',
       '--disable-infobars',
     ];
 

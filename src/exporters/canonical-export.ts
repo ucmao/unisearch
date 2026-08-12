@@ -36,8 +36,7 @@ const ATTRIBUTE_LABELS: Record<string, string> = {
   doi: 'DOI', journalRef: '期刊信息', comment: '备注', fullName: '仓库全名', creatorUrl: '作者主页',
   homepage: '项目主页', topics: '主题', licenseName: '许可证', sizeKb: '仓库大小（KB）',
   defaultBranch: '默认分支', createdAt: '创建时间', pushedAt: '最近推送时间', archived: '是否归档',
-  isFork: '是否 Fork', visibility: '可见性', period: '时间范围', author: '作者', feedUrl: '订阅源链接',
-  feedTitle: '订阅源名称', siteName: '网站名称',
+  isFork: '是否 Fork', visibility: '可见性', period: '时间范围', author: '作者', siteName: '网站名称',
 };
 
 const FIXED_COLUMNS: ExportColumn[] = [

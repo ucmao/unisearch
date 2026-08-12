@@ -7,6 +7,18 @@ export function listConnectorManifests(): ConnectorManifest[] {
   return CONNECTOR_MANIFESTS;
 }
 
+export function listWebSearchConnectorIds(): string[] {
+  return CONNECTOR_MANIFESTS
+    .filter((connector) => connector.category === 'web_search' && connector.searchSurfaces !== undefined)
+    .map((connector) => connector.id);
+}
+
+export function listLiveSearchConnectorIds(): string[] {
+  return CONNECTOR_MANIFESTS
+    .filter((connector) => connector.category === 'web_search' && connector.searchSurfaces?.liveSearch)
+    .map((connector) => connector.id);
+}
+
 /**
  * 平台 id → 中文名的唯一来源。名称只在 CONNECTOR_MANIFESTS 里写一次，
  * 后端各处从这里取；前端通过 /api/config/platforms 拿同一份数据。

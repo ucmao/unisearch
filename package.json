@@ -58,11 +58,6 @@
     ],
     "extraResources": [
       {
-        "from": "libs",
-        "to": "libs",
-        "filter": ["**/*"]
-      },
-      {
         "from": "resources",
         "to": "resources",
         "filter": ["**/*"]

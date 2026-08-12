@@ -135,14 +135,13 @@ export function normalizePlan(
     中国搜索: 'chinaso', 国搜: 'chinaso', chinaso: 'chinaso',
     arXiv: 'arxiv', Arxiv: 'arxiv', arxiv: 'arxiv', 论文库: 'arxiv',
     GitHub: 'github_repositories', Github: 'github_repositories', github: 'github_repositories', GitHub仓库: 'github_repositories', GitHub趋势: 'github_repositories',
-    RSS: 'rss_news', RSS新闻: 'rss_news', RSS资讯: 'rss_news', Atom: 'rss_news', 订阅源: 'rss_news',
     DeepSeek: 'deepseek', Kimi: 'kimi', 'Kimi AI': 'kimi', 豆包: 'doubao', Doubao: 'doubao',
     千问: 'qwen', 通义千问: 'qwen', Qwen: 'qwen', 元宝: 'yuanbao', 腾讯元宝: 'yuanbao',
     纳米AI: 'nami', '纳米 AI': 'nami', 纳米AI搜索: 'nami',
     文心: 'wenxin', 文心一言: 'wenxin', 文心言: 'wenxin', 文小言: 'wenxin',
     黑猫: 'heimao', 黑猫投诉: 'heimao', boss: 'boss', Boss: 'boss', BOSS: 'boss', BOSS直聘: 'boss', 'BOSS 直聘': 'boss', 'zhipin.com': 'boss',
     智联: 'zhaopin', 智联招聘: 'zhaopin', 前程无忧: 'job51', '51job': 'job51', 猎聘: 'liepin', 猎聘网: 'liepin',
-    'AI HOT': 'aihot', AI热点: 'aihot', AI热榜: 'aihot',
+    'AI 资讯搜索（AI HOT）': 'aihot', 'AI 资讯搜索 (AI HOT)': 'aihot', 'AI HOT': 'aihot', AIHOT: 'aihot', AI资讯搜索: 'aihot', AI行业资讯: 'aihot', AI新闻: 'aihot', AI圈动态: 'aihot', AI热点: 'aihot', AI热榜: 'aihot', AI日报: 'aihot',
   };
   const platforms = Array.from(new Set((Array.isArray(input?.platforms) ? input.platforms : [])
     .map((p: any) => platformAliases[String(p)] || String(p))

@@ -19,7 +19,6 @@ import {
   Flame,
   FileSearch,
   Github,
-  Rss,
   Shield,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -48,7 +47,6 @@ const ICON_MAP: { [key: string]: any } = {
   'flame': Flame,
   'file-search': FileSearch,
   'github': Github,
-  'rss': Rss,
   'zap': Zap,
   'shield': Shield,
 }
@@ -141,8 +139,7 @@ export function CrawlerSearchHeader() {
 
     const onlyAiHot = selectedPlatforms.length === 1 && selectedPlatforms[0] === 'aihot'
     const onlyGitHubRepositories = selectedPlatforms.length === 1 && selectedPlatforms[0] === 'github_repositories'
-    const onlyRssNews = selectedPlatforms.length === 1 && selectedPlatforms[0] === 'rss_news'
-    const allowsEmptyKeywords = onlyAiHot || onlyGitHubRepositories || onlyRssNews
+    const allowsEmptyKeywords = onlyAiHot || onlyGitHubRepositories
     if (!finalKeywords && config.crawler_type === 'search' && !allowsEmptyKeywords) {
       toast.error('请至少输入一个关键词')
       return
@@ -175,11 +172,9 @@ export function CrawlerSearchHeader() {
     const taskTitle = finalKeywords || (config.crawler_type === 'detail'
       ? '指定内容采集'
         : onlyAiHot
-        ? aiHotMode === 'hot_topics' ? 'AI HOT 当前热点' : aiHotMode === 'latest_daily' ? 'AI HOT 最新日报' : 'AI HOT 最近资讯'
+        ? aiHotMode === 'hot_topics' ? 'AI 当前热点（AI HOT）' : aiHotMode === 'latest_daily' ? 'AI 最新日报（AI HOT）' : 'AI 资讯搜索（AI HOT）'
         : onlyGitHubRepositories
           ? String(connectorOptions.github_repositories?.mode || 'general') === 'ai' ? 'GitHub AI 仓库趋势' : 'GitHub 仓库趋势'
-        : onlyRssNews
-          ? 'RSS 最新新闻'
         : '创作者采集')
     selectedPlatforms.forEach((p) => {
       if (statuses[p] !== 'running' && statuses[p] !== 'stopping') {

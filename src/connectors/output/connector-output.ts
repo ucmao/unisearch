@@ -42,7 +42,6 @@ const OUTPUTS: Record<string, OutputDefinition> = {
   emitAiHotItem: { source: 'aihot', kind: 'article' },
   emitArxivPaper: { source: 'arxiv', kind: 'article' },
   emitGitHubRepository: { source: 'github_repositories', kind: 'article' },
-  emitRssNewsItem: { source: 'rss_news', kind: 'article' },
   emitWebReaderResult: { source: 'web_reader', kind: 'article' },
 };
 
@@ -213,7 +212,6 @@ class ConnectorOutput {
   emitAiHotItem = (item: Payload) => this.emit('emitAiHotItem', item);
   emitArxivPaper = (item: Payload) => this.emit('emitArxivPaper', item);
   emitGitHubRepository = (item: Payload) => this.emit('emitGitHubRepository', item);
-  emitRssNewsItem = (item: Payload) => this.emit('emitRssNewsItem', item);
   emitWebReaderResult = (item: Payload) => this.emit('emitWebReaderResult', item);
 }
 
