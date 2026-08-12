@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Sparkles, Terminal, BookOpen, Music, Video, Tv, MessageCircle, MessagesSquare, HelpCircle, Search, Globe, Compass, Briefcase, ShieldAlert, Brain, Bot, Atom, Gem, Link2 } from 'lucide-react'
+import { Sparkles, Terminal, BookOpen, Music, Video, Tv, MessageCircle, MessagesSquare, HelpCircle, Search, Globe, Compass, Briefcase, ShieldAlert, Brain, Bot, Atom, Gem, Link2, Zap, Shield, Newspaper } from 'lucide-react'
 import type { MentionEntity } from '@/hooks/useMentionCommands'
 
 interface CommandPopoverProps {
@@ -36,6 +36,9 @@ const ENTITY_ICONS: Record<string, any> = {
   bing: Globe,
   so360: Compass,
   sogou: Search,
+  toutiao: Newspaper,
+  quark: Zap,
+  chinaso: Shield,
   boss: Briefcase,
   zhaopin: Briefcase,
   job51: Briefcase,

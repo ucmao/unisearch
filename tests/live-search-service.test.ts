@@ -49,6 +49,22 @@ const toutiaoHtml = `
     },
   })}</script>`;
 
+const quarkHtml = `
+  <div class="result">
+    <a href="https://m.weather.com.cn/quark"><h2>福州夸克天气预报</h2></a>
+    <div class="c-abstract">福州未来三天天气多云转晴，气温适宜。</div>
+    <div class="c-footer">中国气象</div>
+  </div>`;
+
+const chinasoHtml = `
+  <div class="search-list">
+    <div class="list">
+      <h2 class="list-title"><a href="https://www.weather.gov.cn/chinaso">福州权威天气公报</a></h2>
+      <div class="list-content">气象台发布福州最新权威天气公报。</div>
+      <div class="list-source">气象局官方</div>
+    </div>
+  </div>`;
+
 test('search result parsers return transient evidence drafts', () => {
   assert.deepEqual(parseBaiduSearchHtml(baiduHtml).map((item) => item.source), ['baidu']);
   assert.deepEqual(parseBingSearchHtml(bingHtml).map((item) => item.source), ['bing']);
@@ -67,6 +83,8 @@ test('live search fans out without creating persistent document records', async 
       if (url.includes('bing.com')) return { data: bingHtml };
       if (url.includes('sogou.com')) return { data: sogouHtml };
       if (url.includes('toutiao.com')) return { data: toutiaoHtml };
+      if (url.includes('m.sm.cn')) return { data: quarkHtml };
+      if (url.includes('chinaso.com')) return { data: chinasoHtml };
       return { data: so360Html };
     },
   };
@@ -75,7 +93,7 @@ test('live search fans out without creating persistent document records', async 
 
   assert.deepEqual(evidence.map((item) => item.id), ['S1', 'S2', 'S3', 'S4', 'S5']);
   assert.deepEqual(evidence.map((item) => item.source), ['baidu', 'bing', 'sogou', 'so360', 'toutiao']);
-  assert.equal(requests.length, 5);
+  assert.equal(requests.length, 7);
   assert.equal(requests.every((request) => request.options?.maxRetries === 1), true);
   assert.equal(requests.every((request) => request.options?.timeout === 4_000), true);
 

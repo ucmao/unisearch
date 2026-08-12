@@ -13,7 +13,22 @@ const configuredCrawlerContexts = new WeakSet<BrowserContext>();
 interface CrawlerPageConfiguration {
   installStealth?: boolean;
   alignIdentity?: boolean;
+  maskWebdriver?: boolean;
   preventWindowClose?: boolean;
+}
+
+function crawlerPageConfiguration(platform: string): CrawlerPageConfiguration {
+  if (platform === 'boss') {
+    return { installStealth: false, alignIdentity: true, maskWebdriver: true, preventWindowClose: true };
+  }
+  if (platform === 'quark') {
+    // Alibaba's interactive challenge validates the browser again after the
+    // user drags the slider. Old generic stealth patches and webdriver
+    // descriptor overrides can make that server-side validation fail even
+    // for a genuine manual gesture. Keep this persistent BrowserView clean.
+    return { installStealth: false, alignIdentity: true, maskWebdriver: false, preventWindowClose: true };
+  }
+  return {};
 }
 
 async function configureCrawlerPage(
@@ -32,6 +47,15 @@ async function configureCrawlerPage(
         Object.defineProperty(window, 'close', {
           configurable: true,
           value: () => undefined,
+        });
+      } catch {}
+    }).catch(() => {});
+  }
+  if (configuration.maskWebdriver !== false && typeof (page as any).addInitScript === 'function') {
+    await page.addInitScript(() => {
+      try {
+        Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
+          get: () => undefined,
         });
       } catch {}
     }).catch(() => {});
@@ -155,23 +179,10 @@ export async function connectToElectronChromium(playwright: PlaywrightModule): P
 
 export async function getElectronCrawlerPage(browserContext: BrowserContext, platform: string, attempts = 20): Promise<Page> {
   const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
-  // BOSS Direct Hire detects heavy stealth.min.js Function.prototype.toString proxies.
-  // We use clean identity alignment and lightweight webdriver masking for BOSS.
-  const pageConfiguration: CrawlerPageConfiguration = platform === 'boss'
-    ? { installStealth: false, alignIdentity: true, preventWindowClose: true }
-    : {};
+  const pageConfiguration = crawlerPageConfiguration(platform);
   for (let attempt = 0; attempt < attempts; attempt++) {
     const page = browserContext.pages().find((candidate) => candidate.url().includes(marker));
     if (page) {
-      if (typeof page.addInitScript === 'function') {
-        await page.addInitScript(() => {
-          try {
-            Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
-              get: () => undefined,
-            });
-          } catch {}
-        }).catch(() => {});
-      }
       return configureCrawlerPage(browserContext, page, pageConfiguration);
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -198,9 +209,7 @@ export async function recoverElectronCrawlerPage(
   retryDelayMs = 100,
 ): Promise<Page | null> {
   const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
-  const pageConfiguration: CrawlerPageConfiguration = platform === 'boss'
-    ? { installStealth: false, alignIdentity: true, preventWindowClose: true }
-    : {};
+  const pageConfiguration = crawlerPageConfiguration(platform);
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     const pages = browserContext.pages();

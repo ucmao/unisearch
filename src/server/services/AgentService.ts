@@ -131,6 +131,8 @@ export function normalizePlan(
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
     百度: 'baidu', 百度搜索: 'baidu', 必应: 'bing', 必应中国: 'bing', 必应搜索: 'bing', '360': 'so360', '360搜索': 'so360', 搜狗: 'sogou', 搜狗搜索: 'sogou', 头条: 'toutiao', 头条搜索: 'toutiao',
+    神马: 'quark', 神马搜索: 'quark', 夸克: 'quark', 夸克搜索: 'quark', quark: 'quark',
+    中国搜索: 'chinaso', 国搜: 'chinaso', chinaso: 'chinaso',
     arXiv: 'arxiv', Arxiv: 'arxiv', arxiv: 'arxiv', 论文库: 'arxiv',
     GitHub: 'github_repositories', Github: 'github_repositories', github: 'github_repositories', GitHub仓库: 'github_repositories', GitHub趋势: 'github_repositories',
     RSS: 'rss_news', RSS新闻: 'rss_news', RSS资讯: 'rss_news', Atom: 'rss_news', 订阅源: 'rss_news',

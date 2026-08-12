@@ -229,6 +229,8 @@ const PLATFORM_CONFIGS: Record<string, { label: string; shortLabel?: string; bg:
   so360: { label: '360搜索', shortLabel: '360', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
   sogou: { label: '搜狗', shortLabel: '狗', bg: 'bg-orange-500/10 dark:bg-orange-400/15', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' },
   toutiao: { label: '头条搜索', shortLabel: '头条', bg: 'bg-red-500/10 dark:bg-red-400/15', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' },
+  quark: { label: '神马搜索', shortLabel: '神马', bg: 'bg-amber-600/10 dark:bg-amber-400/15', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-500/20' },
+  chinaso: { label: '中国搜索', shortLabel: '国搜', bg: 'bg-red-700/10 dark:bg-red-500/15', text: 'text-red-800 dark:text-red-300', border: 'border-red-600/20' },
   arxiv: { label: 'arXiv', shortLabel: 'arXiv', bg: 'bg-rose-700/10 dark:bg-rose-500/15', text: 'text-rose-800 dark:text-rose-300', border: 'border-rose-700/20' },
   github_repositories: { label: 'GitHub 仓库', shortLabel: 'GH', bg: 'bg-slate-700/10 dark:bg-slate-300/15', text: 'text-slate-800 dark:text-slate-200', border: 'border-slate-600/20' },
   rss_news: { label: 'RSS 新闻', shortLabel: 'RSS', bg: 'bg-orange-600/10 dark:bg-orange-400/15', text: 'text-orange-700 dark:text-orange-300', border: 'border-orange-500/20' },

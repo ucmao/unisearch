@@ -20,7 +20,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 30);
+assert.equal(listConnectorManifests().length, 32);
 assert.ok(listConnectorManifests().every((manifest) => !manifest.auth.methods.includes('cookie' as never)));
 assert.deepEqual(
   listConnectorManifests()

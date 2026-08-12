@@ -896,6 +896,8 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('so360', '360搜索', 'compass'),
   searchEngine('sogou', '搜狗搜索', 'search'),
   searchEngine('toutiao', '头条搜索', 'newspaper'),
+  searchEngine('quark', '神马搜索', 'zap'),
+  searchEngine('chinaso', '中国搜索', 'shield'),
   arxiv,
   githubRepositories,
   rssNews,

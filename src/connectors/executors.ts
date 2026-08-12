@@ -5,7 +5,7 @@ import { TiebaCrawler } from '../crawler/platforms/tieba';
 import { WeiboCrawler } from '../crawler/platforms/weibo';
 import { XiaoHongShuCrawler } from '../crawler/platforms/xhs';
 import { ZhihuCrawler } from '../crawler/platforms/zhihu';
-import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler, ToutiaoCrawler } from '../crawler/platforms/search_engine';
+import { BaiduCrawler, BingCrawler, So360Crawler, SogouCrawler, ToutiaoCrawler, QuarkCrawler, ChinaSoCrawler } from '../crawler/platforms/search_engine';
 import { MediaParserCrawler } from '../crawler/platforms/media_parser';
 import { ZhaopinCrawler } from '../crawler/platforms/zhaopin';
 import { Job51Crawler } from '../crawler/platforms/job51';
@@ -37,6 +37,8 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   so360: () => new So360Crawler(),
   sogou: () => new SogouCrawler(),
   toutiao: () => new ToutiaoCrawler(),
+  quark: () => new QuarkCrawler(),
+  chinaso: () => new ChinaSoCrawler(),
   aihot: () => new AiHotCrawler(),
   arxiv: () => new ArxivCrawler(),
   github_repositories: () => new GitHubRepositoriesCrawler(),

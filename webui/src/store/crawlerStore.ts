@@ -75,7 +75,7 @@ const defaultConfig: CrawlerConfig = {
 
 const SUPPORTED_PLATFORMS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
-  'baidu', 'bing', 'so360', 'sogou', 'toutiao',
+  'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso',
   'arxiv', 'github_repositories', 'rss_news', 'aihot', 'web_reader', 'media_parser',
   'zhaopin', 'job51', 'liepin', 'boss', 'heimao',
   'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',

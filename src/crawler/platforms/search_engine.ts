@@ -1,9 +1,16 @@
 import * as cheerio from 'cheerio';
-import { AbstractCrawler, connectToElectronChromium, getElectronCrawlerPage } from '../base/BaseCrawler';
+import {
+  AbstractCrawler,
+  connectToElectronChromium,
+  getElectronCrawlerPage,
+  notifyManualVerificationRequired,
+  notifyManualVerificationSuccess,
+} from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
+import { MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 export const SEARCH_ENGINE_ITEM_LIMIT = 500;
 export const SEARCH_ENGINE_BATCH_SIZE = 100;
@@ -1044,5 +1051,612 @@ export class SogouCrawler extends AbstractCrawler {
     console.log('[SOGOU] Starting Sogou Search pure HTTP crawler with SystemHttpClient...');
     await this.search();
     console.log('[SOGOU] Sogou Search crawler finished.');
+  }
+}
+
+// 6. Quark (Shenma) Search Crawler (Hybrid: HTTP First + Playwright Fallback)
+interface QuarkSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  publisher: string;
+  time: string;
+  images: string[];
+}
+
+interface QuarkBrowserSearchResult {
+  items: QuarkSearchResultItem[];
+  blocked: boolean;
+}
+
+function quarkSearchUrl(keyword: string, page: number): string {
+  // quark.sm.cn currently redirects anonymous HTTP clients into Alibaba's
+  // bxpunish flow. m.sm.cn is the public Shenma mobile SERP for the same index.
+  return `https://m.sm.cn/s?q=${encodeURIComponent(keyword)}&page=${page}`;
+}
+
+export function detectQuarkAntiBotChallenge(html: unknown, headers?: Record<string, unknown>): boolean {
+  const body = String(html || '');
+  const punishedByHeader = Object.entries(headers || {}).some(([name, value]) => (
+    name.toLowerCase() === 'bxpunish' && String(value || '') !== '0'
+  ));
+
+  return punishedByHeader || (
+    /验证码拦截|滑动验证|安全验证/i.test(body) ||
+    /sec\.quark\.cn|punishType|__nc_action/i.test(body) ||
+    /_____tmd_____\/punish|["']action["']\s*:\s*["']captcha["']|x5secdata/i.test(body)
+  );
+}
+
+function extractQuarkJsonFeeds(obj: any, items: QuarkSearchResultItem[], seen: Set<string>): void {
+  if (!obj || typeof obj !== 'object') return;
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) extractQuarkJsonFeeds(item, items, seen);
+    return;
+  }
+
+  const title = typeof obj.title === 'string' ? cleanText(obj.title) : '';
+  let url = typeof obj.url === 'string' ? obj.url : typeof obj.openpageurl === 'string' ? obj.openpageurl : '';
+  if (!url && typeof obj.h5_url === 'object' && obj.h5_url) {
+    url = obj.h5_url.info_h5 || obj.h5_url.index_h5 || '';
+  }
+
+  if (title && url && typeof url === 'string' && !url.startsWith('javascript:') && !url.includes('adclick') && !url.includes('log.m.sm.cn')) {
+    if (url.startsWith('//')) url = `https:${url}`;
+    const dedupeKey = canonicalSearchResultUrl(url);
+    if (dedupeKey && !seen.has(dedupeKey)) {
+      seen.add(dedupeKey);
+      const snippet = cleanText(obj.summary || obj.desc || obj.content || obj.abstract || title);
+      const publisher = cleanText(obj.webname || obj.source || obj.author || obj.publisher || '神马搜索');
+      const time = cleanText(obj.time || obj.publish_time || obj.pub_time || '');
+      const images: string[] = [];
+      if (typeof obj.image === 'string' && obj.image.startsWith('http')) images.push(obj.image);
+      if (Array.isArray(obj.images)) {
+        for (const img of obj.images) if (typeof img === 'string' && img.startsWith('http')) images.push(img);
+      }
+
+      items.push({
+        title,
+        url,
+        snippet,
+        publisher,
+        time,
+        images,
+      });
+    }
+  }
+
+  for (const key of Object.keys(obj)) {
+    if (key === 'options' || key === 'extraData' || key === 'quarkUiCtx') continue;
+    if (typeof obj[key] === 'object' && obj[key] !== null) {
+      extractQuarkJsonFeeds(obj[key], items, seen);
+    }
+  }
+}
+
+function parseQuarkHtml(html: string, headers?: Record<string, unknown>): { items: QuarkSearchResultItem[]; hasCaptcha: boolean } {
+  const $ = cheerio.load(html || '');
+  const items: QuarkSearchResultItem[] = [];
+  const seen = new Set<string>();
+
+  // 1. Extract structured data from Hydration JSON islands (<script type="application/json">)
+  $('script[type="application/json"], script[id^="s-data-"]').each((_, el) => {
+    try {
+      const jsonText = $(el).html() || $(el).text();
+      if (!jsonText) return;
+      const parsed = JSON.parse(jsonText);
+      extractQuarkJsonFeeds(parsed, items, seen);
+    } catch {}
+  });
+
+  // 2. Target mobile result blocks and article cards in DOM
+  $('article, .article-item, .result, .sc, div[data-s-index], .card, .qk-card, [data-cmp="ca"], .y-feed-item').each((_, el) => {
+    const $card = $(el);
+    const $titleLink = $card.find('h2 a, h3 a, a.title, .c-header a, a[data-openpageurl], a[data-u], a[data-log], a').first();
+    let href = $titleLink.attr('data-openpageurl') || $titleLink.attr('data-u') || $titleLink.attr('href') || $card.attr('data-openpageurl') || $card.attr('data-u') || '';
+    const title = cleanText($card.find('.qk-title-text, .qk-title, h2, h3, .title, .y-feed-title, .c-title').first().text()) || cleanText($titleLink.text());
+
+    if (!title || !href || href.startsWith('javascript:') || href === '#') return;
+    if (href.includes('adclick') || href.includes('sm.component') || href.includes('log.m.sm.cn')) return;
+    if (href.startsWith('//')) href = `https:${href}`;
+
+    const dedupeKey = canonicalSearchResultUrl(href);
+    if (!dedupeKey || seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
+    let snippet = cleanText(
+      $card.find('.c-abstract, .c-line-clamp, .c-content, .desc, .abs, .y-feed-desc, .y-feed-abstract, p').first().text()
+    );
+    if (!snippet) {
+      snippet = cleanText($card.text().replace(title, '')).slice(0, 150);
+    }
+
+    const publisherText = cleanText(
+      $card.find('.c-footer, .c-source, .c-showurl, .source, .author, .webname, .host, .list-source').first().text()
+    );
+    const publisher = publisherText.split(/[\s·|]/)[0] || '神马搜索';
+    const timeMatch = /(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|\d{1,2}[-/月]\d{1,2}日?|\d+\s*(?:小时|分钟|天)前)/.exec($card.text());
+
+    const images: string[] = [];
+    $card.find('img').each((_, imgEl) => {
+      const src = $(imgEl).attr('src') || $(imgEl).attr('data-src') || $(imgEl).attr('data-load');
+      if (src && src.startsWith('http')) images.push(src);
+    });
+
+    items.push({
+      title,
+      url: href,
+      snippet,
+      publisher,
+      time: timeMatch ? timeMatch[1] : '',
+      images,
+    });
+  });
+
+  // 3. Fallback selector for generic anchor lists if specialized card structure wasn't matched
+  if (items.length === 0) {
+    $('a[href^="http"], a[data-openpageurl^="http"]').each((_, el) => {
+      const $a = $(el);
+      const href = $a.attr('data-openpageurl') || $a.attr('href') || '';
+      const text = cleanText($a.text());
+      if (text.length > 8 && !/(?:quark\.sm\.cn|m\.sm\.cn)\/s\?/i.test(href) && !href.includes('adclick') && !href.includes('log.m.sm.cn')) {
+        const dedupeKey = canonicalSearchResultUrl(href);
+        if (!seen.has(dedupeKey)) {
+          seen.add(dedupeKey);
+          items.push({
+            title: text.slice(0, 60),
+            url: href,
+            snippet: text,
+            publisher: '神马搜索',
+            time: '',
+            images: [],
+          });
+        }
+      }
+    });
+  }
+
+  // Explicit anti-bot markers take precedence over incidental links rendered
+  // by a challenge page (help/privacy links can otherwise look like results).
+  const hasCaptcha = detectQuarkAntiBotChallenge(html, headers) || (
+    items.length === 0 && $('#nc-container, .nc-container, #nocaptcha, .baxia-dialog').length > 0
+  );
+
+  return { items: hasCaptcha ? [] : items, hasCaptcha };
+}
+
+export class QuarkCrawler extends AbstractCrawler {
+  private async fetchPageViaHttp(keyword: string, page: number): Promise<{ items: QuarkSearchResultItem[]; hasCaptcha: boolean }> {
+    const url = quarkSearchUrl(keyword, page);
+    const res = await systemHttpClient.get(url, {
+      mode: 'mobile',
+      referer: 'https://m.sm.cn/',
+      timeout: 8000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1 Quark/6.5.0.1234',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
+    return parseQuarkHtml(res.data, res.headers as Record<string, unknown>);
+  }
+
+  private async searchViaBrowser(keyword: string, maxItems: number, startPage: number): Promise<QuarkBrowserSearchResult> {
+    console.log(`[QUARK] [Browser Fallback] Initializing Playwright browser page for keyword "${keyword}"...`);
+    const results: QuarkSearchResultItem[] = [];
+    const seen = new Set<string>();
+    let blocked = false;
+
+    try {
+      const playwright = require('playwright');
+      const browserContext = await connectToElectronChromium(playwright);
+      const page = await getElectronCrawlerPage(browserContext, 'quark');
+
+      await page.setExtraHTTPHeaders({
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      });
+
+      const maxPages = searchEnginePageBudget(maxItems);
+      for (let p = startPage; p < startPage + maxPages; p++) {
+        if (results.length >= maxItems) break;
+
+        const searchUrl = quarkSearchUrl(keyword, p);
+        console.log(`[QUARK] [Browser Fallback] Navigating to page ${p}: ${searchUrl}`);
+
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForTimeout(2000);
+
+        let parsed = parseQuarkHtml(await page.content());
+        const challengeUrlPattern = /\/punish(?:[/?#]|$)|captcha|verification|security[-_/]?check/i;
+        const browserShowsChallenge = () => parsed.hasCaptcha || challengeUrlPattern.test(page.url());
+
+        if (browserShowsChallenge()) {
+          const reason = `神马搜索“${keyword}”触发滑动/安全验证，请点击提示卡片打开内置浏览器并手动完成滑动。`;
+          console.warn(`[QUARK] [Browser Fallback] Anti-bot challenge detected on page ${p}. Waiting for manual verification...`);
+          notifyManualVerificationRequired('quark', reason);
+
+          const deadline = Date.now() + MANUAL_VERIFICATION_TIMEOUT_MS;
+          let stableClearPasses = 0;
+          let verificationCompleted = false;
+          let verificationFailureVisible = false;
+          while (Date.now() < deadline) {
+            await page.waitForTimeout(1_000);
+            if (page.isClosed()) break;
+            const currentContent = await page.content().catch(() => '');
+            parsed = parseQuarkHtml(currentContent);
+            const currentFailureVisible = /验证失败|点击框体重试|error\s*:\s*[A-Za-z0-9_-]+/i.test(currentContent);
+            if (currentFailureVisible && !verificationFailureVisible) {
+              console.warn('[QUARK] [Browser Fallback] Slider submission was rejected. Waiting for the user to click the challenge and retry...');
+              notifyManualVerificationRequired(
+                'quark',
+                `神马搜索“${keyword}”拒绝了本次滑动，请点击验证码框刷新后重新拖动；任务仍在等待。`,
+              );
+            }
+            verificationFailureVisible = currentFailureVisible;
+            if (browserShowsChallenge()) {
+              stableClearPasses = 0;
+              continue;
+            }
+            stableClearPasses++;
+            if (stableClearPasses < 2) continue;
+
+            // Some challenge pages briefly become blank before redirecting.
+            // Reloading the intended SERP verifies that the clearance cookie
+            // really works and keeps the crawler on the user's search task.
+            if (parsed.items.length === 0) {
+              await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => null);
+              await page.waitForTimeout(2_000);
+              parsed = parseQuarkHtml(await page.content().catch(() => ''));
+              if (browserShowsChallenge()) {
+                stableClearPasses = 0;
+                continue;
+              }
+            }
+
+            notifyManualVerificationSuccess('quark');
+            console.log(`[QUARK] [Browser Fallback] Manual verification completed on page ${p}. Resuming collection...`);
+            verificationCompleted = true;
+            break;
+          }
+
+          if (!verificationCompleted) {
+            blocked = true;
+            console.warn(`[QUARK] [Browser Fallback] Manual verification was not completed within ${MANUAL_VERIFICATION_TIMEOUT_MS / 1000} seconds.`);
+            break;
+          }
+        }
+
+        const items = parsed.items;
+        if (items.length === 0) {
+          console.log(`[QUARK] [Browser Fallback] No items found on page ${p}. Stopping pagination.`);
+          break;
+        }
+
+        for (const item of items) {
+          if (results.length >= maxItems) break;
+          const dedupeKey = canonicalSearchResultUrl(item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          results.push(item);
+        }
+
+        if (results.length < maxItems) await sleep(1200);
+      }
+    } catch (err: any) {
+      console.error(`[QUARK] [Browser Fallback] Playwright crawler encountered an error: ${err.message}`);
+    }
+
+    return { items: results, blocked };
+  }
+
+  public async search(): Promise<void> {
+    const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
+    const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
+    const startPage = activeConfig.START_PAGE || 1;
+    const maxPages = searchEnginePageBudget(maxItems);
+
+    for (const keyword of keywords) {
+      console.log(`[QUARK] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
+      let totalRank = 0;
+      let stagnantPages = 0;
+      let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
+      let stopReason = '已达到平台分页预算';
+      const seen = new Set<string>();
+
+      for (let page = startPage; page < startPage + maxPages; page++) {
+        if (totalRank >= maxItems) break;
+
+        console.log(`[QUARK] [HTTP] Fetching page ${page}...`);
+        let pageItems: QuarkSearchResultItem[];
+        let pageBlocked = false;
+
+        try {
+          const { items, hasCaptcha } = await this.fetchPageViaHttp(keyword, page);
+          if (hasCaptcha || items.length === 0) {
+            if (hasCaptcha) {
+              console.warn(`[QUARK] Alibaba anti-bot challenge detected on page ${page}. Switching to browser fallback...`);
+            } else {
+              console.log(`[QUARK] [HTTP] No rendered items on page ${page}. Switching to browser fallback...`);
+            }
+            const browserResult = await this.searchViaBrowser(keyword, maxItems - totalRank, page);
+            pageItems = browserResult.items;
+            pageBlocked = browserResult.blocked || (hasCaptcha && pageItems.length === 0);
+          } else {
+            pageItems = items;
+          }
+        } catch (err: any) {
+          console.warn(`[QUARK] HTTP request failed for page ${page} (${err.message}). Falling back to browser...`);
+          const browserResult = await this.searchViaBrowser(keyword, maxItems - totalRank, page);
+          pageItems = browserResult.items;
+          pageBlocked = browserResult.blocked;
+        }
+
+        if (pageItems.length === 0) {
+          if (pageBlocked) {
+            console.warn(`[QUARK] Anti-bot challenge prevented collection on page ${page}. Stopping pagination.`);
+            stopReason = `第 ${page} 页遭到神马反爬验证，浏览器兜底仍未取得结果`;
+          } else {
+            console.log(`[QUARK] No items found on page ${page}. Stopping pagination.`);
+            stopReason = `第 ${page} 页没有返回搜索结果`;
+          }
+          break;
+        }
+
+        const currentPageItems = pageItems;
+        const resolvedItems = await mapWithConcurrency(currentPageItems, 4, async (item) => ({
+          item,
+          realUrl: await resolveRealUrl(item.url),
+        }));
+
+        let pageAdded = 0;
+        for (const { item, realUrl } of resolvedItems) {
+          if (totalRank >= maxItems) break;
+          const dedupeKey = canonicalSearchResultUrl(realUrl || item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          totalRank++;
+          pageAdded++;
+
+          await connectorOutput.emitSearchEngineResult({
+            search_engine: 'quark',
+            title: item.title,
+            url: item.url,
+            real_url: realUrl,
+            snippet: item.snippet,
+            publisher: item.publisher,
+            publish_time: item.time,
+            images: item.images,
+            search_rank: totalRank,
+            source_keyword: keyword,
+          });
+
+          console.log(`[QUARK] [P${page} #${totalRank}/${maxItems}] ${item.title} -> ${realUrl}`);
+        }
+
+        stagnantPages = pageAdded === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+          stopReason = `连续 ${stagnantPages} 页没有新增有效链接`;
+          break;
+        }
+        nextBatchBoundary = await pauseAfterCompletedBatch('QUARK', keyword, totalRank, maxItems, nextBatchBoundary);
+        if (totalRank < maxItems) await sleep(800);
+      }
+
+      if (totalRank >= maxItems) stopReason = '已达到用户设置的目标数量';
+      reportSearchFinished('神马搜索', keyword, totalRank, maxItems, stopReason);
+    }
+  }
+
+  public async start(): Promise<void> {
+    console.log('[QUARK] Starting Quark (Shenma) Search crawler...');
+    await this.search();
+    console.log('[QUARK] Quark (Shenma) Search crawler finished.');
+  }
+}
+
+// 7. ChinaSo (中国搜索) Search Crawler (Hybrid: HTTP First + Playwright Fallback)
+interface ChinaSoSearchResultItem {
+  title: string;
+  url: string;
+  snippet: string;
+  publisher: string;
+  time: string;
+  images: string[];
+}
+
+function parseChinaSoHtml(html: string): ChinaSoSearchResultItem[] {
+  const $ = cheerio.load(html);
+  const items: ChinaSoSearchResultItem[] = [];
+  const seen = new Set<string>();
+
+  // Target search list item wrappers in ChinaSo web/mobile views
+  $('.search-list .list, .list-wrapper .list, .reItem, li.reItem, .natural-word, .natural-news-group, .natural-image, article, .item').each((_, el) => {
+    const $item = $(el);
+    const $titleLink = $item.find('h2 a, h3 a, a.title, .list-title a, a[target="_blank"], a').first();
+    let href = $titleLink.attr('href') || '';
+    const title = cleanText($titleLink.text());
+
+    if (!title || !href || href.startsWith('javascript:') || href === '#') return;
+    if (href.includes('/newssearch/all/') || href.includes('chinaso.com/newssearch/')) return;
+    if (href.startsWith('//')) href = `https:${href}`;
+
+    const dedupeKey = canonicalSearchResultUrl(href);
+    if (!dedupeKey || seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
+    let snippet = cleanText(
+      $item.find('.desc, .list-content, .content, .summary, p, .c-abstract').first().text()
+    );
+    if (!snippet) {
+      snippet = cleanText($item.text().replace(title, '')).slice(0, 150);
+    }
+
+    const publisher = cleanText(
+      $item.find('.source, .list-source, .pub-name, .news-source, .author').first().text()
+    ) || '中国搜索';
+
+    const timeMatch = /(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}日?|\d{1,2}[-/月]\d{1,2}日?|\d+\s*(?:小时|分钟|天)前)/.exec($item.text());
+
+    const images: string[] = [];
+    $item.find('img').each((_, imgEl) => {
+      const src = $(imgEl).attr('src') || $(imgEl).attr('data-src');
+      if (src && src.startsWith('http')) images.push(src);
+    });
+
+    items.push({
+      title,
+      url: href,
+      snippet,
+      publisher,
+      time: timeMatch ? timeMatch[1] : '',
+      images,
+    });
+  });
+
+  return items;
+}
+
+export class ChinaSoCrawler extends AbstractCrawler {
+  private async searchViaBrowser(keyword: string, maxItems: number, startPage: number): Promise<ChinaSoSearchResultItem[]> {
+    console.log(`[CHINASO] [Browser] Initializing Playwright browser page for keyword "${keyword}"...`);
+    const results: ChinaSoSearchResultItem[] = [];
+    const seen = new Set<string>();
+
+    try {
+      const playwright = require('playwright');
+      const browserContext = await connectToElectronChromium(playwright);
+      const page = await getElectronCrawlerPage(browserContext, 'chinaso');
+
+      const maxPages = searchEnginePageBudget(maxItems);
+      for (let p = startPage; p < startPage + maxPages; p++) {
+        if (results.length >= maxItems) break;
+
+        const searchUrl = `https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(keyword)}&pn=${p}`;
+        console.log(`[CHINASO] [Browser] Navigating to page ${p}: ${searchUrl}`);
+
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+        await page.waitForSelector('.search-list .list, .list-wrapper, .noResult, #compnt', { timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(2000);
+
+        const pageContent = await page.content();
+        const items = parseChinaSoHtml(pageContent);
+
+        if (items.length === 0) {
+          console.log(`[CHINASO] [Browser] No items found on page ${p}. Stopping pagination.`);
+          break;
+        }
+
+        for (const item of items) {
+          if (results.length >= maxItems) break;
+          const dedupeKey = canonicalSearchResultUrl(item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          results.push(item);
+        }
+
+        if (results.length < maxItems) await sleep(1200);
+      }
+    } catch (err: any) {
+      console.error(`[CHINASO] [Browser] Playwright crawler encountered an error: ${err.message}`);
+    }
+
+    return results;
+  }
+
+  public async search(): Promise<void> {
+    const keywords = (activeConfig.KEYWORDS || '').split(',').map((k) => k.trim()).filter(Boolean);
+    const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 15;
+    const startPage = activeConfig.START_PAGE || 1;
+    const maxPages = searchEnginePageBudget(maxItems);
+
+    for (const keyword of keywords) {
+      console.log(`[CHINASO] Searching keyword: "${keyword}" (max items: ${maxItems}, start page: ${startPage})...`);
+      let totalRank = 0;
+      let stagnantPages = 0;
+      let nextBatchBoundary = SEARCH_ENGINE_BATCH_SIZE;
+      let stopReason = '已达到平台分页预算';
+      const seen = new Set<string>();
+
+      for (let page = startPage; page < startPage + maxPages; page++) {
+        if (totalRank >= maxItems) break;
+
+        console.log(`[CHINASO] Fetching page ${page}...`);
+        let pageItems: ChinaSoSearchResultItem[] = [];
+
+        try {
+          const url = `https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(keyword)}&pn=${page}`;
+          const res = await systemHttpClient.get(url, {
+            mode: 'desktop',
+            referer: 'https://www.chinaso.com/',
+            timeout: 8000,
+          });
+          pageItems = parseChinaSoHtml(res.data);
+        } catch (err: any) {
+          console.warn(`[CHINASO] HTTP fetch failed on page ${page}: ${err.message}`);
+        }
+
+        // ChinaSo uses client-side rendering (Vue SPA), so if HTTP returns empty, switch to Playwright browser
+        if (pageItems.length === 0) {
+          console.log(`[CHINASO] Pure HTTP returned no rendered items for page ${page}. Engaging Playwright browser crawler...`);
+          const browserResults = await this.searchViaBrowser(keyword, maxItems - totalRank, page);
+          pageItems = browserResults;
+        }
+
+        if (pageItems.length === 0) {
+          console.log(`[CHINASO] No items found on page ${page}. Stopping pagination.`);
+          stopReason = `第 ${page} 页没有返回搜索结果`;
+          break;
+        }
+
+        const currentPageItems = pageItems;
+        const resolvedItems = await mapWithConcurrency(currentPageItems, 4, async (item) => ({
+          item,
+          realUrl: await resolveRealUrl(item.url),
+        }));
+
+        let pageAdded = 0;
+        for (const { item, realUrl } of resolvedItems) {
+          if (totalRank >= maxItems) break;
+          const dedupeKey = canonicalSearchResultUrl(realUrl || item.url);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          totalRank++;
+          pageAdded++;
+
+          await connectorOutput.emitSearchEngineResult({
+            search_engine: 'chinaso',
+            title: item.title,
+            url: item.url,
+            real_url: realUrl,
+            snippet: item.snippet,
+            publisher: item.publisher,
+            publish_time: item.time,
+            images: item.images,
+            search_rank: totalRank,
+            source_keyword: keyword,
+          });
+
+          console.log(`[CHINASO] [P${page} #${totalRank}/${maxItems}] ${item.title} -> ${realUrl}`);
+        }
+
+        stagnantPages = pageAdded === 0 ? stagnantPages + 1 : 0;
+        if (stagnantPages >= SEARCH_ENGINE_STAGNANT_PAGE_LIMIT) {
+          stopReason = `连续 ${stagnantPages} 页没有新增有效链接`;
+          break;
+        }
+        nextBatchBoundary = await pauseAfterCompletedBatch('CHINASO', keyword, totalRank, maxItems, nextBatchBoundary);
+        if (totalRank < maxItems) await sleep(800);
+      }
+
+      if (totalRank >= maxItems) stopReason = '已达到用户设置的目标数量';
+      reportSearchFinished('中国搜索', keyword, totalRank, maxItems, stopReason);
+    }
+  }
+
+  public async start(): Promise<void> {
+    console.log('[CHINASO] Starting ChinaSo Search crawler...');
+    await this.search();
+    console.log('[CHINASO] ChinaSo Search crawler finished.');
   }
 }

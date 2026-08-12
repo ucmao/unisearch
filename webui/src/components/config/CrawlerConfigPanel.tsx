@@ -11,7 +11,7 @@ import type { ConnectorCapability, ConnectorInputField, ConnectorManifest } from
 
 type FieldProps = { label: string; hint?: string; children: ReactNode }
 const EMPTY_CONNECTOR_OPTIONS: Record<string, unknown> = {}
-const PUBLIC_SEARCH_ENGINE_IDS = new Set(['baidu', 'bing', 'so360', 'sogou', 'toutiao'])
+const PUBLIC_SEARCH_ENGINE_IDS = new Set(['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'])
 
 function Field({ label, hint, children }: FieldProps) {
   return (

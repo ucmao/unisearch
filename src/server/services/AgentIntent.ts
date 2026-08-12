@@ -65,7 +65,7 @@ const BOSS_CONTEXTUAL_MENTION = /(?:在|去|到|从|用|通过|打开|访问)\s*
 const BOSS_LIST_MENTION = /(?:^|[、,，和与])\s*@?boss\b(?=\s*(?:[、,，和与]|$))/i;
 const DIRECT_WEB_READ = /阅读|读取|阅读全文|查看(?:一下)?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)?|看看?(?:这个|该|以下)?(?:网页|页面|文章|链接|网址|URL)|网页正文|正文内容|总结|概括|归纳|解读|告诉我|介绍(?:一下)?|讲了什么|(?:是什么|有哪些|怎么样|如何|为何|为什么|是否|能否|亮点|核心|重点|主要内容)/i;
 const ALL_PLATFORM_IDS = [
-  'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
+  'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso',
   'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
 ];
 
@@ -220,6 +220,8 @@ export function inferExcludedPlatforms(text: string): string[] {
     [/(?:360搜索|360|so\.com)/i, 'so360'],
     [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
     [/(?:头条搜索|头条|so\.toutiao\.com)/i, 'toutiao'],
+    [/(?:神马搜索|神马|夸克搜索|夸克|quark\.sm\.cn|sm\.cn)/i, 'quark'],
+    [/(?:中国搜索|国搜|chinaso\.com|chinaso)/i, 'chinaso'],
     [/(?:arXiv|arxiv\.org|论文库|学术论文|学术文献|科研论文)/i, 'arxiv'],
     [/(?:GitHub(?:仓库|趋势|热门项目)?|github\.com)/i, 'github_repositories'],
     [/(?:RSS(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)/i, 'rss_news'],
@@ -266,7 +268,7 @@ export function inferResearchPlatforms(text: string): string[] {
   let matchedPlatforms: string[] = [];
 
   if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) {
-    matchedPlatforms = ['baidu', 'bing', 'so360', 'sogou', 'toutiao'];
+    matchedPlatforms = ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'];
   } else if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) {
     matchedPlatforms = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
   } else if (/(?:所有|全部|全|主流)?\s*(?:招聘平台|招聘网站)/i.test(text)) {
@@ -292,6 +294,8 @@ export function inferResearchPlatforms(text: string): string[] {
       [/(?:360搜索|360|so\.com)/i, 'so360'],
       [/(?:搜狗搜索|搜狗|sogou\.com)/i, 'sogou'],
       [/(?:头条搜索|头条|so\.toutiao\.com)/i, 'toutiao'],
+      [/(?:神马搜索|神马|夸克搜索|夸克|quark\.sm\.cn|sm\.cn)/i, 'quark'],
+      [/(?:中国搜索|国搜|chinaso\.com|chinaso)/i, 'chinaso'],
       [/(?:arXiv|arxiv\.org|论文库|学术论文|学术文献|科研论文)/i, 'arxiv'],
       [/(?:GitHub(?:仓库|趋势|热门项目)?|github\.com)/i, 'github_repositories'],
       [/(?:RSS(?:新闻|资讯)?|Atom(?:\s*Feed)?|订阅源)/i, 'rss_news'],

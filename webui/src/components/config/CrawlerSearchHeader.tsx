@@ -20,6 +20,7 @@ import {
   FileSearch,
   Github,
   Rss,
+  Shield,
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -48,9 +49,11 @@ const ICON_MAP: { [key: string]: any } = {
   'file-search': FileSearch,
   'github': Github,
   'rss': Rss,
+  'zap': Zap,
+  'shield': Shield,
 }
 
-const PUBLIC_SEARCH_ENGINE_IDS = new Set(['baidu', 'bing', 'so360', 'sogou', 'toutiao'])
+const PUBLIC_SEARCH_ENGINE_IDS = new Set(['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'])
 
 
 export function CrawlerSearchHeader() {

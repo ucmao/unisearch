@@ -671,6 +671,8 @@ export const PLATFORM_ENTRY_URLS: Record<string, string> = {
   bing: 'https://www.bing.com',
   so360: 'https://www.so.com',
   sogou: 'https://www.sogou.com',
+  quark: 'https://m.sm.cn',
+  chinaso: 'https://www.chinaso.com',
   arxiv: 'https://arxiv.org',
   github_repositories: 'https://github.com',
   rss_news: 'https://news.google.com',

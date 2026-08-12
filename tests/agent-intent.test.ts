@@ -168,7 +168,7 @@ test('subject-only collection asks for platforms before creating a plan', () => 
     previousUserText: '帮我采集微秒数智相关内容',
   }).action, 'create_plan');
   assert.deepEqual(inferResearchPlatforms('全部平台'), [
-    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao',
+    'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso',
     'arxiv', 'github_repositories', 'rss_news', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
   ]);
 });
@@ -350,13 +350,13 @@ test('references to all collected data do not expand to every platform', () => {
   assert.deepEqual(inferResearchPlatforms('分析全部数据并给出结论'), []);
   assert.deepEqual(inferResearchPlatforms('采集全部平台'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
-    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
     'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao',
     'boss', 'zhaopin', 'job51', 'liepin',
   ]);
   assert.deepEqual(inferResearchPlatforms('全部'), [
     'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu',
-    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso', 'arxiv', 'github_repositories', 'rss_news', 'aihot',
     'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao',
     'boss', 'zhaopin', 'job51', 'liepin',
   ]);
@@ -430,9 +430,10 @@ test('search engine alias and page range expressions are parsed correctly', () =
   const { inferCollectionDepth } = require('../src/server/services/AgentIntent');
   assert.deepEqual(inferResearchPlatforms('你去百度、Bing、360 搜索以下关键词：“antigravity”、“反重力”。'), ['baidu', 'bing', 'so360']);
   assert.deepEqual(inferResearchPlatforms('在百度和头条搜索'), ['baidu', 'toutiao']);
+  assert.deepEqual(inferResearchPlatforms('在神马搜索和中国搜索查找'), ['quark', 'chinaso']);
   assert.deepEqual(inferResearchPlatforms('在百度贴吧搜索'), ['tieba']);
-  assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
-  assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+  assert.deepEqual(inferResearchPlatforms('采集所有搜索引擎'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
+  assert.deepEqual(inferResearchPlatforms('在搜索引擎上查找'), ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
   assert.deepEqual(inferResearchPlatforms('在所有社交平台搜'), ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu']);
   assert.deepEqual(inferResearchPlatforms('在腾讯元宝问一下'), ['yuanbao']);
   assert.deepEqual(inferResearchPlatforms('用纳米 AI 搜索'), ['nami']);

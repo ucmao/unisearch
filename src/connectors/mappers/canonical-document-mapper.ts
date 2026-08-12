@@ -75,6 +75,8 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
   so360: SEARCH_DEFINITION,
   sogou: SEARCH_DEFINITION,
   toutiao: SEARCH_DEFINITION,
+  quark: SEARCH_DEFINITION,
+  chinaso: SEARCH_DEFINITION,
   aihot: {
     family: 'search', subjectType: 'publisher',
     metricAliases: {

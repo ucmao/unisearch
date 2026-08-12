@@ -1,8 +1,9 @@
 import * as cheerio from 'cheerio';
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
+import { canonicalSearchResultUrl } from '../../crawler/platforms/search_engine';
 import { webReaderService, type WebReaderParsedArticle } from '../../services/web-reader-service';
 
-export type LiveSearchProvider = 'baidu' | 'bing' | 'sogou' | 'so360' | 'toutiao';
+export type LiveSearchProvider = 'baidu' | 'bing' | 'sogou' | 'so360' | 'toutiao' | 'quark' | 'chinaso';
 
 /**
  * Evidence exists only for the lifetime of one live-answer request. It is never
@@ -230,6 +231,115 @@ export function parseToutiaoSearchHtml(html: unknown, limit = 4): EvidenceDraft[
   return results;
 }
 
+export function parseQuarkSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
+  const $ = cheerio.load(String(html || ''));
+  const results: EvidenceDraft[] = [];
+  const seen = new Set<string>();
+
+  // 1. JSON Hydration feeds
+  $('script[type="application/json"], script[id^="s-data-"]').each((_, el) => {
+    if (results.length >= limit) return false;
+    try {
+      const jsonText = $(el).html() || $(el).text();
+      if (!jsonText) return;
+      const parsed = JSON.parse(jsonText);
+      const feed = parsed?.data?.initialData?.feed;
+      if (Array.isArray(feed)) {
+        for (const item of feed) {
+          if (results.length >= limit) break;
+          const title = cleanText(item.title || '');
+          let sourceUrl = item.url || '';
+          if (!title || !sourceUrl || sourceUrl.startsWith('javascript:') || sourceUrl.includes('adclick')) continue;
+          if (sourceUrl.startsWith('//')) sourceUrl = `https:${sourceUrl}`;
+          const dedupeKey = canonicalSearchResultUrl(sourceUrl);
+          if (!dedupeKey || seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          results.push({
+            title,
+            source: 'quark',
+            sourceUrl,
+            excerpt: cleanText(item.summary || item.desc || title).slice(0, 600),
+            publisher: cleanText(item.webname || item.source || '神马搜索'),
+            publishedAt: item.time ? resultTime(item.time) : undefined,
+          });
+        }
+      }
+    } catch {}
+  });
+
+  // 2. DOM cards
+  $('article, .article-item, .result, .sc, div[data-s-index], .card, .qk-card, [data-cmp="ca"], .y-feed-item').each((_, element) => {
+    if (results.length >= limit) return false;
+    const card = $(element);
+    const link = card.find('h2 a, h3 a, a.title, .c-header a, a[data-openpageurl], a[data-u], a[data-log], a').first();
+    const title = cleanText(card.find('.qk-title-text, .qk-title, h2, h3, .title, .y-feed-title, .c-title').first().text()) || cleanText(link.text());
+    let sourceUrl = link.attr('data-openpageurl') || link.attr('data-u') || link.attr('href') || card.attr('data-openpageurl') || card.attr('data-u') || '';
+    if (!title || !sourceUrl || sourceUrl.startsWith('javascript:') || sourceUrl === '#' || sourceUrl.includes('adclick') || sourceUrl.includes('log.m.sm.cn')) return;
+    if (sourceUrl.startsWith('//')) sourceUrl = `https:${sourceUrl}`;
+
+    const dedupeKey = canonicalSearchResultUrl(sourceUrl);
+    if (!dedupeKey || seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
+    const excerpt = cleanText(
+      card.find('.c-abstract, .c-line-clamp, .c-content, .desc, .abs, .y-feed-desc, .y-feed-abstract, p').first().text()
+        || card.text().replace(title, ''),
+    ).slice(0, 600);
+    if (!excerpt) return;
+
+    const publisher = cleanText(
+      card.find('.c-footer, .c-source, .c-showurl, .source, .author, .webname, .host, .list-source').first().text()
+    ).split(/[\s·|]/)[0] || '神马搜索';
+
+    const fullText = cleanText(card.text());
+    results.push({
+      title,
+      source: 'quark',
+      sourceUrl,
+      excerpt,
+      publisher,
+      publishedAt: resultTime(fullText),
+    });
+  });
+  return results;
+}
+
+export function parseChinaSoSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
+  const $ = cheerio.load(String(html || ''));
+  const results: EvidenceDraft[] = [];
+  $('.search-list .list, .list-wrapper .list, .reItem, li.reItem, .natural-word, .natural-news-group, .natural-image, article, .item').each((_, element) => {
+    if (results.length >= limit) return false;
+    const item = $(element);
+    const link = item.find('h2 a, h3 a, a.title, .list-title a, a[target="_blank"], a').first();
+    const title = cleanText(link.text());
+    let sourceUrl = link.attr('href') || '';
+    if (!title || !sourceUrl || sourceUrl.startsWith('javascript:') || sourceUrl === '#') return;
+    if (sourceUrl.includes('/newssearch/all/')) return;
+    if (sourceUrl.startsWith('//')) sourceUrl = `https:${sourceUrl}`;
+
+    const excerpt = cleanText(
+      item.find('.desc, .list-content, .content, .summary, p, .c-abstract').first().text()
+        || item.text().replace(title, ''),
+    ).slice(0, 600);
+    if (!excerpt) return;
+
+    const publisher = cleanText(
+      item.find('.source, .list-source, .pub-name, .news-source, .author').first().text()
+    ) || '中国搜索';
+
+    const fullText = cleanText(item.text());
+    results.push({
+      title,
+      source: 'chinaso',
+      sourceUrl,
+      excerpt,
+      publisher,
+      publishedAt: resultTime(fullText),
+    });
+  });
+  return results;
+}
+
 function roundRobin(groups: EvidenceDraft[][]): EvidenceDraft[] {
   const result: EvidenceDraft[] = [];
   const maxLength = Math.max(0, ...groups.map((group) => group.length));
@@ -356,6 +466,18 @@ export class LiveSearchService {
         referer: 'https://so.toutiao.com/',
         autoCookie: false,
       }).then((response) => parseToutiaoSearchHtml(response.data, perProvider)),
+      this.client.get(`https://m.sm.cn/s?q=${encodeURIComponent(query)}&page=1&layout=html`, {
+        ...requestOptions,
+        mode: 'mobile',
+        referer: 'https://m.sm.cn/',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1 Quark/6.5.0.1234',
+        },
+      }).then((response) => parseQuarkSearchHtml(response.data, perProvider)),
+      this.client.get(`https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(query)}&pn=1`, {
+        ...requestOptions,
+        referer: 'https://www.chinaso.com/',
+      }).then((response) => parseChinaSoSearchHtml(response.data, perProvider)),
     ];
     const settled = await Promise.allSettled(requests);
     options.signal?.throwIfAborted();

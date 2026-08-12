@@ -106,7 +106,7 @@ export const CrawlerAuthNotice: React.FC = () => {
               </div>
               <div className="mt-3 flex justify-end gap-2">
                 <Button size="sm" variant="outline" className="h-7 border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 px-2 text-[10px] text-cyber-neon-cyan" disabled={loadingAction === `show_browser:${item.platform}`} onClick={() => void showBrowser(item.platform)}>
-                  <ExternalLink className="h-3.5 w-3.5" />打开{platformName}
+                  <ExternalLink className="h-3.5 w-3.5" />{isManual ? '打开浏览器并验证' : `打开${platformName}`}
                 </Button>
               </div>
             </div>

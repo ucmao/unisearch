@@ -208,7 +208,7 @@ export class DocumentEngine {
       );
 
       if (rawItem.kind === 'search_result'
-        && ['baidu', 'bing', 'so360', 'sogou', 'toutiao'].includes(rawItem.source)
+        && ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'].includes(rawItem.source)
         && document.provenance.runId && document.sourceUrl) {
         const payload = rawItem.payload as Record<string, unknown>;
         const provider = String(payload.search_engine || payload.engine || rawItem.source);
