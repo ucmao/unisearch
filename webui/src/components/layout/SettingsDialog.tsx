@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, HelpCircle, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -95,6 +95,47 @@ function SettingToggle({ checked, disabled = false, onChange }: { checked: boole
       <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
       <span className="sr-only">{checked ? '已开启' : '已关闭'}</span>
     </button>
+  )
+}
+
+function FieldHelp({ content }: { content: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [open])
+
+  return (
+    <div ref={ref} className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setOpen((prev) => !prev)
+        }}
+        className="rounded p-0.5 text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-neon-cyan"
+        title="查看说明"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+      </button>
+      {open && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-lg border border-cyber-border-default bg-cyber-bg-primary/95 p-2.5 text-[11px] leading-relaxed text-cyber-text-secondary shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95"
+        >
+          {content}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -527,7 +568,7 @@ export function SettingsDialog({
               <div className="mx-auto max-w-2xl">
                 <DialogHeader>
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">知识检索</DialogTitle>
-                  <DialogDescription>配置语义向量与重排模型，用于知识库意图理解与相关度精排。</DialogDescription>
+                  <DialogDescription>配置语义向量与重排模型，用于本地知识库检索及深度研究候选网页的语义精排。</DialogDescription>
                 </DialogHeader>
                 {retrievalProfileQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取知识检索配置…</div>
@@ -558,23 +599,31 @@ export function SettingsDialog({
                       />
                     </label>
 
-                    <label className="block space-y-1.5">
-                      <span className="text-xs text-cyber-text-secondary">向量模型 (Embedding)</span>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs text-cyber-text-secondary">
+                        <label htmlFor="retrieval-embedding-model">向量模型 (Embedding)</label>
+                        <FieldHelp content="用于本地已采集知识库的毫秒级语义向量检索与召回。" />
+                      </div>
                       <Input
+                        id="retrieval-embedding-model"
                         value={retrievalForm.embeddingModel || ''}
                         onChange={(event) => setRetrievalForm({ ...retrievalForm, embeddingModel: event.target.value })}
                         placeholder="BAAI/bge-m3"
                       />
-                    </label>
+                    </div>
 
-                    <label className="block space-y-1.5">
-                      <span className="text-xs text-cyber-text-secondary">重排模型 (Reranker，选填)</span>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs text-cyber-text-secondary">
+                        <label htmlFor="retrieval-reranker-model">重排模型 (Reranker，选填)</label>
+                        <FieldHelp content="选填。配置后将在深度研究中智能精排候选网页并优先抓取高价值正文，同时提升知识库检索准确度。" />
+                      </div>
                       <Input
+                        id="retrieval-reranker-model"
                         value={retrievalForm.rerankerModel || ''}
                         onChange={(event) => setRetrievalForm({ ...retrievalForm, rerankerModel: event.target.value })}
-                        placeholder="BAAI/bge-reranker-v2-m3（选填，留空则不启用重排）"
+                        placeholder="BAAI/bge-reranker-v2-m3（选填，留空则使用基础规则排序）"
                       />
-                    </label>
+                    </div>
 
                     <label className="block space-y-1.5">
                       <span className="flex items-center justify-between text-xs text-cyber-text-secondary">

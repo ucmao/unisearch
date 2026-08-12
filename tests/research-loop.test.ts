@@ -12,6 +12,8 @@ import {
   requiredSourceQuery,
   requiresFullPageEvidence,
   requiresPrimaryEvidence,
+  rankCandidateEvidence,
+  candidateSnippetFingerprint,
   shouldUseGlobalKnowledgeScope,
   shouldUseExperimentalResearchLoop,
   type ResearchLoopModel,
@@ -464,5 +466,53 @@ test('query cleaning and search noise filtering remove irrelevant pages', () => 
   assert.equal(filtered[0].title.includes('科莱特'), true);
   assert.equal(filtered[1].title.includes('科莱特'), true);
 });
+
+test('rankCandidateEvidence prioritizes authoritative 2025 evidence via Reranker and filters duplicate snippets', async () => {
+  const question = '科莱特集团还是不是 SAP 银牌合作伙伴？';
+  const candidates: ResearchEvidence[] = [
+    {
+      id: 'S1', key: 'url1', title: '科莱特2020年学员就业喜报', source: 'baidu', sourceUrl: 'https://example.com/2020-news',
+      excerpt: '2020年科莱特学员成功就业SAP顾问岗位喜报...', evidenceType: 'search',
+    },
+    {
+      id: 'S2', key: 'url2', title: '科莱特2020年学员就业喜报通稿', source: 'sogou', sourceUrl: 'https://example.org/2020-news-duplicate',
+      excerpt: '2020年科莱特学员成功就业SAP顾问岗位喜报...', evidenceType: 'search',
+    },
+    {
+      id: 'S3', key: 'url3', title: 'SAP中国官方合作伙伴列表公告 2025年认证更新', source: 'bing', sourceUrl: 'https://www.sap.com/china/partners/co-driver',
+      excerpt: '2025-10-31 官方最新银牌合作伙伴(Silver Partner)授牌企业名单公布，科莱特集团在列。', evidenceType: 'search',
+    },
+  ];
+
+  // 1. 指纹去重测试
+  assert.equal(candidateSnippetFingerprint(candidates[0]), candidateSnippetFingerprint(candidates[1]));
+
+  // 2. 模拟配置了 Rerank 模型的检索服务
+  const mockRetrieval = {
+    getProfile: () => ({
+      provider: 'siliconflow' as const,
+      baseUrl: 'https://api.siliconflow.cn/v1',
+      apiKeyConfigured: true,
+      embeddingModel: 'BAAI/bge-m3',
+      rerankerModel: 'BAAI/bge-reranker-v2-m3',
+      timeoutMs: 5000,
+    }),
+    rerank: async (_q: string, docs: string[]) => {
+      // 模拟 Reranker 准确识别 SAP 官方 2025 认证并给出最高分
+      return docs.map((doc, index) => ({
+        index,
+        score: doc.includes('2025') && doc.includes('SAP') ? 0.98 : 0.12,
+      })).sort((a, b) => b.score - a.score);
+    },
+  };
+
+  const ranked = await rankCandidateEvidence(question, candidates, mockRetrieval);
+
+  // 去重后只剩下 2 个唯一候选，且 SAP 官方 2025 认证排在第 1 位
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].sourceUrl, 'https://www.sap.com/china/partners/co-driver');
+  assert.match(ranked[0].title, /SAP中国官方合作伙伴/);
+});
+
 
 

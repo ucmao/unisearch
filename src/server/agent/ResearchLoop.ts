@@ -1,6 +1,7 @@
 import type { DirectWebReadResult } from '../services/DirectWebReadService';
 import type { SearchEvidence } from '../services/LiveSearchService';
 import { modelService } from '../services/ModelService';
+import { retrievalService, type RetrievalService } from '../../knowledge/retrieval-service';
 import { agentToolExecutor, type KnowledgeToolEvidence } from './AgentTools';
 import type { AgentRunTrace, AgentToolExecutor } from './AgentToolRegistry';
 import type { ResearchEvidence, ResearchLoopState, ResearchStepDecision } from './ResearchTypes';
@@ -210,6 +211,98 @@ function evidenceContentFingerprint(item: ResearchEvidence): string {
     .slice(0, 600);
 }
 
+export function candidateSnippetFingerprint(item: ResearchEvidence): string {
+  const cleanExcerpt = item.excerpt
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .slice(0, 100);
+  if (cleanExcerpt.length >= 20) return cleanExcerpt;
+  return `${item.title} ${item.excerpt}`
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, '')
+    .slice(0, 100);
+}
+
+export function calculateBaseAuthorityAndRecencyScore(item: ResearchEvidence, question: string): number {
+  let score = 0;
+  const url = item.sourceUrl || '';
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (/(?:^|\.)(?:gov\.cn|gov|sap\.com|oracle\.com|huawei\.com|aliyun\.com|tencent\.com|microsoft\.com|apple\.com|openai\.com|github\.com)$/.test(host)) {
+      score += 0.45;
+    } else if (/(?:^|\.)(?:baike\.baidu\.com|wikipedia\.org|xinhuanet\.com|people\.com\.cn|chinanews\.com\.cn)$/.test(host)) {
+      score += 0.25;
+    } else if (/官网|官方/i.test(item.title) || /official/i.test(host)) {
+      score += 0.35;
+    }
+  } catch {}
+
+  const fullText = `${item.title} ${item.excerpt} ${item.publishedAt || ''}`;
+  if (/202[4-6]年|202[4-6]-\d{1,2}|202[4-6]\/\d{1,2}/.test(fullText)) {
+    score += 0.3;
+  } else if (/202[2-3]年|202[2-3]-\d{1,2}/.test(fullText)) {
+    score += 0.1;
+  } else if (/201\d年|2020年|2021年/.test(fullText) && /当前|现在|还是不是|最新|202[4-6]/i.test(question)) {
+    score -= 0.25;
+  }
+
+  if (/合作(?:伙伴|关系)?|资质|认证|授权|代理|银牌|金牌|白金/i.test(question)) {
+    if (/合作(?:伙伴|关系)?|资质|认证|授权|代理|银牌|金牌|白金/i.test(fullText)) {
+      score += 0.25;
+    }
+  }
+
+  return score;
+}
+
+export async function rankCandidateEvidence(
+  question: string,
+  candidates: ResearchEvidence[],
+  retrieval?: Pick<RetrievalService, 'getProfile' | 'rerank'>,
+): Promise<ResearchEvidence[]> {
+  if (!candidates.length) return [];
+
+  // 1. 基于指纹去重，过滤重复通稿
+  const uniqueCandidates: ResearchEvidence[] = [];
+  const seenFingerprints = new Set<string>();
+  for (const item of candidates) {
+    const fp = candidateSnippetFingerprint(item);
+    if (!seenFingerprints.has(fp)) {
+      seenFingerprints.add(fp);
+      uniqueCandidates.push(item);
+    }
+  }
+
+  if (uniqueCandidates.length <= 1) return uniqueCandidates;
+
+  const baseScores = uniqueCandidates.map((c) => calculateBaseAuthorityAndRecencyScore(c, question));
+  const profile = retrieval?.getProfile(false);
+
+  // 2. 如果配置了 Rerank 模型，调用 Reranker 语义精排
+  if (profile?.apiKeyConfigured && profile.rerankerModel) {
+    try {
+      const documents = uniqueCandidates.map((c) => `${c.title}\n${c.excerpt}`.slice(0, 800));
+      const reranked = await retrieval.rerank(question, documents, uniqueCandidates.length);
+      const rerankMap = new Map<number, number>();
+      reranked.forEach((r) => rerankMap.set(r.index, r.score));
+
+      const fused = uniqueCandidates.map((item, index) => {
+        const rerankScore = rerankMap.get(index) ?? 0;
+        const finalScore = rerankScore * 0.65 + baseScores[index] * 0.35;
+        return { item, finalScore };
+      });
+
+      return fused.sort((a, b) => b.finalScore - a.finalScore).map((f) => f.item);
+    } catch {
+      // 若 Reranker 调用失败，平滑降级为 baseScore 排序
+    }
+  }
+
+  // 3. 降级为基于权威度、时效性与关键词命中得分排序
+  const scored = uniqueCandidates.map((item, index) => ({ item, score: baseScores[index] }));
+  return scored.sort((a, b) => b.score - a.score).map((s) => s.item);
+}
+
 function evidenceStrength(item: ResearchEvidence): number {
   const typeScore = { search: 1, knowledge: 2, web_page: 3 }[item.evidenceType];
   const qualityScore = { metadata_only: 0, partial: 1, full: 2 }[item.contentQuality || 'metadata_only'];
@@ -233,6 +326,7 @@ export class ResearchLoop {
   constructor(
     private readonly model: ResearchLoopModel = modelService,
     private readonly executor: AgentToolExecutor = agentToolExecutor,
+    private readonly retrieval: Pick<RetrievalService, 'getProfile' | 'rerank'> = retrievalService,
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -349,16 +443,21 @@ export class ResearchLoop {
       if (decision.action === 'live_search' && searchCalls > 0 && requiresFullPageEvidence(question)) {
         const currentEvidence = [...evidence.values()];
         const hasFullPage = currentEvidence.some((item) => item.evidenceType === 'web_page' && item.contentQuality === 'full');
-        const readableUrls = currentEvidence
+        const candidateSearchItems = currentEvidence
           .filter((item) => item.evidenceType === 'search')
+          .filter((item) => {
+            const u = normalizedUrl(item.sourceUrl);
+            return u && !isSearchRedirectUrl(u) && !attemptedReadUrls.has(u);
+          });
+        const rankedCandidates = await rankCandidateEvidence(question, candidateSearchItems, this.retrieval);
+        const readableUrls = rankedCandidates
           .map((item) => normalizedUrl(item.sourceUrl))
-          .filter((url) => url && !isSearchRedirectUrl(url) && !attemptedReadUrls.has(url))
           .slice(0, Math.max(0, Math.min(3, 5 - readUrls)));
         if (!hasFullPage && readableUrls.length) {
           decision = {
             action: 'direct_web_read',
             urls: readableUrls,
-            reason: '核验任务已经取得搜索摘要，下一步优先读取原始页面而不是继续堆叠摘要',
+            reason: '核验任务已经取得搜索摘要，下一步优先读取高相关权威原始页面',
           };
         }
       }
@@ -367,12 +466,17 @@ export class ResearchLoop {
         const needsFullPage = requiresFullPageEvidence(question)
           && !currentEvidence.some((item) => item.evidenceType === 'web_page' && item.contentQuality === 'full');
         const needsPrimary = requiresPrimaryEvidence(question) && !currentEvidence.some(isLikelyPrimaryEvidence);
-        const readableUrls = currentEvidence
+        const candidateSearchItems = currentEvidence
+          .filter((item) => {
+            const u = normalizedUrl(item.sourceUrl);
+            return u && !isSearchRedirectUrl(u) && !attemptedReadUrls.has(u);
+          });
+        const rankedCandidates = await rankCandidateEvidence(question, candidateSearchItems, this.retrieval);
+        const readableUrls = rankedCandidates
           .map((item) => normalizedUrl(item.sourceUrl))
-          .filter((url) => url && !isSearchRedirectUrl(url) && !attemptedReadUrls.has(url))
           .slice(0, Math.max(0, Math.min(3, 5 - readUrls)));
         if ((needsFullPage || needsPrimary) && readableUrls.length) {
-          decision = { action: 'direct_web_read', urls: readableUrls, reason: '核验任务需要读取已发现的原始页面，不能只依赖搜索摘要' };
+          decision = { action: 'direct_web_read', urls: readableUrls, reason: '核验任务需要读取已发现的权威原始页面，不能只依赖搜索摘要' };
         } else if ((needsFullPage || needsPrimary) && searchCalls < 3 && step < maxSteps) {
           decision = {
             action: 'live_search',
