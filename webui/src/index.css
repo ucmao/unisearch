@@ -898,12 +898,14 @@
    Electron Window Dragging
    ============================ */
 
-.app-drag {
-  -webkit-app-region: drag;
-}
+@layer utilities {
+  .app-drag {
+    -webkit-app-region: drag;
+  }
 
-.app-no-drag {
-  -webkit-app-region: no-drag;
+  .app-no-drag {
+    -webkit-app-region: no-drag;
+  }
 }
 
 /* ============================

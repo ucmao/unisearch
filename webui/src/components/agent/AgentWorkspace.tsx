@@ -1907,7 +1907,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         }`}
         style={{ width: leftSidebarWidth }}
       >
-        <div className="flex h-9 shrink-0 items-center justify-end pl-[74px] pr-2 app-drag">
+        <div className={`flex h-9 shrink-0 items-center justify-between ${isMacPlatform() ? 'pl-[74px]' : 'pl-3'} pr-2`}>
+          <div className="flex-1 h-full app-drag" />
           <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0 rounded-lg text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag" onClick={toggleThreads} title="收起任务栏">
             <PanelLeftClose className="h-4 w-4" />
           </Button>
@@ -2149,7 +2150,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 app-drag ${
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 ${threadsCollapsed ? 'app-drag' : 'md:app-drag'} ${
           isMacPlatform()
             ? (threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6')
             : (threadsCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4 sm:md:pl-6')

@@ -68,6 +68,91 @@ test('dashboard removal rejects running selections and clear-all preserves them'
   }
 });
 
+test('full storage cleanup removes derived research assets', async () => {
+  const { db, repository: repo } = repository();
+  try {
+    await insertRun(db, 'run-assets', 'thread-assets', 'workflow-assets');
+    const now = new Date().toISOString();
+    const documentId = (db.prepare('SELECT document_id FROM documents LIMIT 1').get() as any).document_id;
+
+    db.prepare(`INSERT INTO analysis_reports
+      (report_id, analyzer_id, analyzer_version, workflow_id, title, content, created_at)
+      VALUES ('report-assets', 'test', '1', 'workflow-assets', '研究报告', '内容', ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO graph_snapshots
+      (graph_id, scope_type, scope_id, document_count, node_count, edge_count, created_at)
+      VALUES ('graph-assets', 'all', 'all', 1, 1, 0, ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO graph_nodes
+      (graph_id, node_id, node_type, label, weight, document_ids_json)
+      VALUES ('graph-assets', 'node-assets', 'topic', '测试主题', 1, ?)`)
+      .run(JSON.stringify([documentId]));
+    db.prepare(`INSERT INTO graph_entity_rules
+      (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, created_at)
+      VALUES ('rule-assets', 'all', 'all', 'topic', 'merge', '["旧主题"]', '测试主题', ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO report_artifacts
+      (artifact_id, report_id, series_id, version_number, thread_id, workflow_id, title, content, graph_id, created_at)
+      VALUES ('artifact-assets', 'report-assets', 'series-assets', 1, 'thread-assets', 'workflow-assets', '研究报告', '内容', 'graph-assets', ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO quality_gate_runs
+      (assessment_id, workflow_id, run_id, phase, status, created_at)
+      VALUES ('quality-assets', 'workflow-assets', 'run-assets', 'final', 'ready', ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO search_relevance_assessments
+      (assessment_id, workflow_id, phase, provider, query, status, created_at)
+      VALUES ('relevance-assets', 'workflow-assets', 'initial', 'test', 'query', 'good', ?)`)
+      .run(now);
+
+    assert.equal(repo.cleanupHistory('all'), 1);
+    for (const table of [
+      'documents',
+      'graph_snapshots',
+      'graph_nodes',
+      'graph_entity_rules',
+      'analysis_reports',
+      'report_artifacts',
+      'quality_gate_runs',
+      'search_relevance_assessments',
+    ]) {
+      assert.equal((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count, 0, table);
+    }
+  } finally {
+    db.close();
+  }
+});
+
+test('conversation cleanup retains collected data and research assets', async () => {
+  const { db, repository: repo } = repository();
+  try {
+    await insertRun(db, 'run-retained', 'thread-retained', 'workflow-retained');
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO analysis_reports
+      (report_id, analyzer_id, analyzer_version, workflow_id, title, content, created_at)
+      VALUES ('report-retained', 'test', '1', 'workflow-retained', '研究报告', '内容', ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO graph_snapshots
+      (graph_id, scope_type, scope_id, document_count, node_count, edge_count, created_at)
+      VALUES ('graph-retained', 'thread', 'thread-retained', 1, 0, 0, ?)`)
+      .run(now);
+    db.prepare(`INSERT INTO report_artifacts
+      (artifact_id, report_id, series_id, version_number, thread_id, workflow_id, title, content, graph_id, created_at)
+      VALUES ('artifact-retained', 'report-retained', 'series-retained', 1, 'thread-retained', 'workflow-retained', '研究报告', '内容', 'graph-retained', ?)`)
+      .run(now);
+
+    assert.equal(repo.cleanupThreads('all_threads'), 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM agent_threads').get() as any).count, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM crawl_runs').get() as any).count, 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM documents').get() as any).count, 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM graph_snapshots').get() as any).count, 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM report_artifacts').get() as any).count, 1);
+    assert.equal((db.prepare("SELECT thread_id FROM workflow_runs WHERE workflow_id='workflow-retained'").get() as any).thread_id, null);
+    assert.equal((db.prepare("SELECT thread_id FROM report_artifacts WHERE artifact_id='artifact-retained'").get() as any).thread_id, null);
+  } finally {
+    db.close();
+  }
+});
+
 test('task hierarchy merges multiple workflows under one AI thread', async () => {
   const { db, repository: repo } = repository();
   try {

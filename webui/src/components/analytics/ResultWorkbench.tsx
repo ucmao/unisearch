@@ -1510,7 +1510,8 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
         } ${isResizing ? 'select-none' : 'transition-[width] duration-200'}`}
       >
         {/* 顶部控制行：Mac 交通灯预留与收起按钮 */}
-        <div className={`flex h-9 shrink-0 items-center justify-end ${isMacPlatform() ? 'pl-[74px]' : 'pl-3'} pr-2 app-drag`}>
+        <div className={`flex h-9 shrink-0 items-center justify-between ${isMacPlatform() ? 'pl-[74px]' : 'pl-3'} pr-2`}>
+          <div className="flex-1 h-full app-drag" />
           <Button
             size="icon"
             variant="ghost"
@@ -1590,7 +1591,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       {/* 右侧主工作区 */}
       <section className="flex min-w-0 flex-1 flex-col">
         {/* 右侧主顶栏 */}
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 pr-2 sm:pr-3.5 backdrop-blur app-drag ${
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 pr-2 sm:pr-3.5 backdrop-blur ${sidebarCollapsed ? 'app-drag' : 'md:app-drag'} ${
           isMacPlatform()
             ? (sidebarCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4')
             : (sidebarCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4')

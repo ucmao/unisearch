@@ -353,8 +353,23 @@ export class AnalyticsRepository {
   cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all'): number {
     if (mode === 'all') {
       return (this.db.transaction(() => {
-        const running = Number((this.db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE status='running'").get() as any).count);
-        if (running) throw new Error('请先停止正在运行的采集任务');
+        const activeCrawls = Number((this.db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE status='running'").get() as any).count);
+        const activeWorkflows = Number((this.db.prepare(
+          "SELECT COUNT(*) AS count FROM workflow_runs WHERE status IN ('queued','running','waiting_for_user')",
+        ).get() as any).count);
+        if (activeCrawls || activeWorkflows) throw new Error('请先停止正在运行或等待中的任务');
+
+        // Research assets are derived from the collected documents, but graph
+        // snapshots and entity rules deliberately have no foreign keys to those
+        // documents. Clear them explicitly so an old snapshot cannot survive a
+        // full storage cleanup and appear in the knowledge base afterwards.
+        this.db.prepare('DELETE FROM report_artifacts').run();
+        this.db.prepare('DELETE FROM analysis_reports').run();
+        this.db.prepare('DELETE FROM graph_entity_rules').run();
+        this.db.prepare('DELETE FROM graph_snapshots').run();
+        this.db.prepare('DELETE FROM quality_gate_runs').run();
+        this.db.prepare('DELETE FROM search_relevance_assessments').run();
+
         const deletedRuns = this.db.prepare("DELETE FROM crawl_runs WHERE status!='running'").run().changes;
         this.db.prepare('DELETE FROM document_sources').run();
         this.db.prepare('DELETE FROM documents').run();
@@ -421,6 +436,14 @@ export class AnalyticsRepository {
     const threadIds = candidateThreads.map((row) => row.thread_id);
     return (this.db.transaction(() => {
       const placeholders = threadIds.map(() => '?').join(',');
+
+      // Conversation cleanup must not implicitly erase collected data or
+      // research assets through agent_threads foreign-key cascades. Detach the
+      // retained records first; crawl_runs.thread_id is intentionally kept as
+      // the stable grouping key used by the knowledge-base task hierarchy.
+      this.db.prepare(`UPDATE report_artifacts SET thread_id=NULL WHERE thread_id IN (${placeholders})`).run(...threadIds);
+      this.db.prepare(`UPDATE workflow_runs SET thread_id=NULL WHERE thread_id IN (${placeholders})`).run(...threadIds);
+
       return this.db.prepare(`DELETE FROM agent_threads WHERE thread_id IN (${placeholders})`).run(...threadIds).changes;
     }))();
   }

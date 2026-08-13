@@ -345,12 +345,22 @@ export function SettingsDialog({
   })
   const cleanupStorage = useMutation({
     mutationFn: (mode: 'failed_empty' | 'older_than_30_days' | 'all') => dataApi.cleanupStorage(mode),
-    onSuccess: ({ data }) => {
+    onSuccess: ({ data }, mode) => {
       queryClient.invalidateQueries({ queryKey: ['storage-summary'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
-      toast.success(data.deleted > 0 ? `已清理 ${data.deleted} 个看板执行记录及底座数据` : '已完成底座采集数据与文档清理')
+      queryClient.invalidateQueries({ queryKey: ['research-graph'] })
+      queryClient.invalidateQueries({ queryKey: ['research-reports'] })
+      queryClient.invalidateQueries({ queryKey: ['search-relevance'] })
+      queryClient.invalidateQueries({ queryKey: ['quality-gate'] })
+      queryClient.invalidateQueries({ queryKey: ['graph-evidence'] })
+      queryClient.invalidateQueries({ queryKey: ['graph-entity-rules'] })
+      toast.success(mode === 'all'
+        ? '已清空采集数据及关联研究资产'
+        : data.deleted > 0
+          ? `已清理 ${data.deleted} 个看板执行记录及底座数据`
+          : '已完成底座采集数据与文档清理')
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -914,7 +924,7 @@ export function SettingsDialog({
                           {[
                             { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理失败或空结果执行数据。', confirm: '清理失败或空结果执行？' },
                             { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的执行历史数据。', confirm: '清理 30 天前的执行历史？' },
-                            { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底物理清空所有已结束任务的执行日志与采集数据。', confirm: '彻底清空全部历史数据？' },
+                            { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底清空所有已结束任务的采集数据、图谱、报告及质量评估。', confirm: '彻底清空全部历史数据与研究资产？' },
                           ].map((item) => (
                             <div key={item.mode} className="flex items-center justify-between gap-5 py-4">
                               <div>
@@ -933,7 +943,9 @@ export function SettingsDialog({
                                   </Button>
                                 }
                                 title={item.confirm}
-                                description="所选范围内的看板执行履历、日志以及底层关联的所有物理文档数据将一并彻底物理清除，有效释放本地空间。"
+                                description={item.mode === 'all'
+                                  ? '所有采集执行、日志、文档以及关联的图谱、报告、实体规则和质量评估将一并彻底删除。对话记录与系统级连接器健康状态不受影响。'
+                                  : '所选范围内的看板执行履历、日志以及底层关联的物理文档数据将一并清除。'}
                                 confirmLabel="确认清理"
                                 onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
                               />
@@ -959,7 +971,7 @@ export function SettingsDialog({
                           {[
                             { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 6 条且未采集到有效数据的对话。', confirm: '清理空会话与零星问答？' },
                             { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无效采集的历史对话', detail: '清理 30 天前更新且未采集到有效数据的历史对话。', confirm: '清理 30 天前无效采集的历史对话？' },
-                            { mode: 'all_threads' as const, title: '清空所有历史对话', detail: '彻底物理清空侧边栏所有历史对话会话（正在运行任务的对话除外）。', confirm: '彻底清空所有历史对话？' },
+                            { mode: 'all_threads' as const, title: '清空所有历史对话', detail: '清空侧边栏历史对话；已采集数据与研究资产继续保留在知识库中。', confirm: '彻底清空所有历史对话？' },
                           ].map((item) => (
                             <div key={item.mode} className="flex items-center justify-between gap-5 py-4">
                               <div>
@@ -978,7 +990,7 @@ export function SettingsDialog({
                                   </Button>
                                 }
                                 title={item.confirm}
-                                description="所选范围内的对话记录与侧边栏历史会话将彻底物理删除。注意：【记忆】模块中保存的用户个人偏好与背景信息不受影响。"
+                                description="所选范围内的对话消息、附件与侧边栏会话将彻底删除；知识库中的采集数据、图谱、报告及【记忆】模块不受影响。"
                                 confirmLabel="确认清理"
                                 onConfirm={() => cleanupThreads.mutateAsync(item.mode)}
                               />
