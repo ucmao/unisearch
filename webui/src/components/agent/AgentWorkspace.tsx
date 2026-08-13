@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowRight, ArrowUpRight, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
+  AlertTriangle, ArrowRight, ArrowUpRight, BookOpen, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
   Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
@@ -859,7 +859,7 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
 type AgentWorkspaceProps = {
   selectedId: string | null
   onSelectedIdChange: Dispatch<SetStateAction<string | null>>
-  onOpenResults: (context: { threadId: string; planId: string }) => void
+  onOpenResults: (context: { threadId?: string; planId?: string; scope?: string }) => void
 }
 
 export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, onOpenResults }: AgentWorkspaceProps) {
@@ -1929,6 +1929,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">
             {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SquarePen className="h-4 w-4" />}新建任务
           </Button>
+          <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={() => onOpenResults({ scope: 'all' })} title="知识库">
+            <BookOpen className="h-4 w-4" />知识库
+          </Button>
         </div>
         {!threadsCollapsed && <>
           <div className="mx-2 border-t border-cyber-border-subtle" />
@@ -2174,6 +2177,16 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             >
               {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
             </Button>}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}
+              onClick={() => onOpenResults({ scope: 'all' })}
+              title="进入知识库"
+              aria-label="进入知识库"
+            >
+              <BookOpen className="h-4 w-4" />
+            </Button>
             {selectedId && <Button
               size="icon"
               variant="ghost"

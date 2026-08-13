@@ -29,7 +29,6 @@ import {
   FolderOpen,
   Check,
   Hash,
-  History,
   Layers,
   Link as LinkIcon,
   MessageSquare,
@@ -777,7 +776,6 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialLayout?.sidebarCollapsed || false)
   const [sidebarWidth, setSidebarWidth] = useState(initialLayout?.sidebarWidth || 270)
   const [isResizing, setIsResizing] = useState(false)
-  const [mobileScopeOpen, setMobileScopeOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exportFieldMode, setExportFieldMode] = useState<ExportFieldMode>('recommended')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -851,6 +849,29 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const summary = summaryQuery.data
   const documents = documentsQuery.data
   const platformLabels = useMemo(() => new Map(scopeSummary?.filters.platforms || summary?.filters.platforms || []), [scopeSummary, summary])
+
+  const currentScopeName = useMemo(() => {
+    if (scope === 'all') return '全部任务数据'
+    if (selectedThreadId) {
+      const task = tasks.find((t) => t.thread_id === selectedThreadId)
+      return task?.task_title || task?.thread_id || '任务数据'
+    }
+    if (selectedWorkflowId) {
+      for (const task of tasks) {
+        const round = task.rounds.find((r) => r.plan_id === selectedWorkflowId)
+        if (round) return round.round_title || round.plan_id || '轮次数据'
+      }
+    }
+    if (selectedRunId) {
+      for (const task of tasks) {
+        for (const round of task.rounds) {
+          const run = round.runs.find((r) => r.run_id === selectedRunId)
+          if (run) return `${run.platform_label || run.platform || '批次'} · 采集数据`
+        }
+      }
+    }
+    return '数据透视'
+  }, [scope, selectedThreadId, selectedWorkflowId, selectedRunId, tasks])
 
   // 关键词分类与元信息解析
   const parseKeywordItem = (kw: string, count?: number) => {
@@ -1153,68 +1174,36 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     keywordScrollRef.current.scrollBy({ left: offset, behavior: 'smooth' })
   }
 
-  const renderScopeTree = (mobile = false) => {
-    const isAllExpanded = tasks.length > 0 && tasks.every((t) => expandedTasks.has(t.thread_id))
+  const renderScopeTree = () => {
+    const handleScopeSelect = (nextScope: string) => {
+      switchScope(nextScope)
+      if (window.innerWidth < 768) {
+        setSidebarCollapsed(true)
+      }
+    }
 
     return (
       <div className="flex flex-col gap-0.5">
-        {/* 全局范围：全部任务数据（总览海报大卡片） */}
+        {/* 全局范围：全部数据（作为列表置顶首项） */}
         <button
           type="button"
-          onClick={() => { switchScope('all'); if (mobile) setMobileScopeOpen(false) }}
-          className={`group relative flex w-full items-center rounded-xl p-3 text-left transition-all cursor-pointer ${
+          onClick={() => handleScopeSelect('all')}
+          title="全部数据"
+          className={`group relative flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-all cursor-pointer ${
             scope === 'all'
-              ? 'bg-cyber-neon-cyan/15 font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-[0_0_12px_rgba(0,240,255,0.1)] shadow-xs'
-              : 'font-medium text-cyber-text-primary/80 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary border border-transparent'
+              ? 'bg-cyber-neon-cyan/15 font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-[0_0_10px_rgba(0,240,255,0.08)] shadow-xs'
+              : 'font-normal text-cyber-text-primary/80 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary border border-transparent'
           }`}
         >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
-              scope === 'all'
-                ? 'bg-cyber-neon-cyan/25 text-cyber-neon-cyan shadow-glow-cyan-xs'
-                : 'bg-cyber-bg-tertiary text-cyber-text-muted group-hover:bg-cyber-neon-cyan/10 group-hover:text-cyber-neon-cyan'
-            }`}>
-              <Layers className="h-4.5 w-4.5" />
-            </div>
-            <div className="min-w-0">
-              <span className={`block truncate text-sm font-bold tracking-tight transition-colors ${
-                scope === 'all' ? 'text-cyber-neon-cyan' : 'text-cyber-text-primary'
-              }`}>
-                全部任务数据
-              </span>
-              <span className={`block truncate text-[11px] mt-0.5 transition-colors ${
-                scope === 'all' ? 'text-cyber-neon-cyan/75 font-medium' : 'text-cyber-text-muted'
-              }`}>
-                汇总全部采集成果快照
-              </span>
-            </div>
+          <div className="flex h-5 w-5 shrink-0 items-center justify-center">
+            <Layers className={`h-4 w-4 transition-colors ${
+              scope === 'all' ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted group-hover:text-cyber-text-primary'
+            }`} />
           </div>
+          <span className="truncate text-sm tracking-tight">
+            全部数据
+          </span>
         </button>
-
-        {/* 分隔与快捷操作 */}
-        <div className="flex items-center justify-between px-2.5 py-1 text-[11px] font-medium text-cyber-text-muted">
-          <span>任务列表</span>
-          {tasks.length > 0 && (
-            <button
-              type="button"
-              onClick={isAllExpanded ? collapseAllTasks : expandAllTasks}
-              className="hover:text-cyber-neon-cyan transition-colors text-[10px] font-medium flex items-center gap-0.5 focus:outline-none"
-              title={isAllExpanded ? "折叠所有文件夹" : "展开所有文件夹"}
-            >
-              {isAllExpanded ? (
-                <>
-                  <ChevronsUp className="h-3 w-3" />
-                  <span>全部折叠</span>
-                </>
-              ) : (
-                <>
-                  <ChevronsDown className="h-3 w-3" />
-                  <span>全部展开</span>
-                </>
-              )}
-            </button>
-          )}
-        </div>
 
         {/* 文件夹树状列表：大厂极简一行式纯净导航 */}
         <div className="flex flex-col gap-0.5">
@@ -1240,9 +1229,8 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                     if (scope === `thread:${task.thread_id}`) {
                       toggleTaskExpand(task.thread_id)
                     } else {
-                      switchScope(`thread:${task.thread_id}`)
+                      handleScopeSelect(`thread:${task.thread_id}`)
                     }
-                    if (mobile) setMobileScopeOpen(false)
                   }}
                 >
                   {/* 折叠/展开箭头 */}
@@ -1331,10 +1319,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                               ? 'bg-cyber-neon-cyan/12 text-cyber-neon-cyan font-medium border border-cyber-neon-cyan/35 shadow-[0_0_8px_rgba(0,240,255,0.06)] shadow-xs'
                               : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/60 hover:text-cyber-text-primary font-normal border border-transparent'
                           }`}
-                          onClick={() => {
-                            switchScope(`plan:${round.plan_id}`)
-                            if (mobile) setMobileScopeOpen(false)
-                          }}
+                          onClick={() => handleScopeSelect(`plan:${round.plan_id}`)}
                         >
                           <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-1">
                             <FileText className={`h-3 w-3 shrink-0 ${isRoundSelected ? 'text-cyber-neon-cyan' : 'text-cyber-text-muted/65'}`} />
@@ -1505,117 +1490,199 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const activeTotals = summary?.totals || baselineTotals
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-cyber-bg-primary">
-      <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 ${isMacPlatform() ? 'pl-[74px]' : 'pl-3 sm:pl-3.5'} pr-4 backdrop-blur app-drag`}>
-        <div className="flex items-center gap-1.5 app-no-drag">
-          {onBack && (
-            <>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 gap-1.5 rounded-xl px-2.5 text-xs text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                onClick={onBack}
-                title="返回任务"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                <span>返回任务</span>
-              </Button>
-              <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
-            </>
-          )}
-          <div className="flex items-center gap-1.5 pl-0.5">
-            <BarChart3 className="h-4 w-4 text-cyber-neon-cyan/90 shrink-0" />
-            <span className="text-sm font-semibold text-cyber-text-primary tracking-tight">数据透视工作台</span>
-          </div>
+    <div className="flex h-full min-h-0 overflow-hidden bg-cyber-bg-primary">
+      {/* 移动端侧栏遮罩层 */}
+      {!sidebarCollapsed && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-xs md:hidden"
+          onClick={() => setSidebarCollapsed(true)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* 贯通式左侧边栏 */}
+      <aside
+        style={{ width: sidebarWidth }}
+        className={`shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-panel md:bg-cyber-bg-secondary/70 ${
+          sidebarCollapsed
+            ? 'hidden'
+            : 'fixed inset-y-0 left-0 z-50 flex shadow-2xl md:relative md:z-auto md:shadow-none'
+        } ${isResizing ? 'select-none' : 'transition-[width] duration-200'}`}
+      >
+        {/* 顶部控制行：Mac 交通灯预留与收起按钮 */}
+        <div className={`flex h-9 shrink-0 items-center justify-end ${isMacPlatform() ? 'pl-[74px]' : 'pl-3'} pr-2 app-drag`}>
           <Button
             size="icon"
             variant="ghost"
-            className="h-7 w-7 shrink-0 rounded-lg ml-1 text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 hidden md:flex"
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            title={sidebarCollapsed ? "展开任务范围侧栏" : "收起任务范围侧栏"}
+            className="h-7 w-7 shrink-0 rounded-lg text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary app-no-drag"
+            onClick={() => setSidebarCollapsed(true)}
+            title="收起任务范围侧栏"
           >
-            {sidebarCollapsed ? <PanelLeftOpen className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+            <PanelLeftClose className="h-4 w-4" />
           </Button>
         </div>
 
-        <div className="flex items-center gap-2 app-no-drag">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-xl text-xs"
-            onClick={() => setResearchAssetsOpen(true)}
-          >
-            <Layers className="h-3.5 w-3.5" />图谱与报告
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-xl text-xs md:hidden"
-            onClick={() => setMobileScopeOpen(true)}
-          >
-            <History className="h-3.5 w-3.5" />任务范围
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => setExportDialogOpen(true)}
-            className="h-8 gap-1.5 rounded-xl text-xs bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/30 hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/50 transition-colors focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>统一下载</span>
-          </Button>
-        </div>
-      </div>
-
-      <Dialog open={researchAssetsOpen} onOpenChange={setResearchAssetsOpen}>
-        <DialogContent className="flex h-[86vh] max-w-6xl flex-col overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>研究资产</DialogTitle>
-            <DialogDescription>关系图谱、可复现报告与连接器运行质量</DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <ResearchAssetsPanel
-              scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }}
-              onFilter={(node) => {
-                if (node.type === 'platform') setPlatform(node.label)
-                else if (node.type === 'keyword') setKeyword(node.label)
-                else { setQueryInput(node.label); setQuery(node.label) }
-                setPage(1)
-                setResearchAssetsOpen(false)
-              }}
-              onOpenDocument={async (documentId) => {
-                const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`)
-                if (response.ok) setSelectedDocument(await response.json())
-                setResearchAssetsOpen(false)
-              }}
-            />
+        {/* 模块标题区（精致轻量化字号与字重） */}
+        <div className="pl-6 pr-3 pt-2 pb-2.5">
+          <div className="flex items-center gap-2 select-none app-no-drag">
+            <span className="text-base font-semibold tracking-tight text-cyber-text-primary/95">
+              知识库
+            </span>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside
-          style={{ width: sidebarWidth }}
-          className={`relative shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-secondary/45 ${sidebarCollapsed ? 'hidden' : 'hidden md:flex'} ${isResizing ? 'select-none' : 'transition-[width] duration-200'}`}
-        >
-          <div className="flex h-9 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/30 px-3">
-            <span className="text-xs font-medium text-cyber-text-muted">任务范围</span>
-            <div className="flex items-center gap-1.5">
-              <span className="rounded bg-cyber-bg-tertiary/70 px-1.5 py-0.5 font-mono text-[10px] text-cyber-text-muted">
-                {tasks.length} 个任务
-              </span>
+        {/* 核心快捷按键：返回任务 */}
+        {onBack && (
+          <div className="px-2 pb-1.5">
+            <Button
+              className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary/60 transition-colors"
+              variant="ghost"
+              onClick={onBack}
+              title="返回任务"
+            >
+              <ArrowLeft className="h-4 w-4 text-cyber-text-muted" />
+              <span>返回任务</span>
+            </Button>
+          </div>
+        )}
+
+        {/* 数据集分界与头部 */}
+        <div className="mx-2 my-1.5 border-t border-cyber-border-subtle" />
+        <div className="flex items-center justify-between px-2.5 py-1.5">
+          <span className="text-[11px] font-medium text-cyber-text-muted">数据集</span>
+          {tasks.length > 0 && (
+            <button
+              type="button"
+              onClick={tasks.length > 0 && tasks.every((t) => expandedTasks.has(t.thread_id)) ? collapseAllTasks : expandAllTasks}
+              className="text-cyber-text-muted hover:text-cyber-neon-cyan transition-colors text-[10px] font-medium flex items-center gap-0.5 focus:outline-none cursor-pointer"
+              title={tasks.length > 0 && tasks.every((t) => expandedTasks.has(t.thread_id)) ? "折叠所有任务文件夹" : "展开所有任务文件夹"}
+            >
+              {tasks.length > 0 && tasks.every((t) => expandedTasks.has(t.thread_id)) ? (
+                <>
+                  <ChevronsUp className="h-3 w-3" />
+                  <span>全部折叠</span>
+                </>
+              ) : (
+                <>
+                  <ChevronsDown className="h-3 w-3" />
+                  <span>全部展开</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* 任务范围树 */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pt-1 pb-2">
+          {renderScopeTree()}
+        </div>
+
+        {/* 拖拽调宽手柄 */}
+        {!sidebarCollapsed && (
+          <div
+            onMouseDown={startResizing}
+            className={`absolute -right-[3px] top-0 bottom-0 z-20 w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${isResizing ? 'bg-cyber-neon-cyan/35' : ''}`}
+            title="拖动调整侧栏宽度"
+          />
+        )}
+      </aside>
+
+      {/* 右侧主工作区 */}
+      <section className="flex min-w-0 flex-1 flex-col">
+        {/* 右侧主顶栏 */}
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-primary/90 pr-2 sm:pr-3.5 backdrop-blur app-drag ${
+          isMacPlatform()
+            ? (sidebarCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4')
+            : (sidebarCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4')
+        }`}>
+          <div className="flex items-center gap-1.5 min-w-0 app-no-drag">
+            {/* 侧栏收起状态下的展开按钮与快捷返回 */}
+            <div className={`items-center gap-1.5 ${sidebarCollapsed ? 'flex' : 'flex md:hidden'}`}>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary"
+                onClick={() => setSidebarCollapsed(false)}
+                title="展开任务范围侧栏"
+              >
+                <PanelLeftOpen className="h-4 w-4" />
+              </Button>
+              {onBack && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1.5 rounded-xl px-2.5 text-xs text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary"
+                  onClick={onBack}
+                  title="返回任务"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">返回任务</span>
+                </Button>
+              )}
+              <div className="mx-1 h-3.5 w-[1px] bg-cyber-border-subtle" />
+            </div>
+
+            {/* 当前分析范围标题 */}
+            <div className="flex items-center gap-2 min-w-0">
+              <BarChart3 className="h-4 w-4 text-cyber-neon-cyan/90 shrink-0" />
+              <h1 className="truncate text-sm font-medium text-cyber-text-primary">
+                {currentScopeName}
+              </h1>
             </div>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1.5">{renderScopeTree()}</div>
-          {!sidebarCollapsed && (
-            <div
-              onMouseDown={startResizing}
-              className={`absolute -right-[3px] top-0 bottom-0 z-20 w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${isResizing ? 'bg-cyber-neon-cyan/35' : ''}`}
-              title="拖动调整侧栏宽度"
-            />
-          )}
-        </aside>
 
-        <main className="min-w-0 flex-1 overflow-auto p-3 sm:p-4">
+          {/* 右侧操作按钮 */}
+          <div className="flex items-center gap-2 app-no-drag">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-xl text-xs"
+              onClick={() => setResearchAssetsOpen(true)}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              <span>图谱与报告</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-xl text-xs"
+              onClick={() => setExportDialogOpen(true)}
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>统一下载</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* 研究资产弹窗 */}
+        <Dialog open={researchAssetsOpen} onOpenChange={setResearchAssetsOpen}>
+          <DialogContent className="flex h-[86vh] max-w-6xl flex-col overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>研究资产</DialogTitle>
+              <DialogDescription>关系图谱、可复现报告与连接器运行质量</DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <ResearchAssetsPanel
+                scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }}
+                onFilter={(node) => {
+                  if (node.type === 'platform') setPlatform(node.label)
+                  else if (node.type === 'keyword') setKeyword(node.label)
+                  else { setQueryInput(node.label); setQuery(node.label) }
+                  setPage(1)
+                  setResearchAssetsOpen(false)
+                }}
+                onOpenDocument={async (documentId) => {
+                  const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`)
+                  if (response.ok) setSelectedDocument(await response.json())
+                  setResearchAssetsOpen(false)
+                }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* 主数据看板与透视表格 */}
+        <main className="min-w-0 flex-1 overflow-auto p-3 sm:p-4 bg-cyber-bg-primary/40">
           <div className="mx-auto max-w-[1800px] space-y-3 sm:space-y-4">
             
             {/* 第 1 栏：顶部 4 个核心数据看板（随筛选切片实时动态汇总，同时提供总盘比例参考） */}
@@ -2035,7 +2102,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             </section>
           </div>
         </main>
-      </div>
+      </section>
 
       <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}>
         <DialogContent className="max-h-[80vh] overflow-y-auto">
@@ -2061,16 +2128,6 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
               ) : null
             })}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={mobileScopeOpen} onOpenChange={setMobileScopeOpen}>
-        <DialogContent className="left-0 top-0 h-dvh w-[min(360px,92vw)] max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none">
-          <DialogHeader>
-            <DialogTitle>任务范围</DialogTitle>
-            <DialogDescription>选择任务或采集轮次</DialogDescription>
-          </DialogHeader>
-          {renderScopeTree(true)}
         </DialogContent>
       </Dialog>
 

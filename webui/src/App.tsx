@@ -11,7 +11,7 @@ const ResultWorkbench = lazy(async () => {
 
 function App() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
-  const [resultsContext, setResultsContext] = useState<{ threadId: string; planId: string } | null>(null)
+  const [resultsContext, setResultsContext] = useState<{ threadId?: string; planId?: string; scope?: string } | null>(null)
 
   useEffect(() => {
     void checkEnvironmentInBackground()
@@ -22,7 +22,7 @@ function App() {
       {resultsContext ? (
         <Suspense fallback={<div className="h-full bg-cyber-bg" />}>
           <ResultWorkbench
-            initialScope={`thread:${resultsContext.threadId}`}
+            initialScope={resultsContext.scope || (resultsContext.threadId ? `thread:${resultsContext.threadId}` : 'all')}
             onBack={() => setResultsContext(null)}
           />
         </Suspense>
@@ -31,7 +31,9 @@ function App() {
           selectedId={selectedThreadId}
           onSelectedIdChange={setSelectedThreadId}
           onOpenResults={(context) => {
-            setSelectedThreadId(context.threadId)
+            if (context.threadId) {
+              setSelectedThreadId(context.threadId)
+            }
             setResultsContext(context)
           }}
         />
