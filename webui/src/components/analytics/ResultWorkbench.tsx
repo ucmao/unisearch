@@ -7,7 +7,6 @@ import {
   ArrowLeft,
   ArrowUp,
   ArrowUpDown,
-  BarChart3,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -1624,8 +1623,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             </div>
 
             {/* 当前分析范围标题 */}
-            <div className="flex items-center gap-2 min-w-0">
-              <BarChart3 className="h-4 w-4 text-cyber-neon-cyan/90 shrink-0" />
+            <div className="flex items-center min-w-0">
               <h1 className="truncate text-sm font-medium text-cyber-text-primary">
                 {currentScopeName}
               </h1>

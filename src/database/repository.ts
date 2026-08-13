@@ -350,7 +350,85 @@ export class AnalyticsRepository {
     };
   }
 
-  cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all'): number {
+  previewCleanup(params: { crawl_days?: number; crawl_failed_days?: number; thread_days?: number; max_messages?: number } = {}): {
+    crawl_failed_empty: number;
+    crawl_older_days: number;
+    crawl_all: number;
+    thread_empty_short: number;
+    thread_older_days: number;
+    thread_all: number;
+  } {
+    const crawlDays = Math.max(1, Math.min(3650, Number(params.crawl_days || 30)));
+    const crawlFailedDays = Number(params.crawl_failed_days || 0);
+    const threadDays = Math.max(1, Math.min(3650, Number(params.thread_days || 30)));
+
+    const noCollectedData = `NOT EXISTS (
+      SELECT 1
+      FROM crawl_runs r
+      JOIN document_sources s ON s.run_id = r.run_id
+      JOIN documents d ON d.document_id = s.document_id
+      WHERE r.thread_id = t.thread_id AND d.kind != 'comment'
+    )`;
+    const notBusyThread = `
+      AND NOT EXISTS (
+        SELECT 1 FROM workflow_runs w
+        WHERE w.thread_id = t.thread_id AND w.status IN ('queued', 'running', 'waiting_for_user')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM crawl_runs cr
+        WHERE cr.thread_id = t.thread_id AND cr.status = 'running'
+      )
+    `;
+
+    const failedDaysFilter = crawlFailedDays > 0 ? ` AND started_at < datetime('now', '-${crawlFailedDays} days')` : '';
+    const crawlFailedEmpty = Number((this.db.prepare(
+      `SELECT COUNT(*) AS count FROM crawl_runs WHERE status!='running' AND (status='failed' OR item_count=0)${failedDaysFilter}`
+    ).get() as any)?.count || 0);
+
+    const crawlOlderDays = Number((this.db.prepare(
+      `SELECT COUNT(*) AS count FROM crawl_runs WHERE status!='running' AND started_at < datetime('now', '-${crawlDays} days')`
+    ).get() as any)?.count || 0);
+
+    const crawlAll = Number((this.db.prepare(
+      "SELECT COUNT(*) AS count FROM crawl_runs WHERE status!='running'"
+    ).get() as any)?.count || 0);
+
+    const maxMessages = Number(params.max_messages ?? 2);
+    const userMsgCondition = maxMessages === 0
+      ? "(SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user') = 0"
+      : `(SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user') < ${maxMessages}`;
+
+    const threadEmptyShort = Number((this.db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_threads t
+      WHERE ${userMsgCondition}
+      AND ${noCollectedData}
+      ${notBusyThread}
+    `).get() as any)?.count || 0);
+
+    const threadOlderDays = Number((this.db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_threads t
+      WHERE t.updated_at < datetime('now', '-${threadDays} days')
+      AND ${noCollectedData}
+      ${notBusyThread}
+    `).get() as any)?.count || 0);
+
+    const threadAll = Number((this.db.prepare(`
+      SELECT COUNT(*) AS count FROM agent_threads t
+      WHERE 1=1
+      ${notBusyThread}
+    `).get() as any)?.count || 0);
+
+    return {
+      crawl_failed_empty: crawlFailedEmpty,
+      crawl_older_days: crawlOlderDays,
+      crawl_all: crawlAll,
+      thread_empty_short: threadEmptyShort,
+      thread_older_days: threadOlderDays,
+      thread_all: threadAll,
+    };
+  }
+
+  cleanupHistory(mode: 'failed_empty' | 'older_than_30_days' | 'all', options?: { days?: number }): number {
     if (mode === 'all') {
       return (this.db.transaction(() => {
         const activeCrawls = Number((this.db.prepare("SELECT COUNT(*) AS count FROM crawl_runs WHERE status='running'").get() as any).count);
@@ -379,9 +457,15 @@ export class AnalyticsRepository {
       }))();
     }
 
-    const predicate = mode === 'failed_empty'
-      ? "status!='running' AND (status='failed' OR item_count=0)"
-      : "status!='running' AND started_at < datetime('now','-30 days')";
+    let predicate: string;
+    if (mode === 'failed_empty') {
+      const failedDays = Number(options?.days || 0);
+      const failedDaysFilter = failedDays > 0 ? ` AND started_at < datetime('now', '-${failedDays} days')` : '';
+      predicate = `status!='running' AND (status='failed' OR item_count=0)${failedDaysFilter}`;
+    } else {
+      const days = Math.max(1, Math.min(3650, Number(options?.days || 30)));
+      predicate = `status!='running' AND started_at < datetime('now', '-${days} days')`;
+    }
     const ids = this.db.prepare(`SELECT run_id FROM crawl_runs WHERE ${predicate}`).all() as Array<{ run_id: string }>;
     const runIds = ids.map((item) => item.run_id);
     let deleted = 0;
@@ -392,7 +476,10 @@ export class AnalyticsRepository {
     return deleted;
   }
 
-  cleanupThreads(mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads'): number {
+  cleanupThreads(
+    mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads',
+    options?: { maxMessages?: number; days?: number },
+  ): number {
     // A crawl task alone does not make a conversation worth retaining. Failed
     // or zero-result runs have no linked primary documents and should be
     // treated the same as conversations that never started a crawl.
@@ -405,13 +492,18 @@ export class AnalyticsRepository {
     )`;
     let whereClause: string;
     if (mode === 'empty_short') {
+      const maxMessages = Number(options?.maxMessages ?? 2);
+      const userMsgCondition = maxMessages === 0
+        ? "(SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user') = 0"
+        : `(SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id AND m.role = 'user') < ${maxMessages}`;
       whereClause = `
-        (SELECT COUNT(*) FROM agent_messages m WHERE m.thread_id = t.thread_id) < 6
+        ${userMsgCondition}
         AND ${noCollectedData}
       `;
     } else if (mode === 'older_than_30_days_no_crawl') {
+      const days = Math.max(1, Math.min(3650, Number(options?.days || 30)));
       whereClause = `
-        t.updated_at < datetime('now', '-30 days')
+        t.updated_at < datetime('now', '-${days} days')
         AND ${noCollectedData}
       `;
     } else {

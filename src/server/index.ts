@@ -1144,18 +1144,44 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.get('/api/data/storage/summary', async () => analyticsRepository.storageSummary());
 
+  fastify.get('/api/data/storage/preview', async (request) => {
+    const query = (request.query || {}) as {
+      crawl_days?: string | number;
+      crawl_failed_days?: string | number;
+      thread_days?: string | number;
+      max_messages?: string | number;
+    };
+    return analyticsRepository.previewCleanup({
+      crawl_days: query.crawl_days !== undefined ? Number(query.crawl_days) : undefined,
+      crawl_failed_days: query.crawl_failed_days !== undefined ? Number(query.crawl_failed_days) : undefined,
+      thread_days: query.thread_days !== undefined ? Number(query.thread_days) : undefined,
+      max_messages: query.max_messages !== undefined ? Number(query.max_messages) : undefined,
+    });
+  });
+
   fastify.post('/api/data/storage/cleanup', async (request, reply) => {
-    const { mode } = (request.body || {}) as { mode?: 'failed_empty' | 'older_than_30_days' | 'all' };
+    const { mode, days } = (request.body || {}) as { mode?: 'failed_empty' | 'older_than_30_days' | 'all'; days?: number };
     if (!mode || !['failed_empty', 'older_than_30_days', 'all'].includes(mode)) return reply.status(400).send({ detail: '不支持的清理范围' });
-    return { status: 'ok', deleted: analyticsRepository.cleanupHistory(mode) };
+    return { status: 'ok', deleted: analyticsRepository.cleanupHistory(mode, { days }) };
   });
 
   fastify.post('/api/data/storage/cleanup-threads', async (request, reply) => {
-    const { mode } = (request.body || {}) as { mode?: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads' };
+    const { mode, days, max_messages, maxMessages } = (request.body || {}) as {
+      mode?: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads';
+      days?: number;
+      max_messages?: number;
+      maxMessages?: number;
+    };
     if (!mode || !['empty_short', 'older_than_30_days_no_crawl', 'all_threads'].includes(mode)) {
       return reply.status(400).send({ detail: '不支持的会话清理范围' });
     }
-    return { status: 'ok', deleted: analyticsRepository.cleanupThreads(mode) };
+    return {
+      status: 'ok',
+      deleted: analyticsRepository.cleanupThreads(mode, {
+        days,
+        maxMessages: max_messages ?? maxMessages,
+      }),
+    };
   });
 
   fastify.post('/api/data/analytics/runs/batch-delete', async (request, reply) => {

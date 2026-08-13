@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, HelpCircle, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X, Bot } from 'lucide-react'
+import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, HelpCircle, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -140,6 +140,24 @@ function FieldHelp({ content }: { content: string }) {
   )
 }
 
+const SHORT_MSG_STORAGE_KEY = 'unisearch_storage_short_msg_threshold'
+const THREAD_DAYS_STORAGE_KEY = 'unisearch_storage_thread_days_threshold'
+const CRAWL_DAYS_STORAGE_KEY = 'unisearch_storage_crawl_days_threshold'
+const CRAWL_FAILED_DAYS_STORAGE_KEY = 'unisearch_storage_crawl_failed_days_threshold'
+
+function getStoredThreshold(key: string, fallback: number): number {
+  try {
+    const v = localStorage.getItem(key)
+    if (v !== null) {
+      const parsed = Number(v)
+      if (!isNaN(parsed) && parsed >= 0) return parsed
+    }
+  } catch (err) {
+    void err
+  }
+  return fallback
+}
+
 export function SettingsDialog({
   compact = false,
   open,
@@ -162,6 +180,43 @@ export function SettingsDialog({
   const [editMemoryId, setEditMemoryId] = useState<string | null>(null)
   const [editMemoryContent, setEditMemoryContent] = useState('')
   const [storageTab, setStorageTab] = useState<'crawl' | 'threads'>('threads')
+  const [shortMessageThreshold, setShortMessageThresholdState] = useState<number>(() => getStoredThreshold(SHORT_MSG_STORAGE_KEY, 2))
+  const [threadDaysThreshold, setThreadDaysThresholdState] = useState<number>(() => getStoredThreshold(THREAD_DAYS_STORAGE_KEY, 30))
+  const [crawlDaysThreshold, setCrawlDaysThresholdState] = useState<number>(() => getStoredThreshold(CRAWL_DAYS_STORAGE_KEY, 30))
+  const [crawlFailedDaysThreshold, setCrawlFailedDaysThresholdState] = useState<number>(() => getStoredThreshold(CRAWL_FAILED_DAYS_STORAGE_KEY, 3))
+
+  const setShortMessageThreshold = (val: number) => {
+    setShortMessageThresholdState(val)
+    try {
+      localStorage.setItem(SHORT_MSG_STORAGE_KEY, String(val))
+    } catch (err) {
+      void err
+    }
+  }
+  const setThreadDaysThreshold = (val: number) => {
+    setThreadDaysThresholdState(val)
+    try {
+      localStorage.setItem(THREAD_DAYS_STORAGE_KEY, String(val))
+    } catch (err) {
+      void err
+    }
+  }
+  const setCrawlDaysThreshold = (val: number) => {
+    setCrawlDaysThresholdState(val)
+    try {
+      localStorage.setItem(CRAWL_DAYS_STORAGE_KEY, String(val))
+    } catch (err) {
+      void err
+    }
+  }
+  const setCrawlFailedDaysThreshold = (val: number) => {
+    setCrawlFailedDaysThresholdState(val)
+    try {
+      localStorage.setItem(CRAWL_FAILED_DAYS_STORAGE_KEY, String(val))
+    } catch (err) {
+      void err
+    }
+  }
   const [isAddingMemory, setIsAddingMemory] = useState(false)
   const [newMemoryContent, setNewMemoryContent] = useState('')
   const [newMemoryCategory, setNewMemoryCategory] = useState<AgentMemory['category']>('rule')
@@ -227,6 +282,17 @@ export function SettingsDialog({
     queryKey: ['storage-summary'],
     queryFn: async () => (await dataApi.getStorageSummary()).data,
     enabled: dialogOpen && activeSection === 'storage',
+  })
+  const storagePreviewQuery = useQuery({
+    queryKey: ['storage-preview', shortMessageThreshold, threadDaysThreshold, crawlDaysThreshold, crawlFailedDaysThreshold],
+    queryFn: async () => (await dataApi.getStoragePreview({
+      max_messages: shortMessageThreshold,
+      thread_days: threadDaysThreshold,
+      crawl_days: crawlDaysThreshold,
+      crawl_failed_days: crawlFailedDaysThreshold,
+    })).data,
+    enabled: dialogOpen && activeSection === 'storage',
+    staleTime: 5000,
   })
 
   useEffect(() => {
@@ -344,9 +410,14 @@ export function SettingsDialog({
     onError: (error) => toast.error(getError(error)),
   })
   const cleanupStorage = useMutation({
-    mutationFn: (mode: 'failed_empty' | 'older_than_30_days' | 'all') => dataApi.cleanupStorage(mode),
-    onSuccess: ({ data }, mode) => {
+    mutationFn: (variables: { mode: 'failed_empty' | 'older_than_30_days' | 'all'; days?: number } | 'failed_empty' | 'older_than_30_days' | 'all') => {
+      const payload = typeof variables === 'string' ? { mode: variables } : variables
+      return dataApi.cleanupStorage(payload.mode, { days: payload.days })
+    },
+    onSuccess: ({ data }, variables) => {
+      const mode = typeof variables === 'string' ? variables : variables.mode
       queryClient.invalidateQueries({ queryKey: ['storage-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['storage-preview'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
@@ -365,9 +436,13 @@ export function SettingsDialog({
     onError: (error) => toast.error(getError(error)),
   })
   const cleanupThreads = useMutation({
-    mutationFn: (mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads') => dataApi.cleanupThreads(mode),
+    mutationFn: (variables: { mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads'; maxMessages?: number; days?: number } | 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads') => {
+      const payload = typeof variables === 'string' ? { mode: variables } : variables
+      return dataApi.cleanupThreads(payload.mode, { maxMessages: payload.maxMessages, days: payload.days })
+    },
     onSuccess: ({ data }) => {
       queryClient.invalidateQueries({ queryKey: ['storage-summary'] })
+      queryClient.invalidateQueries({ queryKey: ['storage-preview'] })
       queryClient.invalidateQueries({ queryKey: ['agent-threads'] })
       queryClient.invalidateQueries({ queryKey: ['agent-thread'] })
       queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
@@ -479,7 +554,7 @@ export function SettingsDialog({
 
                   <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                     <div>
-                      <div className="text-sm font-medium text-cyber-text-primary">助手伴侣</div>
+                      <div className="text-sm font-medium text-cyber-text-primary">宠物行为</div>
                       <div className="mt-1 text-xs text-cyber-text-muted">调整空状态下的像素助手显示与互动偏好</div>
                     </div>
                     <Select value={petMode} onValueChange={(value: PetMode) => setPetMode(value)}>
@@ -499,10 +574,7 @@ export function SettingsDialog({
                   <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                     <div className="flex items-center justify-between gap-6">
                       <div>
-                        <div className="flex items-center gap-2 text-sm font-medium text-cyber-text-primary">
-                          <Bot className="h-4 w-4 text-cyber-neon-cyan" />
-                          <span>伴侣形象</span>
-                        </div>
+                        <div className="text-sm font-medium text-cyber-text-primary">宠物形象</div>
                         <div className="mt-1 text-xs text-cyber-text-muted">
                           自定义主界面空闲状态下的像素助手形象
                         </div>
@@ -921,36 +993,111 @@ export function SettingsDialog({
                           ))}
                         </div>
                         <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
-                          {[
-                            { mode: 'failed_empty' as const, title: '清理失败或空结果执行', detail: '物理清理失败或空结果执行数据。', confirm: '清理失败或空结果执行？' },
-                            { mode: 'older_than_30_days' as const, title: '清理 30 天前执行历史', detail: '物理清理 30 天前的执行历史数据。', confirm: '清理 30 天前的执行历史？' },
-                            { mode: 'all' as const, title: '清空全部历史数据', detail: '彻底清空所有已结束任务的采集数据、图谱、报告及质量评估。', confirm: '彻底清空全部历史数据与研究资产？' },
-                          ].map((item) => (
-                            <div key={item.mode} className="flex items-center justify-between gap-5 py-4">
-                              <div>
-                                <p className="text-sm font-medium text-cyber-text-primary">{item.title}</p>
-                                <p className="mt-0.5 text-xs text-cyber-text-muted">{item.detail}</p>
-                              </div>
+                          <div className="flex items-center justify-between gap-5 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-cyber-text-primary">清理失败与空执行</p>
+                              <p className="mt-0.5 text-xs text-cyber-text-muted">
+                                物理清理{crawlFailedDaysThreshold > 0 ? ` ${crawlFailedDaysThreshold} 天前的` : ''}失败或空结果执行数据。
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Select
+                                value={String(crawlFailedDaysThreshold)}
+                                onValueChange={(val) => setCrawlFailedDaysThreshold(Number(val))}
+                              >
+                                <SelectTrigger className="h-8 w-28 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="0" className="text-xs">全部记录</SelectItem>
+                                  <SelectItem value="3" className="text-xs">3 天前</SelectItem>
+                                  <SelectItem value="7" className="text-xs">7 天前</SelectItem>
+                                  <SelectItem value="14" className="text-xs">14 天前</SelectItem>
+                                  <SelectItem value="30" className="text-xs">30 天前</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <DeleteConfirmDialog
                                 trigger={
                                   <Button
                                     size="sm"
-                                    variant={item.mode === 'all' ? 'destructive' : 'outline'}
-                                    className={`h-8 ${item.mode === 'all' ? 'border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20 hover:text-cyber-neon-pink' : ''}`}
+                                    variant="outline"
+                                    className="h-8 shrink-0"
                                     disabled={cleanupStorage.isPending}
                                   >
-                                    {item.mode === 'all' ? '清空' : '清理'}
+                                    清理
                                   </Button>
                                 }
-                                title={item.confirm}
-                                description={item.mode === 'all'
-                                  ? '所有采集执行、日志、文档以及关联的图谱、报告、实体规则和质量评估将一并彻底删除。对话记录与系统级连接器健康状态不受影响。'
-                                  : '所选范围内的看板执行履历、日志以及底层关联的物理文档数据将一并清除。'}
+                                title="清理失败或空结果执行？"
+                                description={`所选范围内的看板执行履历、日志以及底层关联的物理文档数据将一并清除${storagePreviewQuery.data ? `（预计清理 ${storagePreviewQuery.data.crawl_failed_empty} 个任务）` : ''}。`}
                                 confirmLabel="确认清理"
-                                onConfirm={() => cleanupStorage.mutateAsync(item.mode)}
+                                onConfirm={() => cleanupStorage.mutateAsync({ mode: 'failed_empty', days: crawlFailedDaysThreshold })}
                               />
                             </div>
-                          ))}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-5 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-cyber-text-primary">清理早期执行历史</p>
+                              <p className="mt-0.5 text-xs text-cyber-text-muted">物理清理 {crawlDaysThreshold} 天前的执行历史数据。</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Select
+                                value={String(crawlDaysThreshold)}
+                                onValueChange={(val) => setCrawlDaysThreshold(Number(val))}
+                              >
+                                <SelectTrigger className="h-8 w-28 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="7" className="text-xs">7 天前</SelectItem>
+                                  <SelectItem value="14" className="text-xs">14 天前</SelectItem>
+                                  <SelectItem value="30" className="text-xs">30 天前</SelectItem>
+                                  <SelectItem value="60" className="text-xs">60 天前</SelectItem>
+                                  <SelectItem value="90" className="text-xs">90 天前</SelectItem>
+                                  <SelectItem value="180" className="text-xs">180 天前</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <DeleteConfirmDialog
+                                trigger={
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 shrink-0"
+                                    disabled={cleanupStorage.isPending}
+                                  >
+                                    清理
+                                  </Button>
+                                }
+                                title={`清理 ${crawlDaysThreshold} 天前的执行历史？`}
+                                description={`所选 ${crawlDaysThreshold} 天前的看板执行履历、日志以及底层关联的物理文档数据将一并清除${storagePreviewQuery.data ? `（预计清理 ${storagePreviewQuery.data.crawl_older_days} 个任务）` : ''}。`}
+                                confirmLabel="确认清理"
+                                onConfirm={() => cleanupStorage.mutateAsync({ mode: 'older_than_30_days', days: crawlDaysThreshold })}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-5 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-cyber-text-primary">清空全部历史数据</p>
+                              <p className="mt-0.5 text-xs text-cyber-text-muted">彻底清空所有已结束任务的采集数据、图谱、报告及质量评估。</p>
+                            </div>
+                            <DeleteConfirmDialog
+                              trigger={
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8 shrink-0 border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20 hover:text-cyber-neon-pink"
+                                  disabled={cleanupStorage.isPending}
+                                >
+                                  清空
+                                </Button>
+                              }
+                              title="彻底清空全部历史数据与研究资产？"
+                              description={`所有已结束的采集执行${storagePreviewQuery.data ? `（预计清空 ${storagePreviewQuery.data.crawl_all} 个任务）` : ''}、日志、文档以及关联的图谱、报告、实体规则和质量评估将一并彻底删除。对话记录与系统级连接器健康状态不受影响。`}
+                              confirmLabel="确认清理"
+                              onConfirm={() => cleanupStorage.mutateAsync({ mode: 'all' })}
+                            />
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -968,34 +1115,117 @@ export function SettingsDialog({
                           ))}
                         </div>
                         <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 px-4">
-                          {[
-                            { mode: 'empty_short' as const, title: '清理空会话 / 零星问答', detail: '清理消息少于 6 条且未采集到有效数据的对话。', confirm: '清理空会话与零星问答？' },
-                            { mode: 'older_than_30_days_no_crawl' as const, title: '清理 30 天前无效采集的历史对话', detail: '清理 30 天前更新且未采集到有效数据的历史对话。', confirm: '清理 30 天前无效采集的历史对话？' },
-                            { mode: 'all_threads' as const, title: '清空所有历史对话', detail: '清空侧边栏历史对话；已采集数据与研究资产继续保留在知识库中。', confirm: '彻底清空所有历史对话？' },
-                          ].map((item) => (
-                            <div key={item.mode} className="flex items-center justify-between gap-5 py-4">
-                              <div>
-                                <p className="text-sm font-medium text-cyber-text-primary">{item.title}</p>
-                                <p className="mt-0.5 text-xs text-cyber-text-muted">{item.detail}</p>
-                              </div>
+                          <div className="flex items-center justify-between gap-5 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-cyber-text-primary">清理短小 / 零星会话</p>
+                              <p className="mt-0.5 text-xs text-cyber-text-muted">
+                                {shortMessageThreshold === 0
+                                  ? '清理未发送任何提问且未采集到有效数据的空会话。'
+                                  : `清理用户提问少于 ${shortMessageThreshold} 条且未采集到有效数据的对话。`}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Select
+                                value={String(shortMessageThreshold)}
+                                onValueChange={(val) => setShortMessageThreshold(Number(val))}
+                              >
+                                <SelectTrigger className="h-8 w-28 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="0" className="text-xs">0 条提问</SelectItem>
+                                  <SelectItem value="2" className="text-xs">少于 2 条</SelectItem>
+                                  <SelectItem value="3" className="text-xs">少于 3 条</SelectItem>
+                                  <SelectItem value="5" className="text-xs">少于 5 条</SelectItem>
+                                  <SelectItem value="10" className="text-xs">少于 10 条</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <DeleteConfirmDialog
                                 trigger={
                                   <Button
                                     size="sm"
-                                    variant={item.mode === 'all_threads' ? 'destructive' : 'outline'}
-                                    className={`h-8 ${item.mode === 'all_threads' ? 'border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20 hover:text-cyber-neon-pink' : ''}`}
+                                    variant="outline"
+                                    className="h-8 shrink-0"
                                     disabled={cleanupThreads.isPending}
                                   >
-                                    {item.mode === 'all_threads' ? '清空' : '清理'}
+                                    清理
                                   </Button>
                                 }
-                                title={item.confirm}
-                                description="所选范围内的对话消息、附件与侧边栏会话将彻底删除；知识库中的采集数据、图谱、报告及【记忆】模块不受影响。"
+                                title={shortMessageThreshold === 0 ? '清理 0 条提问的空会话？' : `清理提问少于 ${shortMessageThreshold} 条的零星会话？`}
+                                description={`所选范围内${shortMessageThreshold === 0 ? '未发送任何提问' : `用户提问少于 ${shortMessageThreshold} 条`}且未采集到有效数据的对话消息、附件与侧边栏会话将彻底删除${storagePreviewQuery.data ? `（预计清理 ${storagePreviewQuery.data.thread_empty_short} 个会话）` : ''}；知识库中的采集数据、图谱、报告及【记忆】模块不受影响。`}
                                 confirmLabel="确认清理"
-                                onConfirm={() => cleanupThreads.mutateAsync(item.mode)}
+                                onConfirm={() => cleanupThreads.mutateAsync({ mode: 'empty_short', maxMessages: shortMessageThreshold })}
                               />
                             </div>
-                          ))}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-5 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-cyber-text-primary">清理早期无效采集的历史对话</p>
+                              <p className="mt-0.5 text-xs text-cyber-text-muted">
+                                清理 {threadDaysThreshold} 天前更新且未采集到有效数据的历史对话。
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Select
+                                value={String(threadDaysThreshold)}
+                                onValueChange={(val) => setThreadDaysThreshold(Number(val))}
+                              >
+                                <SelectTrigger className="h-8 w-28 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="7" className="text-xs">7 天前</SelectItem>
+                                  <SelectItem value="14" className="text-xs">14 天前</SelectItem>
+                                  <SelectItem value="30" className="text-xs">30 天前</SelectItem>
+                                  <SelectItem value="60" className="text-xs">60 天前</SelectItem>
+                                  <SelectItem value="90" className="text-xs">90 天前</SelectItem>
+                                  <SelectItem value="180" className="text-xs">180 天前</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <DeleteConfirmDialog
+                                trigger={
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 shrink-0"
+                                    disabled={cleanupThreads.isPending}
+                                  >
+                                    清理
+                                  </Button>
+                                }
+                                title={`清理 ${threadDaysThreshold} 天前无效采集的历史对话？`}
+                                description={`所选 ${threadDaysThreshold} 天前更新且未采集到有效数据的对话消息、附件与侧边栏会话将彻底删除${storagePreviewQuery.data ? `（预计清理 ${storagePreviewQuery.data.thread_older_days} 个会话）` : ''}；知识库中的采集数据、图谱、报告及【记忆】模块不受影响。`}
+                                confirmLabel="确认清理"
+                                onConfirm={() => cleanupThreads.mutateAsync({ mode: 'older_than_30_days_no_crawl', days: threadDaysThreshold })}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between gap-5 py-4">
+                            <div>
+                              <p className="text-sm font-medium text-cyber-text-primary">清空所有历史对话</p>
+                              <p className="mt-0.5 text-xs text-cyber-text-muted">
+                                清空侧边栏历史对话；已采集数据与研究资产继续保留在知识库中。
+                              </p>
+                            </div>
+                            <DeleteConfirmDialog
+                              trigger={
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-8 shrink-0 border border-cyber-neon-pink/30 bg-cyber-neon-pink/10 text-cyber-neon-pink hover:bg-cyber-neon-pink/20 hover:text-cyber-neon-pink"
+                                  disabled={cleanupThreads.isPending}
+                                >
+                                  清空
+                                </Button>
+                              }
+                              title="彻底清空所有历史对话？"
+                              description={`所选范围内的对话消息、附件与侧边栏会话将彻底删除${storagePreviewQuery.data ? `（预计清空 ${storagePreviewQuery.data.thread_all} 个会话）` : ''}；知识库中的采集数据、图谱、报告及【记忆】模块不受影响。`}
+                              confirmLabel="确认清理"
+                              onConfirm={() => cleanupThreads.mutateAsync({ mode: 'all_threads' })}
+                            />
+                          </div>
                         </div>
                       </div>
                     )}

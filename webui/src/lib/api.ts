@@ -212,6 +212,15 @@ export interface StorageSummary {
   message_records: number
 }
 
+export interface StoragePreview {
+  crawl_failed_empty: number
+  crawl_older_days: number
+  crawl_all: number
+  thread_empty_short: number
+  thread_older_days: number
+  thread_all: number
+}
+
 /** 由后端从 CONNECTOR_MANIFESTS 下发；平台名称在前端不再有第二份拷贝。 */
 export interface Platform {
   value: string
@@ -486,10 +495,15 @@ export const dataApi = {
   deleteAnalyticsRounds: (planIds: string[]) =>
     api.post<{ status: string; deleted: number }>('/data/analytics/rounds/batch-delete', { plan_ids: planIds }),
   getStorageSummary: () => api.get<StorageSummary>('/data/storage/summary'),
-  cleanupStorage: (mode: 'failed_empty' | 'older_than_30_days' | 'all') =>
-    api.post<{ status: string; deleted: number }>('/data/storage/cleanup', { mode }),
-  cleanupThreads: (mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads') =>
-    api.post<{ status: string; deleted: number }>('/data/storage/cleanup-threads', { mode }),
+  getStoragePreview: (params?: { crawl_days?: number; crawl_failed_days?: number; thread_days?: number; max_messages?: number }) =>
+    api.get<StoragePreview>('/data/storage/preview', { params }),
+  cleanupStorage: (mode: 'failed_empty' | 'older_than_30_days' | 'all', params?: { days?: number }) =>
+    api.post<{ status: string; deleted: number }>('/data/storage/cleanup', { mode, ...params }),
+  cleanupThreads: (
+    mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads',
+    params?: { maxMessages?: number; days?: number },
+  ) =>
+    api.post<{ status: string; deleted: number }>('/data/storage/cleanup-threads', { mode, ...params }),
   getAnalyticsExportUrl: (params: {
     run_id?: string
     workflow_id?: string

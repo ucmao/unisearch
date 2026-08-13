@@ -340,6 +340,21 @@ export const CodexPet: React.FC<CodexPetProps> = ({
   // 1. Initial Mount / Home Visit: strictly once per mount, wait 600ms buffer, then 2.4s waiting (2 full cycles) + greeting
   useEffect(() => {
     if (petMode !== 'dynamic') {
+      if (welcomeTimerRef.current) window.clearTimeout(welcomeTimerRef.current)
+      if (actionTimerRef.current) window.clearTimeout(actionTimerRef.current)
+      if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current)
+      if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
+      if (clickResetTimerRef.current) window.clearTimeout(clickResetTimerRef.current)
+      easterEggTimeoutsRef.current.forEach((t) => window.clearTimeout(t))
+      easterEggTimeoutsRef.current = []
+      clickCountRef.current = 0
+      isEasterEggLockedRef.current = false
+      setIsEasterEggRunning(false)
+      setShowGlowAura(false)
+      setBubbleText(null)
+      setIsEasterEggBubble(false)
+      setTravelOffset(0)
+      setPetState('idle')
       return
     }
 
@@ -360,6 +375,7 @@ export const CodexPet: React.FC<CodexPetProps> = ({
       if (actionTimerRef.current) window.clearTimeout(actionTimerRef.current)
       if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current)
       if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
+      if (clickResetTimerRef.current) window.clearTimeout(clickResetTimerRef.current)
       easterEggTimeoutsRef.current.forEach((t) => window.clearTimeout(t))
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
@@ -422,60 +438,72 @@ export const CodexPet: React.FC<CodexPetProps> = ({
 
     onInteract?.()
 
-    clickCountRef.current += 1
-    if (clickResetTimerRef.current) window.clearTimeout(clickResetTimerRef.current)
-    clickResetTimerRef.current = window.setTimeout(() => {
-      clickCountRef.current = 0
-    }, 900)
-
     if (actionTimerRef.current) window.clearTimeout(actionTimerRef.current)
 
-    // 3-Click Easter Egg: review + jumping combo
-    if (clickCountRef.current >= 3 && petMode === 'dynamic') {
-      clickCountRef.current = 0
-      isEasterEggLockedRef.current = true
-      setIsEasterEggRunning(true)
-      setShowGlowAura(true)
-      fireSubtleCelebration()
+    // Dynamic Mode: full interactions with quotes and 3-Click Easter Egg
+    if (petMode === 'dynamic') {
+      clickCountRef.current += 1
+      if (clickResetTimerRef.current) window.clearTimeout(clickResetTimerRef.current)
+      clickResetTimerRef.current = window.setTimeout(() => {
+        clickCountRef.current = 0
+      }, 900)
 
-      easterEggTimeoutsRef.current.forEach((t) => window.clearTimeout(t))
-      easterEggTimeoutsRef.current = []
-
-      const easterEggQuote =
-        EASTER_EGG_QUOTES[Math.floor(Math.random() * EASTER_EGG_QUOTES.length)]
-      showBubble(easterEggQuote, 2000, true)
-
-      // Stage 1 (0.0s ~ 1.2s): review (1 完整轮次 6 帧 = 1200ms)
-      setPetState('review')
-
-      // Stage 2 (1.2s ~ 2.0s): jumping (1 完整轮次 5 帧 = 800ms，落地完满)
-      const t1 = window.setTimeout(() => {
-        if (!isEasterEggLockedRef.current) return
-        setPetState('jumping')
+      // 3-Click Easter Egg: review + jumping combo
+      if (clickCountRef.current >= 3) {
+        clickCountRef.current = 0
+        isEasterEggLockedRef.current = true
+        setIsEasterEggRunning(true)
+        setShowGlowAura(true)
         fireSubtleCelebration()
-      }, 1200)
 
-      easterEggTimeoutsRef.current.push(t1)
+        easterEggTimeoutsRef.current.forEach((t) => window.clearTimeout(t))
+        easterEggTimeoutsRef.current = []
 
-      if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
-      auraTimerRef.current = window.setTimeout(() => {
-        setShowGlowAura(false)
-      }, 2000)
+        const easterEggQuote =
+          EASTER_EGG_QUOTES[Math.floor(Math.random() * EASTER_EGG_QUOTES.length)]
+        showBubble(easterEggQuote, 2000, true)
 
-      actionTimerRef.current = window.setTimeout(() => {
-        isEasterEggLockedRef.current = false
-        setIsEasterEggRunning(false)
-        setPetState(isComposerFocusedRef.current ? 'running' : 'idle')
-      }, 2000)
-    } else {
-      // Normal Click: Jumping + cheerful interactive quote bubble (if not focused)
+        // Stage 1 (0.0s ~ 1.2s): review (1 完整轮次 6 帧 = 1200ms)
+        setPetState('review')
+
+        // Stage 2 (1.2s ~ 2.0s): jumping (1 完整轮次 5 帧 = 800ms，落地完满)
+        const t1 = window.setTimeout(() => {
+          if (!isEasterEggLockedRef.current) return
+          setPetState('jumping')
+          fireSubtleCelebration()
+        }, 1200)
+
+        easterEggTimeoutsRef.current.push(t1)
+
+        if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
+        auraTimerRef.current = window.setTimeout(() => {
+          setShowGlowAura(false)
+        }, 2000)
+
+        actionTimerRef.current = window.setTimeout(() => {
+          isEasterEggLockedRef.current = false
+          setIsEasterEggRunning(false)
+          setPetState(isComposerFocusedRef.current ? 'running' : 'idle')
+        }, 2000)
+        return
+      }
+
+      // Normal Click in Dynamic Mode: Jumping + cheerful interactive quote bubble
       setPetState('jumping')
-      if (petMode === 'dynamic' && !isComposerFocusedRef.current) {
+      if (!isComposerFocusedRef.current) {
         const quote = JUMP_QUOTES[Math.floor(Math.random() * JUMP_QUOTES.length)]
         showBubble(quote, 2000)
       }
       actionTimerRef.current = window.setTimeout(() => {
         setPetState(isComposerFocusedRef.current ? 'running' : 'idle')
+      }, 800)
+    } else {
+      // Quiet Mode (安静克制):
+      // Only 3 interaction modes: 1. 正常待机 (Idle), 2. 悬浮挥手 (Hover), 3. 点击跳跃 (Click Jumping)
+      // Strictly NO multi-click easter egg, NO review combo, NO bubbles, NO confetti/aura
+      setPetState('jumping')
+      actionTimerRef.current = window.setTimeout(() => {
+        setPetState('idle')
       }, 800)
     }
   }
