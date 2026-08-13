@@ -1573,7 +1573,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             <DialogDescription>关系图谱、可复现报告与连接器运行质量</DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-hidden">
-            <ResearchAssetsPanel scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }} />
+            <ResearchAssetsPanel
+              scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }}
+              onFilter={(node) => {
+                if (node.type === 'platform') setPlatform(node.label)
+                else if (node.type === 'keyword') setKeyword(node.label)
+                else { setQueryInput(node.label); setQuery(node.label) }
+                setPage(1)
+                setResearchAssetsOpen(false)
+              }}
+              onOpenDocument={async (documentId) => {
+                const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`)
+                if (response.ok) setSelectedDocument(await response.json())
+                setResearchAssetsOpen(false)
+              }}
+            />
           </div>
         </DialogContent>
       </Dialog>

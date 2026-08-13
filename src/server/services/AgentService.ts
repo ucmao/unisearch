@@ -21,6 +21,8 @@ import { directWebSourceCitations, type DirectWebReadResult } from './DirectWebR
 import { agentToolExecutor } from '../agent/AgentTools';
 import { AgentRunTrace, currentAgentRunTrace, runWithAgentTrace } from '../agent/AgentToolRegistry';
 import { researchLoop, shouldUseExperimentalResearchLoop } from '../agent/ResearchLoop';
+import { connectorHealthService } from '../../connectors/health-service';
+import { qualityGateService } from '../../analyzers/quality-gate-service';
 
 const SUPPORTED = listConnectorManifests().map((connector) => connector.id);
 const LABELS = connectorLabels();
@@ -132,9 +134,16 @@ export function shouldAutoStartPlan(
   skill: SkillDefinition | null = null,
   explicitlyInvokedSkill = false,
 ): boolean {
+  if (plan.healthPolicy?.requiresConfirmation) return false;
   if (/(?:先别|不要|暂不|先不)(?:自动)?(?:开始|执行|运行|采集|搜索)|(?:先|只)(?:给我)?看(?:一下)?(?:采集)?计划|等待确认|确认后再/i.test(userText)) return false;
   if (shouldAutoStartSkill(skill, explicitlyInvokedSkill)) return true;
   return true;
+}
+
+function applyConnectorHealthPolicy(plan: ResearchPlan, userText: string, mentionedConnectors: string[]): ResearchPlan {
+  const explicitPlatforms = Array.from(new Set([...mentionedConnectors, ...inferResearchPlatforms(userText)]));
+  const healthPolicy = connectorHealthService.evaluatePlan(plan.platforms, explicitPlatforms, plan.capability || 'keyword_search');
+  return { ...plan, platforms: healthPolicy.selectedPlatforms, healthPolicy };
 }
 
 export function normalizePlan(
@@ -1008,7 +1017,11 @@ export class AgentService {
             const messages = conversationMessages(updatedThread);
             const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
             ensureMessageNotAborted(signal);
-            const plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
+            const plan = applyConnectorHealthPolicy(
+              normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors),
+              planningText,
+              activeMentionedConnectors,
+            );
             if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0) || allowsEmptyKeywords(plan))) {
               const created = agentRepository.createPlan(threadId, plan);
               this.executePlan(created.plan_id);
@@ -1122,6 +1135,7 @@ export class AgentService {
             skillName: analysisSkill?.name,
             skillInstructions: analysisSkill?.analysisInstructions,
             datasetProfile,
+            qualityGate: latest?.plan_id ? qualityGateService.latestFinal(latest.plan_id) || undefined : undefined,
             partial: isPartialAnalysis,
             signal,
             onRetry,
@@ -1273,6 +1287,7 @@ export class AgentService {
       agentRepository.addMessage(threadId, 'assistant', 'text', reply, { action: 'chat' });
       return agentRepository.getThread(threadId);
     }
+    plan = applyConnectorHealthPolicy(plan, planningText, activeMentionedConnectors);
     if (!plan.platforms.length) {
       if (latest && ['completed', 'partially_completed'].includes(latest.status)) {
         const updatedThread = agentRepository.getThread(threadId);
@@ -1404,6 +1419,12 @@ export class AgentService {
     }
 
     const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
+    const healthLines = (plan.healthPolicy?.decisions || [])
+      .filter((item) => item.action !== 'use')
+      .map((item) => item.action === 'replace'
+        ? `${LABELS[item.connectorId] || item.connectorId} → ${LABELS[item.replacementId || ''] || item.replacementId}：${item.reason}`
+        : `${LABELS[item.connectorId] || item.connectorId}：${item.reason}`);
+    const healthLine = healthLines.length ? `\n连接器状态：${healthLines.join('；')}` : '';
     if (autoStart) this.executePlan(created.plan_id);
     const shouldAutoAnalyze = Boolean(
       plan.autoAnalyze || plan.analysis.length || planSkill?.execution.autoAnalyzeOnCompletion,
@@ -1414,7 +1435,7 @@ export class AgentService {
         : '\n\n任务已进入执行队列；如需调整，可以随时暂停。采集完成后可继续让我分析结果。'
       : '\n\n如果确认无误，直接告诉我可以开始；需要调整也可以继续补充。';
     const analysisLine = plan.analysis.length ? `\n分析重点：${plan.analysis.join('、')}` : '';
-    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${diffLine}${analysisLine}${nextStep}`, {
+    agentRepository.addMessage(threadId, 'assistant', messageKind, `${lead}${skillLine}\n平台：${platformNames}\n${plan.capability === 'keyword_search' ? '关键词' : '目标'}：${targetDescription}${scopeLine}${healthLine}${diffLine}${analysisLine}${nextStep}`, {
       plan_id: created.plan_id,
       skill_id: planSkill?.id,
       action: autoStart ? 'execute' : decision.action,
@@ -1596,6 +1617,7 @@ export class AgentService {
                 skillName: analysisSkill?.name,
                 skillInstructions: analysisSkill?.analysisInstructions,
                 datasetProfile,
+                qualityGate: qualityGateService.latestFinal(final.plan_id) || undefined,
               });
               const analysisReport = analysisService.saveReport({
                 analyzerId: 'quick.report',

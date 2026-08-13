@@ -1,7 +1,23 @@
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../database/connection';
+import { getConnectorManifest, listConnectorManifests } from './registry';
 
 export type ConnectorHealthState = 'healthy' | 'degraded' | 'blocked' | 'broken' | 'unknown';
+
+export interface ConnectorPlanDecision {
+  connectorId: string;
+  action: 'use' | 'warn' | 'replace' | 'require_confirmation';
+  state: ConnectorHealthState;
+  reason: string;
+  replacementId?: string;
+}
+
+export interface ConnectorPlanPolicy {
+  originalPlatforms: string[];
+  selectedPlatforms: string[];
+  requiresConfirmation: boolean;
+  decisions: ConnectorPlanDecision[];
+}
 
 function errorCode(message: string): string | null {
   if (/登录|auth|unauthorized/i.test(message)) return 'AUTH_REQUIRED';
@@ -74,6 +90,54 @@ export class ConnectorHealthService {
 
   list(): any[] {
     return (this.db.prepare('SELECT * FROM connector_health ORDER BY state, connector_id').all() as any[]).map((row) => this.parse(row));
+  }
+
+  evaluatePlan(platforms: string[], explicitPlatforms: string[], capability = 'keyword_search'): ConnectorPlanPolicy {
+    const explicit = new Set(explicitPlatforms);
+    const health = new Map(this.list().map((item) => [item.connectorId, item]));
+    const selected: string[] = [];
+    const decisions: ConnectorPlanDecision[] = [];
+    let requiresConfirmation = false;
+    for (const connectorId of platforms) {
+      const current = health.get(connectorId);
+      const state = (current?.state || 'unknown') as ConnectorHealthState;
+      if (!['blocked', 'broken'].includes(state)) {
+        selected.push(connectorId);
+        decisions.push({
+          connectorId,
+          action: state === 'degraded' ? 'warn' : 'use',
+          state,
+          reason: state === 'degraded' ? '近期运行质量下降，执行时将保留质量警告' : state === 'healthy' ? '近期运行正常' : '暂无足够运行历史',
+        });
+        continue;
+      }
+      if (explicit.has(connectorId)) {
+        selected.push(connectorId);
+        requiresConfirmation = true;
+        decisions.push({
+          connectorId, action: 'require_confirmation', state,
+          reason: state === 'blocked' ? '当前连接器需要重新登录或完成人工验证' : '近期错误疑似由页面结构变化导致',
+        });
+        continue;
+      }
+      const manifest = getConnectorManifest(connectorId);
+      const replacement = listConnectorManifests()
+        .filter((candidate) => candidate.id !== connectorId
+          && candidate.category === manifest?.category
+          && candidate.capabilities.some((item) => item.id === capability)
+          && health.get(candidate.id)?.state === 'healthy'
+          && !selected.includes(candidate.id))
+        .sort((left, right) => Number(health.get(right.id)?.successRate || 0) - Number(health.get(left.id)?.successRate || 0))[0];
+      if (replacement) {
+        selected.push(replacement.id);
+        decisions.push({ connectorId, action: 'replace', state, replacementId: replacement.id, reason: `自动改用近期运行正常的同类连接器 ${replacement.name}` });
+      } else {
+        selected.push(connectorId);
+        requiresConfirmation = true;
+        decisions.push({ connectorId, action: 'require_confirmation', state, reason: '没有健康的同类连接器可替代，需要确认后尝试' });
+      }
+    }
+    return { originalPlatforms: [...platforms], selectedPlatforms: [...new Set(selected)], requiresConfirmation, decisions };
   }
 
   private parse(row: any): any {

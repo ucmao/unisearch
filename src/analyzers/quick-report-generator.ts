@@ -3,6 +3,7 @@ import { renderDatasetProfile } from './dataset-profiler';
 import { EvidenceSelector, evidenceSelector, type EvidenceSelection, type SelectedEvidence } from '../knowledge/evidence-selector';
 import { modelService } from '../server/services/ModelService';
 import { agentRepository } from '../server/services/AgentRepository';
+import type { QualityGateResult } from './quality-gate-service';
 
 export interface QuickAnalysisCoverage {
   mode: 'quick';
@@ -26,6 +27,7 @@ export interface QuickReportRequest {
   skillName?: string;
   skillInstructions?: string;
   datasetProfile: DatasetProfile;
+  qualityGate?: QualityGateResult;
   partial?: boolean;
   signal?: AbortSignal;
   onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void;
@@ -212,6 +214,7 @@ export class QuickReportGenerator {
             request.skillName ? `业务 Skill：${request.skillName}` : '',
             request.skillInstructions ? `业务分析规则：${request.skillInstructions}` : '',
             request.partial ? '任务仍在采集中，只能生成阶段性报告。' : '',
+            request.qualityGate ? `数据质量门禁：${JSON.stringify({ status: request.qualityGate.status, warnings: request.qualityGate.warnings, metrics: request.qualityGate.metrics })}` : '',
             '',
             '写作规则：',
             '1. 样本量、数量、比例、平台和类型分布、时间范围、字段覆盖、缺失率及数值指标，只能使用“全部文档的确定性统计结果”。',
@@ -222,6 +225,7 @@ export class QuickReportGenerator {
             '6. 时间字段缺失或覆盖不足时不得声称某主题正在增长、上升或成为趋势；只能描述当前样本中较常见。',
             '7. 单个创作者、广告或投诉内容中的说法必须明确归因，不能扩写为平台或行业事实。比例和派生指标只能使用确定性统计中直接提供的同口径指标，不得拿均值、中位数或不同样本字段自行相除。',
             '8. 不得输出乱码替换字符；损坏文本应视为不可用证据。多个引用分别写为 [S1][S2]，不要写引用范围。',
+            '9. 数据质量门禁为 limited 或 insufficient 时，必须在开头明确说明限制；insufficient 时只能输出阶段性发现和补采建议，不得给出稳定的总体判断。',
           ].filter(Boolean).join('\n'),
         }], {
           materials,
@@ -270,6 +274,15 @@ export class QuickReportGenerator {
 
     if (selection.retrievalWarnings.length) {
       body = `${body}\n\n> 检索提示：${selection.retrievalWarnings.join('；')}`;
+    }
+    if (request.qualityGate && request.qualityGate.status !== 'ready') {
+      const label = request.qualityGate.status === 'insufficient' ? '样本不足，仅供阶段性参考' : '数据覆盖有限';
+      body = [
+        `> **数据质量限制：${label}**`,
+        `> ${request.qualityGate.warnings.join('；') || '部分关键字段覆盖不足'}。以下发现必须结合该边界理解。`,
+        '',
+        body,
+      ].join('\n');
     }
     const coverage = buildQuickAnalysisCoverage(request.datasetProfile, selection.evidence, body, Boolean(request.partial));
     return {

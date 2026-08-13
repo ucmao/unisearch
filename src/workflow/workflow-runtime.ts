@@ -12,6 +12,9 @@ import { exportService, exporterRegistry } from '../exporters/registry';
 import { skillRegistry } from '../skills/registry';
 import type { DatasetProfile } from '../analyzers/dataset-profiler';
 import { quickReportGenerator } from '../analyzers/quick-report-generator';
+import { qualityGateService } from '../analyzers/quality-gate-service';
+import { connectorHealthService } from '../connectors/health-service';
+import { reportArtifactService } from '../analyzers/report-artifact-service';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -24,7 +27,8 @@ const TERMINAL_WORKFLOW_STATUSES = new Set([
 
 function collectEmptyStepKeys(workflow: any): string[] {
   return (workflow.steps || [])
-    .filter((step: any) => step.status === 'completed' && Number(step.item_count || 0) === 0)
+    .filter((step: any) => String(step.step_key).startsWith('collect:')
+      && step.status === 'completed' && Number(step.item_count || 0) === 0)
     .map((step: any) => String(step.step_key));
 }
 
@@ -34,6 +38,10 @@ export class WorkflowRuntime {
       this.finalizeDocuments(input, context));
     workflowEngine.registerHandler('processor.search-results.select', (input, context) =>
       this.selectSearchUrls(input, context));
+    workflowEngine.registerHandler('processor.quality.select-enrichment', (input, context) =>
+      this.selectQualityEnrichment(input, context));
+    workflowEngine.registerHandler('processor.quality.final', (input, context) =>
+      this.finalQualityGate(input, context));
     workflowEngine.registerHandler('analyzer.knowledge.index', (_input, context) =>
       knowledgeIndex.rebuildWithEmbeddings({ workflowId: context.workflowId }));
     workflowEngine.registerHandler('analyzer.dataset.profile', (input, context) =>
@@ -87,6 +95,7 @@ export class WorkflowRuntime {
         skillName: skill?.name,
         skillInstructions: isBusinessAnalysis ? skill?.analysisInstructions : undefined,
         datasetProfile,
+        qualityGate: qualityGateService.latestFinal(workflow.plan_id) || undefined,
         signal: context.signal,
       });
       context.signal.throwIfAborted();
@@ -101,6 +110,19 @@ export class WorkflowRuntime {
           coverage: result.coverage,
           evidenceSelection: result.evidenceSelection,
           sources: result.sources,
+        },
+      });
+      const reportArtifact = reportArtifactService.create({
+        reportId: analysisReport.report_id,
+        threadId: workflow.thread_id,
+        workflowId: workflow.plan_id,
+        title: result.title,
+        content: result.answer,
+        sources: result.sources,
+        reproducibility: {
+          analyzerId: 'quick.report', analyzerVersion: '1.0.0', datasetProfileReportId,
+          qualityGate: qualityGateService.latestFinal(workflow.plan_id),
+          coverage: result.coverage, evidenceSelection: result.evidenceSelection,
         },
       });
       const startTime = new Date(workflow.created_at || workflow.started_at || Date.now()).getTime();
@@ -122,6 +144,8 @@ export class WorkflowRuntime {
         evidence_selection: result.evidenceSelection,
         dataset_profile_report_id: datasetProfileReportId,
         analysis_report_id: analysisReport.report_id,
+        report_artifact_id: reportArtifact.artifactId,
+        graph_id: reportArtifact.graphId,
         total_duration_sec: totalSeconds,
         total_duration_formatted: formattedTotalTime,
       });
@@ -131,6 +155,7 @@ export class WorkflowRuntime {
         coverage: result.coverage,
         datasetProfileReportId,
         analysisReportId: analysisReport.report_id,
+        reportArtifactId: reportArtifact.artifactId,
         totalDurationSec: totalSeconds,
       };
     } catch (error: any) {
@@ -236,6 +261,11 @@ export class WorkflowRuntime {
         agentRepository.updateStep(step.step_id, 'failed', null, `${manifest?.name || step.platform} 不支持能力 ${capabilityId}`);
         continue;
       }
+      const liveHealth = connectorHealthService.get(step.platform);
+      if (liveHealth?.state === 'broken') {
+        agentRepository.updateStep(step.step_id, 'failed', null, `${manifest?.name || step.platform} 已被健康门禁拦截：疑似页面结构变化，请修复连接器后重试`);
+        continue;
+      }
       const depth = plan.collectionDepth || 'quick';
       const preset = resolveDepthPreset(capability, depth);
       const maxItemsDefault = capability.inputFields.find((field) => field.key === 'max_items')?.default;
@@ -301,6 +331,38 @@ export class WorkflowRuntime {
       selected,
       selectedCount: selected.length,
     };
+  }
+
+  private async selectQualityEnrichment(
+    input: Record<string, unknown>,
+    context: WorkflowStepHandlerContext,
+  ): Promise<Record<string, unknown>> {
+    const sourceStep = String(input.sourceStep || '');
+    const sourceOutput = agentRepository.getStepOutput(context.workflowId, sourceStep);
+    const runId = String(sourceOutput.runId || '');
+    if (!runId) return { targets: [], skipped: true, reason: '来源采集步骤没有运行记录' };
+    return qualityGateService.assess({
+      workflowId: context.workflowId,
+      runId,
+      platform: String(input.platform || ''),
+      phase: 'enrichment',
+      requireComments: Boolean(input.requireComments),
+      maxTargets: Number(input.maxTargets || 20),
+      minTextChars: Number(input.minTextChars || 120),
+    });
+  }
+
+  private async finalQualityGate(
+    input: Record<string, unknown>,
+    context: WorkflowStepHandlerContext,
+  ): Promise<Record<string, unknown>> {
+    return qualityGateService.assess({
+      workflowId: context.workflowId,
+      phase: 'final',
+      requireComments: Boolean(input.requireComments),
+      maxTargets: 0,
+      minTextChars: 120,
+    });
   }
 
   private async finalizeDocuments(

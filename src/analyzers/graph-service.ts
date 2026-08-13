@@ -4,6 +4,7 @@ import type { CanonicalDocument } from '../core/documents/canonical';
 import { getDb } from '../database/connection';
 import { AnalysisService } from './registry';
 import { AnalyticsRepository } from '../database/repository';
+import { DocumentEngine } from '../document/document-engine';
 
 export type GraphScope = { threadId?: string; workflowId?: string; runId?: string };
 
@@ -149,6 +150,31 @@ export class GraphService {
       metadata: JSON.parse(snapshot.metadata_json),
       nodes,
       edges,
+    };
+  }
+
+  evidence(graphId: string, elementId: string): any {
+    const node = this.db.prepare('SELECT * FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, elementId) as any;
+    const edge = node ? null : this.db.prepare('SELECT * FROM graph_edges WHERE graph_id=? AND edge_id=?').get(graphId, elementId) as any;
+    if (!node && !edge) throw new Error('Graph element not found');
+    const documentIds: string[] = JSON.parse((node || edge).document_ids_json || '[]');
+    const engine = new DocumentEngine(this.databaseProvider);
+    const documents = documentIds.slice(0, 50).flatMap((documentId) => {
+      const document = engine.get(documentId);
+      return document ? [{
+        documentId: document.documentId,
+        title: document.title,
+        platform: document.platform,
+        kind: document.kind,
+        sourceUrl: document.sourceUrl,
+        excerpt: (document.summary || document.markdown || document.title).replace(/\s+/g, ' ').slice(0, 300),
+      }] : [];
+    });
+    return {
+      element: node
+        ? { id: node.node_id, type: node.node_type, label: node.label, weight: node.weight }
+        : { id: edge.edge_id, type: 'edge', relation: edge.relation_type, weight: edge.weight, from: edge.from_node_id, to: edge.to_node_id },
+      documents,
     };
   }
 }

@@ -266,7 +266,7 @@ test('revising a pending plan updates the same plan and rebuilds its steps', () 
 
     assert.equal(revised.plan_id, first.plan_id);
     assert.deepEqual(revised.plan.keywords, ['新品']);
-    assert.deepEqual(revised.steps.map((step: any) => step.platform).sort(), ['xhs', 'zhihu']);
+    assert.deepEqual(revised.steps.filter((step: any) => step.role === 'primary_collection').map((step: any) => step.platform).sort(), ['xhs', 'zhihu']);
     assert.equal((db.prepare('SELECT COUNT(*) AS count FROM workflow_runs WHERE thread_id=?').get(thread.thread_id) as any).count, 1);
   } finally {
     db.close();

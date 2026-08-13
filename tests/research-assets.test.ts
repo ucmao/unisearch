@@ -7,6 +7,9 @@ import { buildRawItem } from '../src/connectors/output/connector-output';
 import { GraphService } from '../src/analyzers/graph-service';
 import { ReportArtifactService } from '../src/analyzers/report-artifact-service';
 import { AnalyticsRepository } from '../src/database/repository';
+import { QualityGateService } from '../src/analyzers/quality-gate-service';
+import { ConnectorHealthService } from '../src/connectors/health-service';
+import { AgentRepository } from '../src/server/services/AgentRepository';
 
 async function fixture() {
   const db = new Database(':memory:');
@@ -38,6 +41,10 @@ test('deterministic graph persists traceable nodes and evidence edges', async ()
     assert.ok(graph.nodes.some((node: any) => node.type === 'keyword' && node.label === '咖啡'));
     assert.ok(graph.edges.some((edge: any) => edge.relation === 'matched_keyword' && edge.documentIds.length === 1));
     assert.equal(service.latest({ threadId: 'thread-1' })?.id, graph.id);
+    const subject = graph.nodes.find((node: any) => node.type === 'subject');
+    const evidence = service.evidence(graph.id, subject.id);
+    assert.equal(evidence.documents.length, 1);
+    assert.equal(evidence.documents[0].title, '咖啡测评');
   } finally { db.close(); }
 });
 
@@ -73,5 +80,54 @@ test('finishing a run records connector health and collection quality', async ()
     assert.equal(health.success_rate, 1);
     assert.equal(health.yield_rate, 1);
     assert.ok(health.field_coverage > 0.6);
+  } finally { db.close(); }
+});
+
+test('quality gate selects only traceable deficient documents for enrichment and persists the decision', async () => {
+  const { db } = await fixture();
+  try {
+    const service = new QualityGateService(() => db);
+    const result = service.assess({ workflowId: 'workflow-1', runId: 'run-1', platform: 'xhs', phase: 'enrichment', minTextChars: 200 });
+    assert.equal(result.status, 'insufficient');
+    assert.equal(result.missingTextCount, 1);
+    assert.deepEqual(result.targets, ['https://example.com/note-1']);
+    assert.equal((db.prepare('SELECT COUNT(*) count FROM quality_gate_runs').get() as any).count, 1);
+  } finally { db.close(); }
+});
+
+test('health policy replaces implicit broken connectors but requires confirmation for explicit choices', async () => {
+  const { db, now } = await fixture();
+  try {
+    const insert = db.prepare(`INSERT INTO connector_health
+      (connector_id,state,run_count,success_rate,yield_rate,duplicate_rate,field_coverage,metrics_json,updated_at)
+      VALUES (?,?,?,?,0,0,0,'{}',?)`);
+    insert.run('xhs', 'broken', 3, 0, now);
+    insert.run('douyin', 'healthy', 3, 1, now);
+    const service = new ConnectorHealthService(() => db);
+    const implicit = service.evaluatePlan(['xhs'], [], 'keyword_search');
+    assert.deepEqual(implicit.selectedPlatforms, ['douyin']);
+    assert.equal(implicit.decisions[0].action, 'replace');
+    const explicit = service.evaluatePlan(['xhs'], ['xhs'], 'keyword_search');
+    assert.deepEqual(explicit.selectedPlatforms, ['xhs']);
+    assert.equal(explicit.requiresConfirmation, true);
+  } finally { db.close(); }
+});
+
+test('social keyword workflow inserts selective enrichment and a final quality gate before analysis', async () => {
+  const { db } = await fixture();
+  try {
+    const repository = new AgentRepository(() => db);
+    const plan = repository.createPlan('thread-1', {
+      goal: '咖啡研究', platforms: ['xhs'], keywords: ['咖啡'], capability: 'keyword_search',
+      contentEnrichment: { mode: 'auto', maxReadItems: 8, maxPerDomain: 2, concurrency: 2, timeoutMsPerUrl: 30000 },
+      collectionDepth: 'standard', loginType: 'qrcode', headless: false, analysis: [], autoAnalyze: true, outputs: [],
+    });
+    const persistedSteps = db.prepare('SELECT step_key, depends_on_json FROM workflow_steps WHERE workflow_id=?').all(plan.plan_id) as any[];
+    const steps = persistedSteps.map((step) => step.step_key);
+    assert.ok(steps.includes('quality:xhs'));
+    assert.ok(steps.includes('enrich:xhs'));
+    assert.ok(steps.includes('quality-final'));
+    const finalizer = persistedSteps.find((step) => step.step_key === 'finalize-documents');
+    assert.deepEqual(JSON.parse(finalizer.depends_on_json), ['quality-final']);
   } finally { db.close(); }
 });

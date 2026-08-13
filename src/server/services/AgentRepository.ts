@@ -41,6 +41,12 @@ export interface ResearchPlan {
   /** Run a report after collection even when no explicit analysis goals exist. */
   autoAnalyze?: boolean;
   outputs: string[];
+  healthPolicy?: {
+    originalPlatforms: string[];
+    selectedPlatforms: string[];
+    requiresConfirmation: boolean;
+    decisions: Array<{ connectorId: string; action: string; state: string; reason: string; replacementId?: string }>;
+  };
 }
 
 export interface AgentAttachmentRecord {
@@ -738,6 +744,7 @@ export class AgentRepository {
     const capability = plan.capability || 'keyword_search';
     const collectStepKeys: string[] = [];
     const webSearchStepKeys: string[] = [];
+    const enrichmentStepKeys: string[] = [];
     for (const platform of plan.platforms) {
       const stepKey = `collect:${platform}`;
       collectStepKeys.push(stepKey);
@@ -756,6 +763,37 @@ export class AgentRepository {
         }),
         platform, now, now,
       );
+      const manifest = getConnectorManifest(platform);
+      const supportsDeterministicEnrichment = capability === 'keyword_search'
+        && ['social_media', 'job_platform', 'complaint_platform'].includes(String(manifest?.category))
+        && manifest?.capabilities.some((item) => item.id === 'content_detail');
+      if (supportsDeterministicEnrichment) {
+        const qualityStepKey = `quality:${platform}`;
+        this.db.prepare(`
+          INSERT INTO workflow_steps (
+            step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+            dependency_policy, input_json, status, max_attempts, timeout_ms, created_at, updated_at
+          ) VALUES (?, ?, ?, 'processor', 'processor.quality.select-enrichment', ?, 'terminal', ?, 'queued', 1, 300000, ?, ?)
+        `).run(id(), workflowId, qualityStepKey, JSON.stringify([stepKey]), JSON.stringify({
+          sourceStep: stepKey,
+          platform,
+          minTextChars: 120,
+          maxTargets: plan.collectionDepth === 'deep' ? 50 : plan.collectionDepth === 'standard' ? 25 : 10,
+          requireComments: ['standard', 'deep'].includes(plan.collectionDepth || 'quick'),
+        }), now, now);
+        const enrichmentStepKey = `enrich:${platform}`;
+        enrichmentStepKeys.push(enrichmentStepKey);
+        insert.run(
+          id(), workflowId, enrichmentStepKey, `connector.${platform}.content_detail`,
+          JSON.stringify([qualityStepKey]), 'success',
+          JSON.stringify({
+            capability: 'content_detail', keywords: [], targetsFromStep: qualityStepKey,
+            role: 'quality_enrichment',
+            options: plan.connectorOptions?.[platform] || {},
+          }),
+          platform, now, now,
+        );
+      }
     }
 
     let readerStepKey: string | null = null;
@@ -791,7 +829,16 @@ export class AgentRepository {
       );
     }
 
-    const finalDependencies = readerStepKey ? [...collectStepKeys, readerStepKey] : collectStepKeys;
+    const finalDependencies = [...collectStepKeys, ...enrichmentStepKeys, ...(readerStepKey ? [readerStepKey] : [])];
+    this.db.prepare(`
+      INSERT INTO workflow_steps (
+        step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+        dependency_policy, input_json, status, max_attempts, timeout_ms, created_at, updated_at
+      ) VALUES (?, ?, 'quality-final', 'processor', 'processor.quality.final',
+        ?, 'terminal', ?, 'queued', 1, 300000, ?, ?)
+    `).run(id(), workflowId, JSON.stringify(finalDependencies), JSON.stringify({
+      requireComments: ['standard', 'deep'].includes(plan.collectionDepth || 'quick'),
+    }), now, now);
     this.db.prepare(`
       INSERT INTO workflow_steps (
         step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -802,7 +849,7 @@ export class AgentRepository {
     `).run(
       id(),
       workflowId,
-      JSON.stringify(finalDependencies),
+      JSON.stringify(['quality-final']),
       JSON.stringify({ processorIds: ['metadata.normalize', 'document.clean_markdown'] }),
       now,
       now,
@@ -912,6 +959,7 @@ export class AgentRepository {
       platform: step.external_ref,
       run_id: parseJson<any>(step.output_json, {}).runId || null,
       input: parseJson<Record<string, unknown>>(step.input_json, {}),
+      role: parseJson<Record<string, unknown>>(step.input_json, {}).role || 'primary_collection',
       depends_on: parseJson<string[]>(step.depends_on_json, []),
     }));
     const stats = this.getPlanStats(row.workflow_id);

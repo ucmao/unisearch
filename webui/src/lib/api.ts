@@ -329,6 +329,7 @@ export interface AgentPlanStep {
   platform: string
   kind?: string
   step_key?: string
+  role?: 'primary_collection' | 'quality_enrichment'
   status: 'queued' | 'running' | 'completed' | 'failed' | 'stopped'
   run_id: string | null
   error_message: string | null

@@ -29,6 +29,7 @@ import { analyzerRegistry, analysisService } from '../analyzers/registry';
 import { graphService } from '../analyzers/graph-service';
 import { reportArtifactService } from '../analyzers/report-artifact-service';
 import { connectorHealthService } from '../connectors/health-service';
+import { qualityGateService } from '../analyzers/quality-gate-service';
 import { exporterRegistry, exportService } from '../exporters/registry';
 import { zipDirectoryToBuffer } from '../exporters/zip';
 import {
@@ -171,6 +172,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/connectors/health', async () => ({ items: connectorHealthService.list() }));
+  fastify.get('/api/quality', async (request) => {
+    const query = request.query as { thread_id?: string; workflow_id?: string; run_id?: string };
+    return { quality: qualityGateService.latestForScope({ threadId: query.thread_id, workflowId: query.workflow_id, runId: query.run_id }) };
+  });
 
   // Env check
   fastify.get('/api/env/check', async () => {
@@ -731,6 +736,15 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.post('/api/graph/rebuild', async (request) => {
     const body = (request.body || {}) as { thread_id?: string; workflow_id?: string; run_id?: string };
     return { status: 'ok', graph: graphService.rebuild({ threadId: body.thread_id, workflowId: body.workflow_id, runId: body.run_id }) };
+  });
+
+  fastify.get('/api/graph/:graph_id/evidence/:element_id', async (request, reply) => {
+    const params = request.params as { graph_id: string; element_id: string };
+    try {
+      return { status: 'ok', ...graphService.evidence(params.graph_id, params.element_id) };
+    } catch (error: any) {
+      return reply.status(404).send({ detail: error.message });
+    }
   });
 
   fastify.get('/api/reports', async (request) => {

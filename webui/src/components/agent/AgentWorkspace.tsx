@@ -2490,8 +2490,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   plan.steps.forEach((step) => {
                     const existing = platformSummaryMap.get(step.platform)
                     const isAI = AI_PLATFORMS.has(step.platform)
-                    const count = step.item_count || 0
-                    const commentCount = step.comment_count || 0
+                    const count = step.role === 'quality_enrichment' ? 0 : step.item_count || 0
+                    const commentCount = step.role === 'quality_enrichment' ? 0 : step.comment_count || 0
                     if (!existing) {
                       platformSummaryMap.set(step.platform, {
                         platform: step.platform,

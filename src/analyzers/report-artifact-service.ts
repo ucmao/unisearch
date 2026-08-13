@@ -38,7 +38,7 @@ export class ReportArtifactService {
   private get db(): Database { return this.databaseProvider(); }
 
   create(input: CreateReportArtifactInput): any {
-    const scope = { threadId: input.threadId, workflowId: input.workflowId };
+    const scope = input.workflowId ? { workflowId: input.workflowId } : { threadId: input.threadId };
     const graph = this.graphs.latest(scope) || this.graphs.rebuild(scope);
     const sources = input.sources || [];
     const documentIds = [...new Set(sources.map((source) => String(source.documentId || '')).filter(Boolean))];

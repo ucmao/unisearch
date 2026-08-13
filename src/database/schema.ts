@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 13;
+export const DATABASE_SCHEMA_VERSION = 14;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -466,6 +466,28 @@ export function initSchema(db: Database): void {
       updated_at TEXT NOT NULL,
       FOREIGN KEY(last_run_id) REFERENCES crawl_runs(run_id) ON DELETE SET NULL
     );
+
+    CREATE TABLE IF NOT EXISTS quality_gate_runs (
+      assessment_id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      run_id TEXT,
+      platform TEXT,
+      phase TEXT NOT NULL,
+      status TEXT NOT NULL,
+      document_count INTEGER NOT NULL DEFAULT 0,
+      qualified_count INTEGER NOT NULL DEFAULT 0,
+      missing_text_count INTEGER NOT NULL DEFAULT 0,
+      missing_url_count INTEGER NOT NULL DEFAULT 0,
+      missing_comment_count INTEGER NOT NULL DEFAULT 0,
+      enrichment_target_count INTEGER NOT NULL DEFAULT 0,
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      warnings_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+      FOREIGN KEY(run_id) REFERENCES crawl_runs(run_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_quality_gate_workflow
+      ON quality_gate_runs(workflow_id, phase, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS export_runs (
       export_id TEXT PRIMARY KEY,
