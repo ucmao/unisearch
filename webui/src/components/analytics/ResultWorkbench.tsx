@@ -31,6 +31,7 @@ import {
   Layers,
   Link as LinkIcon,
   MessageSquare,
+  Network,
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
@@ -52,7 +53,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { ResearchAssetsPanel } from '@/components/analytics/ResearchAssetsPanel'
+import { KnowledgeGraphView, ResearchReportsView } from '@/components/analytics/ResearchAssetsPanel'
 
 type ExportFormat = 'xlsx' | 'csv' | 'json'
 type ExportFieldMode = 'recommended' | 'visible' | 'all'
@@ -775,10 +776,10 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialLayout?.sidebarCollapsed || false)
   const [sidebarWidth, setSidebarWidth] = useState(initialLayout?.sidebarWidth || 270)
   const [isResizing, setIsResizing] = useState(false)
+  const [activeMainTab, setActiveMainTab] = useState<'pivot' | 'graph' | 'reports'>('pivot')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exportFieldMode, setExportFieldMode] = useState<ExportFieldMode>('recommended')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
-  const [researchAssetsOpen, setResearchAssetsOpen] = useState(false)
   const keywordScrollRef = useRef<HTMLDivElement>(null)
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set(initialLayout?.expandedTasks || []))
 
@@ -1630,58 +1631,67 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             </div>
           </div>
 
-          {/* 右侧操作按钮 */}
+          {/* 右侧核心区：视图切换 Tabs 与统一下载 */}
           <div className="flex items-center gap-2 app-no-drag">
+            {/* 一级视图切换 Segmented Control */}
+            <div className="flex items-center gap-0.5 rounded-xl bg-cyber-bg-secondary/80 p-0.5 border border-cyber-border-subtle shadow-xs">
+              <button
+                type="button"
+                onClick={() => setActiveMainTab('pivot')}
+                className={`flex items-center justify-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1 text-xs font-medium transition-all cursor-pointer ${
+                  activeMainTab === 'pivot'
+                    ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan shadow-xs border border-cyber-neon-cyan/40 font-semibold'
+                    : 'text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary/40 border border-transparent'
+                }`}
+                title="数据透视表 - 查看与筛选清洗原始文档、正文与评论数据"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">数据透视表</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveMainTab('graph')}
+                className={`flex items-center justify-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1 text-xs font-medium transition-all cursor-pointer ${
+                  activeMainTab === 'graph'
+                    ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan shadow-xs border border-cyber-neon-cyan/40 font-semibold'
+                    : 'text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary/40 border border-transparent'
+                }`}
+                title="关联图谱 - 探索实体关联、回溯证据并管理同义实体"
+              >
+                <Network className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">关联图谱</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveMainTab('reports')}
+                className={`flex items-center justify-center gap-1.5 rounded-lg p-1.5 sm:px-2.5 sm:py-1 text-xs font-medium transition-all cursor-pointer ${
+                  activeMainTab === 'reports'
+                    ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan shadow-xs border border-cyber-neon-cyan/40 font-semibold'
+                    : 'text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary/40 border border-transparent'
+                }`}
+                title="研究报告 - 查看研究报告、对比版本、检查数据质量并导出"
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">研究报告</span>
+              </button>
+            </div>
+
             <Button
               variant="outline"
               size="sm"
-              className="h-8 rounded-xl text-xs"
-              onClick={() => setResearchAssetsOpen(true)}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              <span>图谱与报告</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 rounded-xl text-xs"
+              className="h-8 rounded-xl text-xs gap-1.5 border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary cursor-pointer"
               onClick={() => setExportDialogOpen(true)}
             >
               <Download className="h-3.5 w-3.5" />
-              <span>统一下载</span>
+              <span className="hidden sm:inline">统一下载</span>
             </Button>
           </div>
         </div>
 
-        {/* 研究资产弹窗 */}
-        <Dialog open={researchAssetsOpen} onOpenChange={setResearchAssetsOpen}>
-          <DialogContent className="flex h-[86vh] max-w-6xl flex-col overflow-hidden">
-            <DialogHeader>
-              <DialogTitle>研究资产</DialogTitle>
-              <DialogDescription>关系图谱、可复现报告与连接器运行质量</DialogDescription>
-            </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-hidden">
-              <ResearchAssetsPanel
-                scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }}
-                onFilter={(node) => {
-                  if (node.type === 'platform') setPlatform(node.label)
-                  else if (node.type === 'keyword') setKeyword(node.label)
-                  else { setQueryInput(node.label); setQuery(node.label) }
-                  setPage(1)
-                  setResearchAssetsOpen(false)
-                }}
-                onOpenDocument={async (documentId) => {
-                  const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`)
-                  if (response.ok) setSelectedDocument(await response.json())
-                  setResearchAssetsOpen(false)
-                }}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* 主数据看板与透视表格 */}
-        <main className="min-w-0 flex-1 overflow-auto p-3 sm:p-4 bg-cyber-bg-primary/40">
+        {/* 主工作区根据 Tab 分支渲染 */}
+        {activeMainTab === 'pivot' ? (
+          /* 主数据看板与透视表格 */
+          <main className="min-w-0 flex-1 overflow-auto p-3 sm:p-4 bg-cyber-bg-primary/40">
           <div className="mx-auto max-w-[1800px] space-y-3 sm:space-y-4">
             
             {/* 第 1 栏：顶部 4 个核心数据看板（随筛选切片实时动态汇总，同时提供总盘比例参考） */}
@@ -2101,6 +2111,34 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             </section>
           </div>
         </main>
+        ) : activeMainTab === 'graph' ? (
+          <main className="min-w-0 flex-1 overflow-hidden bg-cyber-bg-primary/40">
+            <KnowledgeGraphView
+              scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }}
+              onFilter={(node) => {
+                if (node.type === 'platform') setPlatform(node.label)
+                else if (node.type === 'keyword') setKeyword(node.label)
+                else {
+                  setQueryInput(node.label)
+                  setQuery(node.label)
+                }
+                setPage(1)
+                setActiveMainTab('pivot')
+                toast.success(`已应用实体「${node.label}」过滤条件并切换至数据透视表`)
+              }}
+              onOpenDocument={async (documentId) => {
+                const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`)
+                if (response.ok) setSelectedDocument(await response.json())
+              }}
+            />
+          </main>
+        ) : (
+          <main className="min-w-0 flex-1 overflow-auto bg-cyber-bg-primary/40">
+            <ResearchReportsView
+              scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }}
+            />
+          </main>
+        )}
       </section>
 
       <Dialog open={columnDialogOpen} onOpenChange={setColumnDialogOpen}>
