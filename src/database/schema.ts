@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 12;
+export const DATABASE_SCHEMA_VERSION = 13;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -384,6 +384,87 @@ export function initSchema(db: Database): void {
       metadata_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
       FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS graph_snapshots (
+      graph_id TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      document_count INTEGER NOT NULL DEFAULT 0,
+      node_count INTEGER NOT NULL DEFAULT 0,
+      edge_count INTEGER NOT NULL DEFAULT 0,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_snapshots_scope
+      ON graph_snapshots(scope_type, scope_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS graph_nodes (
+      graph_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      node_type TEXT NOT NULL,
+      label TEXT NOT NULL,
+      weight INTEGER NOT NULL DEFAULT 1,
+      document_ids_json TEXT NOT NULL DEFAULT '[]',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      PRIMARY KEY(graph_id, node_id),
+      FOREIGN KEY(graph_id) REFERENCES graph_snapshots(graph_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_nodes_type
+      ON graph_nodes(graph_id, node_type, weight DESC);
+
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      graph_id TEXT NOT NULL,
+      edge_id TEXT NOT NULL,
+      from_node_id TEXT NOT NULL,
+      to_node_id TEXT NOT NULL,
+      relation_type TEXT NOT NULL,
+      weight INTEGER NOT NULL DEFAULT 1,
+      document_ids_json TEXT NOT NULL DEFAULT '[]',
+      evidence_json TEXT NOT NULL DEFAULT '[]',
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      PRIMARY KEY(graph_id, edge_id),
+      FOREIGN KEY(graph_id) REFERENCES graph_snapshots(graph_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_edges_relation
+      ON graph_edges(graph_id, relation_type, weight DESC);
+
+    CREATE TABLE IF NOT EXISTS report_artifacts (
+      artifact_id TEXT PRIMARY KEY,
+      report_id TEXT NOT NULL UNIQUE,
+      thread_id TEXT,
+      workflow_id TEXT,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      document_ids_json TEXT NOT NULL DEFAULT '[]',
+      citations_json TEXT NOT NULL DEFAULT '[]',
+      graph_id TEXT,
+      reproducibility_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(report_id) REFERENCES analysis_reports(report_id) ON DELETE CASCADE,
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE SET NULL,
+      FOREIGN KEY(graph_id) REFERENCES graph_snapshots(graph_id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_report_artifacts_thread
+      ON report_artifacts(thread_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS connector_health (
+      connector_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL,
+      last_run_id TEXT,
+      last_success_at TEXT,
+      consecutive_failures INTEGER NOT NULL DEFAULT 0,
+      run_count INTEGER NOT NULL DEFAULT 0,
+      success_rate REAL NOT NULL DEFAULT 0,
+      yield_rate REAL NOT NULL DEFAULT 0,
+      duplicate_rate REAL NOT NULL DEFAULT 0,
+      field_coverage REAL NOT NULL DEFAULT 0,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(last_run_id) REFERENCES crawl_runs(run_id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS export_runs (

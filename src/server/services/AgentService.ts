@@ -16,6 +16,7 @@ import type { SkillDefinition } from '../../core/skills/types';
 import { toLiveSourceCitations, type SearchEvidence } from './LiveSearchService';
 import { analysisService } from '../../analyzers/registry';
 import { quickReportGenerator } from '../../analyzers/quick-report-generator';
+import { reportArtifactService } from '../../analyzers/report-artifact-service';
 import { directWebSourceCitations, type DirectWebReadResult } from './DirectWebReadService';
 import { agentToolExecutor } from '../agent/AgentTools';
 import { AgentRunTrace, currentAgentRunTrace, runWithAgentTrace } from '../agent/AgentToolRegistry';
@@ -1141,6 +1142,20 @@ export class AgentService {
               sources: report.sources,
             },
           });
+          const reportArtifact = reportArtifactService.create({
+            reportId: analysisReport.report_id,
+            threadId,
+            workflowId: latest?.plan_id,
+            title: report.title,
+            content: report.answer,
+            sources: report.sources,
+            reproducibility: {
+              analyzerId: 'quick.report', analyzerVersion: '1.0.0',
+              datasetProfileReportId: datasetProfileReport.report_id,
+              coverage: report.coverage,
+              evidenceSelection: report.evidenceSelection,
+            },
+          });
           agentRepository.addMessage(threadId, 'assistant', 'analysis', report.answer, {
             retrieval: report.evidenceSelection.retrievalMode,
             sources: report.sources,
@@ -1149,6 +1164,8 @@ export class AgentService {
             evidence_selection: report.evidenceSelection,
             dataset_profile_report_id: datasetProfileReport.report_id,
             analysis_report_id: analysisReport.report_id,
+            report_artifact_id: reportArtifact.artifactId,
+            graph_id: reportArtifact.graphId,
           });
         } catch (error: any) {
           ensureMessageNotAborted(signal);
@@ -1593,12 +1610,28 @@ export class AgentService {
                   sources: report.sources,
                 },
               });
+              const reportArtifact = reportArtifactService.create({
+                reportId: analysisReport.report_id,
+                threadId: final.thread_id,
+                workflowId: final.plan_id,
+                title: report.title,
+                content: report.answer,
+                sources: report.sources,
+                reproducibility: {
+                  analyzerId: 'quick.report', analyzerVersion: '1.0.0',
+                  datasetProfileReportId: datasetProfileReport.report_id,
+                  coverage: report.coverage,
+                  evidenceSelection: report.evidenceSelection,
+                },
+              });
               agentRepository.addMessage(final.thread_id, 'assistant', 'analysis', report.answer, {
                 plan_id: final.plan_id,
                 retrieval: report.evidenceSelection.retrievalMode,
                 sources: report.sources,
                 dataset_profile_report_id: datasetProfileReport.report_id,
                 analysis_report_id: analysisReport.report_id,
+                report_artifact_id: reportArtifact.artifactId,
+                graph_id: reportArtifact.graphId,
               });
               continue;
             }

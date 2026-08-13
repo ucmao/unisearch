@@ -54,6 +54,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ResearchAssetsPanel } from '@/components/analytics/ResearchAssetsPanel'
 
 type ExportFormat = 'xlsx' | 'csv' | 'json'
 type ExportFieldMode = 'recommended' | 'visible' | 'all'
@@ -780,6 +781,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exportFieldMode, setExportFieldMode] = useState<ExportFieldMode>('recommended')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [researchAssetsOpen, setResearchAssetsOpen] = useState(false)
   const keywordScrollRef = useRef<HTMLDivElement>(null)
   const [expandedTasks, setExpandedTasks] = useState<Set<string>>(new Set(initialLayout?.expandedTasks || []))
 
@@ -1540,6 +1542,14 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
           <Button
             variant="outline"
             size="sm"
+            className="h-8 rounded-xl text-xs"
+            onClick={() => setResearchAssetsOpen(true)}
+          >
+            <Layers className="h-3.5 w-3.5" />图谱与报告
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             className="h-8 rounded-xl text-xs md:hidden"
             onClick={() => setMobileScopeOpen(true)}
           >
@@ -1555,6 +1565,18 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
           </Button>
         </div>
       </div>
+
+      <Dialog open={researchAssetsOpen} onOpenChange={setResearchAssetsOpen}>
+        <DialogContent className="flex h-[86vh] max-w-6xl flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>研究资产</DialogTitle>
+            <DialogDescription>关系图谱、可复现报告与连接器运行质量</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <ResearchAssetsPanel scope={{ thread_id: selectedThreadId, workflow_id: selectedWorkflowId, run_id: selectedRunId }} />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside

@@ -3,6 +3,7 @@ import type { Database } from 'better-sqlite3';
 import { getDb } from './connection';
 import { platformLabel } from '../connectors/registry';
 import { canonicalDocumentSchema, type CanonicalDocument } from '../core/documents/canonical';
+import { ConnectorHealthService } from '../connectors/health-service';
 
 export interface RunConfig {
   platform: string;
@@ -79,7 +80,10 @@ function aggregate(documents: CanonicalDocument[]): any {
 }
 
 export class AnalyticsRepository {
-  constructor(private readonly databaseProvider: () => Database = getDb) {}
+  private readonly connectorHealth: ConnectorHealthService;
+  constructor(private readonly databaseProvider: () => Database = getDb) {
+    this.connectorHealth = new ConnectorHealthService(databaseProvider);
+  }
   private get db(): Database { return this.databaseProvider(); }
 
   createRun(config: RunConfig, taskName = ''): string {
@@ -119,6 +123,7 @@ export class AnalyticsRepository {
       errorMessage || null,
       runId,
     );
+    this.connectorHealth.recordRun(runId);
   }
 
   countRunDocuments(runId: string): { item_count: number; comment_count: number } {

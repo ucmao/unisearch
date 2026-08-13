@@ -26,6 +26,9 @@ import { knowledgeIndex } from '../knowledge/knowledge-index';
 import { retrievalService } from '../knowledge/retrieval-service';
 import { ragService } from '../knowledge/rag-service';
 import { analyzerRegistry, analysisService } from '../analyzers/registry';
+import { graphService } from '../analyzers/graph-service';
+import { reportArtifactService } from '../analyzers/report-artifact-service';
+import { connectorHealthService } from '../connectors/health-service';
 import { exporterRegistry, exportService } from '../exporters/registry';
 import { zipDirectoryToBuffer } from '../exporters/zip';
 import {
@@ -166,6 +169,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/health', async () => {
     return { status: 'ok' };
   });
+
+  fastify.get('/api/connectors/health', async () => ({ items: connectorHealthService.list() }));
 
   // Env check
   fastify.get('/api/env/check', async () => {
@@ -713,6 +718,45 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       return await analysisService.run(body.analyzer_id, body.workflow_id, body.options);
     } catch (error: any) {
       return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.get('/api/graph', async (request) => {
+    const query = request.query as { thread_id?: string; workflow_id?: string; run_id?: string; rebuild?: string };
+    const scope = { threadId: query.thread_id, workflowId: query.workflow_id, runId: query.run_id };
+    const graph = query.rebuild === 'true' ? graphService.rebuild(scope) : graphService.latest(scope) || graphService.rebuild(scope);
+    return { status: 'ok', graph };
+  });
+
+  fastify.post('/api/graph/rebuild', async (request) => {
+    const body = (request.body || {}) as { thread_id?: string; workflow_id?: string; run_id?: string };
+    return { status: 'ok', graph: graphService.rebuild({ threadId: body.thread_id, workflowId: body.workflow_id, runId: body.run_id }) };
+  });
+
+  fastify.get('/api/reports', async (request) => {
+    const query = request.query as { thread_id?: string; workflow_id?: string };
+    return { items: reportArtifactService.list(query.thread_id, query.workflow_id) };
+  });
+
+  fastify.get('/api/reports/:artifact_id', async (request, reply) => {
+    try {
+      return reportArtifactService.get((request.params as { artifact_id: string }).artifact_id);
+    } catch (error: any) {
+      return reply.status(404).send({ detail: error.message });
+    }
+  });
+
+  fastify.get('/api/reports/:artifact_id/download', async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+    const query = request.query as { format?: string };
+    const format = ['markdown', 'html', 'json'].includes(query.format || '') ? query.format as 'markdown' | 'html' | 'json' : 'html';
+    try {
+      const rendered = reportArtifactService.render(artifact_id, format);
+      return reply.header('Content-Type', rendered.contentType)
+        .header('Content-Disposition', `attachment; filename="${encodeURIComponent(rendered.filename)}"; filename*=UTF-8''${encodeURIComponent(rendered.filename)}`)
+        .send(rendered.body);
+    } catch (error: any) {
+      return reply.status(404).send({ detail: error.message });
     }
   });
 
