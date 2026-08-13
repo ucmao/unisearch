@@ -1803,25 +1803,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   }, [activePlan, threadQuery.data?.messages])
   const hasStreamingAnswer = Boolean(threadQuery.data?.messages.some((message) => message.metadata?.streaming))
   const isThinking = isCurrentMessagePending && !hasStreamingAnswer
-  const petTaskState = useMemo(() => {
-    if (isCurrentMessagePending || (activePlan && ['queued', 'running'].includes(activePlan.status))) {
-      return 'running'
-    }
-    if (activePlan?.status === 'failed') {
-      return 'failed'
-    }
-    if (hasStreamingAnswer) {
-      return 'running'
-    }
-    return 'idle'
-  }, [isCurrentMessagePending, activePlan, hasStreamingAnswer])
-
-  const petTaskMessage = useMemo(() => {
-    if (aiProgress?.message) return aiProgress.message
-    if (aiRetryState) return `连接重试中 (${aiRetryState.count}/${aiRetryState.max})`
-    return undefined
-  }, [aiProgress, aiRetryState])
-
   const toggleThreads = () => {
     setThreadsCollapsed((current) => {
       localStorage.setItem('unisearch-threads-collapsed', String(!current))
@@ -1870,9 +1851,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     if (window.innerWidth < 768) {
       setThreadsCollapsed(true)
     }
-    window.requestAnimationFrame(() => {
-      composerInputRef.current?.focus()
-    })
   }
 
   const updateLeftSidebarWidth = (value: number) => {
@@ -2262,9 +2240,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                 <div className="flex -translate-y-2 flex-col items-center text-center">
                   <CodexPet
                     isComposerFocused={isComposerFocused}
-                    hasInput={input.trim().length > 0}
-                    taskState={petTaskState}
-                    taskMessage={petTaskMessage}
                   />
                   <h2 className="mt-6 text-2xl font-semibold tracking-tight text-cyber-text-primary sm:text-3xl">今天想研究什么？</h2>
                   <p className="mt-2 text-sm text-cyber-text-muted">可以直接聊天，也可以描述想采集和分析的内容</p>

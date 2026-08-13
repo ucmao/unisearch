@@ -3,11 +3,8 @@ import { useThemeStore } from '@/store/themeStore'
 
 export interface CodexPetProps {
   isComposerFocused?: boolean
-  hasInput?: boolean
   className?: string
   onInteract?: () => void
-  taskState?: 'idle' | 'running' | 'review' | 'failed' | 'waiting'
-  taskMessage?: string
 }
 
 type PetState =
@@ -91,7 +88,6 @@ const getDynamicGreeting = (): string => {
   const hour = now.getHours()
   const day = now.getDay()
 
-  // 30% chance to trigger day-specific greeting on Mon/Fri/Weekend
   if (Math.random() < 0.3) {
     if (day === 1) {
       return SPECIAL_DAY_GREETINGS.monday[
@@ -154,68 +150,30 @@ const JUMP_QUOTES = [
   '支持一键导出表格，汇报整理更轻松！',
   '点击侧边栏，可以快速切换不同数据源～',
   '试试在关键词间加空格进行精准组合查询！',
-  '连点我三次，带你看我的隐藏高能形态 ✨',
+  '连点我三次，触发高能彩蛋形态 ✨',
 ]
 
 const EASTER_EGG_QUOTES = [
-  '⚡ 连击成功！探索能量已经拉满！',
-  '✨ 收到三连击，今天一定会有好结果！',
-  '🚀 灵感加速中，硬核任务尽管交给我！',
-  '(๑•̀ㅂ•́)و 状态绝佳，准备一起出发！',
+  '⚡ 连招启动：审查 ➔ 跳跃庆祝！',
+  '✨ 高能彩蛋触发，探索能量超频拉满！',
+  '🚀 算力全开！硬核任务尽管交给我！',
+  '(๑•̀ㅂ•́)و 审查完毕，准备一起探索！',
   '全核心就绪，下一条线索马上锁定 ⚡',
   '连续互动奖励：今日探索动力 +200%！',
   '彩蛋触发！给认真研究的你撒一把星光 ✨',
-  '哔——高能回应已送达，请继续指示！',
+  '哔——高能特技已送达，请主人继续指示！',
   '默契值提升！复杂问题也能一起拆开解决～',
   '三连击认证完成：你是今天的最佳探索搭档！',
 ]
 
-const PACING_QUOTES = [
-  '散步中... 顺便巡视一下数据链路 🐾',
-  '走两步，活动活动像素小短腿～',
-  '刚才好像看到一条有意思的数据飘过 🛸',
-  '踱步思考中，灵感马上就要涌出来了...',
-  '巡逻完毕，系统一切正常 ( •̀ ω •́ )✧',
-  '左晃晃，右晃晃，今天心情真不错 🎵',
-  '悄悄走过，不打扰主人深度思考 🤫',
-  '巡视领地中，发现一枚认真的探索者！',
-  '走来走去，是在帮你分散一点压力哦～',
-  '像素世界漫步中... 随时叫我停下！',
-  '看看左边，看看右边，今天也超安全 🛡️',
-  '溜达一圈，算力散热完毕！💨',
-]
-
-const TASK_RUNNING_QUOTES = [
-  '正在全网检索高价值线索 ⚡',
-  '算力引擎超频中，马上就来！',
-  '数据管道高速采集与整合中 🚀',
-  '过滤无关干扰，提炼核心结论 📊',
-  '神经元全速运算中，稍等片刻 (ง •̀_•́)ง',
-  '正在调用模型深度推理与提取...',
-]
-
-const TASK_REVIEW_QUOTES = [
-  '分析完成！已为你整理好精选结论 ✨',
-  '任务搞定，快来看看这份发现 ( •̀ ω •́ )y',
-  '报告已生成完毕，正在为你审查细节 📑',
-  '数据已到位，随时准备下一步探索 🎯',
-]
-
-const TASK_FAILED_QUOTES = [
-  '呜... 遇到了网络或服务异常 (つд⊂)',
-  '任务受阻了，稍后点击重试一下吧 (｡•́︿•̀｡)',
-  '链路波动，正在等待恢复指示 ⚠️',
-]
-
-// Translucent pastel celebration palette (subtle, colorful, non-intrusive)
 const PASTEL_CONFETTI_COLORS = [
-  '#38bdf8', // Sky Cyan
-  '#f472b6', // Pastel Rose Pink
-  '#fbbf24', // Champagne Amber
-  '#34d399', // Mint Emerald
-  '#a78bfa', // Soft Lavender
-  '#fb7185', // Coral Peach
-  '#67e8f9', // Electric Ice Cyan
+  '#38bdf8',
+  '#f472b6',
+  '#fbbf24',
+  '#34d399',
+  '#a78bfa',
+  '#fb7185',
+  '#67e8f9',
 ]
 
 interface SubtleConfettiParticle {
@@ -235,11 +193,8 @@ interface SubtleConfettiParticle {
 
 export const CodexPet: React.FC<CodexPetProps> = ({
   isComposerFocused = false,
-  hasInput = false,
   className = '',
   onInteract,
-  taskState = 'idle',
-  taskMessage,
 }) => {
   const petMode = useThemeStore((state) => state.petMode)
 
@@ -254,27 +209,23 @@ export const CodexPet: React.FC<CodexPetProps> = ({
   const particlesRef = useRef<SubtleConfettiParticle[]>([])
   const animFrameRef = useRef<number | null>(null)
 
+  const isComposerFocusedRef = useRef(isComposerFocused)
+  isComposerFocusedRef.current = isComposerFocused
+
   const actionTimerRef = useRef<number | null>(null)
+  const welcomeTimerRef = useRef<number | null>(null)
   const bubbleTimerRef = useRef<number | null>(null)
   const pacingIntervalRef = useRef<number | null>(null)
   const auraTimerRef = useRef<number | null>(null)
-  const confettiWaveTimerRef = useRef<number | null>(null)
+  const easterEggTimeoutsRef = useRef<number[]>([])
   const clickCountRef = useRef<number>(0)
   const clickResetTimerRef = useRef<number | null>(null)
   const isEasterEggLockedRef = useRef<boolean>(false)
-  const lastTaskStateRef = useRef<string>('idle')
 
-  const computeBaseState = useCallback((): PetState => {
-    if (taskState && taskState !== 'idle') {
-      return taskState
-    }
-    return hasInput ? 'review' : isComposerFocused ? 'waiting' : 'idle'
-  }, [taskState, hasInput, isComposerFocused])
-
-  // Show a temporary speech bubble (only in dynamic mode)
+  // Show a temporary speech bubble (only on explicit user click / initial welcome / easter egg)
   const showBubble = useCallback(
     (text: string, durationMs = 2600, isEaster = false) => {
-      if (petMode !== 'dynamic') {
+      if (petMode !== 'dynamic' || isComposerFocusedRef.current) {
         setBubbleText(null)
         setIsEasterEggBubble(false)
         return
@@ -304,7 +255,6 @@ export const CodexPet: React.FC<CodexPetProps> = ({
 
     const particles: SubtleConfettiParticle[] = []
 
-    // 26 subtle, compact, translucent micro-confetti flakes & sparkles
     for (let i = 0; i < 26; i++) {
       const angle = (Math.PI * 2 * i) / 26 + (Math.random() - 0.5) * 0.35
       const speed = 1.2 + Math.random() * 2.6
@@ -315,11 +265,11 @@ export const CodexPet: React.FC<CodexPetProps> = ({
         x: centerX + (Math.random() - 0.5) * 24,
         y: centerY + (Math.random() - 0.5) * 18,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 0.9, // Gentle float upwards
+        vy: Math.sin(angle) * speed - 0.9,
         width: 2.2 + Math.random() * 2.8,
         height: 2.6 + Math.random() * 3.2,
         color: PASTEL_CONFETTI_COLORS[Math.floor(Math.random() * PASTEL_CONFETTI_COLORS.length)],
-        alpha: 0.6 + Math.random() * 0.15, // Translucent and soft
+        alpha: 0.6 + Math.random() * 0.15,
         decay: 0.013 + Math.random() * 0.011,
         rotation: Math.random() * Math.PI * 2,
         vRot: (Math.random() - 0.5) * 0.14,
@@ -362,7 +312,6 @@ export const CodexPet: React.FC<CodexPetProps> = ({
           ctx.quadraticCurveTo(0, 0, r, 0)
           ctx.quadraticCurveTo(0, 0, 0, r)
           ctx.quadraticCurveTo(0, 0, -r, 0)
-          ctx.quadraticCurveTo(0, 0, 0, -r)
           ctx.fill()
         } else if (p.shape === 'circle') {
           ctx.beginPath()
@@ -385,66 +334,49 @@ export const CodexPet: React.FC<CodexPetProps> = ({
     animFrameRef.current = requestAnimationFrame(render)
   }, [])
 
-  // Lifecycle: one native waving cycle with greeting on initial mount
+  // 1. Initial Mount / Home Visit: strictly once per mount, wait 600ms buffer, then 2.4s waiting (2 full cycles) + greeting
   useEffect(() => {
     if (petMode !== 'dynamic') {
-      setPetState('idle')
-      setBubbleText(null)
       return
     }
 
     setPetState('idle')
-    const greetingStartTimer = window.setTimeout(() => {
-      setPetState('waving')
+    welcomeTimerRef.current = window.setTimeout(() => {
+      if (isComposerFocusedRef.current) return
+
+      setPetState('waiting')
       showBubble(getDynamicGreeting(), 2400)
 
       actionTimerRef.current = window.setTimeout(() => {
-        setPetState((prev) => (prev === 'waving' ? computeBaseState() : prev))
+        setPetState((prev) => (prev === 'waiting' ? (isComposerFocusedRef.current ? 'running' : 'idle') : prev))
       }, 2400)
     }, 600)
 
     return () => {
-      window.clearTimeout(greetingStartTimer)
+      if (welcomeTimerRef.current) window.clearTimeout(welcomeTimerRef.current)
       if (actionTimerRef.current) window.clearTimeout(actionTimerRef.current)
       if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current)
       if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
-      if (confettiWaveTimerRef.current) window.clearTimeout(confettiWaveTimerRef.current)
+      easterEggTimeoutsRef.current.forEach((t) => window.clearTimeout(t))
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
-  }, [computeBaseState, petMode, showBubble])
+  }, [petMode, showBubble])
 
-  // React to task state and composer state changes
+  // 2. Focus change: when focused -> 'running' (cancel welcome and bubbles); when blurred -> 'idle' (NEVER re-welcomes)
   useEffect(() => {
-    if (petMode !== 'dynamic') {
-      setTravelOffset(0)
-      setPetState('idle')
-      return
+    if (isComposerFocused) {
+      if (welcomeTimerRef.current) window.clearTimeout(welcomeTimerRef.current)
+      if (bubbleTimerRef.current) window.clearTimeout(bubbleTimerRef.current)
+      setBubbleText(null)
+      setIsEasterEggBubble(false)
     }
 
-    if (isEasterEggLockedRef.current) return
+    if (petMode !== 'dynamic' || isEasterEggLockedRef.current) return
 
-    const base = computeBaseState()
-    setPetState(base)
+    setPetState(isComposerFocused ? 'running' : 'idle')
+  }, [isComposerFocused, petMode])
 
-    // Handle bubble and reactions when taskState transitions
-    if (taskState !== lastTaskStateRef.current) {
-      lastTaskStateRef.current = taskState
-      if (taskMessage) {
-        showBubble(taskMessage, 2800)
-      } else if (taskState === 'running') {
-        const quote = TASK_RUNNING_QUOTES[Math.floor(Math.random() * TASK_RUNNING_QUOTES.length)]
-        showBubble(quote, 2800)
-      } else if (taskState === 'review') {
-        const quote = TASK_REVIEW_QUOTES[Math.floor(Math.random() * TASK_REVIEW_QUOTES.length)]
-        showBubble(quote, 2800)
-      } else if (taskState === 'failed') {
-        const quote = TASK_FAILED_QUOTES[Math.floor(Math.random() * TASK_FAILED_QUOTES.length)]
-        showBubble(quote, 3000)
-      }
-    }
-  }, [computeBaseState, petMode, showBubble, taskMessage, taskState])
-
-  // Periodic random stroll / pacing in idle state (only in dynamic mode)
+  // 3. Periodic random stroll / pacing in idle state (quiet, no bubbles)
   useEffect(() => {
     if (petMode !== 'dynamic') {
       setTravelOffset(0)
@@ -453,20 +385,15 @@ export const CodexPet: React.FC<CodexPetProps> = ({
 
     pacingIntervalRef.current = window.setInterval(() => {
       setPetState((current) => {
-        if (current === 'idle' && !isEasterEggLockedRef.current && taskState === 'idle') {
+        if (current === 'idle' && !isEasterEggLockedRef.current && !isComposerFocusedRef.current) {
           const direction = Math.random() > 0.5 ? 1 : -1
           const distance = direction * (12 + Math.floor(Math.random() * 10))
           setTravelOffset(distance)
 
-          if (Math.random() < 0.35) {
-            const quote = PACING_QUOTES[Math.floor(Math.random() * PACING_QUOTES.length)]
-            showBubble(quote, 2200)
-          }
-
           if (actionTimerRef.current) window.clearTimeout(actionTimerRef.current)
           actionTimerRef.current = window.setTimeout(() => {
             setTravelOffset(0)
-            setPetState(computeBaseState())
+            setPetState(isComposerFocusedRef.current ? 'running' : 'idle')
           }, 3000)
 
           return direction < 0 ? 'running-left' : 'running-right'
@@ -478,7 +405,7 @@ export const CodexPet: React.FC<CodexPetProps> = ({
     return () => {
       if (pacingIntervalRef.current) window.clearInterval(pacingIntervalRef.current)
     }
-  }, [computeBaseState, petMode, showBubble, taskState])
+  }, [petMode])
 
   if (petMode === 'off') {
     return null
@@ -500,43 +427,52 @@ export const CodexPet: React.FC<CodexPetProps> = ({
 
     if (actionTimerRef.current) window.clearTimeout(actionTimerRef.current)
 
+    // 3-Click Easter Egg: review + jumping combo
     if (clickCountRef.current >= 3 && petMode === 'dynamic') {
       clickCountRef.current = 0
       isEasterEggLockedRef.current = true
       setIsEasterEggRunning(true)
-      setPetState('jumping')
       setShowGlowAura(true)
       fireSubtleCelebration()
 
-      if (confettiWaveTimerRef.current) window.clearTimeout(confettiWaveTimerRef.current)
-      confettiWaveTimerRef.current = window.setTimeout(() => {
-        if (isEasterEggLockedRef.current) {
-          fireSubtleCelebration()
-        }
-      }, 1400)
+      easterEggTimeoutsRef.current.forEach((t) => window.clearTimeout(t))
+      easterEggTimeoutsRef.current = []
 
       const easterEggQuote =
         EASTER_EGG_QUOTES[Math.floor(Math.random() * EASTER_EGG_QUOTES.length)]
-      showBubble(easterEggQuote, 3200, true)
+      showBubble(easterEggQuote, 2000, true)
+
+      // Stage 1 (0.0s ~ 1.2s): review (1 完整轮次 6 帧 = 1200ms)
+      setPetState('review')
+
+      // Stage 2 (1.2s ~ 2.0s): jumping (1 完整轮次 5 帧 = 800ms，落地完满)
+      const t1 = window.setTimeout(() => {
+        if (!isEasterEggLockedRef.current) return
+        setPetState('jumping')
+        fireSubtleCelebration()
+      }, 1200)
+
+      easterEggTimeoutsRef.current.push(t1)
 
       if (auraTimerRef.current) window.clearTimeout(auraTimerRef.current)
       auraTimerRef.current = window.setTimeout(() => {
         setShowGlowAura(false)
-      }, 3200)
+      }, 2000)
 
       actionTimerRef.current = window.setTimeout(() => {
         isEasterEggLockedRef.current = false
         setIsEasterEggRunning(false)
-        setPetState(computeBaseState())
-      }, 3200)
+        setPetState(isComposerFocusedRef.current ? 'running' : 'idle')
+      }, 2000)
     } else {
+      // Normal Click: Jumping + cheerful interactive quote bubble (if not focused)
       setPetState('jumping')
-      if (petMode === 'dynamic') {
+      if (petMode === 'dynamic' && !isComposerFocusedRef.current) {
         const quote = JUMP_QUOTES[Math.floor(Math.random() * JUMP_QUOTES.length)]
         showBubble(quote, 2000)
       }
       actionTimerRef.current = window.setTimeout(() => {
-        setPetState(computeBaseState())
+        setPetState(isComposerFocusedRef.current ? 'running' : 'idle')
       }, 800)
     }
   }
@@ -574,8 +510,8 @@ export const CodexPet: React.FC<CodexPetProps> = ({
         <canvas ref={canvasRef} className="codex-pet-canvas" width={320} height={240} />
       )}
 
-      {/* Speech Bubble / Thought Banner */}
-      {petMode === 'dynamic' && bubbleText && (
+      {/* Speech Bubble: strictly suppressed when composer is focused */}
+      {petMode === 'dynamic' && !isComposerFocused && bubbleText && (
         <div
           className={`codex-pet-bubble ${
             isEasterEggBubble

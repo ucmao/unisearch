@@ -352,7 +352,7 @@
 }
 
 .codex-pet.codex-pet--waiting {
-  animation: codex-pet-waiting 1.16s steps(1, end) infinite;
+  animation: codex-pet-waiting 1.2s steps(1, end) infinite;
 }
 
 .codex-pet.codex-pet--running {
@@ -360,7 +360,7 @@
 }
 
 .codex-pet.codex-pet--review {
-  animation: codex-pet-review 1.03s steps(1, end) infinite;
+  animation: codex-pet-review 1.2s steps(1, end) infinite;
 }
 
 /* Ground shadow under pet */
