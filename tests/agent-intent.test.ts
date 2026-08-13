@@ -240,12 +240,57 @@ test('GitHub repository requests select the merged connector and remove the plat
 
 test('AI HOT requests select the connector and can omit keywords', () => {
   const { normalizePlan } = require('../src/server/services/AgentService');
+  const forcedAiHotPrompt = '只使用 AI HOT 搜索最近 7 天的 OpenAI 资讯，创建采集任务，不要使用普通搜索引擎。';
+  assert.deepEqual(inferResearchPlatforms(forcedAiHotPrompt), ['aihot']);
+  const forcedAiHotPlan = normalizePlan({
+    platforms: ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'],
+    keywords: ['OpenAI'],
+    capability: 'keyword_search',
+  }, forcedAiHotPrompt);
+  assert.deepEqual(forcedAiHotPlan.platforms, ['aihot']);
+  assert.deepEqual(forcedAiHotPlan.keywords, ['OpenAI']);
+  assert.equal(forcedAiHotPlan.connectorOptions.aihot?.window, '7d');
   assert.deepEqual(inferResearchPlatforms('看看 AI HOT 当前热点'), ['aihot']);
   assert.deepEqual(inferResearchPlatforms('搜索 AI 资讯搜索里的 OpenAI 动态'), ['aihot']);
   assert.deepEqual(inferResearchPlatforms('看看最近的 AI 行业资讯'), ['aihot']);
   assert.deepEqual(inferResearchPlatforms('给我今天的 AI 日报'), ['aihot']);
   assert.deepEqual(normalizePlan({ platforms: ['AI 资讯搜索（AI HOT）'], keywords: ['OpenAI'] }, '搜索 OpenAI 近期动态').platforms, ['aihot']);
   assert.equal(inferResearchPlatforms('用 AI 搜索回答这个问题').includes('aihot'), false);
+  for (const genericKeyword of ['AI', 'AI新闻', 'AI 资讯', 'AI行业资讯', 'AI HOT']) {
+    const plan = normalizePlan(
+      { platforms: ['aihot'], keywords: [genericKeyword], capability: 'keyword_search' },
+      '你去采集一下最近的 AI 新闻。',
+    );
+    assert.deepEqual(plan.keywords, [], genericKeyword);
+  }
+  for (const subjectKeyword of ['OpenAI', 'Sora', 'AI Agent']) {
+    const plan = normalizePlan(
+      { platforms: ['aihot'], keywords: [subjectKeyword], capability: 'keyword_search' },
+      `采集最近的 ${subjectKeyword} 新闻`,
+    );
+    assert.deepEqual(plan.keywords, [subjectKeyword], subjectKeyword);
+  }
+  assert.deepEqual(
+    normalizePlan(
+      { platforms: ['aihot'], keywords: ['AI新闻'], capability: 'keyword_search' },
+      '使用 AI HOT 搜索，关键词：AI新闻',
+    ).keywords,
+    ['AI新闻'],
+  );
+  const previousOpenAiPlan = normalizePlan(
+    { platforms: ['aihot'], keywords: ['OpenAI'], capability: 'keyword_search' },
+    '只使用 AI HOT 搜索最近 7 天的 OpenAI 资讯',
+  );
+  for (const plannerKeywords of [[], ['OpenAI']]) {
+    const noKeywordPlan = normalizePlan(
+      { platforms: ['aihot'], keywords: plannerKeywords, capability: 'keyword_search' },
+      '只采集 AI HOT 最近 24 小时的精选资讯，不限定关键词。',
+      previousOpenAiPlan,
+    );
+    assert.deepEqual(noKeywordPlan.platforms, ['aihot']);
+    assert.deepEqual(noKeywordPlan.keywords, []);
+    assert.equal(noKeywordPlan.connectorOptions.aihot?.content_mode, 'items');
+  }
   assert.equal(localIntentDecision('看看 AI HOT 当前热点').action, 'create_plan');
   for (const message of [
     '你去看一下AI hot有什么新闻吗？',
@@ -469,6 +514,10 @@ test('negative platform exclusion directives filter out specified platforms', ()
   assert.deepEqual(inferExcludedPlatforms('不要采集 BOSS直聘'), ['boss']);
   assert.deepEqual(inferExcludedPlatforms('排除 boss 和智联招聘'), ['boss', 'zhaopin']);
   assert.deepEqual(inferExcludedPlatforms('zhipin.com 除外'), ['boss']);
+  assert.deepEqual(
+    inferExcludedPlatforms('不要使用普通搜索引擎'),
+    ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'],
+  );
 
   const skill = skillRegistry.get('brand-geo-risk-monitor');
   const plan = normalizePlan(

@@ -68,6 +68,8 @@ const ALL_PLATFORM_IDS = [
   'xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu', 'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso',
   'arxiv', 'github_repositories', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
 ];
+const WEB_SEARCH_PLATFORM_IDS = ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'];
+const EXCLUDED_WEB_SEARCH_GROUP = /(?:不要|不再?|别|排除|除去|移除|删除|去掉)(?:再)?(?:使用|采集|抓取|搜索|查询|检索)?\s*(?:所有|全部|全|主流|普通)?\s*(?:搜索引擎|搜索平台|网页搜索)|(?:所有|全部|全|主流|普通)?\s*(?:搜索引擎|搜索平台|网页搜索)\s*(?:除外|不用|不要|不使用)/i;
 
 function hasBossPlatformMention(text: string): boolean {
   return BOSS_STRONG_MENTION.test(text) || BOSS_CONTEXTUAL_MENTION.test(text) || BOSS_LIST_MENTION.test(text);
@@ -206,6 +208,9 @@ export function inferExcludedPlatforms(text: string): string[] {
   const suffixPattern = /([^\n，。；;]+?)\s*(?:除外|不用|不要|不采|不抓|不搜)/gi;
 
   const excluded = new Set<string>();
+  if (EXCLUDED_WEB_SEARCH_GROUP.test(text)) {
+    for (const platform of WEB_SEARCH_PLATFORM_IDS) excluded.add(platform);
+  }
   const aliases: Array<[RegExp, string]> = [
     [/(?:小红书|xiaohongshu\.com|xhslink\.com|rednote\.com)/i, 'xhs'],
     [/(?:抖音|douyin\.com|v\.douyin\.com)/i, 'douyin'],
@@ -265,8 +270,8 @@ export function inferResearchPlatforms(text: string): string[] {
   const excluded = inferExcludedPlatforms(text);
   let matchedPlatforms: string[] = [];
 
-  if (/(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) {
-    matchedPlatforms = ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'];
+  if (!EXCLUDED_WEB_SEARCH_GROUP.test(text) && /(?:所有|全部|全|主流)?\s*(?:搜索引擎|搜索平台|网页搜索)/i.test(text)) {
+    matchedPlatforms = [...WEB_SEARCH_PLATFORM_IDS];
   } else if (/(?:所有|全部|全|主流)?\s*(?:社交平台|社交媒体|内容平台)/i.test(text)) {
     matchedPlatforms = ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'];
   } else if (/(?:所有|全部|全|主流)?\s*(?:招聘平台|招聘网站)/i.test(text)) {

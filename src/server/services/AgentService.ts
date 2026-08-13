@@ -39,6 +39,29 @@ function aiHotOptions(userText: string, current: Record<string, unknown> = {}): 
   return result;
 }
 
+const AI_HOT_GENERIC_KEYWORDS = new Set([
+  'ai',
+  'aihot',
+  'ai资讯',
+  'ai资讯搜索',
+  'ai行业资讯',
+  'ai新闻',
+  'ai圈动态',
+  'ai热点',
+  'ai热榜',
+  'ai日报',
+  'ai资讯搜索aihot',
+]);
+
+function isAiHotGenericKeyword(value: string): boolean {
+  const normalized = value.toLowerCase().replace(/[\s()（）·_—-]+/g, '');
+  return AI_HOT_GENERIC_KEYWORDS.has(normalized);
+}
+
+function explicitlyRequestsEmptyKeywords(value: string): boolean {
+  return /(?:不限定|不限|不限制|不设|无需|不需要|不要|无)(?:任何)?(?:搜索)?关键词|关键词\s*(?:留空|为空|清空|不限|不限定|不限制|设为无)/i.test(value);
+}
+
 function allowsEmptyKeywords(plan: Pick<ResearchPlan, 'platforms' | 'capability'>): boolean {
   return plan.capability === 'keyword_search'
     && plan.platforms.length === 1
@@ -261,6 +284,19 @@ export function normalizePlan(
   }
   if (selectedPlatforms.includes('aihot')) {
     connectorOptions.aihot = aiHotOptions(userText, connectorOptions.aihot || {});
+  }
+  // An explicit request to remove keyword filtering is authoritative for an
+  // AI HOT-only run. Clear both stale fallback keywords and planner echoes.
+  // The planner may also echo the source category itself as a query, for example
+  // “最近的 AI 新闻” -> keywords=["AI新闻"]. For an AI HOT-only request that
+  // should mean “return the latest items”, not a literal search for the phrase
+  // “AI新闻”. Keep explicitly labelled user keywords and real subjects such as
+  // OpenAI, Sora or AI Agent untouched.
+  if (selectedPlatforms.length === 1
+    && selectedPlatforms[0] === 'aihot'
+    && String(connectorOptions.aihot?.content_mode || 'items') === 'items') {
+    if (explicitlyRequestsEmptyKeywords(platformIntentText)) keywords = [];
+    else if (explicitUserKeywords.length === 0) keywords = keywords.filter((keyword) => !isAiHotGenericKeyword(keyword));
   }
 
   const contentEnrichment = normalizeContentEnrichment(
