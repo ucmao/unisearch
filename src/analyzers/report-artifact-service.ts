@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../database/connection';
 import { graphService, GraphService } from './graph-service';
+import { formalReportRenderer } from './formal-report-renderer';
 
 export interface CreateReportArtifactInput {
   reportId: string;
@@ -102,6 +103,22 @@ export class ReportArtifactService {
     const citations = artifact.citations.map((source: any) => `<li><strong>${escapeHtml(source.id || 'S')}</strong> <a href="${escapeHtml(source.sourceUrl || '#')}">${escapeHtml(source.title || source.source || '来源')}</a><br><small>${escapeHtml(source.excerpt || '')}</small></li>`).join('');
     const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${escapeHtml(artifact.title)}</title><style>body{max-width:920px;margin:40px auto;padding:0 24px;font:16px/1.75 system-ui;color:#18212f}h1,h2,h3{line-height:1.3}blockquote{border-left:4px solid #22a6b3;margin:20px 0;padding:10px 16px;background:#f5f8fa}.citation{color:#087f8c;font-weight:600}a{color:#087f8c}footer{margin-top:48px;padding-top:16px;border-top:1px solid #ddd;color:#667;font-size:12px}@media print{body{margin:0;max-width:none}}</style></head><body><h1>${escapeHtml(artifact.title)}</h1>${markdownToHtml(artifact.content)}${citations ? `<h2>引用资料</h2><ol>${citations}</ol>` : ''}<footer>报告制品 ${artifact.artifactId}<br>生成时间 ${artifact.createdAt}<br>图谱快照 ${artifact.graphId}</footer></body></html>`;
     return { body: Buffer.from(html), contentType: 'text/html; charset=utf-8', extension: 'html', filename: `${safeTitle}.html` };
+  }
+
+  async renderFormal(artifactId: string, format: 'pdf' | 'docx'): Promise<{ body: Buffer; contentType: string; extension: string; filename: string }> {
+    const artifact = this.get(artifactId);
+    const safeTitle = artifact.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80) || '研究报告';
+    const body = format === 'pdf'
+      ? await formalReportRenderer.pdf(artifact)
+      : await formalReportRenderer.docx(artifact);
+    return {
+      body,
+      contentType: format === 'pdf'
+        ? 'application/pdf'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      extension: format,
+      filename: `${safeTitle}.${format}`,
+    };
   }
 }
 

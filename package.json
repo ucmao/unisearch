@@ -26,9 +26,11 @@
     "axios": "^1.7.9",
     "better-sqlite3": "^13.0.1",
     "cheerio": "^1.2.0",
+    "docx": "^9.7.1",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
     "fastify": "^4.28.1",
+    "pdfkit": "^0.19.1",
     "playwright": "1.61.1",
     "segmentit": "^2.0.3",
     "zod": "^3.23.8"
@@ -37,6 +39,7 @@
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^20.14.9",
+    "@types/pdfkit": "^0.17.6",
     "electron": "^42.7.1",
     "electron-builder": "^24.13.3",
     "eslint": "^10.8.1",
@@ -60,7 +63,9 @@
       {
         "from": "resources",
         "to": "resources",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "build/icon.png",

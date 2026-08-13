@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Activity, Download, ExternalLink, FileText, Filter, Network, RefreshCw } from 'lucide-react'
+import { Activity, Combine, Download, ExternalLink, FileText, Filter, Network, RefreshCw, Split, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type Node = { id: string; type: string; label: string; weight: number; documentIds: string[] }
@@ -9,6 +9,7 @@ type Graph = { id: string; documentCount: number; createdAt: string; nodes: Node
 type Report = { artifactId: string; title: string; createdAt: string; documentIds: string[]; graphId: string }
 type Health = { connectorId: string; state: string; successRate: number; yieldRate: number; fieldCoverage: number; lastErrorMessage?: string }
 type Quality = { status: 'ready' | 'limited' | 'insufficient'; documentCount: number; qualifiedCount: number; warnings: string[]; metrics: { textCoverage: number; urlCoverage: number; commentCoverage: number } }
+type EntityRule = { ruleId: string; nodeType: string; operation: 'merge' | 'split'; sourceLabels: string[]; targetLabel: string; documentIds: string[]; createdAt: string }
 
 const stateLabel: Record<string, string> = { healthy: '正常', degraded: '降级', blocked: '需处理验证', broken: '疑似结构变化', unknown: '暂无结论' }
 const stateColor: Record<string, string> = { healthy: 'text-emerald-400', degraded: 'text-amber-400', blocked: 'text-orange-400', broken: 'text-rose-400', unknown: 'text-cyber-text-muted' }
@@ -24,6 +25,8 @@ export function ResearchAssetsPanel({
   onOpenDocument?: (documentId: string) => void
 }) {
   const [selectedElement, setSelectedElement] = useState<Node | Edge | null>(null)
+  const [mergeNodeIds, setMergeNodeIds] = useState<string[]>([])
+  const [splitDocumentIds, setSplitDocumentIds] = useState<string[]>([])
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
   const graphQuery = useQuery({
     queryKey: ['research-graph', scope],
@@ -46,6 +49,11 @@ export function ResearchAssetsPanel({
     queryFn: async () => fetch(`/api/graph/${encodeURIComponent(graphQuery.data!.id)}/evidence/${encodeURIComponent(selectedElement!.id)}`).then((res) => res.json()) as Promise<{ documents: Array<{ documentId: string; title: string; platform: string; excerpt: string; sourceUrl?: string }> }>,
     enabled: Boolean(graphQuery.data?.id && selectedElement?.id),
   })
+  const rulesQuery = useQuery({
+    queryKey: ['graph-entity-rules', graphQuery.data?.id],
+    queryFn: async () => (await fetch(`/api/graph/${encodeURIComponent(graphQuery.data!.id)}/entity-rules`).then((res) => res.json())).items as EntityRule[],
+    enabled: Boolean(graphQuery.data?.id),
+  })
   const graph = graphQuery.data
   const visibleNodes = (graph?.nodes || []).slice(0, 28)
   const visibleIds = new Set(visibleNodes.map((node) => node.id))
@@ -59,6 +67,33 @@ export function ResearchAssetsPanel({
   const rebuild = async () => {
     await fetch('/api/graph/rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scope) })
     await graphQuery.refetch()
+  }
+
+  const mergeEntities = async () => {
+    const selected = (graph?.nodes || []).filter((node) => mergeNodeIds.includes(node.id))
+    const targetLabel = window.prompt('合并后的实体名称', selected[0]?.label || '')?.trim()
+    if (!targetLabel || !graph) return
+    const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/merge`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node_ids: mergeNodeIds, target_label: targetLabel }) })
+    const result = await response.json()
+    if (!response.ok) return window.alert(result.detail || '实体合并失败')
+    setMergeNodeIds([]); setSelectedElement(null); await graphQuery.refetch(); await rulesQuery.refetch()
+  }
+
+  const splitEntity = async () => {
+    if (!graph || !selectedElement || !('label' in selectedElement)) return
+    const targetLabel = window.prompt('拆分出的新实体名称')?.trim()
+    if (!targetLabel) return
+    const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/split`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ node_id: selectedElement.id, document_ids: splitDocumentIds, target_label: targetLabel }) })
+    const result = await response.json()
+    if (!response.ok) return window.alert(result.detail || '实体拆分失败')
+    setSplitDocumentIds([]); setSelectedElement(null); await graphQuery.refetch(); await rulesQuery.refetch()
+  }
+
+  const removeRule = async (ruleId: string) => {
+    if (!graph) return
+    const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entity-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' })
+    if (!response.ok) return window.alert((await response.json()).detail || '撤销规则失败')
+    await graphQuery.refetch(); await rulesQuery.refetch()
   }
 
   return (
@@ -78,9 +113,12 @@ export function ResearchAssetsPanel({
             </svg>
             <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-cyber-text-muted">{Object.entries({ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }).map(([type, label]) => <span key={type} className="flex items-center gap-1"><i className="h-2 w-2 rounded-full" style={{ background: nodeColor[type] }} />{label}</span>)}</div>
             {selectedElement ? <div className="mt-3 rounded-lg border border-cyber-neon-cyan/25 bg-cyber-bg-primary/50 p-3">
-              <div className="flex items-center justify-between gap-2"><div><p className="text-xs font-semibold text-cyber-text-primary">{'label' in selectedElement ? selectedElement.label : selectedElement.relation}</p><p className="text-[10px] text-cyber-text-muted">关联 {selectedElement.weight} 个证据文档</p></div>{'label' in selectedElement && onFilter ? <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => onFilter(selectedElement)}><Filter className="h-3 w-3" />在结果中查看</Button> : null}</div>
-              <div className="mt-2 max-h-40 space-y-1.5 overflow-auto">{(evidenceQuery.data?.documents || []).map((document) => <div key={document.documentId} className="flex items-start gap-1 rounded-md border border-cyber-border-subtle p-2 hover:border-cyber-neon-cyan/40"><button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpenDocument?.(document.documentId)}><span className="block truncate text-[11px] font-medium text-cyber-text-primary">{document.title || '无标题'}</span><span className="mt-1 line-clamp-2 text-[10px] leading-4 text-cyber-text-muted">{document.excerpt}</span></button>{document.sourceUrl ? <a href={document.sourceUrl} target="_blank" rel="noreferrer" title="打开原始来源"><ExternalLink className="h-3 w-3 text-cyber-neon-cyan" /></a> : null}</div>)}</div>
+              <div className="flex items-center justify-between gap-2"><div><p className="text-xs font-semibold text-cyber-text-primary">{'label' in selectedElement ? selectedElement.label : selectedElement.relation}</p><p className="text-[10px] text-cyber-text-muted">关联 {selectedElement.weight} 个证据文档</p></div><div className="flex gap-1">{'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => setMergeNodeIds((current) => current.includes(selectedElement.id) ? current.filter((id) => id !== selectedElement.id) : [...current, selectedElement.id])}><Combine className="h-3 w-3" />{mergeNodeIds.includes(selectedElement.id) ? '已选择' : '加入合并'}</Button> : null}{'label' in selectedElement && onFilter ? <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => onFilter(selectedElement)}><Filter className="h-3 w-3" />在结果中查看</Button> : null}</div></div>
+              <div className="mt-2 max-h-40 space-y-1.5 overflow-auto">{(evidenceQuery.data?.documents || []).map((document) => <div key={document.documentId} className="flex items-start gap-2 rounded-md border border-cyber-border-subtle p-2 hover:border-cyber-neon-cyan/40">{'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? <input type="checkbox" className="mt-1" checked={splitDocumentIds.includes(document.documentId)} onChange={() => setSplitDocumentIds((current) => current.includes(document.documentId) ? current.filter((id) => id !== document.documentId) : [...current, document.documentId])} aria-label="选择文档用于拆分实体" /> : null}<button type="button" className="min-w-0 flex-1 text-left" onClick={() => onOpenDocument?.(document.documentId)}><span className="block truncate text-[11px] font-medium text-cyber-text-primary">{document.title || '无标题'}</span><span className="mt-1 line-clamp-2 text-[10px] leading-4 text-cyber-text-muted">{document.excerpt}</span></button>{document.sourceUrl ? <a href={document.sourceUrl} target="_blank" rel="noreferrer" title="打开原始来源"><ExternalLink className="h-3 w-3 text-cyber-neon-cyan" /></a> : null}</div>)}</div>
+              {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) && splitDocumentIds.length ? <Button size="sm" variant="outline" className="mt-2 h-7 text-[10px]" onClick={splitEntity}><Split className="h-3 w-3" />将所选 {splitDocumentIds.length} 篇拆为新实体</Button> : null}
             </div> : null}
+            {mergeNodeIds.length ? <div className="mt-2 flex items-center justify-between rounded-lg border border-violet-500/25 bg-violet-500/5 p-2 text-[10px]"><span>已选择 {mergeNodeIds.length} 个实体</span><Button size="sm" variant="outline" className="h-7 text-[10px]" disabled={mergeNodeIds.length < 2} onClick={mergeEntities}><Combine className="h-3 w-3" />合并实体</Button></div> : null}
+            {(rulesQuery.data || []).length ? <div className="mt-3"><p className="mb-1 text-[10px] font-medium text-cyber-text-muted">人工校正规则</p><div className="max-h-24 space-y-1 overflow-auto">{rulesQuery.data!.map((rule) => <div key={rule.ruleId} className="flex items-center justify-between rounded border border-cyber-border-subtle px-2 py-1 text-[10px]"><span className="truncate">{rule.operation === 'merge' ? `${rule.sourceLabels.join(' + ')} → ${rule.targetLabel}` : `${rule.documentIds.length} 篇证据 → ${rule.targetLabel}`}</span><button type="button" className="text-cyber-text-muted hover:text-rose-400" title="撤销此规则" onClick={() => removeRule(rule.ruleId)}><Undo2 className="h-3 w-3" /></button></div>)}</div></div> : null}
           </>
         ) : <div className="grid h-72 place-items-center text-xs text-cyber-text-muted">当前范围暂无可投影关系</div>}
       </section>
@@ -88,7 +126,7 @@ export function ResearchAssetsPanel({
       <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyber-text-primary"><FileText className="h-4 w-4 text-cyber-neon-cyan" />报告制品</h3>
         <div className="space-y-2">
-          {(reportsQuery.data || []).length ? reportsQuery.data!.map((report) => <div key={report.artifactId} className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/40 p-3"><p className="truncate text-xs font-medium text-cyber-text-primary">{report.title}</p><p className="mt-1 text-[10px] text-cyber-text-muted">固化 {report.documentIds.length} 个证据文档 · {new Date(report.createdAt).toLocaleString()}</p><div className="mt-2 flex gap-1.5">{(['html', 'markdown', 'json'] as const).map((format) => <a key={format} href={`/api/reports/${report.artifactId}/download?format=${format}`} download><Button size="sm" variant="outline" className="h-7 px-2 text-[10px]"><Download className="h-3 w-3" />{format.toUpperCase()}</Button></a>)}</div></div>) : <p className="py-6 text-center text-xs text-cyber-text-muted">完成一次 AI 分析后，会在这里生成可复现报告</p>}
+          {(reportsQuery.data || []).length ? reportsQuery.data!.map((report) => <div key={report.artifactId} className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/40 p-3"><p className="truncate text-xs font-medium text-cyber-text-primary">{report.title}</p><p className="mt-1 text-[10px] text-cyber-text-muted">固化 {report.documentIds.length} 个证据文档 · {new Date(report.createdAt).toLocaleString()}</p><div className="mt-2 flex flex-wrap gap-1.5">{(['pdf', 'docx', 'html', 'markdown', 'json'] as const).map((format) => <a key={format} href={`/api/reports/${report.artifactId}/download?format=${format}`} download><Button size="sm" variant="outline" className={`h-7 px-2 text-[10px] ${format === 'pdf' || format === 'docx' ? 'border-cyber-neon-cyan/35' : ''}`}><Download className="h-3 w-3" />{format.toUpperCase()}</Button></a>)}</div></div>) : <p className="py-6 text-center text-xs text-cyber-text-muted">完成一次 AI 分析后，会在这里生成可复现报告</p>}
         </div>
       </section>
 

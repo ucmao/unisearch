@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 14;
+export const DATABASE_SCHEMA_VERSION = 15;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -148,6 +148,24 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_workflow_steps_ready
       ON workflow_steps(workflow_id, status);
+
+    CREATE TABLE IF NOT EXISTS workflow_step_checkpoints (
+      step_id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      last_run_id TEXT,
+      resume_count INTEGER NOT NULL DEFAULT 0,
+      collected_item_count INTEGER NOT NULL DEFAULT 0,
+      collected_comment_count INTEGER NOT NULL DEFAULT 0,
+      next_page INTEGER NOT NULL DEFAULT 1,
+      remaining_targets_json TEXT NOT NULL DEFAULT '[]',
+      checkpoint_json TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(step_id) REFERENCES workflow_steps(step_id) ON DELETE CASCADE,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+      FOREIGN KEY(last_run_id) REFERENCES crawl_runs(run_id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_workflow_checkpoints_workflow
+      ON workflow_step_checkpoints(workflow_id, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS crawl_runs (
       run_id TEXT PRIMARY KEY,
@@ -428,6 +446,20 @@ export function initSchema(db: Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_graph_edges_relation
       ON graph_edges(graph_id, relation_type, weight DESC);
+
+    CREATE TABLE IF NOT EXISTS graph_entity_rules (
+      rule_id TEXT PRIMARY KEY,
+      scope_type TEXT NOT NULL,
+      scope_id TEXT NOT NULL,
+      node_type TEXT NOT NULL,
+      operation TEXT NOT NULL CHECK(operation IN ('merge', 'split')),
+      source_labels_json TEXT NOT NULL DEFAULT '[]',
+      target_label TEXT NOT NULL,
+      document_ids_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_entity_rules_scope
+      ON graph_entity_rules(scope_type, scope_id, created_at);
 
     CREATE TABLE IF NOT EXISTS report_artifacts (
       artifact_id TEXT PRIMARY KEY,

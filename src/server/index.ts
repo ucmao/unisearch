@@ -747,6 +747,43 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
+  fastify.get('/api/graph/:graph_id/entity-rules', async (request, reply) => {
+    try {
+      return { status: 'ok', items: graphService.listEntityRules((request.params as { graph_id: string }).graph_id) };
+    } catch (error: any) {
+      return reply.status(404).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/graph/:graph_id/entities/merge', async (request, reply) => {
+    const graphId = (request.params as { graph_id: string }).graph_id;
+    const body = (request.body || {}) as { node_ids?: string[]; target_label?: string };
+    try {
+      return { status: 'ok', graph: graphService.mergeEntities(graphId, body.node_ids || [], String(body.target_label || '')) };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/graph/:graph_id/entities/split', async (request, reply) => {
+    const graphId = (request.params as { graph_id: string }).graph_id;
+    const body = (request.body || {}) as { node_id?: string; document_ids?: string[]; target_label?: string };
+    try {
+      return { status: 'ok', graph: graphService.splitEntity(graphId, String(body.node_id || ''), body.document_ids || [], String(body.target_label || '')) };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.delete('/api/graph/:graph_id/entity-rules/:rule_id', async (request, reply) => {
+    const params = request.params as { graph_id: string; rule_id: string };
+    try {
+      return { status: 'ok', graph: graphService.removeEntityRule(params.graph_id, params.rule_id) };
+    } catch (error: any) {
+      return reply.status(404).send({ detail: error.message });
+    }
+  });
+
   fastify.get('/api/reports', async (request) => {
     const query = request.query as { thread_id?: string; workflow_id?: string };
     return { items: reportArtifactService.list(query.thread_id, query.workflow_id) };
@@ -763,9 +800,11 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/reports/:artifact_id/download', async (request, reply) => {
     const { artifact_id } = request.params as { artifact_id: string };
     const query = request.query as { format?: string };
-    const format = ['markdown', 'html', 'json'].includes(query.format || '') ? query.format as 'markdown' | 'html' | 'json' : 'html';
+    const format = ['markdown', 'html', 'json', 'pdf', 'docx'].includes(query.format || '') ? query.format as 'markdown' | 'html' | 'json' | 'pdf' | 'docx' : 'html';
     try {
-      const rendered = reportArtifactService.render(artifact_id, format);
+      const rendered = format === 'pdf' || format === 'docx'
+        ? await reportArtifactService.renderFormal(artifact_id, format)
+        : reportArtifactService.render(artifact_id, format);
       return reply.header('Content-Type', rendered.contentType)
         .header('Content-Disposition', `attachment; filename="${encodeURIComponent(rendered.filename)}"; filename*=UTF-8''${encodeURIComponent(rendered.filename)}`)
         .send(rendered.body);

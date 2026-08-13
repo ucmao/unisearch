@@ -183,6 +183,14 @@ export class AgentRepository {
     try {
       this.db.transaction(() => {
         const now = new Date().toISOString();
+        const interruptedSteps = this.db.prepare(`
+          SELECT s.step_id, json_extract(s.output_json, '$.runId') AS run_id
+          FROM workflow_steps s
+          WHERE s.status='running'
+        `).all() as Array<{ step_id: string; run_id: string | null }>;
+        for (const step of interruptedSteps) {
+          if (step.run_id) this.saveStepCheckpoint(step.step_id, step.run_id, 'interrupted');
+        }
         this.db.prepare(`
           UPDATE workflow_runs
           SET status = 'interrupted', updated_at = ?, finished_at = COALESCE(finished_at, ?)
@@ -191,7 +199,7 @@ export class AgentRepository {
 
         this.db.prepare(`
           UPDATE workflow_steps
-          SET status = 'failed', error_message = COALESCE(error_message, '服务重启或采集中断')
+          SET status = 'queued', error_message = COALESCE(error_message, '服务重启，已保存断点，等待续采')
           WHERE status = 'running'
         `).run();
 
@@ -999,6 +1007,71 @@ export class AgentRepository {
     this.db.prepare(`
       UPDATE workflow_steps SET status=?, output_json=?, error_message=?, updated_at=? WHERE step_id=?
     `).run(status === 'stopped' ? 'cancelled' : status, JSON.stringify(output), errorMessage || null, new Date().toISOString(), stepId);
+    if (runId && ['completed', 'failed', 'cancelled', 'stopped', 'partial'].includes(status)) {
+      this.saveStepCheckpoint(stepId, runId, status);
+    }
+  }
+
+  saveStepCheckpoint(stepId: string, runId: string, status: string): void {
+    const step = this.db.prepare('SELECT workflow_id FROM workflow_steps WHERE step_id=?').get(stepId) as any;
+    const run = this.db.prepare('SELECT item_count, comment_count, config_json FROM crawl_runs WHERE run_id=?').get(runId) as any;
+    if (!step || !run) return;
+    const config = parseJson<Record<string, any>>(run.config_json, {});
+    const previous = this.db.prepare('SELECT * FROM workflow_step_checkpoints WHERE step_id=?').get(stepId) as any;
+    const checkpoint = parseJson<Record<string, any>>(previous?.checkpoint_json || '{}', {});
+    const runIds = [...new Set([...(Array.isArray(checkpoint.runIds) ? checkpoint.runIds.map(String) : []), runId])];
+    const liveCounts = this.db.prepare(`SELECT
+      COUNT(DISTINCT CASE WHEN d.kind!='comment' THEN d.document_id END) AS item_count,
+      COUNT(DISTINCT CASE WHEN d.kind='comment' THEN d.document_id END) AS comment_count
+      FROM document_sources s JOIN documents d ON d.document_id=s.document_id WHERE s.run_id=?`).get(runId) as any;
+    const itemCount = Math.max(Number(run.item_count || 0), Number(liveCounts?.item_count || 0));
+    const commentCount = Math.max(Number(run.comment_count || 0), Number(liveCounts?.comment_count || 0));
+    const startPage = Math.max(1, Number(config.start_page || 1));
+    const pageSize: Record<string, number> = {
+      arxiv: 25, github_repositories: 30, aihot: 100,
+      boss: 20, zhaopin: 20, job51: 20, liepin: 20,
+      baidu: 10, bing: 10, so360: 10, sogou: 10, toutiao: 10, quark: 10, chinaso: 10,
+    };
+    const size = pageSize[String(config.platform || '')] || 0;
+    const nextPage = size ? startPage + Math.floor(itemCount / size) : startPage;
+    const collectedItems = Number(previous?.collected_item_count || 0) + itemCount;
+    const collectedComments = Number(previous?.collected_comment_count || 0) + commentCount;
+    this.db.prepare(`INSERT INTO workflow_step_checkpoints
+      (step_id, workflow_id, last_run_id, resume_count, collected_item_count, collected_comment_count,
+       next_page, remaining_targets_json, checkpoint_json, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)
+      ON CONFLICT(step_id) DO UPDATE SET
+        last_run_id=excluded.last_run_id,
+        collected_item_count=excluded.collected_item_count,
+        collected_comment_count=excluded.collected_comment_count,
+        next_page=MAX(workflow_step_checkpoints.next_page, excluded.next_page),
+        checkpoint_json=excluded.checkpoint_json,
+        updated_at=excluded.updated_at`)
+      .run(stepId, step.workflow_id, runId, Number(previous?.resume_count || 0), collectedItems, collectedComments,
+        nextPage, JSON.stringify({ runIds, lastStatus: status, lastConfig: config }), new Date().toISOString());
+  }
+
+  getStepCheckpoint(stepId: string): any | null {
+    const row = this.db.prepare('SELECT * FROM workflow_step_checkpoints WHERE step_id=?').get(stepId) as any;
+    if (!row) return null;
+    return {
+      stepId: row.step_id,
+      workflowId: row.workflow_id,
+      lastRunId: row.last_run_id,
+      resumeCount: Number(row.resume_count || 0),
+      collectedItemCount: Number(row.collected_item_count || 0),
+      collectedCommentCount: Number(row.collected_comment_count || 0),
+      nextPage: Number(row.next_page || 1),
+      remainingTargets: parseJson<string[]>(row.remaining_targets_json, []),
+      details: parseJson<Record<string, unknown>>(row.checkpoint_json, {}),
+      updatedAt: row.updated_at,
+    };
+  }
+
+  markStepResumed(stepId: string): void {
+    this.db.prepare(`UPDATE workflow_step_checkpoints
+      SET resume_count=resume_count+1, updated_at=? WHERE step_id=?`)
+      .run(new Date().toISOString(), stepId);
   }
 
   isStepReady(workflowId: string, stepKey: string): boolean {

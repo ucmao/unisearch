@@ -272,7 +272,9 @@ export class WorkflowRuntime {
       // The 'comments' capability exists solely to fetch comments, so it forces them on
       // regardless of depth. Every other combination comes from the capability's own preset.
       const resolvedComments = capabilityId === 'comments' ? true : Boolean(preset.collectComments);
-      const connectorOptions = {
+      const checkpoint = agentRepository.getStepCheckpoint(step.step_id);
+      const configuredKeywords = Array.isArray(stepInput.keywords) ? stepInput.keywords.map(String) : plan.keywords;
+      const connectorOptions: Record<string, unknown> = {
         collection_depth: depth,
         ...(preset.maxItems !== undefined ? { max_items: preset.maxItems }
           : maxItemsDefault !== undefined ? { max_items: Number(maxItemsDefault) } : {}),
@@ -281,6 +283,25 @@ export class WorkflowRuntime {
         ...(['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? { specified_ids: targets } : {}),
         enable_comments: resolvedComments,
       };
+      if (checkpoint) {
+        const requestedPerKeyword = Math.max(0, Number(connectorOptions.max_items || 0));
+        const requestedTotal = requestedPerKeyword * Math.max(1, configuredKeywords.length);
+        const remainingTotal = Math.max(0, requestedTotal - checkpoint.collectedItemCount);
+        if (requestedPerKeyword > 0) {
+          connectorOptions.max_items = Math.ceil(remainingTotal / Math.max(1, configuredKeywords.length));
+        }
+        if (capability.budgetModel === 'true_pagination') connectorOptions.start_page = checkpoint.nextPage;
+        connectorOptions.resume_checkpoint = {
+          lastRunId: checkpoint.lastRunId,
+          collectedItemCount: checkpoint.collectedItemCount,
+          collectedCommentCount: checkpoint.collectedCommentCount,
+          resumeCount: checkpoint.resumeCount + 1,
+        };
+        if (requestedPerKeyword > 0 && remainingTotal === 0) {
+          agentRepository.updateStep(step.step_id, 'completed', null, null);
+          continue;
+        }
+      }
       if (['content_detail', 'comments', 'url_resolve'].includes(capabilityId) && !targets.length) {
         agentRepository.updateStep(step.step_id, 'skipped', null, null);
         continue;
@@ -292,13 +313,13 @@ export class WorkflowRuntime {
           capability: capabilityId,
           login_type: plan.loginType,
           crawler_type: capability.runtimeMode,
-          keywords: Array.isArray(stepInput.keywords) ? stepInput.keywords.map(String).join(',') : plan.keywords.join(','),
+          keywords: configuredKeywords.join(','),
           specified_ids: ['content_detail', 'comments', 'url_resolve'].includes(capabilityId) ? targets.join(',') : '',
           creator_ids: capabilityId === 'creator_profile' ? targets.join(',') : '',
           connector_options: connectorOptions,
           // Only true_pagination capabilities declare a start_page input field; for
           // everyone else this stays 1 and the connector ignores it anyway.
-          start_page: Number((connectorOptions as Record<string, unknown>).start_page) || 1,
+          start_page: Number(connectorOptions.start_page) || 1,
           collection_depth: depth,
           enable_comments: resolvedComments,
           headless: plan.headless,
@@ -308,6 +329,7 @@ export class WorkflowRuntime {
           task_title: workflow.goal,
         });
         if (started) {
+          if (checkpoint) agentRepository.markStepResumed(step.step_id);
           const state = crawlerManager.getStatus(step.platform);
           agentRepository.updateStep(step.step_id, 'running', state.run_id, null);
           agentRepository.updatePlanStatus(workflow.plan_id, 'running');
