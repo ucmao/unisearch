@@ -48,9 +48,13 @@ test('web search plans compile into search, selection and dependent reader stage
       WHERE workflow_id=? ORDER BY rowid
     `).all(workflow.plan_id) as any[];
     assert.deepEqual(steps.slice(0, 2).map((step) => step.step_key), ['collect:baidu', 'collect:bing']);
+    const initialEvaluation = steps.find((step) => step.step_key === 'evaluate-search-initial');
+    assert.deepEqual(JSON.parse(initialEvaluation.depends_on_json), ['collect:baidu', 'collect:bing']);
+    assert.ok(steps.some((step) => step.step_key === 'rewrite:baidu'));
+    assert.ok(steps.some((step) => step.step_key === 'rewrite:bing'));
     const selector = steps.find((step) => step.step_key === 'select-search-urls');
     assert.equal(selector.kind, 'processor');
-    assert.deepEqual(JSON.parse(selector.depends_on_json), ['collect:baidu', 'collect:bing']);
+    assert.deepEqual(JSON.parse(selector.depends_on_json), ['evaluate-search-rewrite']);
     const reader = steps.find((step) => step.step_key === 'read:web_reader');
     assert.deepEqual(JSON.parse(reader.depends_on_json), ['select-search-urls']);
     assert.equal(JSON.parse(reader.input_json).capability, 'content_detail');
@@ -73,6 +77,8 @@ test('snippet mode does not create selection or reader stages', () => {
       .map((row) => row.step_key);
     assert.equal(keys.includes('select-search-urls'), false);
     assert.equal(keys.includes('read:web_reader'), false);
+    assert.equal(keys.includes('evaluate-search-initial'), true);
+    assert.equal(keys.includes('rewrite:baidu'), true);
   } finally {
     db.close();
   }

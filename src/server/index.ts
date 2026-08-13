@@ -30,6 +30,7 @@ import { graphService } from '../analyzers/graph-service';
 import { reportArtifactService } from '../analyzers/report-artifact-service';
 import { connectorHealthService } from '../connectors/health-service';
 import { qualityGateService } from '../analyzers/quality-gate-service';
+import { searchRelevanceService } from '../analyzers/search-relevance-service';
 import { exporterRegistry, exportService } from '../exporters/registry';
 import { zipDirectoryToBuffer } from '../exporters/zip';
 import {
@@ -602,6 +603,17 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });
 
+  fastify.post('/api/agent/plans/:plan_id/incremental', async (request, reply) => {
+    const { plan_id } = request.params as { plan_id: string };
+    const body = (request.body || {}) as { execute?: boolean };
+    try {
+      const plan = agentRepository.createIncrementalPlan(plan_id);
+      return body.execute ? agentService.executePlan(plan.plan_id) : plan;
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
   // Stopping a plan must go through workflowRuntime: killing the crawler process
   // alone (POST /api/crawler/stop) only frees the slot and lets the runtime start
   // the next queued platform, which is not what "stop" means to the user.
@@ -795,6 +807,21 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     } catch (error: any) {
       return reply.status(404).send({ detail: error.message });
     }
+  });
+
+  fastify.get('/api/reports/:artifact_id/compare', async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+    const { against } = request.query as { against?: string };
+    try {
+      return reportArtifactService.compare(artifact_id, against);
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.get('/api/search-relevance', async (request) => {
+    const { workflow_id } = request.query as { workflow_id?: string };
+    return { items: workflow_id ? searchRelevanceService.list(workflow_id) : [] };
   });
 
   fastify.get('/api/reports/:artifact_id/download', async (request, reply) => {

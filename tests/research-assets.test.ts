@@ -10,6 +10,7 @@ import { AnalyticsRepository } from '../src/database/repository';
 import { QualityGateService } from '../src/analyzers/quality-gate-service';
 import { ConnectorHealthService } from '../src/connectors/health-service';
 import { AgentRepository } from '../src/server/services/AgentRepository';
+import { SearchRelevanceService } from '../src/analyzers/search-relevance-service';
 
 async function fixture() {
   const db = new Database(':memory:');
@@ -70,6 +71,62 @@ test('report artifact freezes citations, graph snapshot and portable downloads',
     assert.equal(docx.body.subarray(0, 2).toString(), 'PK');
     assert.equal(pdf.body.subarray(0, 4).toString(), '%PDF');
     assert.equal(service.list('thread-1').length, 1);
+  } finally { db.close(); }
+});
+
+test('incremental reports form a version series with deterministic evidence and section diffs', async () => {
+  const { db, now } = await fixture();
+  try {
+    const graphs = new GraphService(() => db);
+    const service = new ReportArtifactService(() => db, graphs);
+    db.prepare(`INSERT INTO analysis_reports
+      (report_id,analyzer_id,analyzer_version,workflow_id,title,content,metadata_json,created_at)
+      VALUES ('report-base','quick.report','1.0.0','workflow-1','研究报告','旧正文','{}',?)`).run(now);
+    const first = service.create({
+      reportId: 'report-base', threadId: 'thread-1', workflowId: 'workflow-1', title: '研究报告',
+      content: '## 结论\n旧结论', sources: [{ id: 'S1', documentId: 'doc-1', title: '旧来源' }],
+    });
+    db.prepare(`INSERT INTO workflow_runs
+      (workflow_id,thread_id,base_workflow_id,incremental_since,skill_id,skill_version,goal,status,input_json,output_json,created_at,updated_at)
+      VALUES ('workflow-2','thread-1','workflow-1',?,'test','1','品牌研究增量','completed','{}','{}',?,?)`).run(now, now, now);
+    db.prepare(`INSERT INTO analysis_reports
+      (report_id,analyzer_id,analyzer_version,workflow_id,title,content,metadata_json,created_at)
+      VALUES ('report-next','quick.report','1.0.0','workflow-2','研究报告','新正文','{}',?)`).run(now);
+    const second = service.create({
+      reportId: 'report-next', threadId: 'thread-1', workflowId: 'workflow-2', title: '研究报告',
+      content: '## 结论\n新结论\n## 风险\n新增风险', sources: [{ id: 'S2', documentId: 'doc-2', title: '新来源' }],
+    });
+    assert.equal(first.versionNumber, 1);
+    assert.equal(second.versionNumber, 2);
+    assert.equal(second.previousArtifactId, first.artifactId);
+    const comparison = service.compare(second.artifactId);
+    assert.deepEqual(comparison.documents.added, ['doc-2']);
+    assert.deepEqual(comparison.documents.removed, ['doc-1']);
+    assert.deepEqual(comparison.sections.added, ['风险']);
+    assert.deepEqual(comparison.sections.changed, ['结论']);
+  } finally { db.close(); }
+});
+
+test('search relevance assessment persists weak queries and produces provider-specific rewrites', async () => {
+  const { db, now } = await fixture();
+  try {
+    db.prepare("UPDATE workflow_runs SET goal='新能源汽车电池安全研究', input_json=? WHERE workflow_id='workflow-1'")
+      .run(JSON.stringify({ keywords: ['新能源汽车'] }));
+    db.prepare(`INSERT INTO workflow_steps
+      (step_id,workflow_id,step_key,kind,uses_id,depends_on_json,input_json,output_json,status,max_attempts,timeout_ms,external_ref,created_at,updated_at)
+      VALUES ('search-step','workflow-1','collect:baidu','connector','connector.baidu','[]','{}','{"runId":"search-run"}','completed',1,300000,'baidu',?,?)`).run(now, now);
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('search-run','thread-1','workflow-1','搜索','搜索','baidu','search','新能源汽车','completed',?,'{}')`).run(now);
+    await new DocumentEngine(() => db).ingest(buildRawItem('emitSearchEngineResult', {
+      search_engine: 'baidu', title: '汽车销量排行榜', snippet: '本月汽车市场销量统计',
+      real_url: 'https://example.com/cars', source_keyword: '新能源汽车', search_rank: 1,
+    }), 'search-run');
+    const service = new SearchRelevanceService(() => db);
+    const result = service.evaluate('workflow-1', '新能源汽车电池安全研究', 'initial', ['collect:baidu']);
+    assert.equal(result.assessments[0].status, 'weak');
+    assert.match(result.rewrittenByProvider.baidu[0], /电池|安全/);
+    assert.equal(service.list('workflow-1').length, 1);
   } finally { db.close(); }
 });
 
@@ -174,5 +231,24 @@ test('social keyword workflow inserts selective enrichment and a final quality g
     assert.ok(steps.includes('quality-final'));
     const finalizer = persistedSteps.find((step) => step.step_key === 'finalize-documents');
     assert.deepEqual(JSON.parse(finalizer.depends_on_json), ['quality-final']);
+  } finally { db.close(); }
+});
+
+test('completed workflows can create a destructive-schema incremental successor with a fixed watermark', async () => {
+  const { db, now } = await fixture();
+  try {
+    const repository = new AgentRepository(() => db);
+    const base = repository.createPlan('thread-1', {
+      goal: '咖啡研究', platforms: ['xhs'], keywords: ['咖啡'], capability: 'keyword_search',
+      contentEnrichment: { mode: 'snippet', maxReadItems: 0, maxPerDomain: 2, concurrency: 2, timeoutMsPerUrl: 30000 },
+      collectionDepth: 'quick', loginType: 'qrcode', headless: false, analysis: [], autoAnalyze: true, outputs: [],
+    });
+    db.prepare("UPDATE workflow_runs SET status='completed', finished_at=?, updated_at=? WHERE workflow_id=?")
+      .run(now, now, base.plan_id);
+    const incremental = repository.createIncrementalPlan(base.plan_id);
+    assert.equal(incremental.base_workflow_id, base.plan_id);
+    assert.equal(incremental.incremental_since, now);
+    assert.equal(incremental.plan.incremental.baseWorkflowId, base.plan_id);
+    assert.match(incremental.goal, /增量更新/);
   } finally { db.close(); }
 });

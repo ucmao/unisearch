@@ -87,8 +87,13 @@ function scope(options: KnowledgeSearchOptions): { sql: string; params: unknown[
   const params: unknown[] = [];
   if (options.workflowId) {
     filters.push(`EXISTS (
-      SELECT 1 FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
+      SELECT 1 FROM document_sources ds
+      JOIN crawl_runs r ON r.run_id=ds.run_id
+      JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+      JOIN documents d ON d.document_id=ds.document_id
+      JOIN document_versions dv ON dv.version_id=ds.document_version_id
       WHERE ds.document_id=c.document_id AND r.workflow_id=?
+        AND (w.incremental_since IS NULL OR d.created_at > w.incremental_since OR dv.created_at > w.incremental_since)
     )`);
     params.push(options.workflowId);
   } else if (options.threadId) {
@@ -163,8 +168,12 @@ export class KnowledgeIndex {
     if (options.workflowId) {
       documentIds = (this.db.prepare(`
         SELECT DISTINCT ds.document_id
-        FROM document_sources ds JOIN crawl_runs r ON r.run_id=ds.run_id
-        WHERE r.workflow_id=?
+        FROM document_sources ds
+        JOIN crawl_runs r ON r.run_id=ds.run_id
+        JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+        JOIN documents d ON d.document_id=ds.document_id
+        JOIN document_versions dv ON dv.version_id=ds.document_version_id
+        WHERE r.workflow_id=? AND (w.incremental_since IS NULL OR d.created_at > w.incremental_since OR dv.created_at > w.incremental_since)
       `).all(options.workflowId) as Array<{ document_id: string }>).map((row) => row.document_id);
     } else if (options.threadId) {
       documentIds = (this.db.prepare(`

@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 15;
+export const DATABASE_SCHEMA_VERSION = 16;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -106,6 +106,8 @@ export function initSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS workflow_runs (
       workflow_id TEXT PRIMARY KEY,
       thread_id TEXT,
+      base_workflow_id TEXT,
+      incremental_since TEXT,
       skill_id TEXT NOT NULL,
       skill_version TEXT NOT NULL,
       goal TEXT NOT NULL DEFAULT '',
@@ -118,10 +120,12 @@ export function initSchema(db: Database): void {
       updated_at TEXT NOT NULL,
       started_at TEXT,
       finished_at TEXT,
-      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE,
+      FOREIGN KEY(base_workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE SET NULL
     );
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_status ON workflow_runs(status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_thread ON workflow_runs(thread_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_workflow_runs_baseline ON workflow_runs(base_workflow_id, created_at);
 
     CREATE TABLE IF NOT EXISTS workflow_steps (
       step_id TEXT PRIMARY KEY,
@@ -464,6 +468,9 @@ export function initSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS report_artifacts (
       artifact_id TEXT PRIMARY KEY,
       report_id TEXT NOT NULL UNIQUE,
+      series_id TEXT NOT NULL,
+      version_number INTEGER NOT NULL,
+      previous_artifact_id TEXT,
       thread_id TEXT,
       workflow_id TEXT,
       title TEXT NOT NULL,
@@ -476,10 +483,34 @@ export function initSchema(db: Database): void {
       FOREIGN KEY(report_id) REFERENCES analysis_reports(report_id) ON DELETE CASCADE,
       FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE,
       FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE SET NULL,
-      FOREIGN KEY(graph_id) REFERENCES graph_snapshots(graph_id) ON DELETE SET NULL
+      FOREIGN KEY(graph_id) REFERENCES graph_snapshots(graph_id) ON DELETE SET NULL,
+      FOREIGN KEY(previous_artifact_id) REFERENCES report_artifacts(artifact_id) ON DELETE SET NULL,
+      UNIQUE(series_id, version_number)
     );
     CREATE INDEX IF NOT EXISTS idx_report_artifacts_thread
       ON report_artifacts(thread_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_report_artifacts_series
+      ON report_artifacts(series_id, version_number DESC);
+
+    CREATE TABLE IF NOT EXISTS search_relevance_assessments (
+      assessment_id TEXT PRIMARY KEY,
+      workflow_id TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK(phase IN ('initial', 'rewrite')),
+      provider TEXT NOT NULL,
+      query TEXT NOT NULL,
+      result_count INTEGER NOT NULL DEFAULT 0,
+      relevant_count INTEGER NOT NULL DEFAULT 0,
+      average_score REAL NOT NULL DEFAULT 0,
+      precision_at_10 REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK(status IN ('good', 'weak', 'empty')),
+      rewritten_query TEXT,
+      metrics_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE,
+      UNIQUE(workflow_id, phase, provider, query)
+    );
+    CREATE INDEX IF NOT EXISTS idx_search_relevance_workflow
+      ON search_relevance_assessments(workflow_id, phase, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS connector_health (
       connector_id TEXT PRIMARY KEY,

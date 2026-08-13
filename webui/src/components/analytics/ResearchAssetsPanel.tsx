@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Activity, Combine, Download, ExternalLink, FileText, Filter, Network, RefreshCw, Split, Undo2 } from 'lucide-react'
+import { Activity, Combine, Download, ExternalLink, FileText, Filter, GitCompare, Network, RefreshCw, Split, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type Node = { id: string; type: string; label: string; weight: number; documentIds: string[] }
 type Edge = { id: string; from: string; to: string; relation: string; weight: number }
 type Graph = { id: string; documentCount: number; createdAt: string; nodes: Node[]; edges: Edge[] }
-type Report = { artifactId: string; title: string; createdAt: string; documentIds: string[]; graphId: string }
+type Report = { artifactId: string; workflowId?: string; title: string; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string }
+type ReportComparison = { from: { versionNumber: number }; to: { versionNumber: number }; documents: { added: string[]; removed: string[]; updated: string[]; unchanged: number }; citations: { added: string[]; removed: string[] }; sections: { added: string[]; removed: string[]; changed: string[] }; contentChanged: boolean }
+type RelevanceAssessment = { assessmentId: string; phase: 'initial' | 'rewrite'; provider: string; query: string; resultCount: number; precisionAt10: number; status: 'good' | 'weak' | 'empty'; rewrittenQuery?: string }
 type Health = { connectorId: string; state: string; successRate: number; yieldRate: number; fieldCoverage: number; lastErrorMessage?: string }
 type Quality = { status: 'ready' | 'limited' | 'insufficient'; documentCount: number; qualifiedCount: number; warnings: string[]; metrics: { textCoverage: number; urlCoverage: number; commentCoverage: number } }
 type EntityRule = { ruleId: string; nodeType: string; operation: 'merge' | 'split'; sourceLabels: string[]; targetLabel: string; documentIds: string[]; createdAt: string }
@@ -27,6 +29,8 @@ export function ResearchAssetsPanel({
   const [selectedElement, setSelectedElement] = useState<Node | Edge | null>(null)
   const [mergeNodeIds, setMergeNodeIds] = useState<string[]>([])
   const [splitDocumentIds, setSplitDocumentIds] = useState<string[]>([])
+  const [comparison, setComparison] = useState<ReportComparison | null>(null)
+  const [incrementalWorkflowId, setIncrementalWorkflowId] = useState<string | null>(null)
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
   const graphQuery = useQuery({
     queryKey: ['research-graph', scope],
@@ -35,6 +39,12 @@ export function ResearchAssetsPanel({
   const reportsQuery = useQuery({
     queryKey: ['research-reports', scope],
     queryFn: async () => (await fetch(`/api/reports?${search}`).then((res) => res.json())).items as Report[],
+  })
+  const relevanceWorkflowId = scope.workflow_id || reportsQuery.data?.[0]?.workflowId
+  const relevanceQuery = useQuery({
+    queryKey: ['search-relevance', relevanceWorkflowId],
+    queryFn: async () => (await fetch(`/api/search-relevance?workflow_id=${encodeURIComponent(relevanceWorkflowId!)}`).then((res) => res.json())).items as RelevanceAssessment[],
+    enabled: Boolean(relevanceWorkflowId),
   })
   const healthQuery = useQuery({
     queryKey: ['connector-health'],
@@ -96,6 +106,26 @@ export function ResearchAssetsPanel({
     await graphQuery.refetch(); await rulesQuery.refetch()
   }
 
+  const compareReport = async (artifactId: string) => {
+    const response = await fetch(`/api/reports/${encodeURIComponent(artifactId)}/compare`)
+    const result = await response.json()
+    if (!response.ok) return window.alert(result.detail || '报告版本对比失败')
+    setComparison(result as ReportComparison)
+  }
+
+  const createIncremental = async (workflowId: string) => {
+    if (!window.confirm('将以该报告对应任务为基线，只分析基线完成后新增的证据。立即开始吗？')) return
+    setIncrementalWorkflowId(workflowId)
+    try {
+      const response = await fetch(`/api/agent/plans/${encodeURIComponent(workflowId)}/incremental`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ execute: true }),
+      })
+      const result = await response.json()
+      if (!response.ok) return window.alert(result.detail || '增量任务创建失败')
+      window.alert('增量任务已创建并进入执行队列')
+    } finally { setIncrementalWorkflowId(null) }
+  }
+
   return (
     <div className="grid min-h-0 gap-4 overflow-auto p-1 lg:grid-cols-[1.5fr_1fr]">
       {qualityQuery.data ? <div className={`lg:col-span-2 rounded-xl border p-3 ${qualityQuery.data.status === 'ready' ? 'border-emerald-500/25 bg-emerald-500/5' : qualityQuery.data.status === 'limited' ? 'border-amber-500/25 bg-amber-500/5' : 'border-rose-500/25 bg-rose-500/5'}`}><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-semibold text-cyber-text-primary">质量门禁：{qualityQuery.data.status === 'ready' ? '可生成完整报告' : qualityQuery.data.status === 'limited' ? '仅支持有限结论' : '样本不足'}</p><p className="mt-1 text-[10px] text-cyber-text-muted">合格文档 {qualityQuery.data.qualifiedCount}/{qualityQuery.data.documentCount} · 正文覆盖 {Math.round(qualityQuery.data.metrics.textCoverage * 100)}% · 来源覆盖 {Math.round(qualityQuery.data.metrics.urlCoverage * 100)}%</p></div><span className="max-w-md text-right text-[10px] text-cyber-text-muted">{qualityQuery.data.warnings.join('；')}</span></div></div> : null}
@@ -126,9 +156,12 @@ export function ResearchAssetsPanel({
       <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyber-text-primary"><FileText className="h-4 w-4 text-cyber-neon-cyan" />报告制品</h3>
         <div className="space-y-2">
-          {(reportsQuery.data || []).length ? reportsQuery.data!.map((report) => <div key={report.artifactId} className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/40 p-3"><p className="truncate text-xs font-medium text-cyber-text-primary">{report.title}</p><p className="mt-1 text-[10px] text-cyber-text-muted">固化 {report.documentIds.length} 个证据文档 · {new Date(report.createdAt).toLocaleString()}</p><div className="mt-2 flex flex-wrap gap-1.5">{(['pdf', 'docx', 'html', 'markdown', 'json'] as const).map((format) => <a key={format} href={`/api/reports/${report.artifactId}/download?format=${format}`} download><Button size="sm" variant="outline" className={`h-7 px-2 text-[10px] ${format === 'pdf' || format === 'docx' ? 'border-cyber-neon-cyan/35' : ''}`}><Download className="h-3 w-3" />{format.toUpperCase()}</Button></a>)}</div></div>) : <p className="py-6 text-center text-xs text-cyber-text-muted">完成一次 AI 分析后，会在这里生成可复现报告</p>}
+          {(reportsQuery.data || []).length ? reportsQuery.data!.map((report) => <div key={report.artifactId} className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/40 p-3"><div className="flex items-center gap-2"><p className="min-w-0 flex-1 truncate text-xs font-medium text-cyber-text-primary">{report.title}</p><span className="rounded bg-cyber-neon-cyan/10 px-1.5 py-0.5 text-[9px] text-cyber-neon-cyan">V{report.versionNumber}</span></div><p className="mt-1 text-[10px] text-cyber-text-muted">固化 {report.documentIds.length} 个证据文档 · {new Date(report.createdAt).toLocaleString()}</p><div className="mt-2 flex flex-wrap gap-1.5">{(['pdf', 'docx', 'html', 'markdown', 'json'] as const).map((format) => <a key={format} href={`/api/reports/${report.artifactId}/download?format=${format}`} download><Button size="sm" variant="outline" className={`h-7 px-2 text-[10px] ${format === 'pdf' || format === 'docx' ? 'border-cyber-neon-cyan/35' : ''}`}><Download className="h-3 w-3" />{format.toUpperCase()}</Button></a>)}{report.previousArtifactId ? <Button size="sm" variant="outline" className="h-7 px-2 text-[10px]" onClick={() => compareReport(report.artifactId)}><GitCompare className="h-3 w-3" />对比 V{report.versionNumber - 1}</Button> : null}{report.workflowId ? <Button size="sm" variant="outline" className="h-7 px-2 text-[10px]" disabled={incrementalWorkflowId === report.workflowId} onClick={() => createIncremental(report.workflowId!)}><RefreshCw className={`h-3 w-3 ${incrementalWorkflowId === report.workflowId ? 'animate-spin' : ''}`} />增量更新</Button> : null}</div></div>) : <p className="py-6 text-center text-xs text-cyber-text-muted">完成一次 AI 分析后，会在这里生成可复现报告</p>}
+          {comparison ? <div className="rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/5 p-3 text-[10px] text-cyber-text-muted"><div className="flex items-center justify-between"><strong className="text-cyber-text-primary">V{comparison.from.versionNumber} → V{comparison.to.versionNumber}</strong><button type="button" onClick={() => setComparison(null)}>关闭</button></div><p className="mt-1">证据：新增 {comparison.documents.added.length}、更新 {comparison.documents.updated.length}、移除 {comparison.documents.removed.length}、沿用 {comparison.documents.unchanged}</p><p>章节：新增 {comparison.sections.added.length}、删除 {comparison.sections.removed.length}、变化 {comparison.sections.changed.length}</p>{comparison.sections.changed.length ? <p className="mt-1 line-clamp-2">变化章节：{comparison.sections.changed.join('、')}</p> : null}</div> : null}
         </div>
       </section>
+
+      {(relevanceQuery.data || []).length ? <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4"><h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyber-text-primary"><GitCompare className="h-4 w-4 text-cyber-neon-cyan" />搜索相关性</h3><div className="max-h-52 space-y-2 overflow-auto">{relevanceQuery.data!.map((item) => <div key={item.assessmentId} className="rounded border border-cyber-border-subtle p-2 text-[10px]"><div className="flex items-center justify-between gap-2"><span className="truncate text-cyber-text-primary">{item.provider} · {item.query}</span><span className={item.status === 'good' ? 'text-emerald-400' : item.status === 'weak' ? 'text-amber-400' : 'text-rose-400'}>{item.status === 'good' ? '相关性良好' : item.status === 'weak' ? '已触发改写' : '无结果'}</span></div><p className="mt-1 text-cyber-text-muted">P@10 {Math.round(item.precisionAt10 * 100)}% · {item.resultCount} 条结果 · {item.phase === 'initial' ? '首轮' : '改写轮'}</p>{item.rewrittenQuery ? <p className="mt-1 text-cyber-neon-cyan">改写为：{item.rewrittenQuery}</p> : null}</div>)}</div></section> : null}
 
       <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4">
         <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-cyber-text-primary"><Activity className="h-4 w-4 text-cyber-neon-cyan" />连接器健康度</h3>

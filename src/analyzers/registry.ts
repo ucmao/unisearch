@@ -45,7 +45,11 @@ export class AnalysisService {
     if (workflowId) {
       ids = this.db.prepare(`
         SELECT DISTINCT ds.document_id FROM document_sources ds
-        JOIN crawl_runs r ON r.run_id=ds.run_id WHERE r.workflow_id=?
+        JOIN crawl_runs r ON r.run_id=ds.run_id
+        JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+        JOIN documents d ON d.document_id=ds.document_id
+        JOIN document_versions dv ON dv.version_id=ds.document_version_id
+        WHERE r.workflow_id=? AND (w.incremental_since IS NULL OR d.created_at > w.incremental_since OR dv.created_at > w.incremental_since)
       `).all(workflowId) as Array<{ document_id: string }>;
     } else if (threadId) {
       ids = this.db.prepare(`

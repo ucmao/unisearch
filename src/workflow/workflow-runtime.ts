@@ -15,6 +15,7 @@ import { quickReportGenerator } from '../analyzers/quick-report-generator';
 import { qualityGateService } from '../analyzers/quality-gate-service';
 import { connectorHealthService } from '../connectors/health-service';
 import { reportArtifactService } from '../analyzers/report-artifact-service';
+import { searchRelevanceService } from '../analyzers/search-relevance-service';
 
 export interface WorkflowTickResult {
   workflow: any;
@@ -38,6 +39,8 @@ export class WorkflowRuntime {
       this.finalizeDocuments(input, context));
     workflowEngine.registerHandler('processor.search-results.select', (input, context) =>
       this.selectSearchUrls(input, context));
+    workflowEngine.registerHandler('processor.search.relevance', (input, context) =>
+      this.evaluateSearchRelevance(input, context));
     workflowEngine.registerHandler('processor.quality.select-enrichment', (input, context) =>
       this.selectQualityEnrichment(input, context));
     workflowEngine.registerHandler('processor.quality.final', (input, context) =>
@@ -273,7 +276,15 @@ export class WorkflowRuntime {
       // regardless of depth. Every other combination comes from the capability's own preset.
       const resolvedComments = capabilityId === 'comments' ? true : Boolean(preset.collectComments);
       const checkpoint = agentRepository.getStepCheckpoint(step.step_id);
-      const configuredKeywords = Array.isArray(stepInput.keywords) ? stepInput.keywords.map(String) : plan.keywords;
+      const keywordOutput = typeof stepInput.keywordsFromStep === 'string'
+        ? agentRepository.getStepOutput(workflow.plan_id, stepInput.keywordsFromStep)
+        : null;
+      const providerRewrites = keywordOutput?.rewrittenByProvider && typeof keywordOutput.rewrittenByProvider === 'object'
+        ? (keywordOutput.rewrittenByProvider as Record<string, unknown>)[String(stepInput.keywordProvider || step.platform)]
+        : null;
+      const configuredKeywords = Array.isArray(providerRewrites)
+        ? providerRewrites.map(String).filter(Boolean)
+        : Array.isArray(stepInput.keywords) ? stepInput.keywords.map(String) : plan.keywords;
       const connectorOptions: Record<string, unknown> = {
         collection_depth: depth,
         ...(preset.maxItems !== undefined ? { max_items: preset.maxItems }
@@ -303,6 +314,10 @@ export class WorkflowRuntime {
         }
       }
       if (['content_detail', 'comments', 'url_resolve'].includes(capabilityId) && !targets.length) {
+        agentRepository.updateStep(step.step_id, 'skipped', null, null);
+        continue;
+      }
+      if (capabilityId === 'keyword_search' && !configuredKeywords.length) {
         agentRepository.updateStep(step.step_id, 'skipped', null, null);
         continue;
       }
@@ -353,6 +368,17 @@ export class WorkflowRuntime {
       selected,
       selectedCount: selected.length,
     };
+  }
+
+  private async evaluateSearchRelevance(
+    input: Record<string, unknown>,
+    context: WorkflowStepHandlerContext,
+  ): Promise<Record<string, unknown>> {
+    const workflow = agentRepository.getPlan(context.workflowId);
+    if (!workflow) throw new Error('Workflow 不存在');
+    const phase = input.phase === 'rewrite' ? 'rewrite' : 'initial';
+    const stepKeys = Array.isArray(input.stepKeys) ? input.stepKeys.map(String) : [];
+    return searchRelevanceService.evaluate(context.workflowId, workflow.goal, phase, stepKeys);
   }
 
   private async selectQualityEnrichment(

@@ -41,6 +41,10 @@ export interface ResearchPlan {
   /** Run a report after collection even when no explicit analysis goals exist. */
   autoAnalyze?: boolean;
   outputs: string[];
+  incremental?: {
+    baseWorkflowId: string;
+    since: string;
+  };
   healthPolicy?: {
     originalPlatforms: string[];
     selectedPlatforms: string[];
@@ -731,10 +735,12 @@ export class AgentRepository {
 
       this.db.prepare(`
         INSERT INTO workflow_runs (
-          workflow_id, thread_id, skill_id, skill_version, goal, status,
+          workflow_id, thread_id, base_workflow_id, incremental_since, skill_id, skill_version, goal, status,
           input_json, output_json, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'awaiting_confirmation', ?, '{}', ?, ?)
-      `).run(workflowId, threadId, skill.id, skill.version, persistedPlan.goal, JSON.stringify(persistedPlan), now, now);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'awaiting_confirmation', ?, '{}', ?, ?)
+      `).run(workflowId, threadId, persistedPlan.incremental?.baseWorkflowId || null,
+        persistedPlan.incremental?.since || null, skill.id, skill.version, persistedPlan.goal,
+        JSON.stringify(persistedPlan), now, now);
       this.insertConnectorSteps(workflowId, persistedPlan, now);
       return this.getPlan(workflowId);
     });
@@ -753,6 +759,7 @@ export class AgentRepository {
     const collectStepKeys: string[] = [];
     const webSearchStepKeys: string[] = [];
     const enrichmentStepKeys: string[] = [];
+    const searchRewriteStepKeys: string[] = [];
     for (const platform of plan.platforms) {
       const stepKey = `collect:${platform}`;
       collectStepKeys.push(stepKey);
@@ -804,6 +811,37 @@ export class AgentRepository {
       }
     }
 
+    if (webSearchStepKeys.length) {
+      this.db.prepare(`
+        INSERT INTO workflow_steps (
+          step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+          dependency_policy, input_json, status, max_attempts, timeout_ms, created_at, updated_at
+        ) VALUES (?, ?, 'evaluate-search-initial', 'processor', 'processor.search.relevance',
+          ?, 'terminal', ?, 'queued', 1, 300000, ?, ?)
+      `).run(id(), workflowId, JSON.stringify(webSearchStepKeys), JSON.stringify({ phase: 'initial', stepKeys: webSearchStepKeys }), now, now);
+      for (const platform of plan.platforms.filter((item) => webSearchStepKeys.includes(`collect:${item}`))) {
+        const rewriteStepKey = `rewrite:${platform}`;
+        searchRewriteStepKeys.push(rewriteStepKey);
+        insert.run(
+          id(), workflowId, rewriteStepKey, `connector.${platform}.keyword_search`,
+          '["evaluate-search-initial"]', 'success',
+          JSON.stringify({
+            capability: 'keyword_search', keywordsFromStep: 'evaluate-search-initial', keywordProvider: platform,
+            role: 'automatic_query_rewrite', options: plan.connectorOptions?.[platform] || {},
+          }),
+          platform, now, now,
+        );
+      }
+      this.db.prepare(`
+        INSERT INTO workflow_steps (
+          step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
+          dependency_policy, input_json, status, max_attempts, timeout_ms, created_at, updated_at
+        ) VALUES (?, ?, 'evaluate-search-rewrite', 'processor', 'processor.search.relevance',
+          ?, 'terminal', ?, 'queued', 1, 300000, ?, ?)
+      `).run(id(), workflowId, JSON.stringify(searchRewriteStepKeys),
+        JSON.stringify({ phase: 'rewrite', stepKeys: searchRewriteStepKeys }), now, now);
+    }
+
     let readerStepKey: string | null = null;
     if (webSearchStepKeys.length && plan.contentEnrichment.mode !== 'snippet') {
       const selectorStepKey = 'select-search-urls';
@@ -815,7 +853,7 @@ export class AgentRepository {
         ) VALUES (?, ?, ?, 'processor', 'processor.search-results.select',
           ?, 'terminal', ?, 'queued', 2, 300000, ?, ?)
       `).run(
-        id(), workflowId, selectorStepKey, JSON.stringify(webSearchStepKeys),
+        id(), workflowId, selectorStepKey, JSON.stringify(['evaluate-search-rewrite']),
         JSON.stringify(plan.contentEnrichment), now, now,
       );
       readerStepKey = 'read:web_reader';
@@ -837,7 +875,8 @@ export class AgentRepository {
       );
     }
 
-    const finalDependencies = [...collectStepKeys, ...enrichmentStepKeys, ...(readerStepKey ? [readerStepKey] : [])];
+    const finalDependencies = [...collectStepKeys, ...enrichmentStepKeys, ...searchRewriteStepKeys,
+      ...(webSearchStepKeys.length ? ['evaluate-search-rewrite'] : []), ...(readerStepKey ? [readerStepKey] : [])];
     this.db.prepare(`
       INSERT INTO workflow_steps (
         step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -940,6 +979,22 @@ export class AgentRepository {
       ORDER BY created_at DESC, rowid DESC LIMIT 1
     `).get(threadId) as any;
     return row ? this.hydratePlan(row) : null;
+  }
+
+  createIncrementalPlan(baseWorkflowId: string) {
+    const base = this.getPlan(baseWorkflowId);
+    if (!base) throw new Error('基线任务不存在');
+    if (!['completed', 'partially_completed'].includes(base.status)) throw new Error('只有已完成的任务可以创建增量任务');
+    if (!base.thread_id) throw new Error('基线任务没有所属任务');
+    const active = this.db.prepare(`SELECT workflow_id FROM workflow_runs
+      WHERE thread_id=? AND status IN ('awaiting_confirmation','queued','running') LIMIT 1`).get(base.thread_id) as any;
+    if (active) throw new Error('该任务已有待确认或执行中的计划，请完成后再创建增量任务');
+    const since = String(base.finished_at || base.updated_at || base.created_at);
+    return this.createPlan(base.thread_id, {
+      ...base.plan,
+      goal: `${String(base.goal || base.plan.goal).replace(/（增量更新.*$/, '')}（增量更新：${since.slice(0, 10)} 之后）`,
+      incremental: { baseWorkflowId, since },
+    });
   }
 
   listPlans(threadId: string) {
