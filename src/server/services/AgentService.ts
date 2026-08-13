@@ -332,8 +332,7 @@ export function normalizePlan(
 }
 
 export function looksLikeSimulatedPlanReply(text: string): boolean {
-  return /(?:采集|调研|搜索)计划/.test(text)
-    || /确认后(?:开始|执行)|确认无误.*(?:开始|执行)/s.test(text)
+  return /确认后(?:开始|执行)|确认无误.*(?:开始|执行)/s.test(text)
     || /平台\s*[:：].{0,120}(?:关键词|目标|采集范围)\s*[:：]/s.test(text)
     || /(?:计划|任务)(?:已|已经)(?:生成|创建|进入队列|开始执行)/.test(text)
     || /(?:正在执行(?:中)?|已开始采集|正在采集|采集中)/.test(text);

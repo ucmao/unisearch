@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useThemeStore } from '@/store/themeStore'
+import { getPetById } from '@/lib/pets'
 
 export interface CodexPetProps {
   isComposerFocused?: boolean
@@ -197,6 +198,8 @@ export const CodexPet: React.FC<CodexPetProps> = ({
   onInteract,
 }) => {
   const petMode = useThemeStore((state) => state.petMode)
+  const selectedPetId = useThemeStore((state) => state.selectedPetId)
+  const currentPet = getPetById(selectedPetId)
 
   const [petState, setPetState] = useState<PetState>('idle')
   const [bubbleText, setBubbleText] = useState<string | null>(null)
@@ -530,9 +533,10 @@ export const CodexPet: React.FC<CodexPetProps> = ({
         onClick={handleClick}
         disabled={isEasterEggRunning}
         style={{
+          backgroundImage: `url(${currentPet.spritesheetUrl})`,
           translate: `${travelOffset}px 0`,
         }}
-        aria-label="UniSearch 智能宠物伴侣"
+        aria-label={`${currentPet.displayName} 智能宠物伴侣`}
       />
 
       {/* Ground Shadow */}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, HelpCircle, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X } from 'lucide-react'
+import { Brain, Check, Coffee, Database, Eye, EyeOff, Gauge, HelpCircle, KeyRound, Loader2, LogIn, MessageSquare, Monitor, Moon, Palette, Pencil, Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Trash2, X, Bot } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select'
 import { agentApi, configApi, dataApi, retrievalApi, type AgentMemory, type MemorySettings, type ModelProfile, type RetrievalProfile, type RuntimeSettings } from '@/lib/api'
 import { useThemeStore, type PetMode } from '@/store/themeStore'
+import { PETS_REGISTRY, getPetById } from '@/lib/pets'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 
 type Theme = 'light' | 'dark' | 'system'
@@ -151,7 +152,8 @@ export function SettingsDialog({
   initialSection?: SettingsSection
 }) {
   const queryClient = useQueryClient()
-  const { theme, setTheme, petMode, setPetMode } = useThemeStore()
+  const { theme, setTheme, petMode, setPetMode, selectedPetId, setSelectedPetId } = useThemeStore()
+  const currentPet = getPetById(selectedPetId)
   const [internalOpen, setInternalOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>(initialSection)
   const [form, setForm] = useState<ModelForm>({})
@@ -482,6 +484,55 @@ export function SettingsDialog({
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                    <div className="flex items-center justify-between gap-6">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-medium text-cyber-text-primary">
+                          <Bot className="h-4 w-4 text-cyber-neon-cyan" />
+                          <span>伴侣形象</span>
+                        </div>
+                        <div className="mt-1 text-xs text-cyber-text-muted">
+                          自定义主界面空闲状态下的像素助手形象
+                        </div>
+                      </div>
+                      <Select value={selectedPetId} onValueChange={(value: string) => setSelectedPetId(value)}>
+                        <SelectTrigger className="h-9 w-32 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-80">
+                          {PETS_REGISTRY.map((pet) => (
+                            <SelectItem key={pet.id} value={pet.id} className="text-xs">
+                              <span className="font-medium">{pet.displayName}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {currentPet && (
+                      <div className="mt-3.5 flex items-center gap-3.5 rounded-lg border border-cyber-border-subtle/60 bg-cyber-bg-tertiary/35 p-3 select-none">
+                        <div
+                          className="h-10 w-10 shrink-0 rounded-lg border border-cyber-border-subtle/70 bg-cyber-bg-secondary/60"
+                          style={{
+                            backgroundImage: `url(${currentPet.spritesheetUrl})`,
+                            backgroundPosition: '0 0',
+                            backgroundSize: '320px 390px',
+                            imageRendering: 'pixelated',
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-cyber-text-primary">{currentPet.displayName}</span>
+                            <span className="text-[11px] text-cyber-text-muted">· {currentPet.tagline}</span>
+                          </div>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-cyber-text-secondary line-clamp-1">
+                            {currentPet.description}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

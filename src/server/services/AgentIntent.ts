@@ -31,6 +31,10 @@ const THANKS = /^(?:谢谢|感谢|多谢|好的谢谢|谢啦|thanks|thank you)[!
 const GOODBYE = /^(?:再见|拜拜|回头见|bye|goodbye)[!！,.，。~～\s]*$/i;
 const CAPABILITY = /你(?:可以|能|会)(?:做|干)?什么|你有(?:什么|哪些)功能|(?:可以|能)提供(?:什么|哪些)功能|怎么用|使用帮助|功能介绍|what can you do|\bhelp\b/i;
 const PLATFORM_CAPABILITY = /(?:支持|可以|能).*(?:采集|抓取|搜索)?.*(?:什么|哪些)平台|(?:什么|哪些)平台.*(?:支持|可以|能)|支持的平台/i;
+// Explicit self-introductions and durable personal/work context are ordinary
+// conversation. Route them straight to the conversation model so the research
+// planner cannot reinterpret a company or team name as a collection subject.
+const PERSONAL_CONTEXT = /(?:^|[，,。；;])\s*(?:我叫|(?:我的)?名字是|我是.{0,40}(?:组长|负责人|主管|经理|总监|创始人|工程师|设计师|产品经理|老师|教师|学生|医生|律师|成员|员工)|我(?:在.{1,30})?(?:负责|就职于|任职于)|我的(?:团队|组员|同事|职业|工作)|组员有)/i;
 const RESEARCH_HOW_TO = /(?:采集|收集|搜索|调研|任务).*(?:怎么做|怎么用|如何操作|操作流程|步骤)|(?:怎么|如何).*(?:采集|收集|搜索|调研|创建任务)/i;
 const MODEL_INFO = /(?:你|当前|现在)?(?:用的|使用的|配置的)?(?:是)?什么模型|模型(?:名称|版本|信息)|which model/i;
 const WEATHER = /天气|气温|下雨|降雨|温度|weather/i;
@@ -95,7 +99,7 @@ export function isDirectWebReadRequest(text: string): boolean {
 export function isSimpleConversation(text: string): boolean {
   const value = text.trim();
   return GREETING.test(value) || THANKS.test(value) || GOODBYE.test(value) || CAPABILITY.test(value)
-    || PLATFORM_CAPABILITY.test(value) || WEATHER.test(value);
+    || PLATFORM_CAPABILITY.test(value) || WEATHER.test(value) || PERSONAL_CONTEXT.test(value);
 }
 
 export function hasResearchSubject(text: string): boolean {

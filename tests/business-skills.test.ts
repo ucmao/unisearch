@@ -192,4 +192,5 @@ test('plain chat cannot impersonate a persisted collection plan', () => {
   assert.equal(looksLikeSimulatedPlanReply('✅ 计划已生成，正在执行中…\n|平台|关键词|状态|\n|豆包|科莱特培训靠谱吗|进行中|'), true);
   assert.equal(looksLikeSimulatedPlanReply('任务已创建并开始执行。'), true);
   assert.equal(looksLikeSimulatedPlanReply('可以采集 GitHub 的公开仓库信息。'), false);
+  assert.equal(looksLikeSimulatedPlanReply('记住了。如果你之后想制定调研计划，也可以告诉我。'), false);
 });

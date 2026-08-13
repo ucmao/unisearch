@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { DEFAULT_PET_ID, getPetById } from '@/lib/pets'
 
 export type Theme = 'light' | 'dark' | 'system'
 export type PetMode = 'dynamic' | 'quiet' | 'off'
@@ -7,12 +8,15 @@ interface ThemeState {
   theme: Theme
   resolvedTheme: 'light' | 'dark'
   petMode: PetMode
+  selectedPetId: string
   setTheme: (theme: Theme) => void
   setPetMode: (mode: PetMode) => void
+  setSelectedPetId: (petId: string) => void
 }
 
 const THEME_KEY = 'unisearch_theme'
 const PET_MODE_KEY = 'unisearch_pet_mode'
+const SELECTED_PET_KEY = 'unisearch_selected_pet'
 
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light'
@@ -37,6 +41,15 @@ function getStoredPetMode(): PetMode {
   return 'dynamic' // Default to dynamic
 }
 
+function getStoredPetId(): string {
+  if (typeof window === 'undefined') return DEFAULT_PET_ID
+  const stored = localStorage.getItem(SELECTED_PET_KEY)
+  if (stored && getPetById(stored).id === stored) {
+    return stored
+  }
+  return DEFAULT_PET_ID
+}
+
 function applyTheme(resolved: 'light' | 'dark') {
   const root = document.documentElement
   if (resolved === 'dark') {
@@ -54,6 +67,7 @@ function resolveTheme(theme: Theme): 'light' | 'dark' {
 const initialTheme = getStoredTheme()
 const initialResolved = resolveTheme(initialTheme)
 const initialPetMode = getStoredPetMode()
+const initialPetId = getStoredPetId()
 
 if (typeof window !== 'undefined') {
   applyTheme(initialResolved)
@@ -63,6 +77,7 @@ export const useThemeStore = create<ThemeState>((set) => ({
   theme: initialTheme,
   resolvedTheme: initialResolved,
   petMode: initialPetMode,
+  selectedPetId: initialPetId,
 
   setTheme: (theme) => {
     const resolved = resolveTheme(theme)
@@ -74,6 +89,11 @@ export const useThemeStore = create<ThemeState>((set) => ({
   setPetMode: (petMode) => {
     localStorage.setItem(PET_MODE_KEY, petMode)
     set({ petMode })
+  },
+
+  setSelectedPetId: (selectedPetId) => {
+    localStorage.setItem(SELECTED_PET_KEY, selectedPetId)
+    set({ selectedPetId })
   },
 }))
 

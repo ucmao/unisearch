@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { extractWebUrls, hasResearchSubject, inferResearchKeywords, inferResearchPlatforms, isDirectWebReadRequest, isSimpleConversation, localIntentDecision } from '../src/server/services/AgentIntent';
 
+test('explicit personal and team context routes directly to conversation', () => {
+  assert.equal(isSimpleConversation('我是科莱特三组的组长，组员有 diana和vin'), true);
+  assert.equal(isSimpleConversation('我在科莱特任职于产品团队'), true);
+  assert.equal(isSimpleConversation('我是想调研科莱特的口碑'), false);
+});
+
 test('direct link parsing requests route to direct_parse', () => {
   for (const message of [
     '4.17 02/11 LWM:/ z@G.vf :2pm 不要轻易学SAP了，除非你看完这个视频# 学sap https://v.douyin.com/_8PHI7a2c-E/ 复制此链接，打开Douyin搜索，直接观看视频！',
