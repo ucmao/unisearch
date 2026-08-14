@@ -15,18 +15,29 @@ import {
   FileText,
   Filter,
   GitCompare,
+  HelpCircle,
+  History as HistoryIcon,
   Info,
-  Maximize2,
-  Minimize2,
   Network,
   RefreshCw,
   Sparkles,
   Split,
+  Trash2,
   Undo2,
   X,
   XCircle,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { ObsidianForceGraph } from './ObsidianForceGraph'
 
 export const REPORT_FORMAT_OPTIONS = [
@@ -129,7 +140,7 @@ export type ReportComparison = { from: { versionNumber: number }; to: { versionN
 export type RelevanceAssessment = { assessmentId: string; phase: 'initial' | 'rewrite'; provider: string; query: string; resultCount: number; precisionAt10: number; status: 'good' | 'weak' | 'empty'; rewrittenQuery?: string }
 export type Health = { connectorId: string; state: string; successRate: number; yieldRate: number; fieldCoverage: number; lastErrorMessage?: string }
 export type Quality = { status: 'ready' | 'limited' | 'insufficient'; documentCount: number; qualifiedCount: number; warnings: string[]; metrics: { textCoverage: number; urlCoverage: number; commentCoverage: number } }
-export type EntityRule = { ruleId: string; nodeType: string; operation: 'merge' | 'split'; sourceLabels: string[]; targetLabel: string; documentIds: string[]; createdAt: string }
+export type EntityRule = { ruleId: string; nodeType: string; operation: 'merge' | 'split' | 'ignore' | 'link'; sourceLabels: string[]; targetLabel: string; documentIds: string[]; createdAt: string }
 
 export const stateLabel: Record<string, string> = { healthy: '正常', degraded: '降级', blocked: '需处理验证', broken: '疑似结构变化', unknown: '暂无结论' }
 export const stateColor: Record<string, string> = { healthy: 'text-emerald-400', degraded: 'text-amber-400', blocked: 'text-orange-400', broken: 'text-rose-400', unknown: 'text-cyber-text-muted' }
@@ -148,9 +159,17 @@ export function KnowledgeGraphView({
   onOpenDocument?: (documentId: string) => void
 }) {
   const [selectedElement, setSelectedElement] = useState<GraphNode | Edge | null>(null)
-  const [isExpanded, setIsExpanded] = useState(false)
   const [mergeNodeIds, setMergeNodeIds] = useState<string[]>([])
   const [splitDocumentIds, setSplitDocumentIds] = useState<string[]>([])
+  const [showMergeGuide, setShowMergeGuide] = useState(false)
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false)
+  const [mergeTargetName, setMergeTargetName] = useState('')
+  const [isSubmittingMerge, setIsSubmittingMerge] = useState(false)
+  const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
+  const [splitTargetName, setSplitTargetName] = useState('')
+  const [isSubmittingSplit, setIsSubmittingSplit] = useState(false)
+
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
 
   const graphQuery = useQuery({
@@ -176,51 +195,148 @@ export function KnowledgeGraphView({
   const visibleEdges = (graph?.edges || []).filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).slice(0, 120)
 
   const rebuild = async () => {
-    await fetch('/api/graph/rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scope) })
-    await graphQuery.refetch()
+    try {
+      await fetch('/api/graph/rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scope) })
+      await graphQuery.refetch()
+      toast.success('图谱拓扑已重新计算生成')
+    } catch (err: any) {
+      toast.error(err.message || '重建图谱失败')
+    }
   }
 
-  const mergeEntities = async () => {
+  const openMergeModal = () => {
     const selected = (graph?.nodes || []).filter((node) => mergeNodeIds.includes(node.id))
     const defaultName = selected[0]?.label || ''
-    const targetLabel = window.prompt(`正在合并 ${selected.length} 个实体，请输入合并后的统一名称：`, defaultName)?.trim()
-    if (!targetLabel || !graph) return
-    const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/merge`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node_ids: mergeNodeIds, target_label: targetLabel }),
-    })
-    const result = await response.json()
-    if (!response.ok) return window.alert(result.detail || '实体合并失败')
-    setMergeNodeIds([])
-    setSelectedElement(null)
-    await graphQuery.refetch()
-    await rulesQuery.refetch()
+    setMergeTargetName(defaultName)
+    setIsMergeModalOpen(true)
   }
 
-  const splitEntity = async () => {
+  const handleConfirmMerge = async () => {
+    const targetLabel = mergeTargetName.trim()
+    if (!targetLabel || !graph) return
+    setIsSubmittingMerge(true)
+    try {
+      const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_ids: mergeNodeIds, target_label: targetLabel }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        toast.error(result.detail || '实体合并失败')
+        return
+      }
+      toast.success(`已成功合并 ${mergeNodeIds.length} 个实体为「${targetLabel}」`)
+      setMergeNodeIds([])
+      setSelectedElement(null)
+      setIsMergeModalOpen(false)
+      await graphQuery.refetch()
+      await rulesQuery.refetch()
+    } catch (err: any) {
+      toast.error(err.message || '实体合并失败')
+    } finally {
+      setIsSubmittingMerge(false)
+    }
+  }
+
+  const openSplitModal = () => {
     if (!graph || !selectedElement || !('label' in selectedElement)) return
-    const targetLabel = window.prompt(`已勾选 ${splitDocumentIds.length} 篇证据文档，请输入拆分出的新概念/实体名称：`)?.trim()
-    if (!targetLabel) return
-    const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/split`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ node_id: selectedElement.id, document_ids: splitDocumentIds, target_label: targetLabel }),
-    })
-    const result = await response.json()
-    if (!response.ok) return window.alert(result.detail || '实体拆分失败')
-    setSplitDocumentIds([])
-    setSelectedElement(null)
-    await graphQuery.refetch()
-    await rulesQuery.refetch()
+    setSplitTargetName('')
+    setIsSplitModalOpen(true)
+  }
+
+  const handleConfirmSplit = async () => {
+    const targetLabel = splitTargetName.trim()
+    if (!targetLabel || !graph || !selectedElement || !('label' in selectedElement)) return
+    setIsSubmittingSplit(true)
+    try {
+      const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/split`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_id: selectedElement.id, document_ids: splitDocumentIds, target_label: targetLabel }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        toast.error(result.detail || '实体拆分失败')
+        return
+      }
+      toast.success(`已成功拆分出新概念实体「${targetLabel}」`)
+      setSplitDocumentIds([])
+      setSelectedElement(null)
+      setIsSplitModalOpen(false)
+      await graphQuery.refetch()
+      await rulesQuery.refetch()
+    } catch (err: any) {
+      toast.error(err.message || '实体拆分失败')
+    } finally {
+      setIsSubmittingSplit(false)
+    }
   }
 
   const removeRule = async (ruleId: string) => {
     if (!graph) return
-    const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entity-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' })
-    if (!response.ok) return window.alert((await response.json()).detail || '撤销规则失败')
-    await graphQuery.refetch()
-    await rulesQuery.refetch()
+    try {
+      const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entity-rules/${encodeURIComponent(ruleId)}`, { method: 'DELETE' })
+      if (!response.ok) {
+        toast.error((await response.json()).detail || '撤销规则失败')
+        return
+      }
+      toast.success('已撤销该条调整记录')
+      await graphQuery.refetch()
+      await rulesQuery.refetch()
+    } catch (err: any) {
+      toast.error(err.message || '撤销规则失败')
+    }
+  }
+
+  const handleQuickMerge = (sourceNode: GraphNode, targetNode: GraphNode) => {
+    setMergeNodeIds([sourceNode.id, targetNode.id])
+    setMergeTargetName(targetNode.label)
+    setIsMergeModalOpen(true)
+  }
+
+  const handleQuickConnect = async (sourceNode: GraphNode, targetNode: GraphNode) => {
+    if (!graph) return
+    try {
+      const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from_node_id: sourceNode.id, to_node_id: targetNode.id, relation: 'co_occurs' }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        toast.error(result.detail || '建立连线失败')
+        return
+      }
+      toast.success(`已建立「${sourceNode.label}」↔「${targetNode.label}」的关联连线`)
+      await graphQuery.refetch()
+      await rulesQuery.refetch()
+    } catch (err: any) {
+      toast.error(err.message || '建立连线失败')
+    }
+  }
+
+  const handleIgnoreEntity = async (nodeId: string, nodeLabel: string) => {
+    if (!graph) return
+    try {
+      const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/ignore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_id: nodeId }),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        toast.error(result.detail || '移出实体失败')
+        return
+      }
+      toast.success(`已将噪点实体「${nodeLabel}」从图谱中移出`)
+      setSelectedElement(null)
+      setMergeNodeIds((current) => current.filter((id) => id !== nodeId))
+      await graphQuery.refetch()
+      await rulesQuery.refetch()
+    } catch (err: any) {
+      toast.error(err.message || '移出实体失败')
+    }
   }
 
   return (
@@ -251,32 +367,16 @@ export function KnowledgeGraphView({
         </div>
 
         {/* 右侧：操作按钮组 */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {mergeNodeIds.length > 0 ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1.5 px-3 text-xs border-violet-500/60 bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 font-medium animate-pulse"
-              onClick={mergeEntities}
-              disabled={mergeNodeIds.length < 2}
-            >
-              <Combine className="h-3.5 w-3.5" />
-              <span>合并选中的 {mergeNodeIds.length} 个实体</span>
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
-              onClick={() => {
-                window.alert('💡 实体合并操作指引：\n1. 点击图谱中的某个实体节点；\n2. 在右侧详情中点击「加入合并清单」；\n3. 选中至少 2 个同义实体后，点击顶部的「合并实体」即可统一名称。')
-              }}
-              title="查看实体合并方法"
-            >
-              <Combine className="h-3.5 w-3.5" />
-              <span>合并同义实体</span>
-            </Button>
-          )}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-secondary"
+            onClick={() => setShowMergeGuide(true)}
+            title="图谱快捷操作指引"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </Button>
 
           <Button
             size="sm"
@@ -292,28 +392,33 @@ export function KnowledgeGraphView({
           <Button
             size="sm"
             variant="outline"
-            className={`h-7 gap-1.5 px-2.5 text-xs transition-colors ${
-              isExpanded
-                ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/15 text-cyber-neon-cyan'
-                : 'text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle'
+            className={`h-7 gap-1.5 px-2.5 text-xs border-cyber-border-subtle transition-colors ${
+              (rulesQuery.data || []).length > 0
+                ? 'text-cyber-text-primary bg-cyber-bg-secondary/60 hover:bg-cyber-bg-secondary font-medium'
+                : 'text-cyber-text-muted hover:text-cyber-text-primary'
             }`}
-            onClick={() => setIsExpanded((prev) => !prev)}
-            title={isExpanded ? '还原为分栏工作区' : '全景展开大画布'}
+            onClick={() => setIsHistoryModalOpen(true)}
+            title="查看与撤销实体合并、连线、移出等历史操作"
           >
-            {isExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            <span>{isExpanded ? '还原分栏' : '全景展开'}</span>
+            <HistoryIcon className="h-3.5 w-3.5" />
+            <span>操作历史</span>
+            {(rulesQuery.data || []).length > 0 && (
+              <span className="ml-0.5 rounded-full bg-cyber-neon-cyan/20 px-1.5 py-0.2 text-[10px] font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/40">
+                {rulesQuery.data!.length}
+              </span>
+            )}
           </Button>
         </div>
       </div>
 
-      {/* 实体合并待办栏 (当有选中时显现) */}
+      {/* 实体合并待办栏 (唯一的合并操作与清单入口) */}
       {mergeNodeIds.length > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-violet-500/40 bg-violet-500/10 px-3 py-1.5 text-xs">
-          <div className="flex items-center gap-2">
-            <Combine className="h-4 w-4 text-violet-300" />
-            <span className="text-violet-200">
-              已选待合并实体 ({mergeNodeIds.length})：
-              <strong>
+        <div className="flex items-center justify-between rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/70 px-3 py-1.5 text-xs animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <Combine className="h-4 w-4 text-cyber-text-primary shrink-0" />
+            <span className="text-cyber-text-primary truncate">
+              已选待合并 ({mergeNodeIds.length})：
+              <strong className="ml-1 text-cyber-text-primary font-semibold">
                 {(graph?.nodes || [])
                   .filter((n) => mergeNodeIds.includes(n.id))
                   .map((n) => n.label)
@@ -321,22 +426,22 @@ export function KnowledgeGraphView({
               </strong>
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               type="button"
-              className="text-cyber-text-muted hover:text-rose-400 text-xs px-2 py-0.5"
+              className="text-cyber-text-muted hover:text-rose-500 text-xs px-2 py-0.5"
               onClick={() => setMergeNodeIds([])}
             >
-              清空所选
+              清空
             </button>
             <Button
               size="sm"
               variant="outline"
-              className="h-6 px-2.5 text-[11px] border-violet-500/50 bg-violet-500/20 text-violet-200 hover:bg-violet-500/30"
+              className="h-6 px-3 text-xs border-cyber-border-subtle bg-cyber-bg-primary text-cyber-text-primary hover:bg-cyber-bg-secondary font-medium"
               disabled={mergeNodeIds.length < 2}
-              onClick={mergeEntities}
+              onClick={openMergeModal}
             >
-              立即执行合并
+              合并选中的实体
             </Button>
           </div>
         </div>
@@ -345,212 +450,34 @@ export function KnowledgeGraphView({
       {/* 主体画布与详情分栏 */}
       <div
         className={`grid flex-1 min-h-0 gap-3.5 ${
-          isExpanded
-            ? 'grid-cols-1 overflow-hidden'
-            : selectedElement
-              ? 'overflow-auto lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden'
-              : 'grid-cols-1'
+          selectedElement
+            ? 'overflow-auto lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden'
+            : 'grid-cols-1'
         }`}
       >
         {/* 左侧 / 全屏图谱画布 */}
-        <section className="relative flex min-w-0 flex-col rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/25 p-3 sm:p-4 overflow-hidden">
+        <section className="relative flex min-w-0 flex-col overflow-hidden">
           {graph && visibleNodes.length ? (
             <div className="flex flex-col flex-1 min-h-0 relative">
-              <div className="mb-2 flex items-center justify-between text-[11px] text-cyber-text-muted">
-                <span>
-                  💡 交互提示：点击任意节点可在右侧查看支持该实体的全部证据网页；拖拽节点可探索力导向拓扑。
-                </span>
-                {selectedElement && (
-                  <span className="text-cyber-neon-cyan font-medium shrink-0 ml-2">
-                    ● 当前聚焦：{'label' in selectedElement ? selectedElement.label : selectedElement.relation}
-                  </span>
-                )}
-              </div>
-
-              <div className="relative flex-1 min-h-[420px] my-1 rounded-lg overflow-hidden border border-cyber-border-subtle/50 bg-cyber-bg-primary/60">
-                <ObsidianForceGraph
-                  nodes={visibleNodes}
-                  edges={visibleEdges}
-                  selectedElement={selectedElement}
-                  onSelectElement={setSelectedElement}
-                  nodeColors={nodeColor}
-                />
-
-                {/* 全屏模式下的右侧浮动抽屉 */}
-                {isExpanded && selectedElement && (
-                  <div className="absolute right-3 top-3 bottom-3 w-96 z-40 flex flex-col rounded-xl border border-cyber-neon-cyan/40 bg-cyber-bg-secondary/95 p-4 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-right-6">
-                    <div className="flex items-start justify-between gap-3 border-b border-cyber-border-subtle pb-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-semibold text-cyber-text-primary truncate">
-                            {'label' in selectedElement ? selectedElement.label : selectedElement.relation}
-                          </h3>
-                          {'type' in selectedElement ? (
-                            <span
-                              className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                              style={{
-                                backgroundColor: `${nodeColor[selectedElement.type] || '#94a3b8'}20`,
-                                color: nodeColor[selectedElement.type] || '#cbd5e1',
-                                border: `1px solid ${nodeColor[selectedElement.type] || '#94a3b8'}40`,
-                              }}
-                            >
-                              {{ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[selectedElement.type] || selectedElement.type}
-                            </span>
-                          ) : (
-                            <span className="rounded bg-slate-500/20 px-1.5 py-0.5 text-[10px] text-slate-300 border border-slate-500/40">
-                              关联关系
-                            </span>
-                          )}
-                        </div>
-                        <p className="mt-1 text-[11px] text-cyber-text-muted">
-                          关联 <strong className="text-cyber-neon-cyan">{selectedElement.weight}</strong> 篇证据文档 · 精准溯源
-                        </p>
-                      </div>
-
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-xs text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60 shrink-0"
-                        onClick={() => { setSelectedElement(null); setSplitDocumentIds([]) }}
-                      >
-                        <X className="h-3.5 w-3.5 mr-1" />
-                        <span>关闭</span>
-                      </Button>
-                    </div>
-
-                    <div className="mt-2.5 flex items-center justify-between gap-2 flex-wrap text-xs">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {'label' in selectedElement && onFilter ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 gap-1 px-2.5 text-[11px] border-cyber-neon-cyan/40 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
-                            onClick={() => onFilter(selectedElement)}
-                          >
-                            <Filter className="h-3 w-3" />
-                            <span>在数据透视表中查看</span>
-                          </Button>
-                        ) : null}
-                        {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={`h-7 gap-1 px-2 text-[10px] ${mergeNodeIds.includes(selectedElement.id) ? 'border-violet-500 bg-violet-500/20 text-violet-300' : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'}`}
-                            onClick={() => setMergeNodeIds((current) => current.includes(selectedElement.id) ? current.filter((id) => id !== selectedElement.id) : [...current, selectedElement.id])}
-                          >
-                            <Combine className="h-3 w-3" />
-                            {mergeNodeIds.includes(selectedElement.id) ? '已加入合并' : '加入合并清单'}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    {/* 文档列表 */}
-                    <div className="mt-3 flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
-                      {evidenceQuery.isLoading ? (
-                        <div className="grid h-48 place-items-center text-xs text-cyber-text-muted">
-                          <RefreshCw className="h-4 w-4 animate-spin mb-1 text-cyber-neon-cyan" />
-                          <span>正在调取证据...</span>
-                        </div>
-                      ) : (evidenceQuery.data?.documents || []).length ? (
-                        evidenceQuery.data!.documents.map((document) => (
-                          <div
-                            key={document.documentId}
-                            className={`group rounded-lg border p-2 transition-colors ${
-                              splitDocumentIds.includes(document.documentId)
-                                ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10'
-                                : 'border-cyber-border-subtle bg-cyber-bg-primary/50 hover:border-cyber-neon-cyan/40'
-                            }`}
-                          >
-                            <div className="flex items-start gap-2">
-                              {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? (
-                                <input
-                                  type="checkbox"
-                                  className="mt-1 h-3.5 w-3.5 rounded border-cyber-border-subtle text-cyber-neon-cyan focus:ring-0 cursor-pointer"
-                                  checked={splitDocumentIds.includes(document.documentId)}
-                                  onChange={() =>
-                                    setSplitDocumentIds((current) =>
-                                      current.includes(document.documentId)
-                                        ? current.filter((id) => id !== document.documentId)
-                                        : [...current, document.documentId]
-                                    )
-                                  }
-                                />
-                              ) : null}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between gap-1.5">
-                                  <button
-                                    type="button"
-                                    className="text-left font-medium text-[11px] text-cyber-text-primary hover:text-cyber-neon-cyan truncate"
-                                    onClick={() => onOpenDocument?.(document.documentId)}
-                                  >
-                                    {document.title || '无标题'}
-                                  </button>
-                                  {document.sourceUrl ? (
-                                    <a href={document.sourceUrl} target="_blank" rel="noreferrer" className="text-cyber-text-muted hover:text-cyber-neon-cyan">
-                                      <ExternalLink className="h-3 w-3" />
-                                    </a>
-                                  ) : null}
-                                </div>
-                                {document.excerpt ? (
-                                  <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-cyber-text-muted">
-                                    {document.excerpt}
-                                  </p>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="grid h-32 place-items-center text-xs text-cyber-text-muted">
-                          暂无匹配文档
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 拆分操作 */}
-                    {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) && splitDocumentIds.length > 0 ? (
-                      <div className="mt-2.5 flex items-center justify-between rounded-lg border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-2 text-xs">
-                        <span className="text-[10px] text-cyber-text-primary">
-                          已选 <strong>{splitDocumentIds.length}</strong> 篇文档
-                        </span>
-                        <Button size="sm" variant="outline" className="h-6 px-2.5 text-[10px] border-cyber-neon-cyan text-cyber-neon-cyan bg-cyber-bg-primary hover:bg-cyber-neon-cyan/20" onClick={splitEntity}>
-                          <Split className="h-3 w-3 mr-1" />拆分新概念
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-              </div>
-
-              {/* 人工校正规则列表 */}
-              {(rulesQuery.data || []).length > 0 && (
-                <div className="mt-2 border-t border-cyber-border-subtle/50 pt-2">
-                  <p className="mb-1 text-[11px] font-medium text-cyber-text-muted">已生效的人工治理规则 ({rulesQuery.data!.length})</p>
-                  <div className="flex flex-wrap gap-2 max-h-16 overflow-y-auto">
-                    {rulesQuery.data!.map((rule) => (
-                      <div key={rule.ruleId} className="flex items-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 px-2 py-0.5 text-[10px]">
-                        <span className="text-cyber-text-primary">
-                          {rule.operation === 'merge' ? `${rule.sourceLabels.join(' + ')} ➔ ${rule.targetLabel}` : `${rule.documentIds.length} 篇证据 ➔ ${rule.targetLabel}`}
-                        </span>
-                        <button type="button" className="text-cyber-text-muted hover:text-rose-400 p-0.5" title="撤销此规则" onClick={() => removeRule(rule.ruleId)}>
-                          <Undo2 className="h-3 w-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <ObsidianForceGraph
+                nodes={visibleNodes}
+                edges={visibleEdges}
+                selectedElement={selectedElement}
+                onSelectElement={setSelectedElement}
+                onMergeNodes={handleQuickMerge}
+                onConnectNodes={handleQuickConnect}
+                nodeColors={nodeColor}
+              />
             </div>
           ) : (
-            <div className="grid h-72 place-items-center text-xs text-cyber-text-muted">
+            <div className="grid h-72 place-items-center text-xs text-cyber-text-muted rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/25">
               当前任务范围暂无足够的关系数据以投影图谱
             </div>
           )}
         </section>
 
-        {/* 右侧分栏详情抽屉 (非全景展开时) */}
-        {!isExpanded && selectedElement && (
+        {/* 右侧分栏详情抽屉 */}
+        {selectedElement && (
           <section className="flex min-w-0 flex-col rounded-xl border border-cyber-neon-cyan/40 bg-cyber-bg-secondary/45 p-4 shadow-xl lg:h-full lg:min-h-0 lg:overflow-hidden animate-in fade-in slide-in-from-right-4">
             {/* Header */}
             <div className="flex items-start justify-between gap-3 border-b border-cyber-border-subtle pb-3">
@@ -581,15 +508,29 @@ export function KnowledgeGraphView({
                 </p>
               </div>
 
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60 shrink-0"
-                onClick={() => { setSelectedElement(null); setSplitDocumentIds([]) }}
-              >
-                <X className="h-3.5 w-3.5 mr-1" />
-                <span>关闭</span>
-              </Button>
+              <div className="flex items-center gap-1 shrink-0">
+                {'label' in selectedElement ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs text-cyber-text-muted hover:text-rose-400 hover:bg-rose-500/10"
+                    onClick={() => handleIgnoreEntity(selectedElement.id, selectedElement.label)}
+                    title="将此无意义或噪点实体从图谱中移出"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    <span>移出</span>
+                  </Button>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60 shrink-0"
+                  onClick={() => { setSelectedElement(null); setSplitDocumentIds([]) }}
+                >
+                  <X className="h-3.5 w-3.5 mr-1" />
+                  <span>关闭</span>
+                </Button>
+              </div>
             </div>
 
             {/* Action Toolbar */}
@@ -605,11 +546,15 @@ export function KnowledgeGraphView({
                     <Filter className="h-3 w-3" />在数据透视表中查看
                   </Button>
                 ) : null}
-                {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? (
+                {'label' in selectedElement ? (
                   <Button
                     size="sm"
                     variant="outline"
-                    className={`h-7 gap-1 px-2.5 text-[11px] ${mergeNodeIds.includes(selectedElement.id) ? 'border-violet-500 bg-violet-500/20 text-violet-300' : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'}`}
+                    className={`h-7 gap-1 px-2.5 text-[11px] ${
+                      mergeNodeIds.includes(selectedElement.id)
+                        ? 'border-cyber-border-subtle bg-cyber-bg-secondary text-cyber-text-primary font-medium'
+                        : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'
+                    }`}
                     onClick={() => setMergeNodeIds((current) => current.includes(selectedElement.id) ? current.filter((id) => id !== selectedElement.id) : [...current, selectedElement.id])}
                   >
                     <Combine className="h-3 w-3" />
@@ -618,9 +563,9 @@ export function KnowledgeGraphView({
                 ) : null}
               </div>
 
-              {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? (
+              {'label' in selectedElement ? (
                 <span className="text-[10px] text-cyber-text-muted">
-                  勾选证据文档可拆分实体
+                  勾选证据可分离为新节点
                 </span>
               ) : null}
             </div>
@@ -643,7 +588,7 @@ export function KnowledgeGraphView({
                     }`}
                   >
                     <div className="flex items-start gap-2.5">
-                      {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? (
+                      {'label' in selectedElement ? (
                         <input
                           type="checkbox"
                           className="mt-1 h-3.5 w-3.5 rounded border-cyber-border-subtle text-cyber-neon-cyan focus:ring-0 cursor-pointer"
@@ -655,14 +600,14 @@ export function KnowledgeGraphView({
                                 : [...current, document.documentId]
                             )
                           }
-                          aria-label="选择文档用于拆分实体"
+                          aria-label="选择文档用于分离新节点"
                         />
                       ) : null}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
                           <button
                             type="button"
-                            className="text-left font-medium text-xs text-cyber-text-primary hover:text-cyber-neon-cyan transition-colors truncate"
+                            className="text-left font-medium text-xs text-cyber-text-primary hover:text-cyber-neon-cyan truncate"
                             onClick={() => onOpenDocument?.(document.documentId)}
                             title={document.title || '无标题'}
                           >
@@ -709,15 +654,307 @@ export function KnowledgeGraphView({
                 <span className="text-[11px] text-cyber-text-primary">
                   已勾选 <strong>{splitDocumentIds.length}</strong> 篇文档
                 </span>
-                <Button size="sm" variant="outline" className="h-7 gap-1 px-3 text-[11px] border-cyber-neon-cyan text-cyber-neon-cyan bg-cyber-bg-primary hover:bg-cyber-neon-cyan/20" onClick={splitEntity}>
+                <Button size="sm" variant="outline" className="h-7 gap-1 px-3 text-[11px] border-cyber-neon-cyan text-cyber-neon-cyan bg-cyber-bg-primary hover:bg-cyber-neon-cyan/20" onClick={openSplitModal}>
                   <Split className="h-3 w-3" />
-                  <span>拆分为新概念实体</span>
+                  <span>分离为新概念节点</span>
                 </Button>
               </div>
             ) : null}
           </section>
         )}
       </div>
+
+      {/* 知识图谱操作指引弹窗 */}
+      <Dialog open={showMergeGuide} onOpenChange={setShowMergeGuide}>
+        <DialogContent className="max-w-sm border-cyber-border-subtle bg-cyber-bg-secondary/95 p-5 backdrop-blur-xl">
+          <DialogHeader className="pb-1">
+            <DialogTitle className="text-sm font-semibold text-cyber-text-primary">
+              图谱快捷操作指引
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-2 py-1 text-xs text-cyber-text-muted">
+            <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 text-cyan-400 font-bold">•</span>
+                <span><strong className="text-cyber-text-primary">浏览与拓扑探索</strong>：拖拽节点可探索力导向拓扑分布，滚轮缩放画布；点击任意节点或连线可在右侧打开证据回溯侧边栏。</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 text-violet-400 font-bold">•</span>
+                <span><strong className="text-cyber-text-primary">磁吸合并</strong>：按住 <kbd className="px-1 py-0.5 rounded bg-cyber-bg-secondary border border-cyber-border-subtle text-[10px] text-cyber-text-primary">Alt / Option</kbd> 拖拽节点靠近目标释放，或点击右下角工具栏「合并」模式。</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 text-emerald-400 font-bold">•</span>
+                <span><strong className="text-cyber-text-primary">快速连线</strong>：按住 <kbd className="px-1 py-0.5 rounded bg-cyber-bg-secondary border border-cyber-border-subtle text-[10px] text-cyber-text-primary">Shift</kbd> 拖拽拉出激光线连接两点，或点击右下角工具栏「连线」模式。</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="shrink-0 text-amber-400 font-bold">•</span>
+                <span><strong className="text-cyber-text-primary">实体治理</strong>：在右侧详情栏中可将噪点实体「移出」图谱、加入待合并清单，或勾选证据文档「分离为新节点」。</span>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              size="sm"
+              className="w-full bg-cyber-neon-cyan text-cyber-bg-primary hover:bg-cyber-neon-cyan/90 font-medium text-xs h-7"
+              onClick={() => setShowMergeGuide(false)}
+            >
+              我知道了
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 实体合并统一命名弹窗 */}
+      <Dialog open={isMergeModalOpen} onOpenChange={setIsMergeModalOpen}>
+        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50">
+                <Combine className="h-5 w-5 text-cyber-neon-cyan" />
+              </div>
+              <div className="text-left">
+                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
+                  统一合并实体名称
+                </DialogTitle>
+                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
+                  将选中的 {mergeNodeIds.length} 个实体合并为一个标准实体
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs text-cyber-text-muted font-medium block mb-1.5">
+                选中的待合并实体：
+              </label>
+              <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 max-h-24 overflow-y-auto">
+                {(graph?.nodes || [])
+                  .filter((n) => mergeNodeIds.includes(n.id))
+                  .map((n) => (
+                    <span
+                      key={n.id}
+                      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium border border-cyber-border-subtle bg-cyber-bg-secondary text-cyber-text-primary"
+                    >
+                      {n.label}
+                    </span>
+                  ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-cyber-text-primary font-medium block mb-1.5">
+                合并后的统一标准名称：
+              </label>
+              <Input
+                value={mergeTargetName}
+                onChange={(e) => setMergeTargetName(e.target.value)}
+                placeholder="请输入统一实体名称..."
+                className="h-9 text-xs"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleConfirmMerge()
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-cyber-border-subtle"
+              onClick={() => setIsMergeModalOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="bg-cyber-neon-cyan hover:bg-cyber-neon-cyan/90 text-cyber-bg-primary font-medium text-xs"
+              onClick={handleConfirmMerge}
+              disabled={!mergeTargetName.trim() || isSubmittingMerge}
+            >
+              {isSubmittingMerge ? '正在合并...' : '确认合并'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 实体拆分新概念弹窗 */}
+      <Dialog open={isSplitModalOpen} onOpenChange={setIsSplitModalOpen}>
+        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10">
+                <Split className="h-5 w-5 text-cyber-neon-cyan" />
+              </div>
+              <div className="text-left">
+                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
+                  拆分新概念/实体
+                </DialogTitle>
+                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
+                  将已选中的 {splitDocumentIds.length} 篇证据文档从原实体中拆出
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            <div className="text-xs text-cyber-text-muted">
+              原实体节点：
+              <span className="font-semibold text-cyber-text-primary ml-1">
+                {selectedElement && 'label' in selectedElement ? selectedElement.label : ''}
+              </span>
+            </div>
+
+            <div>
+              <label className="text-xs text-cyber-text-primary font-medium block mb-1.5">
+                拆分出的新概念/实体名称：
+              </label>
+              <Input
+                value={splitTargetName}
+                onChange={(e) => setSplitTargetName(e.target.value)}
+                placeholder="请输入新概念/实体名称..."
+                className="h-9 text-xs"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleConfirmSplit()
+                }}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-cyber-border-subtle"
+              onClick={() => setIsSplitModalOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="bg-cyber-neon-cyan hover:bg-cyber-neon-cyan/90 text-cyber-bg-primary font-medium text-xs"
+              onClick={handleConfirmSplit}
+              disabled={!splitTargetName.trim() || isSubmittingSplit}
+            >
+              {isSubmittingSplit ? '正在拆分...' : '确认拆分'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 图谱治理操作历史与规则管理弹窗 */}
+      <Dialog open={isHistoryModalOpen} onOpenChange={setIsHistoryModalOpen}>
+        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-5 backdrop-blur-xl">
+          <DialogHeader className="pb-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60">
+                  <HistoryIcon className="h-4 w-4 text-cyber-neon-cyan" />
+                </div>
+                <DialogTitle className="text-sm font-semibold text-cyber-text-primary">
+                  图谱操作历史与规则管理
+                </DialogTitle>
+              </div>
+            </div>
+            <DialogDescription className="text-xs text-cyber-text-muted mt-1">
+              管理已保存的实体合并、拆分、连线与移出规则，支持逐项撤销或一键重置。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2">
+            {(rulesQuery.data || []).length > 0 ? (
+              <>
+                <div className="flex items-center justify-between text-xs px-0.5">
+                  <span className="text-cyber-text-muted">
+                    共生效 <strong>{rulesQuery.data!.length}</strong> 条自定义治理规则
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
+                    onClick={async () => {
+                      const rules = rulesQuery.data || []
+                      for (const r of rules) {
+                        await fetch(`/api/graph/${encodeURIComponent(graph!.id)}/entity-rules/${encodeURIComponent(r.ruleId)}`, { method: 'DELETE' })
+                      }
+                      toast.success('已清空全部规则，图谱已恢复原始默认状态')
+                      await graphQuery.refetch()
+                      await rulesQuery.refetch()
+                    }}
+                  >
+                    清空全部并恢复初始
+                  </button>
+                </div>
+
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {rulesQuery.data!.map((rule) => (
+                    <div
+                      key={rule.ruleId}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 p-2.5 text-xs transition-colors hover:border-cyber-neon-cyan/40"
+                    >
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5 font-medium text-cyber-text-primary">
+                          {rule.operation === 'merge' ? (
+                            <span className="text-violet-400">🧩 实体合并</span>
+                          ) : rule.operation === 'ignore' ? (
+                            <span className="text-rose-400">🗑️ 移出噪点</span>
+                          ) : rule.operation === 'link' ? (
+                            <span className="text-emerald-400">🔗 手动连线</span>
+                          ) : (
+                            <span className="text-amber-400">✂️ 实体拆分</span>
+                          )}
+                          <span className="text-[10px] text-cyber-text-muted">
+                            ({rule.nodeType})
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-cyber-text-muted truncate">
+                          {rule.operation === 'merge'
+                            ? `${rule.sourceLabels.join(' + ')} ➔ ${rule.targetLabel}`
+                            : rule.operation === 'ignore'
+                            ? `已移出「${rule.sourceLabels.join(', ')}」`
+                            : rule.operation === 'link'
+                            ? `${rule.sourceLabels.join(' ↔ ')} (${rule.targetLabel || '语义共现'})`
+                            : `${rule.documentIds.length} 篇文档 ➔ ${rule.targetLabel}`}
+                        </p>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs text-cyber-text-muted hover:text-rose-400 hover:bg-rose-500/10 shrink-0"
+                        onClick={() => removeRule(rule.ruleId)}
+                        title="撤销此条规则"
+                      >
+                        <Undo2 className="h-3.5 w-3.5 mr-1" />
+                        <span>撤销</span>
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="grid h-36 place-items-center rounded-lg border border-dashed border-cyber-border-subtle bg-cyber-bg-primary/30 text-xs text-cyber-text-muted">
+                暂无自定义操作记录（支持在图谱中合并、连线、移出或拆分实体）
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full text-xs border-cyber-border-subtle h-7"
+              onClick={() => setIsHistoryModalOpen(false)}
+            >
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -758,10 +995,17 @@ export function ResearchReportsView({
   })
 
   const compareReport = async (artifactId: string) => {
-    const response = await fetch(`/api/reports/${encodeURIComponent(artifactId)}/compare`)
-    const result = await response.json()
-    if (!response.ok) return window.alert(result.detail || '报告版本对比失败')
-    setComparison(result as ReportComparison)
+    try {
+      const response = await fetch(`/api/reports/${encodeURIComponent(artifactId)}/compare`)
+      const result = await response.json()
+      if (!response.ok) {
+        toast.error(result.detail || '报告版本对比失败')
+        return
+      }
+      setComparison(result as ReportComparison)
+    } catch (err: any) {
+      toast.error(err.message || '报告版本对比失败')
+    }
   }
 
   const createIncremental = async (workflowId: string) => {
@@ -774,8 +1018,13 @@ export function ResearchReportsView({
         body: JSON.stringify({ execute: true }),
       })
       const result = await response.json()
-      if (!response.ok) return window.alert(result.detail || '增量任务创建失败')
-      window.alert('增量任务已创建并进入执行队列')
+      if (!response.ok) {
+        toast.error(result.detail || '增量任务创建失败')
+        return
+      }
+      toast.success('增量任务已创建并进入执行队列')
+    } catch (err: any) {
+      toast.error(err.message || '增量任务创建失败')
     } finally {
       setIncrementalWorkflowId(null)
     }

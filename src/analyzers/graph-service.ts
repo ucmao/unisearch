@@ -62,11 +62,19 @@ export class GraphService {
     const entityRules = this.listEntityRulesForScope(scopeType, scopeId);
     const mergeLabels = new Map<string, string>();
     const splitDocuments = new Map<string, string>();
+    const ignoreLabels = new Set<string>();
+    const linkPairs: Array<{ fromLabel: string; toLabel: string; relation: string; nodeType: string }> = [];
     for (const rule of entityRules) {
       if (rule.operation === 'merge') {
         for (const label of rule.sourceLabels) mergeLabels.set(`${rule.nodeType}:${label.toLocaleLowerCase()}`, rule.targetLabel);
-      } else {
+      } else if (rule.operation === 'split') {
         for (const documentId of rule.documentIds) splitDocuments.set(`${rule.nodeType}:${documentId}`, rule.targetLabel);
+      } else if (rule.operation === 'ignore') {
+        for (const label of rule.sourceLabels) ignoreLabels.add(`${rule.nodeType}:${label.toLocaleLowerCase()}`);
+      } else if (rule.operation === 'link') {
+        if (rule.sourceLabels.length >= 2) {
+          linkPairs.push({ fromLabel: rule.sourceLabels[0], toLabel: rule.sourceLabels[1], relation: rule.targetLabel || 'co_occurs', nodeType: rule.nodeType });
+        }
       }
     }
 
@@ -86,6 +94,7 @@ export class GraphService {
 
     const addNode = (type: GraphNode['type'], label: string, document: CanonicalDocument, metadata: Record<string, unknown> = {}) => {
       const normalized = correctedLabel(type, label, document.documentId);
+      if (ignoreLabels.has(`${type}:${normalized.toLocaleLowerCase()}`)) return undefined;
       const id = stableId(type, normalized.toLocaleLowerCase());
       const current = nodes.get(id) || { id, type, label: normalized, weight: 0, documentIds: [], metadata };
       if (!current.documentIds.includes(document.documentId)) {
@@ -95,10 +104,11 @@ export class GraphService {
       nodes.set(id, current);
       return id;
     };
-    const addEdge = (from: string, to: string, relation: GraphEdge['relation'], document: CanonicalDocument) => {
+    const addEdge = (from: string | undefined, to: string | undefined, relation: GraphEdge['relation'], document?: CanonicalDocument) => {
+      if (!from || !to || from === to) return;
       const id = stableId('edge', `${from}|${relation}|${to}`);
       const current = edges.get(id) || { id, from, to, relation, weight: 0, documentIds: [], evidence: [] };
-      if (!current.documentIds.includes(document.documentId)) {
+      if (document && !current.documentIds.includes(document.documentId)) {
         current.documentIds.push(document.documentId);
         current.weight += 1;
         if (current.evidence.length < 5) current.evidence.push({
@@ -107,6 +117,8 @@ export class GraphService {
           ...(document.sourceUrl ? { sourceUrl: document.sourceUrl } : {}),
           excerpt: excerpt(document),
         });
+      } else if (!document && current.weight === 0) {
+        current.weight = 1;
       }
       edges.set(id, current);
     };
@@ -117,15 +129,34 @@ export class GraphService {
         ? addNode('subject', subjectLabel, document, { subjectType: document.subject.type, subjectId: document.subject.id })
         : undefined;
       const platformId = addNode('platform', document.platform, document);
-      if (subjectId) addEdge(subjectId, platformId, 'published_on', document);
+      if (subjectId && platformId) addEdge(subjectId, platformId, 'published_on', document);
       if (document.keyword) {
         const keywordId = addNode('keyword', document.keyword, document);
-        if (subjectId) addEdge(subjectId, keywordId, 'matched_keyword', document);
-        addEdge(keywordId, platformId, 'co_occurs', document);
+        if (subjectId && keywordId) addEdge(subjectId, keywordId, 'matched_keyword', document);
+        if (keywordId && platformId) addEdge(keywordId, platformId, 'co_occurs', document);
       }
       for (const topic of topics(document)) {
         const topicId = addNode('topic', topic, document);
-        if (subjectId) addEdge(subjectId, topicId, 'mentions_topic', document);
+        if (subjectId && topicId) addEdge(subjectId, topicId, 'mentions_topic', document);
+      }
+    }
+
+    for (const link of linkPairs) {
+      const fromNode = Array.from(nodes.values()).find((n) => n.label.toLocaleLowerCase() === link.fromLabel.toLocaleLowerCase());
+      const toNode = Array.from(nodes.values()).find((n) => n.label.toLocaleLowerCase() === link.toLabel.toLocaleLowerCase());
+      if (fromNode && toNode) {
+        const edgeId = stableId('edge', `${fromNode.id}|co_occurs|${toNode.id}`);
+        if (!edges.has(edgeId)) {
+          edges.set(edgeId, {
+            id: edgeId,
+            from: fromNode.id,
+            to: toNode.id,
+            relation: 'co_occurs',
+            weight: 1,
+            documentIds: [],
+            evidence: [{ documentId: 'manual', title: '用户自定义关联', excerpt: `手动关联「${fromNode.label}」与「${toNode.label}」` }],
+          });
+        }
       }
     }
 
@@ -221,7 +252,7 @@ export class GraphService {
     const types = new Set(nodes.map((node) => node.node_type));
     if (types.size !== 1) throw new Error('只能合并同类型实体');
     const nodeType = String(nodes[0].node_type);
-    if (!['subject', 'topic'].includes(nodeType)) throw new Error('仅主体和话题实体支持人工合并');
+    if (!['subject', 'topic', 'keyword', 'platform'].includes(nodeType)) throw new Error('不支持此类型实体的人工合并');
     this.db.prepare(`INSERT INTO graph_entity_rules
       (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
       VALUES (?, ?, ?, ?, 'merge', ?, ?, '[]', ?)`)
@@ -236,7 +267,7 @@ export class GraphService {
     const snapshot = this.db.prepare('SELECT scope_type, scope_id FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
     const node = this.db.prepare('SELECT node_type, document_ids_json FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, nodeId) as any;
     if (!snapshot || !node) throw new Error('Graph entity not found');
-    if (!['subject', 'topic'].includes(String(node.node_type))) throw new Error('仅主体和话题实体支持人工拆分');
+    if (!['subject', 'topic', 'keyword', 'platform'].includes(String(node.node_type))) throw new Error('不支持此类型实体的人工拆分');
     const available = new Set<string>(JSON.parse(node.document_ids_json || '[]'));
     const selected = [...new Set(documentIds.map(String))].filter((documentId) => available.has(documentId));
     if (!selected.length || selected.length >= available.size) throw new Error('拆分必须选择该实体的部分证据文档');
@@ -244,6 +275,29 @@ export class GraphService {
       (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
       VALUES (?, ?, ?, ?, 'split', '[]', ?, ?, ?)`)
       .run(crypto.randomUUID(), snapshot.scope_type, snapshot.scope_id, node.node_type, label, JSON.stringify(selected), new Date().toISOString());
+    return this.rebuild(this.scopeFromSnapshot(snapshot));
+  }
+
+  ignoreEntity(graphId: string, nodeId: string): any {
+    const snapshot = this.db.prepare('SELECT scope_type, scope_id FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
+    const node = this.db.prepare('SELECT node_type, label FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, nodeId) as any;
+    if (!snapshot || !node) throw new Error('Graph entity not found');
+    this.db.prepare(`INSERT INTO graph_entity_rules
+      (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
+      VALUES (?, ?, ?, ?, 'ignore', ?, '', '[]', ?)`)
+      .run(crypto.randomUUID(), snapshot.scope_type, snapshot.scope_id, node.node_type, JSON.stringify([node.label]), new Date().toISOString());
+    return this.rebuild(this.scopeFromSnapshot(snapshot));
+  }
+
+  linkEntities(graphId: string, fromNodeId: string, toNodeId: string, relation = 'co_occurs'): any {
+    const snapshot = this.db.prepare('SELECT scope_type, scope_id FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
+    const fromNode = this.db.prepare('SELECT node_type, label FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, fromNodeId) as any;
+    const toNode = this.db.prepare('SELECT node_type, label FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, toNodeId) as any;
+    if (!snapshot || !fromNode || !toNode) throw new Error('Graph entities not found');
+    this.db.prepare(`INSERT INTO graph_entity_rules
+      (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
+      VALUES (?, ?, ?, ?, 'link', ?, ?, '[]', ?)`)
+      .run(crypto.randomUUID(), snapshot.scope_type, snapshot.scope_id, fromNode.node_type, JSON.stringify([fromNode.label, toNode.label]), relation, new Date().toISOString());
     return this.rebuild(this.scopeFromSnapshot(snapshot));
   }
 

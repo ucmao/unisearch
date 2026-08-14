@@ -787,6 +787,26 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
+  fastify.post('/api/graph/:graph_id/entities/ignore', async (request, reply) => {
+    const graphId = (request.params as { graph_id: string }).graph_id;
+    const body = (request.body || {}) as { node_id?: string };
+    try {
+      return { status: 'ok', graph: graphService.ignoreEntity(graphId, String(body.node_id || '')) };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/graph/:graph_id/entities/link', async (request, reply) => {
+    const graphId = (request.params as { graph_id: string }).graph_id;
+    const body = (request.body || {}) as { from_node_id?: string; to_node_id?: string; relation?: string };
+    try {
+      return { status: 'ok', graph: graphService.linkEntities(graphId, String(body.from_node_id || ''), String(body.to_node_id || ''), body.relation) };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
   fastify.delete('/api/graph/:graph_id/entity-rules/:rule_id', async (request, reply) => {
     const params = request.params as { graph_id: string; rule_id: string };
     try {

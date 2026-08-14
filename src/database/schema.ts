@@ -456,7 +456,7 @@ export function initSchema(db: Database): void {
       scope_type TEXT NOT NULL,
       scope_id TEXT NOT NULL,
       node_type TEXT NOT NULL,
-      operation TEXT NOT NULL CHECK(operation IN ('merge', 'split')),
+      operation TEXT NOT NULL CHECK(operation IN ('merge', 'split', 'ignore', 'link')),
       source_labels_json TEXT NOT NULL DEFAULT '[]',
       target_label TEXT NOT NULL,
       document_ids_json TEXT NOT NULL DEFAULT '[]',
@@ -564,5 +564,30 @@ export function initSchema(db: Database): void {
     );
   `);
 
-  db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
-}
+    // Migrate graph_entity_rules if check constraint doesn't allow 'ignore' and 'link'
+    const ruleTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='graph_entity_rules'").get() as { sql?: string } | undefined;
+    if (ruleTable?.sql && !ruleTable.sql.includes("'ignore'")) {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE graph_entity_rules_new (
+            rule_id TEXT PRIMARY KEY,
+            scope_type TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            node_type TEXT NOT NULL,
+            operation TEXT NOT NULL CHECK(operation IN ('merge', 'split', 'ignore', 'link')),
+            source_labels_json TEXT NOT NULL DEFAULT '[]',
+            target_label TEXT NOT NULL,
+            document_ids_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL
+          );
+          INSERT INTO graph_entity_rules_new SELECT * FROM graph_entity_rules;
+          DROP TABLE graph_entity_rules;
+          ALTER TABLE graph_entity_rules_new RENAME TO graph_entity_rules;
+          CREATE INDEX IF NOT EXISTS idx_graph_entity_rules_scope
+            ON graph_entity_rules(scope_type, scope_id, created_at);
+        `);
+      })();
+    }
+
+    db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
+  }

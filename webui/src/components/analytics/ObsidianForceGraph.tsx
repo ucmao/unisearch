@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Move, Pause, Play, RotateCcw, ZoomIn, ZoomOut, Sparkles } from 'lucide-react'
+import { Combine, Link2, Move, Pause, Play, RotateCcw, Sparkles, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export type GraphNode = {
@@ -49,6 +49,8 @@ interface ObsidianForceGraphProps {
   edges: Edge[]
   selectedElement: GraphNode | Edge | null
   onSelectElement: (element: GraphNode | Edge | null) => void
+  onMergeNodes?: (sourceNode: GraphNode, targetNode: GraphNode) => void
+  onConnectNodes?: (sourceNode: GraphNode, targetNode: GraphNode) => void
   nodeColors?: Record<string, string>
 }
 
@@ -57,6 +59,8 @@ export function ObsidianForceGraph({
   edges,
   selectedElement,
   onSelectElement,
+  onMergeNodes,
+  onConnectNodes,
   nodeColors = DEFAULT_NODE_COLORS,
 }: ObsidianForceGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -72,13 +76,27 @@ export function ObsidianForceGraph({
   const isPausedRef = useRef(false)
   isPausedRef.current = isPaused
 
+  const [isLinkMode, setIsLinkMode] = useState(false)
+  const isLinkModeRef = useRef(false)
+  isLinkModeRef.current = isLinkMode
+
+  const [isMergeMode, setIsMergeMode] = useState(false)
+  const isMergeModeRef = useRef(false)
+  isMergeModeRef.current = isMergeMode
+
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null)
   const hoveredNodeRef = useRef<SimNode | null>(null)
   hoveredNodeRef.current = hoveredNode
 
+  const linkingCursorRef = useRef<{ worldX: number; worldY: number } | null>(null)
+  const linkTargetNodeRef = useRef<SimNode | null>(null)
+  const mergeTargetNodeRef = useRef<SimNode | null>(null)
+
   const dragRef = useRef<{
     node: SimNode | null
     isPanning: boolean
+    isLinking: boolean
+    isMerging: boolean
     startX: number
     startY: number
     initialPanX: number
@@ -87,6 +105,8 @@ export function ObsidianForceGraph({
   }>({
     node: null,
     isPanning: false,
+    isLinking: false,
+    isMerging: false,
     startX: 0,
     startY: 0,
     initialPanX: 0,
@@ -116,10 +136,18 @@ export function ObsidianForceGraph({
     const centerY = height / 2
 
     // 1. Repulsion & Collision between node pairs
+    const draggingNode = dragRef.current.node
+    const isMerging = dragRef.current.isMerging
+
     for (let i = 0; i < nodeList.length; i++) {
       const n1 = nodeList[i]
       for (let j = i + 1; j < nodeList.length; j++) {
         const n2 = nodeList[j]
+        // If in deliberate Merge mode (Alt key or button), mute mutual repulsion so target node stays steady
+        if (isMerging && draggingNode && (n1 === draggingNode || n2 === draggingNode)) {
+          continue
+        }
+
         const dx = n2.x - n1.x
         const dy = n2.y - n1.y
         const distSq = dx * dx + dy * dy
@@ -137,18 +165,18 @@ export function ObsidianForceGraph({
         const fx = Math.min((dx / dist) * force, 6)
         const fy = Math.min((dy / dist) * force, 6)
 
-        if (n1 !== dragRef.current.node) {
+        if (n1 !== draggingNode) {
           n1.vx -= fx
           n1.vy -= fy
         }
-        if (n2 !== dragRef.current.node) {
+        if (n2 !== draggingNode) {
           n2.vx += fx
           n2.vy += fy
         }
       }
 
       // Centering gravity
-      if (n1 !== dragRef.current.node) {
+      if (n1 !== draggingNode) {
         n1.vx += (centerX - n1.x) * centerGravity * alpha
         n1.vy += (centerY - n1.y) * centerGravity * alpha
       }
@@ -309,26 +337,8 @@ export function ObsidianForceGraph({
   }, [])
 
   // Auto fit once after mount & handle container resize
+  // Auto fit once after mount
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    let prevWidth = container.clientWidth
-    let prevHeight = container.clientHeight
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect
-        if (Math.abs(width - prevWidth) > 20 || Math.abs(height - prevHeight) > 20) {
-          prevWidth = width
-          prevHeight = height
-          resetView()
-          reheat(0.4)
-        }
-      }
-    })
-
-    resizeObserver.observe(container)
     const timer = setTimeout(() => {
       resetView()
       reheat(0.8)
@@ -336,7 +346,6 @@ export function ObsidianForceGraph({
 
     return () => {
       clearTimeout(timer)
-      resizeObserver.disconnect()
     }
   }, [resetView, reheat])
 
@@ -527,40 +536,126 @@ export function ObsidianForceGraph({
         }
         ctx.shadowBlur = 0
 
-        // 3. Obsidian Smart Label Density (Prevents overlapping chaos)
-        // Show label if:
-        // - Node is hovered, selected, or directly connected to active focus
-        // - OR node is a major hub (top 16)
-        // - OR user zoomed in (zoom > 1.3)
+        // 3. Obsidian Authentic Label Density (Hides labels on zoom-out, pure starry constellation)
+        // - When hovered or selected: show label for this node and directly connected neighbors
+        // - When zoomed in (zoom >= 1.25): show labels for major hub nodes
+        // - When deeply zoomed in (zoom >= 1.7): show all visible labels
+        // - When zoomed out (zoom < 1.25): hide all background labels for a clean, minimal graph
         const shouldShowLabel =
           isHovered ||
           isSelected ||
           (targetFocusId && isConnected) ||
-          (!targetFocusId && (isMajorNode || zoom > 1.3))
+          (!targetFocusId && (
+            (zoom >= 1.7) ||
+            (zoom >= 1.25 && isMajorNode)
+          ))
 
         if (shouldShowLabel) {
-          const fontSize = isSelected || isHovered ? 11 : isMajorNode ? 10 : 9
-          ctx.font = `${isSelected || isHovered ? '600' : '500'} ${fontSize}px Inter, system-ui, sans-serif`
+          const fontSize = isSelected || isHovered ? 11 : isMajorNode ? 10 : 9.5
+          ctx.font = `${isSelected || isHovered ? '600' : isMajorNode ? '600' : '500'} ${fontSize}px Inter, -apple-system, system-ui, sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'
 
-          const labelY = node.radius + 3
-          const text = node.label.length > 12 ? `${node.label.slice(0, 11)}…` : node.label
+          const labelY = node.radius + 4
+          const text = node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label
 
-          if (!isDimmed) {
-            ctx.fillStyle = isSelected ? '#38bdf8' : isHovered ? '#ffffff' : isMajorNode ? '#e2e8f0' : '#94a3b8'
-            ctx.shadowColor = 'rgba(10, 15, 29, 0.95)'
-            ctx.shadowBlur = 4
-            ctx.fillText(text, 0, labelY)
-            ctx.shadowBlur = 0
+          ctx.shadowBlur = 0
+          ctx.shadowColor = 'transparent'
+
+          const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
+          if (isDark) {
+            ctx.fillStyle = isSelected
+              ? '#38bdf8'
+              : isHovered
+              ? '#ffffff'
+              : isMajorNode
+              ? '#f1f5f9'
+              : !isDimmed
+              ? '#cbd5e1'
+              : 'rgba(148, 163, 184, 0.35)'
           } else {
-            ctx.fillStyle = 'rgba(100, 116, 139, 0.25)'
-            ctx.fillText(text, 0, labelY)
+            // Light Theme (Clean, Sharp, High-Contrast)
+            ctx.fillStyle = isSelected
+              ? '#0284c7'
+              : isHovered
+              ? '#0f172a'
+              : isMajorNode
+              ? '#0f172a'
+              : !isDimmed
+              ? '#334155'
+              : '#94a3b8'
           }
+
+          ctx.fillText(text, 0, labelY)
         }
 
         ctx.restore()
       })
+
+      // --- 3. Draw Link in Progress (Shift-drag or Link Mode) ---
+      if (dragRef.current.isLinking && dragRef.current.node && linkingCursorRef.current) {
+        const source = dragRef.current.node
+        const cursor = linkingCursorRef.current
+        const target = linkTargetNodeRef.current
+
+        ctx.save()
+        ctx.beginPath()
+        ctx.moveTo(source.x, source.y)
+        if (target) {
+          ctx.lineTo(target.x, target.y)
+          ctx.strokeStyle = '#34d399'
+          ctx.shadowColor = '#34d399'
+        } else {
+          ctx.lineTo(cursor.worldX, cursor.worldY)
+          ctx.strokeStyle = '#22d3ee'
+          ctx.shadowColor = '#22d3ee'
+        }
+        ctx.lineWidth = 2.5
+        ctx.shadowBlur = 10
+        ctx.setLineDash([6, 4])
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        if (target) {
+          ctx.beginPath()
+          const pulse = (Math.sin(Date.now() / 150) + 1) * 3 + target.radius + 6
+          ctx.arc(target.x, target.y, pulse, 0, Math.PI * 2)
+          ctx.strokeStyle = 'rgba(52, 211, 153, 0.9)'
+          ctx.lineWidth = 2.5
+          ctx.stroke()
+
+          ctx.font = '600 11px Inter, system-ui, sans-serif'
+          ctx.fillStyle = '#059669'
+          ctx.textAlign = 'center'
+          ctx.shadowBlur = 0
+          ctx.fillText(`⚡ 松开建立关联: ${source.label} ↔ ${target.label}`, target.x, target.y - target.radius - 12)
+        }
+        ctx.restore()
+      }
+
+      // --- 4. Draw Merge Target Indicator (Drag over another node) ---
+      if (dragRef.current.node && !dragRef.current.isLinking && mergeTargetNodeRef.current) {
+        const source = dragRef.current.node
+        const target = mergeTargetNodeRef.current
+
+        ctx.save()
+        ctx.beginPath()
+        const pulse = (Math.sin(Date.now() / 120) + 1) * 4 + target.radius + 8
+        ctx.arc(target.x, target.y, pulse, 0, Math.PI * 2)
+        ctx.strokeStyle = '#a855f7'
+        ctx.shadowColor = '#a855f7'
+        ctx.shadowBlur = 14
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+
+        ctx.font = '600 11.5px Inter, system-ui, sans-serif'
+        ctx.fillStyle = '#7c3aed'
+        ctx.textAlign = 'center'
+        ctx.shadowBlur = 0
+        ctx.fillText(`🧩 松开以合并「${source.label}」入「${target.label}」`, target.x, target.y - target.radius - 14)
+        ctx.restore()
+      }
 
       ctx.restore()
       ctx.restore()
@@ -591,14 +686,39 @@ export function ObsidianForceGraph({
     }
   }
 
-  const findNodeAt = (worldX: number, worldY: number): SimNode | null => {
+  const findNodeAt = (worldX: number, worldY: number, excludeId?: string, extraRadius = 14): SimNode | null => {
     const nodes = Array.from(simNodesRef.current.values())
     for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i]
+      if (excludeId && n.id === excludeId) continue
       const dx = n.x - worldX
       const dy = n.y - worldY
-      if (dx * dx + dy * dy <= (n.radius + 7) * (n.radius + 7)) {
+      const hitRadius = Math.max(n.radius + extraRadius, 18)
+      if (dx * dx + dy * dy <= hitRadius * hitRadius) {
         return n
+      }
+    }
+    return null
+  }
+
+  const findEdgeAt = (worldX: number, worldY: number, maxDist = 10): SimEdge | null => {
+    const edges = simEdgesRef.current
+    const nodeMap = simNodesRef.current
+    for (const edge of edges) {
+      const s = nodeMap.get(edge.from)
+      const t = nodeMap.get(edge.to)
+      if (!s || !t) continue
+      const dx = t.x - s.x
+      const dy = t.y - s.y
+      const lenSq = dx * dx + dy * dy
+      if (lenSq === 0) continue
+      let param = ((worldX - s.x) * dx + (worldY - s.y) * dy) / lenSq
+      param = Math.max(0, Math.min(1, param))
+      const projX = s.x + param * dx
+      const projY = s.y + param * dy
+      const distSq = (worldX - projX) ** 2 + (worldY - projY) ** 2
+      if (distSq <= maxDist * maxDist) {
+        return edge
       }
     }
     return null
@@ -607,25 +727,67 @@ export function ObsidianForceGraph({
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { screenX, screenY } = getCanvasCoords(e)
     const { worldX, worldY } = screenToWorld(screenX, screenY)
-    const hitNode = findNodeAt(worldX, worldY)
+    const hitNode = findNodeAt(worldX, worldY, undefined, 14)
+
+    const shouldLink = e.shiftKey || isLinkModeRef.current
+    const shouldMerge = e.altKey || isMergeModeRef.current
 
     if (hitNode) {
-      dragRef.current = {
-        node: hitNode,
-        isPanning: false,
-        startX: screenX,
-        startY: screenY,
-        initialPanX: transformRef.current.panX,
-        initialPanY: transformRef.current.panY,
-        hasMoved: false,
+      if (shouldLink) {
+        dragRef.current = {
+          node: hitNode,
+          isPanning: false,
+          isLinking: true,
+          isMerging: false,
+          startX: screenX,
+          startY: screenY,
+          initialPanX: transformRef.current.panX,
+          initialPanY: transformRef.current.panY,
+          hasMoved: false,
+        }
+        linkingCursorRef.current = { worldX, worldY }
+        linkTargetNodeRef.current = null
+        mergeTargetNodeRef.current = null
+      } else if (shouldMerge) {
+        dragRef.current = {
+          node: hitNode,
+          isPanning: false,
+          isLinking: false,
+          isMerging: true,
+          startX: screenX,
+          startY: screenY,
+          initialPanX: transformRef.current.panX,
+          initialPanY: transformRef.current.panY,
+          hasMoved: false,
+        }
+        linkingCursorRef.current = null
+        linkTargetNodeRef.current = null
+        mergeTargetNodeRef.current = null
+        hitNode.vx = 0
+        hitNode.vy = 0
+        reheat(0.35)
+      } else {
+        dragRef.current = {
+          node: hitNode,
+          isPanning: false,
+          isLinking: false,
+          isMerging: false,
+          startX: screenX,
+          startY: screenY,
+          initialPanX: transformRef.current.panX,
+          initialPanY: transformRef.current.panY,
+          hasMoved: false,
+        }
+        hitNode.vx = 0
+        hitNode.vy = 0
+        reheat(0.35)
       }
-      hitNode.vx = 0
-      hitNode.vy = 0
-      reheat(0.35)
     } else {
       dragRef.current = {
         node: null,
         isPanning: true,
+        isLinking: false,
+        isMerging: false,
         startX: screenX,
         startY: screenY,
         initialPanX: transformRef.current.panX,
@@ -642,40 +804,94 @@ export function ObsidianForceGraph({
     const drag = dragRef.current
     const dx = screenX - drag.startX
     const dy = screenY - drag.startY
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+    const distMoved = Math.hypot(dx, dy)
+    if (distMoved > 6) {
       drag.hasMoved = true
     }
 
-    if (drag.node) {
+    if (drag.isLinking && drag.node) {
+      linkingCursorRef.current = { worldX, worldY }
+      const target = findNodeAt(worldX, worldY, drag.node.id, 16)
+      linkTargetNodeRef.current = target
+    } else if (drag.isMerging && drag.node) {
       drag.node.x = worldX
       drag.node.y = worldY
       drag.node.vx = 0
       drag.node.vy = 0
       reheat(0.25)
+
+      // Detect hover over another node to merge (with generous 32px magnetic range)
+      const target = findNodeAt(worldX, worldY, drag.node.id, 32)
+      if (target) {
+        target.vx = 0
+        target.vy = 0
+      }
+      mergeTargetNodeRef.current = target
+    } else if (drag.node) {
+      // Normal physics dragging (explore dynamic electromagnetic repulsion)
+      drag.node.x = worldX
+      drag.node.y = worldY
+      drag.node.vx = 0
+      drag.node.vy = 0
+      mergeTargetNodeRef.current = null
+      reheat(0.35)
     } else if (drag.isPanning) {
       transformRef.current.panX = drag.initialPanX + dx
       transformRef.current.panY = drag.initialPanY + dy
     } else {
-      const hovered = findNodeAt(worldX, worldY)
+      const hovered = findNodeAt(worldX, worldY, undefined, 14)
       setHoveredNode(hovered)
     }
   }
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current
-    if (!drag.hasMoved) {
-      const { screenX, screenY } = getCanvasCoords(e)
-      const { worldX, worldY } = screenToWorld(screenX, screenY)
-      const hitNode = findNodeAt(worldX, worldY)
-      if (hitNode) {
-        onSelectElement(hitNode)
+    const { screenX, screenY } = getCanvasCoords(e)
+    const { worldX, worldY } = screenToWorld(screenX, screenY)
+    const distMoved = Math.hypot(screenX - drag.startX, screenY - drag.startY)
+
+    if (drag.isLinking && drag.node && linkTargetNodeRef.current) {
+      const source = drag.node
+      const target = linkTargetNodeRef.current
+      if (source.id !== target.id) {
+        onConnectNodes?.(source, target)
+      }
+    } else if (drag.isMerging && drag.node && mergeTargetNodeRef.current) {
+      const source = drag.node
+      const target = mergeTargetNodeRef.current
+      if (source.id !== target.id) {
+        onMergeNodes?.(source, target)
+      }
+    } else {
+      // 1. If user interacted with a node (pressed down on it), ALWAYS select that node!
+      if (drag.node) {
+        onSelectElement(drag.node)
       } else {
-        onSelectElement(null)
+        // Did user click on a node near release position?
+        const clickedNode = findNodeAt(worldX, worldY, undefined, 20)
+        if (clickedNode) {
+          onSelectElement(clickedNode)
+        } else if (distMoved < 8) {
+          // Did user click on an edge?
+          const clickedEdge = findEdgeAt(worldX, worldY, 12)
+          if (clickedEdge) {
+            onSelectElement(clickedEdge)
+          } else {
+            // Clicked empty canvas -> deselect
+            onSelectElement(null)
+          }
+        }
       }
     }
+
+    linkingCursorRef.current = null
+    linkTargetNodeRef.current = null
+    mergeTargetNodeRef.current = null
     dragRef.current = {
       node: null,
       isPanning: false,
+      isLinking: false,
+      isMerging: false,
       startX: 0,
       startY: 0,
       initialPanX: 0,
@@ -735,7 +951,9 @@ export function ObsidianForceGraph({
     <div ref={containerRef} className="relative h-full w-full min-h-[360px] overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/70 select-none group">
       <canvas
         ref={canvasRef}
-        className="h-full w-full cursor-grab active:cursor-grabbing"
+        className={`h-full w-full ${
+          isLinkMode ? 'cursor-crosshair' : isMergeMode ? 'cursor-alias' : 'cursor-grab active:cursor-grabbing'
+        }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -745,6 +963,41 @@ export function ObsidianForceGraph({
 
       {/* Floating Control Toolbar (Obsidian style) */}
       <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/90 p-1 shadow-xl backdrop-blur-md">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`h-7 px-2 gap-1 text-xs transition-colors ${
+            isMergeMode
+              ? 'text-violet-300 bg-violet-500/25 border border-violet-500/50 font-medium'
+              : 'text-cyber-text-muted hover:text-violet-300 hover:bg-violet-500/10'
+          }`}
+          onClick={() => {
+            setIsMergeMode((prev) => !prev)
+            if (!isMergeMode) setIsLinkMode(false)
+          }}
+          title={isMergeMode ? '退出合并模式' : '开启合并模式 (也可按住 Alt / Option 拖拽)'}
+        >
+          <Combine className="h-3.5 w-3.5" />
+          <span className="text-[11px] hidden sm:inline">{isMergeMode ? '合并中' : '合并'}</span>
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`h-7 px-2 gap-1 text-xs transition-colors ${
+            isLinkMode
+              ? 'text-cyber-neon-cyan bg-cyber-neon-cyan/20 border border-cyber-neon-cyan/50 font-medium'
+              : 'text-cyber-text-muted hover:text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10'
+          }`}
+          onClick={() => {
+            setIsLinkMode((prev) => !prev)
+            if (!isLinkMode) setIsMergeMode(false)
+          }}
+          title={isLinkMode ? '退出连线模式' : '开启连线模式 (也可按住 Shift 拖拽)'}
+        >
+          <Link2 className="h-3.5 w-3.5" />
+          <span className="text-[11px] hidden sm:inline">{isLinkMode ? '连线中' : '连线'}</span>
+        </Button>
+        <div className="h-4 w-px bg-cyber-border-subtle mx-0.5" />
         <Button
           size="sm"
           variant="ghost"
@@ -793,9 +1046,12 @@ export function ObsidianForceGraph({
       </div>
 
       {/* Quick Interactive Hint Overlay */}
-      <div className="pointer-events-none absolute top-2.5 left-3 text-[10px] text-cyber-text-muted/60 flex items-center gap-1.5">
-        <Move className="h-3 w-3" />
-        <span>拖拽节点 / 滚轮缩放 / 拖拽平移</span>
+      <div className="pointer-events-none absolute top-2.5 left-3 text-[10.5px] text-cyber-text-muted/80 flex items-center gap-2 bg-cyber-bg-primary/75 backdrop-blur-xs px-2.5 py-1 rounded-md border border-cyber-border-subtle/50">
+        <span className="flex items-center gap-1"><Move className="h-3 w-3 text-cyber-neon-cyan" /> 拖拽探索斥力</span>
+        <span className="opacity-40">|</span>
+        <span className="flex items-center gap-1"><Combine className="h-3 w-3 text-violet-400" /> 按住 Alt 拖拽可合并</span>
+        <span className="opacity-40">|</span>
+        <span className="flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-400" /> 按住 Shift 拖拽可连线</span>
       </div>
     </div>
   )
