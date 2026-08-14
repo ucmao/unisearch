@@ -771,7 +771,7 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
   return (
     <div className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10"><Bot className="h-4 w-4 text-cyber-neon-cyan" /></div>}
-      <div className={`max-w-[780px] ${isUser ? 'rounded-2xl rounded-tr-sm bg-cyber-neon-cyan/12 px-4 py-3' : 'min-w-0 flex-1'}`}>
+      <div className={`${isUser ? 'max-w-[85%] rounded-2xl rounded-tr-sm bg-cyber-neon-cyan/12 px-4 py-3' : 'min-w-0 flex-1'}`}>
         {isUser && (message.metadata?.attachments?.length || message.metadata?.task_references?.length) ? <div className="mb-3 flex flex-col gap-2.5 items-end">
           {(message.metadata.attachments || []).map((attachment: AgentAttachment) => {
             const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
@@ -870,7 +870,11 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
           </div>
         </div>
       </div>
-      {isUser && <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>}
+      {isUser ? (
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyber-bg-tertiary"><User className="h-4 w-4 text-cyber-text-secondary" /></div>
+      ) : (
+        <div className="w-8 shrink-0 invisible pointer-events-none" aria-hidden="true" />
+      )}
     </div>
   )
 })
@@ -2242,7 +2246,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <main className="flex min-w-0 flex-1 flex-col bg-cyber-bg-primary/40">
             <div ref={messagesScrollRef} onScroll={handleMessagesScroll} className="min-h-0 flex-1 overflow-y-auto">
-              {selectedId ? <div className="mx-auto max-w-4xl space-y-7 px-4 py-8 sm:px-8">
+              {selectedId ? <div className="mx-auto max-w-3xl space-y-7 px-4 py-8 sm:px-6">
                 {threadQuery.isLoading ? <div className="flex justify-center py-20"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
                 {displayMessages.map(({ message, planConfigContent }) => (
                   <MessageBubble
@@ -2823,6 +2827,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               docked
               onClose={toggleTerminal}
               threadId={selectedId}
+              plans={threadQuery.data?.plans}
             />
           </div>
         )}
