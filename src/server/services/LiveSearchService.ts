@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
-import { canonicalSearchResultUrl } from '../../crawler/platforms/search_engine';
+import { canonicalSearchResultUrl, resolveSearchPublisher } from '../../crawler/platforms/search_engine';
 import { webReaderService, type WebReaderParsedArticle } from '../../services/web-reader-service';
 import { listLiveSearchConnectorIds } from '../../connectors/registry';
 
@@ -92,7 +92,7 @@ export function parseBaiduSearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
       source: 'baidu',
       sourceUrl,
       excerpt,
-      publisher: cleanText(item.find('.c-showurl, .c-color-gray, [class*="showurl"]').first().text()) || '百度搜索',
+      publisher: resolveSearchPublisher(item.find('.c-showurl, .c-color-gray, [class*="showurl"]').first().text(), sourceUrl, '百度'),
       publishedAt: resultTime(fullText),
     });
   });
@@ -120,7 +120,7 @@ export function parseBingSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
       source: 'bing',
       sourceUrl,
       excerpt,
-      publisher: cleanText(item.find('cite, .news-attribution').first().text()) || '必应搜索',
+      publisher: resolveSearchPublisher(item.find('cite, .news-attribution').first().text(), sourceUrl, '必应'),
       publishedAt: resultTime(fullText),
     });
   });
@@ -148,7 +148,7 @@ export function parseSogouSearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
       source: 'sogou',
       sourceUrl,
       excerpt,
-      publisher: cleanText(item.find('.cite, .citeurl, .fb').first().text()) || '搜狗搜索',
+      publisher: resolveSearchPublisher(item.find('.cite, .citeurl, .fb').first().text(), sourceUrl, '搜狗'),
       publishedAt: resultTime(fullText),
     });
   });
@@ -176,7 +176,7 @@ export function parseSo360SearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
       source: 'so360',
       sourceUrl,
       excerpt,
-      publisher: cleanText(item.find('.res-site, .res-link').first().text()) || '360搜索',
+      publisher: resolveSearchPublisher(item.find('.res-site, .res-link').first().text(), sourceUrl, '360'),
       publishedAt: resultTime(fullText),
     });
   });
@@ -225,7 +225,7 @@ export function parseToutiaoSearchHtml(html: unknown, limit = 4): EvidenceDraft[
       source: 'toutiao',
       sourceUrl,
       excerpt,
-      publisher: cleanText(data.media_name || data.source || info.site_name || info.domain) || '头条搜索',
+      publisher: resolveSearchPublisher(data.media_name || data.source || info.site_name || info.domain, sourceUrl, '头条'),
       publishedAt: publishedAt || undefined,
     });
   });
@@ -260,7 +260,7 @@ export function parseQuarkSearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
             source: 'quark',
             sourceUrl,
             excerpt: cleanText(item.summary || item.desc || title).slice(0, 600),
-            publisher: cleanText(item.webname || item.source || '神马搜索'),
+            publisher: resolveSearchPublisher(item.webname || item.source, sourceUrl, '神马'),
             publishedAt: item.time ? resultTime(item.time) : undefined,
           });
         }
@@ -288,9 +288,11 @@ export function parseQuarkSearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
     ).slice(0, 600);
     if (!excerpt) return;
 
-    const publisher = cleanText(
-      card.find('.c-footer, .c-source, .c-showurl, .source, .author, .webname, .host, .list-source').first().text()
-    ).split(/[\s·|]/)[0] || '神马搜索';
+    const publisher = resolveSearchPublisher(
+      card.find('.c-footer, .c-source, .c-showurl, .source, .author, .webname, .host, .list-source').first().text(),
+      sourceUrl,
+      '神马',
+    );
 
     const fullText = cleanText(card.text());
     results.push({
@@ -324,9 +326,11 @@ export function parseChinaSoSearchHtml(html: unknown, limit = 4): EvidenceDraft[
     ).slice(0, 600);
     if (!excerpt) return;
 
-    const publisher = cleanText(
-      item.find('.source, .list-source, .pub-name, .news-source, .author').first().text()
-    ) || '中国搜索';
+    const publisher = resolveSearchPublisher(
+      item.find('.source, .list-source, .pub-name, .news-source, .author').first().text(),
+      sourceUrl,
+      '中国搜索',
+    );
 
     const fullText = cleanText(item.text());
     results.push({

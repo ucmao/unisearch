@@ -43,6 +43,7 @@ test('deterministic graph persists traceable nodes and evidence edges', async ()
     assert.equal(graph.isOutdated, false);
     assert.equal(graph.newDocumentCount, 0);
     assert.ok(graph.nodes.some((node: any) => node.type === 'subject' && node.label === '测试作者'));
+    assert.ok(graph.nodes.some((node: any) => node.type === 'platform' && node.label === '小红书'));
     assert.ok(graph.nodes.some((node: any) => node.type === 'keyword' && node.label === '咖啡'));
     assert.ok(graph.edges.some((edge: any) => edge.relation === 'matched_keyword' && edge.documentIds.length === 1));
     assert.equal(service.latest({ threadId: 'thread-1' })?.id, graph.id);
@@ -70,6 +71,50 @@ test('deterministic graph persists traceable nodes and evidence edges', async ()
     const evidence = service.evidence(graph.id, subject.id);
     assert.equal(evidence.documents.length, 1);
     assert.equal(evidence.documents[0].title, '咖啡测评');
+    assert.equal(evidence.documents[0].platform, 'xhs');
+    assert.equal(evidence.documents[0].platformLabel, '小红书');
+  } finally { db.close(); }
+});
+
+test('search engine graph maps platform to Chinese and disambiguates publisher subjects', async () => {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  initSchema(db);
+  const now = new Date().toISOString();
+  try {
+    db.prepare("INSERT INTO agent_threads (thread_id,title,created_at,updated_at) VALUES ('thread-search','搜索任务',?,?)").run(now, now);
+    db.prepare(`INSERT INTO workflow_runs
+      (workflow_id,thread_id,skill_id,skill_version,goal,status,input_json,output_json,created_at,updated_at)
+      VALUES ('workflow-search','thread-search','test','1','百度检索','completed','{}','{}',?,?)`).run(now, now);
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-search','thread-search','workflow-search','测试','测试','baidu','search','AIGC','running',?,?)`)
+      .run(now, JSON.stringify({ connector_options: { max_items: 2 } }));
+
+    const engine = new DocumentEngine(() => db);
+    await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      search_engine: 'baidu', title: '百家号文章', url: 'https://baijiahao.baidu.com/s?id=1',
+      snippet: '百家号深度内容', publisher: '百家号', source_keyword: 'AIGC', search_rank: 1,
+    }), 'run-search');
+    await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      search_engine: 'baidu', title: '通用搜索聚合', url: 'https://www.baidu.com/s?wd=AIGC',
+      snippet: '搜索聚合卡片', publisher: '百度检索聚合', source_keyword: 'AIGC', search_rank: 2,
+    }), 'run-search');
+
+    const service = new GraphService(() => db);
+    const graph = service.rebuild({ threadId: 'thread-search' });
+
+    // Platform node must be mapped to '百度搜索', not 'baidu'
+    const platformNode = graph.nodes.find((n: any) => n.type === 'platform');
+    assert.ok(platformNode, 'Platform node should exist');
+    assert.equal(platformNode.label, '百度搜索');
+
+    // Subject nodes should be '百家号' and '百度检索聚合', never conflicting '百度搜索'
+    const subjectNodes = graph.nodes.filter((n: any) => n.type === 'subject');
+    const subjectLabels = subjectNodes.map((n: any) => n.label);
+    assert.ok(subjectLabels.includes('百家号'));
+    assert.ok(subjectLabels.includes('百度检索聚合'));
+    assert.ok(!subjectLabels.includes('baidu'));
   } finally { db.close(); }
 });
 

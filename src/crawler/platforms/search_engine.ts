@@ -72,6 +72,94 @@ function cleanText(str: string): string {
     .trim();
 }
 
+const WELL_KNOWN_DOMAIN_NAMES: Record<string, string> = {
+  'baijiahao.baidu.com': '百家号',
+  'baike.baidu.com': '百度百科',
+  'zhidao.baidu.com': '百度知道',
+  'wenku.baidu.com': '百度文库',
+  'tieba.baidu.com': '百度贴吧',
+  'jingyan.baidu.com': '百度经验',
+  'xueshu.baidu.com': '百度学术',
+  'haokan.baidu.com': '好看视频',
+  'mbd.baidu.com': '百度资讯',
+  'yiyan.baidu.com': '文心一言',
+  'wenxin.baidu.com': '文心一言',
+  'weixin.qq.com': '微信公众平台',
+  'mp.weixin.qq.com': '微信公众号',
+  'news.qq.com': '腾讯新闻',
+  'qq.com': '腾讯网',
+  'v.qq.com': '腾讯视频',
+  '163.com': '网易',
+  'news.163.com': '网易新闻',
+  'sina.com.cn': '新浪网',
+  'news.sina.com.cn': '新浪新闻',
+  'weibo.com': '微博',
+  'zhihu.com': '知乎',
+  'zhuanlan.zhihu.com': '知乎专栏',
+  'bilibili.com': '哔哩哔哩',
+  'csdn.net': 'CSDN',
+  'juejin.cn': '稀土掘金',
+  'github.com': 'GitHub',
+  'v2ex.com': 'V2EX',
+  'douban.com': '豆瓣',
+  '36kr.com': '36氪',
+  'huxiu.com': '虎嗅网',
+  'ithome.com': 'IT之家',
+  'sohu.com': '搜狐网',
+  'toutiao.com': '今日头条',
+  'douyin.com': '抖音',
+  'xiaohongshu.com': '小红书',
+  'kuaishou.com': '快手',
+  'zhipin.com': 'BOSS直聘',
+};
+
+const GENERIC_ENGINE_KEYWORDS = new Set([
+  'baidu', 'baidu.com', 'www.baidu.com', '百度', '百度搜索', '百度网页',
+  'bing', 'bing.com', 'cn.bing.com', '必应', '必应搜索',
+  'so', 'so.com', '360', '360.cn', '360搜索',
+  'sogou', 'sogou.com', '搜狗', '搜狗搜索',
+  'toutiao', 'toutiao.com', '头条', '头条搜索',
+  'sm.cn', 'quark', '神马', '神马搜索', '夸克', '夸克搜索',
+  'chinaso', 'chinaso.com', '中国搜索', '国搜',
+]);
+
+export function resolveSearchPublisher(rawPublisher: string | undefined, targetUrl: string | undefined, engineName: string): string {
+  const cleaned = cleanText(rawPublisher || '');
+  let hostname = '';
+  if (targetUrl) {
+    try {
+      const parsed = new URL(targetUrl);
+      hostname = parsed.hostname.toLowerCase();
+    } catch {}
+  }
+
+  if (hostname) {
+    if (WELL_KNOWN_DOMAIN_NAMES[hostname]) return WELL_KNOWN_DOMAIN_NAMES[hostname];
+    for (const [key, name] of Object.entries(WELL_KNOWN_DOMAIN_NAMES)) {
+      if (hostname.endsWith(`.${key}`) || hostname === key) return name;
+    }
+  }
+
+  if (cleaned && !GENERIC_ENGINE_KEYWORDS.has(cleaned.toLowerCase())) {
+    if (/^https?:\/\//i.test(cleaned) || /^[a-z0-9.-]+\.[a-z]{2,}(?:\/.*)?$/i.test(cleaned)) {
+      try {
+        const urlStr = cleaned.startsWith('http') ? cleaned : `https://${cleaned}`;
+        return new URL(urlStr).hostname.replace(/^www\./i, '');
+      } catch {}
+    }
+    return cleaned;
+  }
+
+  if (hostname) {
+    const cleanHost = hostname.replace(/^www\./i, '');
+    if (!GENERIC_ENGINE_KEYWORDS.has(cleanHost)) {
+      return cleanHost;
+    }
+  }
+
+  return `${engineName}检索聚合`;
+}
+
 async function resolveRealUrl(encryptedUrl: string): Promise<string> {
   if (!encryptedUrl || !encryptedUrl.startsWith('http')) return encryptedUrl;
   try {
@@ -194,13 +282,14 @@ export class BaiduCrawler extends AbstractCrawler {
             seen.add(dedupeKey);
             totalRank++;
             pageAdded++;
+            const finalPublisher = resolveSearchPublisher(draft.publisher, draft.realUrl || draft.encryptedUrl, '百度');
             await connectorOutput.emitSearchEngineResult({
               search_engine: 'baidu',
               title: draft.title,
               url: draft.encryptedUrl,
               real_url: draft.realUrl,
               snippet: draft.snippet,
-              publisher: draft.publisher,
+              publisher: finalPublisher,
               publish_time: draft.publishTime,
               images: draft.images,
               search_rank: totalRank,
@@ -301,11 +390,12 @@ export class BingCrawler extends AbstractCrawler {
             if (src && src.startsWith('http')) images.push(src);
           });
 
+          const finalPublisher = resolveSearchPublisher(publisher, pageUrl, '必应');
           results.push({
             title,
             url: pageUrl,
             snippet,
-            publisher,
+            publisher: finalPublisher,
             publish_time: timeMatch ? timeMatch[1] : '',
             images,
           });
@@ -387,11 +477,12 @@ export class BingCrawler extends AbstractCrawler {
             if (src && src.startsWith('http')) images.push(src);
           });
 
+          const finalPublisher = resolveSearchPublisher(publisher, pageUrl, '必应');
           results.push({
             title,
             url: pageUrl,
             snippet,
-            publisher,
+            publisher: finalPublisher,
             publish_time: timeMatch ? timeMatch[1] : '',
             images,
           });
@@ -535,13 +626,14 @@ export class So360Crawler extends AbstractCrawler {
             seen.add(dedupeKey);
             totalRank++;
             pageAdded++;
+            const finalPublisher = resolveSearchPublisher(draft.publisher, draft.realUrl || draft.encryptedUrl, '360');
             await connectorOutput.emitSearchEngineResult({
               search_engine: 'so360',
               title: draft.title,
               url: draft.encryptedUrl,
               real_url: draft.realUrl,
               snippet: draft.snippet,
-              publisher: draft.publisher,
+              publisher: finalPublisher,
               publish_time: draft.publishTime,
               images: draft.images,
               search_rank: totalRank,
@@ -664,11 +756,12 @@ function parseToutiaoPage(html: string): ToutiaoPageResult {
       if (img) images.push(img);
     }
 
+    const finalPublisher = resolveSearchPublisher(publisher, url, '头条');
     items.push({
       title,
       url,
       snippet,
-      publisher,
+      publisher: finalPublisher,
       publish_time: publishTime,
       // Cards can carry a dozen near-identical thumbnails; keep the payload small.
       images: [...new Set(images)].slice(0, 5),
@@ -941,11 +1034,12 @@ export class SogouCrawler extends AbstractCrawler {
                 }
               });
 
+              const finalPublisher = resolveSearchPublisher(publisher, rawLink, '搜狗');
               pageItems.push({
                 title,
                 url: rawLink,
                 snippet,
-                publisher,
+                publisher: finalPublisher,
                 images,
                 time: timeMatch ? timeMatch[1] : '',
               });
@@ -982,11 +1076,12 @@ export class SogouCrawler extends AbstractCrawler {
                 }
               });
 
+              const finalPublisher = resolveSearchPublisher(publisher, rawLink, '搜狗');
               pageItems.push({
                 title,
                 url: rawLink,
                 snippet,
-                publisher,
+                publisher: finalPublisher,
                 images,
                 time: '',
               });
@@ -1116,11 +1211,12 @@ function extractQuarkJsonFeeds(obj: any, items: QuarkSearchResultItem[], seen: S
         for (const img of obj.images) if (typeof img === 'string' && img.startsWith('http')) images.push(img);
       }
 
+      const finalPublisher = resolveSearchPublisher(publisher, url, '神马');
       items.push({
         title,
         url,
         snippet,
-        publisher,
+        publisher: finalPublisher,
         time,
         images,
       });
@@ -1184,11 +1280,12 @@ function parseQuarkHtml(html: string, headers?: Record<string, unknown>): { item
       if (src && src.startsWith('http')) images.push(src);
     });
 
+    const finalPublisher = resolveSearchPublisher(publisher, href, '神马');
     items.push({
       title,
       url: href,
       snippet,
-      publisher,
+      publisher: finalPublisher,
       time: timeMatch ? timeMatch[1] : '',
       images,
     });
@@ -1504,11 +1601,12 @@ function parseChinaSoHtml(html: string): ChinaSoSearchResultItem[] {
       if (src && src.startsWith('http')) images.push(src);
     });
 
+    const finalPublisher = resolveSearchPublisher(publisher, href, '中国搜索');
     items.push({
       title,
       url: href,
       snippet,
-      publisher,
+      publisher: finalPublisher,
       time: timeMatch ? timeMatch[1] : '',
       images,
     });

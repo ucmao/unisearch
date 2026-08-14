@@ -5,6 +5,7 @@ import { getDb } from '../database/connection';
 import { AnalysisService } from './registry';
 import { AnalyticsRepository } from '../database/repository';
 import { DocumentEngine } from '../document/document-engine';
+import { platformLabel } from '../connectors/registry';
 
 export type GraphScope = { threadId?: string; workflowId?: string; runId?: string };
 
@@ -128,7 +129,8 @@ export class GraphService {
       const subjectId = subjectLabel
         ? addNode('subject', subjectLabel, document, { subjectType: document.subject.type, subjectId: document.subject.id })
         : undefined;
-      const platformId = addNode('platform', document.platform, document);
+      const platformDisplay = platformLabel(document.platform);
+      const platformId = addNode('platform', platformDisplay, document, { platform: document.platform, platformId: document.platform });
       if (subjectId && platformId) addEdge(subjectId, platformId, 'published_on', document);
       if (document.keyword) {
         const trimmed = document.keyword.trim();
@@ -265,6 +267,7 @@ export class GraphService {
         documentId: document.documentId,
         title: document.title,
         platform: document.platform,
+        platformLabel: platformLabel(document.platform),
         kind: document.kind,
         sourceUrl: document.sourceUrl,
         excerpt: (document.summary || document.markdown || document.title).replace(/\s+/g, ' ').slice(0, 300),

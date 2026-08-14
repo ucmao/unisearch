@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -42,6 +42,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ObsidianForceGraph } from './ObsidianForceGraph'
+import { usePlatformLabels, platformLabel } from '@/hooks/usePlatformCatalog'
 
 const REPORT_FORMAT_OPTIONS = [
   {
@@ -212,6 +213,7 @@ export function KnowledgeGraphView({
   onFilter?: (node: GraphNode) => void
   onOpenDocument?: (documentId: string) => void
 }) {
+  const platformLabels = usePlatformLabels()
   const [selectedElement, setSelectedElement] = useState<GraphNode | Edge | null>(null)
   const [mergeNodeIds, setMergeNodeIds] = useState<string[]>([])
   const [splitDocumentIds, setSplitDocumentIds] = useState<string[]>([])
@@ -297,9 +299,21 @@ export function KnowledgeGraphView({
     enabled: Boolean(graph?.id),
   })
 
-  const visibleNodes = (graph?.nodes || []).slice(0, 60)
-  const visibleIds = new Set(visibleNodes.map((node) => node.id))
-  const visibleEdges = (graph?.edges || []).filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).slice(0, 120)
+  const visibleNodes = useMemo(() => {
+    return (graph?.nodes || []).slice(0, 60).map((node) => {
+      if (node.type === 'platform') {
+        return {
+          ...node,
+          label: platformLabel(platformLabels, node.label),
+        }
+      }
+      return node
+    })
+  }, [graph?.nodes, platformLabels])
+  const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes])
+  const visibleEdges = useMemo(() => {
+    return (graph?.edges || []).filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).slice(0, 120)
+  }, [graph?.edges, visibleIds])
 
   const rebuild = async () => {
     setIsRebuilding(true)
@@ -751,7 +765,9 @@ export function KnowledgeGraphView({
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-sm font-semibold text-cyber-text-primary truncate">
-                    {'label' in selectedElement ? selectedElement.label : selectedElement.relation}
+                    {'label' in selectedElement
+                      ? (selectedElement.type === 'platform' ? platformLabel(platformLabels, selectedElement.label) : selectedElement.label)
+                      : selectedElement.relation}
                   </h3>
                   {'type' in selectedElement ? (
                     <span
@@ -954,7 +970,7 @@ export function KnowledgeGraphView({
                           <div className="flex items-center gap-1.5 shrink-0">
                             {document.platform ? (
                               <span className="rounded bg-cyber-bg-secondary px-1.5 py-0.5 text-[9px] text-cyber-text-muted border border-cyber-border-subtle">
-                                {document.platform}
+                                {platformLabel(platformLabels, document.platform)}
                               </span>
                             ) : null}
                             {document.sourceUrl ? (

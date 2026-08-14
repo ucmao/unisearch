@@ -2679,7 +2679,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             const isFailedZero = (item.status === 'failed' || item.status === 'stopped') && count === 0
                             const isSuccess = item.status === 'completed' && count > 0
 
-                            let tooltip = ''
+                            let tooltip: string
                             if (isRunning) {
                               tooltip = '正在采集数据...'
                             } else if (isSuccess) {
