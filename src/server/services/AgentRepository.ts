@@ -17,6 +17,12 @@ export interface ContentEnrichmentOptions {
   timeoutMsPerUrl: number;
 }
 
+export interface QueryExpansionConfig {
+  mode: 'strict' | 'fallback' | 'broad';
+  maxQueriesPerKeyword: number;
+  preserveOriginal: boolean;
+}
+
 export interface ResearchPlan {
   skillId?: string;
   goal: string;
@@ -26,6 +32,7 @@ export interface ResearchPlan {
   targets?: string[];
   connectorOptions?: Record<string, Record<string, unknown>>;
   contentEnrichment: ContentEnrichmentOptions;
+  queryExpansion?: QueryExpansionConfig;
   /**
    * The only stored representation of "how much to collect". Concrete crawl
    * parameters (item budget, comment toggles, start page) are derived per
@@ -811,7 +818,8 @@ export class AgentRepository {
       }
     }
 
-    if (webSearchStepKeys.length) {
+    const enableQueryExpansion = plan.queryExpansion?.mode !== 'strict';
+    if (webSearchStepKeys.length && enableQueryExpansion) {
       this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -845,6 +853,9 @@ export class AgentRepository {
     let readerStepKey: string | null = null;
     if (webSearchStepKeys.length && plan.contentEnrichment.mode !== 'snippet') {
       const selectorStepKey = 'select-search-urls';
+      const selectorDependsOn = searchRewriteStepKeys.length
+        ? ['evaluate-search-rewrite']
+        : webSearchStepKeys;
       this.db.prepare(`
         INSERT INTO workflow_steps (
           step_id, workflow_id, step_key, kind, uses_id, depends_on_json,
@@ -853,7 +864,7 @@ export class AgentRepository {
         ) VALUES (?, ?, ?, 'processor', 'processor.search-results.select',
           ?, 'terminal', ?, 'queued', 2, 300000, ?, ?)
       `).run(
-        id(), workflowId, selectorStepKey, JSON.stringify(['evaluate-search-rewrite']),
+        id(), workflowId, selectorStepKey, JSON.stringify(selectorDependsOn),
         JSON.stringify(plan.contentEnrichment), now, now,
       );
       readerStepKey = 'read:web_reader';
@@ -876,7 +887,7 @@ export class AgentRepository {
     }
 
     const finalDependencies = [...collectStepKeys, ...enrichmentStepKeys, ...searchRewriteStepKeys,
-      ...(webSearchStepKeys.length ? ['evaluate-search-rewrite'] : []), ...(readerStepKey ? [readerStepKey] : [])];
+      ...(searchRewriteStepKeys.length ? ['evaluate-search-rewrite'] : []), ...(readerStepKey ? [readerStepKey] : [])];
     this.db.prepare(`
       INSERT INTO workflow_steps (
         step_id, workflow_id, step_key, kind, uses_id, depends_on_json,

@@ -49,7 +49,7 @@ export class WebReaderCrawler extends AbstractCrawler {
           );
 
           for (const article of articles) {
-            await connectorOutput.emitWebReaderResult({ ...article, source_keyword: url });
+            await connectorOutput.emitWebReaderResult({ ...article });
             console.log(`[WebReader] Successfully extracted: "${article.title}" (${article.description.length} chars)`);
           }
         } catch (error: any) {

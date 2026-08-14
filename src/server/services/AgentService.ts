@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
-import { agentRepository, type ContentEnrichmentOptions, type ResearchPlan } from './AgentRepository';
-import { extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferExplicitResearchKeywords, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { agentRepository, type ContentEnrichmentOptions, type QueryExpansionConfig, type ResearchPlan } from './AgentRepository';
+import { extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferExplicitResearchKeywords, inferQueryExpansionMode, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
@@ -318,6 +318,17 @@ export function normalizePlan(
     skill,
   );
 
+  const rawExpansionMode = input?.queryExpansion?.mode;
+  const inferredExpansionMode = inferQueryExpansionMode(userText);
+  const expansionMode: 'strict' | 'fallback' | 'broad' = ['strict', 'fallback', 'broad'].includes(String(rawExpansionMode))
+    ? rawExpansionMode
+    : inferredExpansionMode;
+  const queryExpansion: QueryExpansionConfig = {
+    mode: expansionMode,
+    maxQueriesPerKeyword: Math.max(1, Math.min(Number(input?.queryExpansion?.maxQueriesPerKeyword) || 2, 3)),
+    preserveOriginal: input?.queryExpansion?.preserveOriginal !== false,
+  };
+
   return {
     skillId: skill?.id || fallbackPlan?.skillId || 'multi-source-research',
     goal,
@@ -327,6 +338,7 @@ export function normalizePlan(
     targets,
     connectorOptions,
     contentEnrichment,
+    queryExpansion,
     collectionDepth: hasExplicitCollectionDepth(userText) || preserveFallbackDepth
       ? collectionDepth
       : skill?.defaults?.collectionDepth || collectionDepth,

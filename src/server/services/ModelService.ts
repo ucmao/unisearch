@@ -501,6 +501,50 @@ export class ModelService {
     return parseModelJson<T>(repaired);
   }
 
+  async expandSearchQueries(
+    params: {
+      originalQuery: string;
+      goal: string;
+      snippets?: string[];
+      maxCount?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<Array<{ query: string; reason: string }>> {
+    const maxCount = Math.max(1, Math.min(params.maxCount ?? 2, 3));
+    const prompt = `你是智能搜索意图扩展专家。
+用户当前在执行搜索引擎公开调研任务，在搜索引擎上搜索关键词“${params.originalQuery}”时召回结果较少或相关度不足。
+任务总体目标：${params.goal || params.originalQuery}
+${params.snippets?.length ? `首轮检索到的部分上下文：\n${params.snippets.slice(0, 3).map((s, i) => `${i + 1}. ${s}`).join('\n')}\n` : ''}
+请为该原词生成最多 ${maxCount} 个高质量的辅助补充搜索词（Expanded Queries），以提高召回率和补充上下文。
+
+【硬性要求】
+1. 严禁篡改原词核心实体，补充词必须紧扣任务总体目标与原词实体（例如同义概念、常见搭配或疑问短语）。
+2. 严禁出现系统指令与平台词（如：百度、360、搜狗、神马、中国搜索、头条、必应、多引擎、平台、采集、抓取、爬虫、搜索、任务、分析）。
+3. 严禁输出无意义的单字或生硬碎片切片（如“多引”、“引擎”）。
+4. 补充词应自然通顺，长度在 4 到 30 个字之间。
+5. 必须输出严格的 JSON 对象：
+{
+  "expandedQueries": [
+    { "query": "补充搜索词字符串", "reason": "生成理由简述" }
+  ]
+}
+只输出 JSON，不要任何 Markdown 标记或多余文字。`;
+
+    try {
+      const content = await this.chat([
+        { role: 'system', content: '你只输出符合结构的 JSON 对象，不要输出任何 Markdown 格式或额外解释。' },
+        { role: 'user', content: prompt },
+      ], 1500, false, undefined, signal);
+      const parsed = parseModelJson<{ expandedQueries?: Array<{ query: string; reason: string }> }>(content);
+      if (Array.isArray(parsed?.expandedQueries)) {
+        return parsed.expandedQueries;
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
   async createPlan(
     messages: Array<{ role: 'user' | 'assistant'; content: string }>,
     userText: string,

@@ -353,6 +353,16 @@ export function inferCollectionDepth(text: string): 'quick' | 'standard' | 'deep
   return 'quick';
 }
 
+export function inferQueryExpansionMode(text: string): 'strict' | 'fallback' | 'broad' {
+  if (/(?:严格按照|严格匹配|只搜(?:索)?|仅搜(?:索)?|精确匹配|不要扩展|不扩展|无扩展|精确搜索|监测|取证|排名)/i.test(text)) {
+    return 'strict';
+  }
+  if (/(?:广泛探索|广泛了解|头脑风暴|相关概念|探索式|拓展搜索|全面探索)/i.test(text)) {
+    return 'broad';
+  }
+  return 'fallback';
+}
+
 const DIRECT_PARSE_KEYWORDS = /(?:去水印|解析|提取视频|无水印|视频链接|解水印|直链)/i;
 const COMMON_SHARE_URLS = /(?:v\.douyin\.com|douyin\.com|xhslink\.com|xiaohongshu\.com|b23\.tv|bilibili\.com|kuaishou\.com|v\.kuaishou\.com|weibo\.cn|weibo\.com|zhihu\.com)/i;
 const BATCH_RESEARCH_KEYWORDS = /(?:采集|抓取|搜索|调研|研究|监测|批量|每关键词|条数|页数|评论数|分析|舆情|竞品)/i;

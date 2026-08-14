@@ -359,6 +359,15 @@ function rank(payload: Payload): number | undefined {
   return value === undefined ? undefined : value;
 }
 
+function cleanKeyword(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (trimmed === '指定作品' || trimmed === '指定内容' || trimmed.startsWith('作者:') || trimmed.startsWith('创作者:') || trimmed.startsWith('UP:')) return undefined;
+  if (/^https?:\/\//i.test(trimmed) || /^www\./i.test(trimmed)) return undefined;
+  return trimmed;
+}
+
 export function mapRawItemToCanonicalDocument(item: RawItem, runId?: string): CanonicalDocument {
   const definition = CONNECTOR_MAPPING_MATRIX[item.source];
   if (!definition) throw new Error(`No canonical mapping registered for connector: ${item.source}`);
@@ -376,7 +385,7 @@ export function mapRawItemToCanonicalDocument(item: RawItem, runId?: string): Ca
   const originalPlatform = item.source === 'media_parser'
     ? firstString(payload, ['platform', 'source_platform'])
     : undefined;
-  const keyword = firstString(payload, ['source_keyword', 'keyword', 'question']);
+  const keyword = cleanKeyword(firstString(payload, ['source_keyword', 'keyword', 'question']));
   const coverUrl = item.hints.coverUrl?.trim() || undefined;
   // Keep the explicitly identified cover first and preserve its semantic role.
   // Some custom RawItem producers only populate coverUrl, while the built-in

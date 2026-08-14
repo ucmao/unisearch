@@ -39,7 +39,7 @@ function textValues(value: unknown): string[] {
 
 function topics(document: CanonicalDocument): string[] {
   const keys = ['brand', 'company', 'merchant', 'tags', 'categories', 'primaryCategory', 'language'];
-  return [...new Set(keys.flatMap((key) => textValues(document.attributes[key])).filter((value) => value.length <= 80))];
+  return [...new Set(keys.flatMap((key) => textValues(document.attributes[key])).filter((value) => value.length <= 80 && value !== '指定作品' && value !== '指定内容' && !/^https?:\/\//i.test(value) && !/^www\./i.test(value)))];
 }
 
 function excerpt(document: CanonicalDocument): string {
@@ -131,9 +131,12 @@ export class GraphService {
       const platformId = addNode('platform', document.platform, document);
       if (subjectId && platformId) addEdge(subjectId, platformId, 'published_on', document);
       if (document.keyword) {
-        const keywordId = addNode('keyword', document.keyword, document);
-        if (subjectId && keywordId) addEdge(subjectId, keywordId, 'matched_keyword', document);
-        if (keywordId && platformId) addEdge(keywordId, platformId, 'co_occurs', document);
+        const trimmed = document.keyword.trim();
+        if (trimmed && trimmed !== '指定作品' && trimmed !== '指定内容' && !/^https?:\/\//i.test(trimmed) && !/^www\./i.test(trimmed) && !trimmed.startsWith('作者:') && !trimmed.startsWith('创作者:') && !trimmed.startsWith('UP:')) {
+          const keywordId = addNode('keyword', trimmed, document);
+          if (subjectId && keywordId) addEdge(subjectId, keywordId, 'matched_keyword', document);
+          if (keywordId && platformId) addEdge(keywordId, platformId, 'co_occurs', document);
+        }
       }
       for (const topic of topics(document)) {
         const topicId = addNode('topic', topic, document);

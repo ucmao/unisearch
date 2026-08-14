@@ -378,7 +378,7 @@ export class WorkflowRuntime {
     if (!workflow) throw new Error('Workflow 不存在');
     const phase = input.phase === 'rewrite' ? 'rewrite' : 'initial';
     const stepKeys = Array.isArray(input.stepKeys) ? input.stepKeys.map(String) : [];
-    return searchRelevanceService.evaluate(context.workflowId, workflow.goal, phase, stepKeys);
+    return searchRelevanceService.evaluate(context.workflowId, workflow.goal, phase, stepKeys, context.signal);
   }
 
   private async selectQualityEnrichment(

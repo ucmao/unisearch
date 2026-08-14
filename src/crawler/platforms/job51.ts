@@ -479,7 +479,7 @@ export class Job51Crawler extends AbstractCrawler {
           desc: parsedDetail.desc || '',
           content_url: detailUrl,
           content_id: target,
-          source_keyword: target,
+          source_keyword: undefined,
           published_at: Date.now(),
         });
 

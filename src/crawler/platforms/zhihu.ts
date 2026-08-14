@@ -288,7 +288,7 @@ export class ZhihuCrawler extends AbstractCrawler {
     });
   }
 
-  private async fetchContentDetail(target: string, sourceKeyword: string): Promise<any | null> {
+  private async fetchContentDetail(target: string, sourceKeyword?: string): Promise<any | null> {
     const resolved = await resolveRedirect(this.page!, target);
     const answerId = resolved.match(/\/answer\/(\d+)/i)?.[1];
     const articleId = resolved.match(/(?:zhuanlan\.zhihu\.com\/p|\/article)\/(\d+)/i)?.[1];
@@ -319,7 +319,7 @@ export class ZhihuCrawler extends AbstractCrawler {
         created_time: result.created_time || result.created || 0,
         updated_time: result.updated_time || result.updated || 0,
         voteup_count: result.voteup_count || result.vote_count || 0,
-        comment_count: result.comment_count || 0, source_keyword: sourceKeyword,
+        comment_count: result.comment_count || 0, source_keyword: sourceKeyword || undefined,
         creator_hash: author.url_token || String(author.id || ''), user_nickname: author.name || '',
       };
       await connectorOutput.emitZhihuContent(record);
@@ -360,7 +360,7 @@ export class ZhihuCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedContents(): Promise<void> {
-    for (const target of configuredTargets('zhihu', 'detail')) await this.fetchContentDetail(target, '指定内容');
+    for (const target of configuredTargets('zhihu', 'detail')) await this.fetchContentDetail(target);
   }
 
   public async getCreatorsAndContents(): Promise<void> {
@@ -397,7 +397,7 @@ export class ZhihuCrawler extends AbstractCrawler {
       const allLinks = [...new Set(links)];
       const unique = limit === null ? allLinks : allLinks.slice(0, limit);
       console.log(`[ZHIHU] Creator ${token}: discovered ${unique.length} contents`);
-      for (const link of unique) await this.fetchContentDetail(link, `作者:${token}`);
+      for (const link of unique) await this.fetchContentDetail(link);
     }
   }
 
@@ -437,7 +437,7 @@ export class ZhihuCrawler extends AbstractCrawler {
       for (const item of batch) {
         const type = resource === 'articles' ? 'article' : resource === 'zvideos' ? 'zvideo' : 'answer';
         const record = this.buildSearchRecord({ object: { ...item, type } });
-        if (record) records.push({ ...record, source_keyword: `作者:${token}` });
+        if (record) records.push(record);
       }
 
       if (payload?.paging?.is_end) break;

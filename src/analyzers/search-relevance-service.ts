@@ -1,60 +1,121 @@
 import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
 import { getDb } from '../database/connection';
+import { modelService } from '../server/services/ModelService';
 
 type Phase = 'initial' | 'rewrite';
 
 const STOP_WORDS = new Set([
   '的', '了', '和', '与', '及', '或', '在', '是', '对', '为', '最新', '相关', '信息', '内容', '搜索', '研究',
+  '多引擎', '引擎', '平台', '采集', '抓取', '分析', '调研',
   'the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'for', 'latest', 'search',
 ]);
 
-function tokens(value: string): string[] {
-  const normalized = String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const PROHIBITED_WORDS = /(?:采集|抓取|搜索|爬虫|百度|360|搜狗|神马|中国搜索|头条|必应|多引擎|引擎|平台|任务|分析)/i;
+
+export function extractTokens(value: string): string[] {
+  const normalized = String(value || '').toLocaleLowerCase().trim();
+  if (!normalized) return [];
+
   const output: string[] = [];
-  for (const word of normalized.split(/\s+/).filter(Boolean)) {
-    if (/^[\p{Script=Han}]+$/u.test(word)) {
-      if (word.length <= 4) output.push(word);
-      for (let index = 0; index < word.length - 1; index++) output.push(word.slice(index, index + 2));
-    } else if (word.length > 1) output.push(word);
+  if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
+    try {
+      const segmenter = new (Intl as any).Segmenter('zh-CN', { granularity: 'word' });
+      for (const seg of segmenter.segment(normalized)) {
+        const word = seg.segment.trim().replace(/[^\p{L}\p{N}]+/gu, '');
+        if (word.length >= 2 && !STOP_WORDS.has(word)) {
+          output.push(word);
+        }
+      }
+    } catch {
+      // fallback to regex word extraction below
+    }
   }
-  return [...new Set(output.filter((item) => !STOP_WORDS.has(item)))];
+
+  if (!output.length) {
+    const cleaned = normalized.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    for (const word of cleaned.split(/\s+/).filter(Boolean)) {
+      if (word.length >= 2 && !STOP_WORDS.has(word)) output.push(word);
+    }
+  }
+
+  return [...new Set(output)];
+}
+
+export function validateExpandedQuery(query: string, originalQuery: string): boolean {
+  const q = String(query || '').trim().replace(/\s+/g, ' ');
+  if (!q || q.length < 2 || q.length > 50) return false;
+  if (q.toLowerCase() === originalQuery.toLowerCase()) return false;
+  if (PROHIBITED_WORDS.test(q)) return false;
+  // Disallow pure punctuation, numbers or symbols
+  if (/^[\p{P}\p{S}\s\d]+$/u.test(q)) return false;
+  return true;
 }
 
 function relevanceScore(query: string, goal: string, title: string, snippet: string): number {
-  const queryTokens = tokens(query);
-  const goalTokens = tokens(goal);
-  const titleTokens = new Set(tokens(title));
-  const bodyTokens = new Set(tokens(`${title} ${snippet}`));
+  const queryTokens = extractTokens(query);
+  const goalTokens = extractTokens(goal);
+  const titleTokens = new Set(extractTokens(title));
+  const bodyTokens = new Set(extractTokens(`${title} ${snippet}`));
   const queryHits = queryTokens.filter((token) => bodyTokens.has(token)).length;
   const titleHits = queryTokens.filter((token) => titleTokens.has(token)).length;
   const goalHits = goalTokens.filter((token) => bodyTokens.has(token)).length;
   const queryCoverage = queryHits / Math.max(1, queryTokens.length);
   const goalCoverage = goalHits / Math.max(1, Math.min(goalTokens.length, 8));
-  return Math.min(1, queryCoverage * 0.65 + goalCoverage * 0.2 + Math.min(0.15, titleHits * 0.075));
-}
-
-function rewriteQuery(query: string, goal: string, rows: Array<{ title: string; snippet: string }>): string {
-  const queryTokens = new Set(tokens(query));
-  const resultFrequency = new Map<string, number>();
-  for (const row of rows) {
-    for (const token of new Set(tokens(`${row.title} ${row.snippet}`))) {
-      resultFrequency.set(token, (resultFrequency.get(token) || 0) + 1);
-    }
-  }
-  const additions = tokens(goal)
-    .filter((token) => !queryTokens.has(token))
-    .sort((left, right) => (resultFrequency.get(left) || 0) - (resultFrequency.get(right) || 0) || right.length - left.length)
-    .slice(0, 2);
-  const base = query.trim().replace(/\s+/g, ' ');
-  return [...new Set([base, ...additions])].filter(Boolean).join(' ').slice(0, 120);
+  const queryWeight = queryCoverage >= 0.6 ? queryCoverage * 0.55 : queryCoverage * 0.4;
+  const titleBonus = titleHits === queryTokens.length && queryTokens.length > 0 ? 0.15 : (titleHits / Math.max(1, queryTokens.length)) * 0.05;
+  return Math.min(1, queryWeight + goalCoverage * 0.3 + titleBonus);
 }
 
 export class SearchRelevanceService {
   constructor(private readonly databaseProvider: () => Database = getDb) {}
   private get db(): Database { return this.databaseProvider(); }
 
-  evaluate(workflowId: string, goal: string, phase: Phase, stepKeys: string[]): any {
+  private async generateSemanticExpansion(
+    query: string,
+    goal: string,
+    results: Array<{ title: string; snippet: string }>,
+    maxCount: number,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const snippets = results.slice(0, 3).map((r) => `${r.title}: ${r.snippet}`);
+    try {
+      const candidates = await modelService.expandSearchQueries({
+        originalQuery: query,
+        goal,
+        snippets,
+        maxCount,
+      }, signal);
+
+      for (const c of candidates) {
+        if (c?.query && validateExpandedQuery(c.query, query)) {
+          return c.query.trim().slice(0, 50);
+        }
+      }
+    } catch {
+      // LLM failure or unconfigured model
+    }
+
+    // Heuristic fallback for offline/test environments: extract key goal entities
+    const queryTokens = new Set(extractTokens(query));
+    const goalTokens = extractTokens(goal).filter((t) => !queryTokens.has(t) && !PROHIBITED_WORDS.test(t));
+    if (goalTokens.length > 0) {
+      const candidate = `${query} ${goalTokens.slice(0, 2).join(' ')}`.trim();
+      if (validateExpandedQuery(candidate, query)) {
+        return candidate;
+      }
+    }
+
+    return '';
+  }
+
+  async evaluate(
+    workflowId: string,
+    goal: string,
+    phase: Phase,
+    stepKeys: string[],
+    signal?: AbortSignal,
+  ): Promise<any> {
     const runIds = stepKeys.flatMap((stepKey) => {
       const row = this.db.prepare('SELECT output_json FROM workflow_steps WHERE workflow_id=? AND step_key=?')
         .get(workflowId, stepKey) as { output_json?: string } | undefined;
@@ -76,9 +137,13 @@ export class SearchRelevanceService {
       grouped.set(key, [...(grouped.get(key) || []), row]);
     }
     const plan = this.db.prepare('SELECT input_json FROM workflow_runs WHERE workflow_id=?').get(workflowId) as any;
-    const configured: string[] = (() => {
-      try { return JSON.parse(plan?.input_json || '{}').keywords || []; } catch { return []; }
+    const parsedPlan = (() => {
+      try { return JSON.parse(plan?.input_json || '{}'); } catch { return {}; }
     })();
+    const configured: string[] = Array.isArray(parsedPlan.keywords) ? parsedPlan.keywords : [];
+    const expansionMode: 'strict' | 'fallback' | 'broad' = parsedPlan.queryExpansion?.mode || 'fallback';
+    const maxQueriesPerKeyword = Math.max(1, Math.min(Number(parsedPlan.queryExpansion?.maxQueriesPerKeyword) || 2, 3));
+
     for (const provider of stepKeys.map((key) => key.split(':').at(-1) || '').filter(Boolean)) {
       for (const query of configured) {
         const key = `${provider}\u0000${query}`;
@@ -87,7 +152,18 @@ export class SearchRelevanceService {
     }
 
     const now = new Date().toISOString();
-    const assessments = [...grouped.entries()].map(([key, results]) => {
+    const assessments: Array<{
+      provider: string;
+      query: string;
+      resultCount: number;
+      relevantCount: number;
+      averageScore: number;
+      precisionAt10: number;
+      status: string;
+      rewrittenQuery: string;
+    }> = [];
+
+    for (const [key, results] of grouped.entries()) {
       const [provider, query] = key.split('\u0000');
       const scored = results.map((row) => ({ ...row, score: relevanceScore(query, goal, row.title, row.snippet) }));
       const top = scored.slice(0, 10);
@@ -95,7 +171,15 @@ export class SearchRelevanceService {
       const averageScore = scored.reduce((sum, row) => sum + row.score, 0) / Math.max(1, scored.length);
       const precisionAt10 = relevantCount / Math.max(1, top.length);
       const status = !scored.length ? 'empty' : precisionAt10 >= 0.5 && averageScore >= 0.35 ? 'good' : 'weak';
-      const rewrittenQuery = phase === 'initial' && status !== 'good' ? rewriteQuery(query, goal, results) : '';
+
+      let rewrittenQuery = '';
+      if (phase === 'initial' && expansionMode !== 'strict') {
+        const needsExpansion = expansionMode === 'broad' || status !== 'good';
+        if (needsExpansion) {
+          rewrittenQuery = await this.generateSemanticExpansion(query, goal, results, maxQueriesPerKeyword, signal);
+        }
+      }
+
       this.db.prepare(`INSERT INTO search_relevance_assessments
         (assessment_id,workflow_id,phase,provider,query,result_count,relevant_count,average_score,precision_at_10,status,rewritten_query,metrics_json,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -105,8 +189,10 @@ export class SearchRelevanceService {
           metrics_json=excluded.metrics_json,created_at=excluded.created_at`)
         .run(crypto.randomUUID(), workflowId, phase, provider, query, scored.length, relevantCount, averageScore,
           precisionAt10, status, rewrittenQuery || null, JSON.stringify({ threshold: 0.35, runIds, topScores: top.map((row) => row.score) }), now);
-      return { provider, query, resultCount: scored.length, relevantCount, averageScore, precisionAt10, status, rewrittenQuery };
-    });
+
+      assessments.push({ provider, query, resultCount: scored.length, relevantCount, averageScore, precisionAt10, status, rewrittenQuery });
+    }
+
     const rewrittenByProvider: Record<string, string[]> = {};
     for (const item of assessments) {
       if (!item.rewrittenQuery || item.rewrittenQuery === item.query) continue;

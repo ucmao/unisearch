@@ -695,7 +695,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedNotes(): Promise<void> {
-    for (const target of configuredTargets('xhs', 'detail')) await this.fetchNoteDetail(target, '指定作品');
+    for (const target of configuredTargets('xhs', 'detail')) await this.fetchNoteDetail(target);
   }
 
   public async getCreatorsAndNotes(): Promise<void> {
@@ -804,7 +804,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     noteId: string,
     xsecToken: string,
     noteUrl: string,
-    sourceKeyword: string,
+    sourceKeyword?: string,
   ): Promise<any | null> {
     if (!this.signer?.hasTemplate()) return null;
     try {
@@ -858,7 +858,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     }
   }
 
-  private async fetchNoteDetail(target: string, sourceKeyword: string): Promise<any | null> {
+  private async fetchNoteDetail(target: string, sourceKeyword?: string): Promise<any | null> {
     const indexUrl = this.indexUrl;
     const resolved = await resolveRedirect(this.page!, target);
     const noteId = firstMatch(resolved, [/\/explore\/([^/?#]+)/i, /\/discovery\/item\/([^/?#]+)/i, /[?&]note_id=([^&#]+)/i]);

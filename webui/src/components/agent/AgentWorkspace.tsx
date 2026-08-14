@@ -272,11 +272,30 @@ function flattenDetailsInMarkdown(text: string): string {
   })
 }
 
-function StepIcon({ status }: { status: string }) {
-  if (status === 'running') return <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" />
-  if (status === 'completed') return <CheckCircle2 className="h-4 w-4 text-cyber-neon-green" />
-  if (status === 'failed' || status === 'stopped') return <XCircle className="h-4 w-4 text-cyber-neon-pink" />
-  return <Clock3 className="h-4 w-4 text-cyber-text-muted" />
+function StepIcon({ status, count = 0, title }: { status: string; count?: number; title?: string }) {
+  let icon = <Clock3 className="h-4 w-4 text-cyber-text-muted" />
+  let defaultTitle = "等待采集"
+  if (status === 'running') {
+    icon = <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" />
+    defaultTitle = "采集运行中"
+  } else if (status === 'completed') {
+    if (count > 0) {
+      icon = <CheckCircle2 className="h-4 w-4 text-cyber-neon-green" />
+      defaultTitle = "采集完成"
+    } else {
+      icon = <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+      defaultTitle = "未检索到相关内容"
+    }
+  } else if (status === 'failed' || status === 'stopped') {
+    if (count > 0) {
+      icon = <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+      defaultTitle = "已采集部分数据（后续抓取中断）"
+    } else {
+      icon = <XCircle className="h-4 w-4 text-cyber-neon-pink" />
+      defaultTitle = "采集未完成/异常"
+    }
+  }
+  return <span title={title || defaultTitle} className="inline-flex items-center">{icon}</span>
 }
 
 function SpreadsheetDownloadLink({ planId, threadId, compact = false }: { planId?: string; threadId?: string; compact?: boolean }) {
@@ -2650,7 +2669,28 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           platformSummaryList.map((item) => {
                             const count = item.count
                             const unit = item.isAI ? '份' : '条'
+                            const isRunning = item.status === 'running'
+                            const isPartialSuccess = count > 0 && (item.status === 'failed' || item.status === 'stopped')
                             const isZeroSuccess = item.status === 'completed' && count === 0
+                            const isFailedZero = (item.status === 'failed' || item.status === 'stopped') && count === 0
+                            const isSuccess = item.status === 'completed' && count > 0
+
+                            let tooltip = ''
+                            if (isRunning) {
+                              tooltip = '正在采集数据...'
+                            } else if (isSuccess) {
+                              tooltip = `已成功采集 ${count} ${unit}`
+                            } else if (isPartialSuccess) {
+                              tooltip = item.error_message
+                                ? `已采集 ${count} ${unit}（后续抓取中断: ${item.error_message}）`
+                                : `已采集 ${count} ${unit}（采集提前结束或部分中断）`
+                            } else if (isZeroSuccess) {
+                              tooltip = item.error_message || '平台未检索到相关内容'
+                            } else if (isFailedZero) {
+                              tooltip = item.error_message ? `采集失败: ${item.error_message}` : '采集失败，未获取到数据'
+                            } else {
+                              tooltip = item.error_message || ''
+                            }
 
                             return (
                               <div key={item.platform} className="py-2.5 text-xs">
@@ -2666,20 +2706,21 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                                     ) : null}
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
-                                    <span className={`font-mono text-xs ${isZeroSuccess ? 'text-amber-400 font-normal text-[11px]' : 'text-cyber-text-primary'}`}>
-                                      {count > 0 ? `${count} ${unit}` : item.status === 'completed' ? `0 ${unit}` : ''}
+                                    <span className={`font-mono text-xs ${
+                                      isZeroSuccess
+                                        ? 'text-amber-400 font-normal text-[11px]'
+                                        : isFailedZero
+                                        ? 'text-cyber-neon-pink font-normal text-[11px]'
+                                        : isRunning
+                                        ? 'text-cyber-neon-cyan'
+                                        : 'text-cyber-text-primary'
+                                    }`}>
+                                      {count > 0 ? `${count} ${unit}` : (item.status === 'completed' || isFailedZero) ? `0 ${unit}` : ''}
                                       {item.commentCount > 0 ? <span className="ml-1 text-[10px] font-normal text-cyber-text-muted">+{item.commentCount} 评论</span> : null}
                                     </span>
-                                    {isZeroSuccess ? (
-                                      <span title="该平台未采集到数据或可能被风控受限">
-                                        <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                                      </span>
-                                    ) : (
-                                      <StepIcon status={item.status} />
-                                    )}
+                                    <StepIcon status={item.status} count={count} title={tooltip} />
                                   </div>
                                 </div>
-                                {item.error_message ? <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-cyber-neon-pink" title={item.error_message}>{item.error_message}</p> : null}
                               </div>
                             )
                           })

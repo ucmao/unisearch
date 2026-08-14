@@ -708,7 +708,7 @@ export class DouyinCrawler extends AbstractCrawler {
     }
   }
 
-  private async fetchAwemeDetail(target: string, sourceKeyword: string): Promise<any | null> {
+  private async fetchAwemeDetail(target: string, sourceKeyword?: string): Promise<any | null> {
     const resolved = await resolveRedirect(this.page!, target);
     const awemeId = firstMatch(resolved, [
       /\/video\/(\d+)/i, /\/note\/(\d+)/i, /[?&](?:modal_id|aweme_id)=(\d+)/i, /^\s*(\d+)\s*$/,
@@ -841,7 +841,7 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedAwemes(): Promise<void> {
-    for (const target of configuredTargets('douyin', 'detail')) await this.fetchAwemeDetail(target, '指定作品');
+    for (const target of configuredTargets('douyin', 'detail')) await this.fetchAwemeDetail(target);
   }
 
   public async getCreatorsAndAwemes(): Promise<void> {
@@ -850,7 +850,7 @@ export class DouyinCrawler extends AbstractCrawler {
       const secUid = firstMatch(resolved, [/\/user\/([^/?#]+)/i, /[?&]sec_uid=([^&#]+)/i]);
       const unique = await this.collectCreatorAwemeIds(secUid);
       console.log(`[DY] Creator ${secUid}: discovered ${unique.length} works`);
-      for (const id of unique) await this.fetchAwemeDetail(id, `创作者:${secUid}`);
+      for (const id of unique) await this.fetchAwemeDetail(id);
     }
   }
 

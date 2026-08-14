@@ -9,6 +9,7 @@ import { buildRawItem } from '../src/connectors/output/connector-output';
 import { normalizePlan } from '../src/server/services/AgentService';
 import { LiveSearchService } from '../src/server/services/LiveSearchService';
 import { normalizePublicWebUrl, WebReaderService } from '../src/services/web-reader-service';
+import { extractTokens, validateExpandedQuery } from '../src/analyzers/search-relevance-service';
 
 function enrichmentPlan(overrides: Partial<ResearchPlan> = {}): ResearchPlan {
   return {
@@ -91,6 +92,7 @@ test('plan normalization defaults web search to auto reading and honors summary-
   );
   assert.equal(automatic.contentEnrichment.mode, 'auto');
   assert.equal(automatic.contentEnrichment.maxReadItems, 8);
+  assert.equal(automatic.queryExpansion?.mode, 'fallback');
 
   const snippets = normalizePlan(
     { platforms: ['baidu'], keywords: ['Agent'] },
@@ -98,6 +100,37 @@ test('plan normalization defaults web search to auto reading and honors summary-
   );
   assert.equal(snippets.contentEnrichment.mode, 'snippet');
   assert.equal(snippets.contentEnrichment.maxReadItems, 0);
+
+  const strictPlan = normalizePlan(
+    { platforms: ['baidu'], keywords: ['AI训练师'] },
+    '在百度搜索 AI训练师，严格按照指定词精确搜索，不要扩展',
+  );
+  assert.equal(strictPlan.queryExpansion?.mode, 'strict');
+
+  const broadPlan = normalizePlan(
+    { platforms: ['baidu'], keywords: ['AI训练师'] },
+    '在百度广泛探索 AI训练师 行业发展与相关概念',
+  );
+  assert.equal(broadPlan.queryExpansion?.mode, 'broad');
+});
+
+test('strict mode web search plans do not create evaluation or rewrite stages', () => {
+  const { db, repository } = memoryRepository();
+  try {
+    const thread = repository.createThread('严格搜索');
+    const workflow = repository.createPlan(thread.thread_id, enrichmentPlan({
+      queryExpansion: { mode: 'strict', maxQueriesPerKeyword: 2, preserveOriginal: true },
+    }));
+    const keys = (db.prepare('SELECT step_key FROM workflow_steps WHERE workflow_id=?').all(workflow.plan_id) as any[])
+      .map((row) => row.step_key);
+    assert.equal(keys.includes('evaluate-search-initial'), false);
+    assert.equal(keys.includes('rewrite:baidu'), false);
+    assert.equal(keys.includes('rewrite:bing'), false);
+    assert.equal(keys.includes('evaluate-search-rewrite'), false);
+    assert.equal(keys.includes('select-search-urls'), true);
+  } finally {
+    db.close();
+  }
 });
 
 test('search discoveries survive full-text enrichment and drive URL selection', async () => {
@@ -183,3 +216,31 @@ test('live search can enrich top evidence transiently without persistence', asyn
   assert.equal(evidence[0].title, '正文标题');
   assert.equal(evidence[0].excerpt, '临时读取到的完整正文');
 });
+
+test('query expansion guardrails reject invalid queries and system keywords', () => {
+  // Prohibited system keywords / platform terms
+  assert.equal(validateExpandedQuery('AI训练师 多引 引擎', 'AI训练师'), false);
+  assert.equal(validateExpandedQuery('百度搜索 数据标注', '数据标注'), false);
+  assert.equal(validateExpandedQuery('360采集 爬虫分析', '数据标注'), false);
+  assert.equal(validateExpandedQuery('平台 数据标注 抓取', '数据标注'), false);
+
+  // Duplicates or empty
+  assert.equal(validateExpandedQuery('AI训练师', 'AI训练师'), false);
+  assert.equal(validateExpandedQuery('', 'AI训练师'), false);
+  assert.equal(validateExpandedQuery('   ', 'AI训练师'), false);
+  assert.equal(validateExpandedQuery('？！？', 'AI训练师'), false);
+
+  // Valid natural semantic expansion
+  assert.equal(validateExpandedQuery('人工智能训练师 岗位职责 数据标注', 'AI训练师'), true);
+  assert.equal(validateExpandedQuery('数据标注行业前景与职业发展', '数据标注'), true);
+});
+
+test('tokenization extracts clean words without 2-gram slicing fragments', () => {
+  const goalTokens = extractTokens('多引擎搜索AIGC数据标注AI训练师关联分析');
+  assert.equal(goalTokens.includes('多引'), false);
+  assert.equal(goalTokens.includes('品分'), false);
+  assert.ok(goalTokens.includes('aigc'));
+  assert.ok(goalTokens.includes('数据') || goalTokens.includes('数据标注'));
+  assert.ok(goalTokens.includes('训练') || goalTokens.includes('训练师'));
+});
+

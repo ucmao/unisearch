@@ -147,7 +147,7 @@ test('search relevance assessment persists weak queries and produces provider-sp
       real_url: 'https://example.com/cars', source_keyword: '新能源汽车', search_rank: 1,
     }), 'search-run');
     const service = new SearchRelevanceService(() => db);
-    const result = service.evaluate('workflow-1', '新能源汽车电池安全研究', 'initial', ['collect:baidu']);
+    const result = await service.evaluate('workflow-1', '新能源汽车电池安全研究', 'initial', ['collect:baidu']);
     assert.equal(result.assessments[0].status, 'weak');
     assert.match(result.rewrittenByProvider.baidu[0], /电池|安全/);
     assert.equal(service.list('workflow-1').length, 1);

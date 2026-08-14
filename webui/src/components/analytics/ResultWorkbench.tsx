@@ -865,86 +865,29 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     return '数据透视'
   }, [scope, selectedThreadId, selectedWorkflowId, selectedRunId, tasks])
 
-  // 关键词分类与元信息解析
-  const parseKeywordItem = (kw: string, count?: number) => {
-    const trimmed = (kw || '').trim()
-
-    // 1. URL 链接判断（以 http://、https:// 或 www. 开头）
-    if (/^https?:\/\//i.test(trimmed) || /^www\./i.test(trimmed)) {
-      let displayLabel: string
-      try {
-        const urlObj = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`)
-        const host = urlObj.hostname.replace(/^www\./, '')
-        const pathParts = urlObj.pathname.split('/').filter(Boolean)
-        const lastPart = pathParts[pathParts.length - 1] || ''
-        displayLabel = lastPart ? `${host}/…/${lastPart.length > 14 ? lastPart.slice(0, 12) + '…' : lastPart}` : host
-      } catch {
-        displayLabel = trimmed.length > 22 ? trimmed.slice(0, 20) + '…' : trimmed
-      }
-      return {
-        name: trimmed,
-        count,
-        category: 'url' as const,
-        categoryLabel: '链接',
-        displayLabel,
-        priority: 3,
-      }
-    }
-
-    // 2. 作品 / 帖子 ID / 编码判断（BV号、纯数字ID >= 6位、字母数字混合ID）
-    if (/^BV[a-zA-Z0-9]{10}$/i.test(trimmed) || /^\d{6,}$/.test(trimmed) || (/^[a-zA-Z0-9_]{6,22}$/.test(trimmed) && /\d/.test(trimmed))) {
-      return {
-        name: trimmed,
-        count,
-        category: 'id' as const,
-        categoryLabel: '作品ID',
-        displayLabel: trimmed,
-        priority: 2,
-      }
-    }
-
-    // 3. AI 提示词 / 问答长句判断（长句 >= 24 字符，或以指令词开头且长度较长）
-    if (trimmed.length >= 24 || (/^(请|如何|为什么|怎么|分析|总结|对比)/.test(trimmed) && trimmed.length >= 10)) {
-      const displayLabel = trimmed.length > 18 ? trimmed.slice(0, 16) + '…' : trimmed
-      return {
-        name: trimmed,
-        count,
-        category: 'prompt' as const,
-        categoryLabel: '提示词',
-        displayLabel,
-        priority: 4,
-      }
-    }
-
-    // 4. 常规搜索关键词（核心主力词，优先级最高）
-    return {
-      name: trimmed,
-      count,
-      category: 'keyword' as const,
-      categoryLabel: '搜索词',
-      displayLabel: trimmed,
-      priority: 1,
-    }
-  }
-
-  // 关键词列表与对应的统计计数（智能按类型优先级 + 数据量降序排序）
+  // 关键词列表与对应的统计计数（纯净关键词按数据量降序与名称排序）
   const keywordStats = useMemo(() => {
     const counts = new Map<string, number>()
     const groupList = scopeSummary?.by_keyword || summary?.by_keyword || []
     for (const g of groupList) {
       if (g.keyword) counts.set(g.keyword, g.document_count)
     }
-    const kwList = scopeSummary?.filters.keywords || summary?.filters.keywords || []
-    const parsedList = kwList.map((kw) => parseKeywordItem(kw, counts.get(kw)))
-
-    // 智能排序：
-    // 1. 类型优先级升序（1:搜索词 -> 2:作品ID -> 3:URL链接 -> 4:提示词）
-    // 2. 数据量 count 降序（数据多的排前面）
-    // 3. 中文拼音 / 字母表升序
-    parsedList.sort((a, b) => {
-      if (a.priority !== b.priority) {
-        return a.priority - b.priority
+    const kwList = (scopeSummary?.filters.keywords || summary?.filters.keywords || [])
+      .filter((kw) => {
+        const trimmed = (kw || '').trim()
+        return Boolean(trimmed) && trimmed !== '指定作品' && trimmed !== '指定内容' && !/^https?:\/\//i.test(trimmed) && !/^www\./i.test(trimmed) && !trimmed.startsWith('作者:') && !trimmed.startsWith('创作者:') && !trimmed.startsWith('UP:')
+      })
+    const list = kwList.map((kw) => {
+      const trimmed = kw.trim()
+      return {
+        name: trimmed,
+        count: counts.get(kw),
+        displayLabel: trimmed,
       }
+    })
+
+    // 排序：数据量 count 降序 -> 中文拼音 / 字母表升序
+    list.sort((a, b) => {
       const countA = a.count || 0
       const countB = b.count || 0
       if (countA !== countB) {
@@ -953,7 +896,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       return a.name.localeCompare(b.name, 'zh-CN')
     })
 
-    return parsedList
+    return list
   }, [scopeSummary, summary])
 
   const dynamicColumns = useMemo(() => [

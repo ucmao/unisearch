@@ -222,3 +222,30 @@ test('corrected manifests expose canonical fields for non-social families', () =
   assert.ok(fields('qwen', 'keyword_search').includes('citations'));
   assert.ok(fields('media_parser', 'url_resolve').includes('original_platform'));
 });
+
+test('keyword sanitizer strips URLs, 指定作品 and author prefixes from keyword field', () => {
+  const docFromUrl = mapRawItemToCanonicalDocument(buildRawItem('emitWebReaderResult', {
+    content_id: 'web-1', title: '网页', description: '正文',
+    source_keyword: 'https://example.com/article/123',
+  }));
+  assert.equal(docFromUrl.keyword, undefined);
+
+  const docFromDetail = mapRawItemToCanonicalDocument(buildRawItem('emitDouyinAweme', {
+    aweme_id: 'dy-1', title: '视频', desc: '正文',
+    source_keyword: '指定作品',
+  }));
+  assert.equal(docFromDetail.keyword, undefined);
+
+  const docFromAuthor = mapRawItemToCanonicalDocument(buildRawItem('emitZhihuContent', {
+    content_id: 'zh-1', title: '文章', content_text: '正文',
+    source_keyword: '作者:test-user',
+  }));
+  assert.equal(docFromAuthor.keyword, undefined);
+
+  const docFromRealKeyword = mapRawItemToCanonicalDocument(buildRawItem('emitDouyinAweme', {
+    aweme_id: 'dy-2', title: '视频', desc: '正文',
+    source_keyword: 'AI训练师',
+  }));
+  assert.equal(docFromRealKeyword.keyword, 'AI训练师');
+});
+

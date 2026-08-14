@@ -271,7 +271,7 @@ export class BilibiliCrawler extends AbstractCrawler {
    * like/coin/share/dislike, so `view` still runs — but a failure now degrades
    * to the seed's own fields instead of dropping the record.
    */
-  private async ingestSeed(seed: BiliVideoSeed, sourceKeyword: string): Promise<void> {
+  private async ingestSeed(seed: BiliVideoSeed, sourceKeyword?: string): Promise<void> {
     let detail: any = {};
     try {
       const identifier = seed.video_id.startsWith('BV')
@@ -304,7 +304,7 @@ export class BilibiliCrawler extends AbstractCrawler {
       video_danmaku: String(detail.stat?.danmaku ?? seed.video_danmaku),
       video_comment: String(detail.stat?.reply ?? seed.video_comment),
       video_cover_url: detail.pic || seed.video_cover_url,
-      source_keyword: sourceKeyword,
+      source_keyword: sourceKeyword || undefined,
     });
 
     // Search already hands us the aid, so comments no longer depend on `view`.
@@ -314,7 +314,7 @@ export class BilibiliCrawler extends AbstractCrawler {
     }
   }
 
-  private async fetchVideoDetail(target: string, sourceKeyword: string): Promise<any | null> {
+  private async fetchVideoDetail(target: string, sourceKeyword?: string): Promise<any | null> {
     const resolved = await resolveRedirect(this.page!, target);
     const bvid = firstMatch(resolved, [/video\/(BV[a-zA-Z0-9]+)/i, /\b(BV[a-zA-Z0-9]+)\b/i]);
     const aid = firstMatch(resolved, [/video\/av(\d+)/i, /\bav(\d+)\b/i, /[?&]aid=(\d+)/i, /^\s*(\d+)\s*$/]);
@@ -346,7 +346,7 @@ export class BilibiliCrawler extends AbstractCrawler {
       video_danmaku: String(detail.stat?.danmaku || 0),
       video_comment: String(detail.stat?.reply || 0),
       video_cover_url: detail.pic || '',
-      source_keyword: sourceKeyword,
+      source_keyword: sourceKeyword || undefined,
     };
     await connectorOutput.emitBilibiliVideo(video);
     if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(String(detail.aid), video.video_id);
@@ -385,7 +385,7 @@ export class BilibiliCrawler extends AbstractCrawler {
 
   public async getSpecifiedVideos(): Promise<void> {
     const targets = configuredTargets('bili', 'detail');
-    for (const target of targets) await this.fetchVideoDetail(target, '指定作品');
+    for (const target of targets) await this.fetchVideoDetail(target);
   }
 
   public async getCreatorsAndVideos(): Promise<void> {
@@ -397,7 +397,7 @@ export class BilibiliCrawler extends AbstractCrawler {
       );
       console.log(`[BILI] Creator ${mid}: discovered ${seeds.length} videos`);
       for (const seed of seeds) {
-        await this.ingestSeed(seed, `UP:${mid}`);
+        await this.ingestSeed(seed);
         await this.humanDelay(this.page!);
       }
     }

@@ -415,7 +415,7 @@ export class KuaishouCrawler extends AbstractCrawler {
   }
 
   /** Normalises a search / profile feed entry into the stored video record shape. */
-  private mapFeed(feed: any, sourceKeyword: string): any | null {
+  private mapFeed(feed: any, sourceKeyword?: string): any | null {
     const photo = feed?.photo;
     const author = feed?.author;
     if (!photo?.id) return null;
@@ -606,7 +606,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     }
   }
 
-  private async fetchVideoDetail(target: string, sourceKeyword: string): Promise<any | null> {
+  private async fetchVideoDetail(target: string, sourceKeyword?: string): Promise<any | null> {
     const resolved = await resolveRedirect(this.page!, target);
     const videoId = firstMatch(resolved, [/\/short-video\/([^/?#]+)/i, /[?&]photoId=([^&#]+)/i]);
     try {
@@ -630,7 +630,7 @@ export class KuaishouCrawler extends AbstractCrawler {
   }
 
   /** Returns null when the detail operation itself is unusable, so the caller can fall back. */
-  private async fetchDetailViaGraphql(videoId: string, sourceKeyword: string): Promise<any | null> {
+  private async fetchDetailViaGraphql(videoId: string, sourceKeyword?: string): Promise<any | null> {
     try {
       const detail = await this.graphql<any>(
         'visionVideoDetail',
@@ -647,7 +647,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     }
   }
 
-  private async scrapeDetailFromPage(videoId: string, sourceKeyword: string): Promise<any> {
+  private async scrapeDetailFromPage(videoId: string, sourceKeyword?: string): Promise<any> {
     const url = `https://www.kuaishou.com/short-video/${encodeURIComponent(videoId)}`;
     if (this.page!.url() !== url) await this.page!.goto(url, { waitUntil: 'domcontentloaded' });
     await this.page!.waitForTimeout(1800);
@@ -696,7 +696,7 @@ export class KuaishouCrawler extends AbstractCrawler {
       liked_count: String(detail.likes || 0), viewd_count: String(detail.views || 0), comment_count: String(detail.comments || 0),
       creator_hash: String(detail.authorId || ''), nickname: detail.authorName || '',
       create_time: toEpochSeconds(detail.timestamp),
-      source_keyword: sourceKeyword,
+      source_keyword: sourceKeyword || undefined,
     };
   }
 
@@ -825,7 +825,7 @@ export class KuaishouCrawler extends AbstractCrawler {
   }
 
   public async getSpecifiedVideos(): Promise<void> {
-    for (const target of configuredTargets('kuaishou', 'detail')) await this.fetchVideoDetail(target, '指定作品');
+    for (const target of configuredTargets('kuaishou', 'detail')) await this.fetchVideoDetail(target);
   }
 
   public async getCreatorsAndVideos(): Promise<void> {
