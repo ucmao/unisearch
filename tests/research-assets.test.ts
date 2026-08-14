@@ -38,10 +38,34 @@ test('deterministic graph persists traceable nodes and evidence edges', async ()
     const service = new GraphService(() => db);
     const graph = service.rebuild({ threadId: 'thread-1' });
     assert.equal(graph.documentCount, 1);
+    assert.equal(graph.snapshotDocumentCount, 1);
+    assert.equal(graph.currentDocumentCount, 1);
+    assert.equal(graph.isOutdated, false);
+    assert.equal(graph.newDocumentCount, 0);
     assert.ok(graph.nodes.some((node: any) => node.type === 'subject' && node.label === '测试作者'));
     assert.ok(graph.nodes.some((node: any) => node.type === 'keyword' && node.label === '咖啡'));
     assert.ok(graph.edges.some((edge: any) => edge.relation === 'matched_keyword' && edge.documentIds.length === 1));
     assert.equal(service.latest({ threadId: 'thread-1' })?.id, graph.id);
+
+    // Simulate new document ingested into thread-1
+    await new DocumentEngine(() => db).ingest(buildRawItem('emitXhsNote', {
+      note_id: 'note-2', title: '第二篇咖啡测评', desc: '更多深度对比内容', note_url: 'https://example.com/note-2',
+      nickname: '新测评官', user_id: 'creator-2', tags: ['拿铁', '测评'], keyword: '拿铁',
+    }), 'run-1');
+
+    const outdatedGraph = service.latest({ threadId: 'thread-1' });
+    assert.equal(outdatedGraph?.snapshotDocumentCount, 1);
+    assert.equal(outdatedGraph?.currentDocumentCount, 2);
+    assert.equal(outdatedGraph?.isOutdated, true);
+    assert.equal(outdatedGraph?.newDocumentCount, 1);
+
+    // Rebuild graph
+    const rebuiltGraph = service.rebuild({ threadId: 'thread-1' });
+    assert.equal(rebuiltGraph.snapshotDocumentCount, 2);
+    assert.equal(rebuiltGraph.currentDocumentCount, 2);
+    assert.equal(rebuiltGraph.isOutdated, false);
+    assert.equal(rebuiltGraph.newDocumentCount, 0);
+
     const subject = graph.nodes.find((node: any) => node.type === 'subject');
     const evidence = service.evidence(graph.id, subject.id);
     assert.equal(evidence.documents.length, 1);
@@ -140,13 +164,24 @@ test('manual entity merge and split rules survive deterministic graph rebuilds',
     const service = new GraphService(() => db);
     const graph = service.rebuild({ threadId: 'thread-1' });
     const subjects = graph.nodes.filter((node: any) => node.type === 'subject');
+    const platform = graph.nodes.find((node: any) => node.type === 'platform');
     assert.equal(subjects.length, 2);
+    assert.ok(platform);
+
+    // 平台节点安全保护约束
+    assert.throws(() => service.mergeEntities(graph.id, [platform.id, platform.id], '非法合并平台'), /平台作为物理信源维度/);
+    assert.throws(() => service.ignoreEntity(graph.id, platform.id), /平台为客观信源节点/);
+
+    // 语义化关联连线
+    const linked = service.linkEntities(graph.id, subjects[0].id, subjects[1].id, 'competitor');
+    assert.ok(linked.edges.some((edge: any) => edge.relation === 'competitor'));
+
     const merged = service.mergeEntities(graph.id, subjects.map((node: any) => node.id), '统一作者');
     const mergedNode = merged.nodes.find((node: any) => node.type === 'subject' && node.label === '统一作者');
     assert.equal(mergedNode.weight, 2);
     const split = service.splitEntity(merged.id, mergedNode.id, [mergedNode.documentIds[0]], '独立作者');
     assert.ok(split.nodes.some((node: any) => node.type === 'subject' && node.label === '独立作者'));
-    assert.equal(service.listEntityRules(split.id).length, 2);
+    assert.equal(service.listEntityRules(split.id).length, 3);
     const splitRule = service.listEntityRules(split.id).find((rule: any) => rule.operation === 'split');
     const restored = service.removeEntityRule(split.id, splitRule.ruleId);
     assert.equal(restored.nodes.some((node: any) => node.label === '独立作者'), false);

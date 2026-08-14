@@ -336,18 +336,17 @@ export function ObsidianForceGraph({
     }
   }, [])
 
-  // Auto fit once after mount & handle container resize
-  // Auto fit once after mount
+  // Auto fit once after mount & whenever nodes change
   useEffect(() => {
     const timer = setTimeout(() => {
       resetView()
       reheat(0.8)
-    }, 120)
+    }, 80)
 
     return () => {
       clearTimeout(timer)
     }
-  }, [resetView, reheat])
+  }, [nodes, resetView, reheat])
 
   // Main Animation Loop
   useEffect(() => {
@@ -748,7 +747,7 @@ export function ObsidianForceGraph({
         linkingCursorRef.current = { worldX, worldY }
         linkTargetNodeRef.current = null
         mergeTargetNodeRef.current = null
-      } else if (shouldMerge) {
+      } else if (shouldMerge && hitNode.type !== 'platform') {
         dragRef.current = {
           node: hitNode,
           isPanning: false,
@@ -820,13 +819,15 @@ export function ObsidianForceGraph({
       drag.node.vy = 0
       reheat(0.25)
 
-      // Detect hover over another node to merge (with generous 32px magnetic range)
+      // Detect hover over another node to merge (must match node type and cannot be platform)
       const target = findNodeAt(worldX, worldY, drag.node.id, 32)
-      if (target) {
+      if (target && target.type === drag.node.type && drag.node.type !== 'platform') {
         target.vx = 0
         target.vy = 0
+        mergeTargetNodeRef.current = target
+      } else {
+        mergeTargetNodeRef.current = null
       }
-      mergeTargetNodeRef.current = target
     } else if (drag.node) {
       // Normal physics dragging (explore dynamic electromagnetic repulsion)
       drag.node.x = worldX
@@ -859,7 +860,7 @@ export function ObsidianForceGraph({
     } else if (drag.isMerging && drag.node && mergeTargetNodeRef.current) {
       const source = drag.node
       const target = mergeTargetNodeRef.current
-      if (source.id !== target.id) {
+      if (source.id !== target.id && source.type === target.type && source.type !== 'platform') {
         onMergeNodes?.(source, target)
       }
     } else {

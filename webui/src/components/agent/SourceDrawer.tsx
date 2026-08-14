@@ -87,8 +87,8 @@ export function SourceDrawer({ isOpen, onClose, citation }: SourceDrawerProps) {
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         ) : (
-          <div className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
-            <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+          <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-cyber-text-secondary">
+            <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
             <span>此资料为本地离线/嵌入文件，无外部链接</span>
           </div>
         )}

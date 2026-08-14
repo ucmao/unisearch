@@ -18,8 +18,11 @@ import {
   HelpCircle,
   History as HistoryIcon,
   Info,
+  Link2,
   Network,
   RefreshCw,
+  Shield,
+  ShieldAlert,
   Sparkles,
   Split,
   Trash2,
@@ -40,7 +43,7 @@ import {
 } from '@/components/ui/dialog'
 import { ObsidianForceGraph } from './ObsidianForceGraph'
 
-export const REPORT_FORMAT_OPTIONS = [
+const REPORT_FORMAT_OPTIONS = [
   {
     category: '正式文档与汇报',
     items: [
@@ -134,7 +137,17 @@ export function ReportDownloadDropdown({ artifactId }: { artifactId: string }) {
 
 export type GraphNode = { id: string; type: string; label: string; weight: number; documentIds: string[] }
 export type Edge = { id: string; from: string; to: string; relation: string; weight: number }
-export type Graph = { id: string; documentCount: number; createdAt: string; nodes: GraphNode[]; edges: Edge[] }
+export type Graph = {
+  id: string
+  documentCount: number
+  snapshotDocumentCount?: number
+  currentDocumentCount?: number
+  isOutdated?: boolean
+  newDocumentCount?: number
+  createdAt: string
+  nodes: GraphNode[]
+  edges: Edge[]
+}
 export type Report = { artifactId: string; workflowId?: string; title: string; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string }
 export type ReportComparison = { from: { versionNumber: number }; to: { versionNumber: number }; documents: { added: string[]; removed: string[]; updated: string[]; unchanged: number }; citations: { added: string[]; removed: string[] }; sections: { added: string[]; removed: string[]; changed: string[] }; contentChanged: boolean }
 export type RelevanceAssessment = { assessmentId: string; phase: 'initial' | 'rewrite'; provider: string; query: string; resultCount: number; precisionAt10: number; status: 'good' | 'weak' | 'empty'; rewrittenQuery?: string }
@@ -142,9 +155,50 @@ export type Health = { connectorId: string; state: string; successRate: number; 
 export type Quality = { status: 'ready' | 'limited' | 'insufficient'; documentCount: number; qualifiedCount: number; warnings: string[]; metrics: { textCoverage: number; urlCoverage: number; commentCoverage: number } }
 export type EntityRule = { ruleId: string; nodeType: string; operation: 'merge' | 'split' | 'ignore' | 'link'; sourceLabels: string[]; targetLabel: string; documentIds: string[]; createdAt: string }
 
-export const stateLabel: Record<string, string> = { healthy: '正常', degraded: '降级', blocked: '需处理验证', broken: '疑似结构变化', unknown: '暂无结论' }
-export const stateColor: Record<string, string> = { healthy: 'text-emerald-400', degraded: 'text-amber-400', blocked: 'text-orange-400', broken: 'text-rose-400', unknown: 'text-cyber-text-muted' }
-export const nodeColor: Record<string, string> = { subject: '#22d3ee', keyword: '#a78bfa', platform: '#34d399', topic: '#fb923c' }
+const stateLabel: Record<string, string> = { healthy: '正常', degraded: '降级', blocked: '需处理验证', broken: '疑似结构变化', unknown: '暂无结论' }
+const stateColor: Record<string, string> = { healthy: 'text-emerald-400', degraded: 'text-amber-400', blocked: 'text-orange-400', broken: 'text-rose-400', unknown: 'text-cyber-text-muted' }
+const nodeColor: Record<string, string> = { subject: '#22d3ee', keyword: '#a78bfa', platform: '#34d399', topic: '#fb923c' }
+
+const RELATION_LABELS: Record<string, string> = {
+  competitor: '竞品对抗',
+  partner: '业务合作',
+  mentions: '关联提及',
+  subtopic: '上下级/子话题',
+  related: '相关衍生',
+  endorses: '核心主打',
+  mentions_topic: '提及话题',
+  published_on: '来源归属',
+  matched_keyword: '关键词匹配',
+  co_occurs: '通用关联',
+}
+
+function getRelationOptions(sourceType: string, targetType: string) {
+  if (sourceType === 'subject' && targetType === 'subject') {
+    return [
+      { id: 'competitor', label: '竞品对抗', desc: '两主体在业务或市场上构成直接/间接竞争' },
+      { id: 'partner', label: '业务合作', desc: '两主体存在战略协同、投资或供应链合作' },
+      { id: 'mentions', label: '关联提及', desc: '两主体在同一语境下经常被相互讨论或对比' },
+      { id: 'co_occurs', label: '通用关联', desc: '普通业务与数据共现关联' },
+    ]
+  }
+  if (sourceType === 'topic' && targetType === 'topic') {
+    return [
+      { id: 'subtopic', label: '上下级/子话题', desc: '一话题从属于另一宏观概念（父子层级）' },
+      { id: 'related', label: '相关衍生', desc: '两话题属于平行或交叉衍生概念' },
+      { id: 'co_occurs', label: '通用关联', desc: '普通业务与数据共现关联' },
+    ]
+  }
+  if ((sourceType === 'subject' && targetType === 'topic') || (sourceType === 'topic' && targetType === 'subject')) {
+    return [
+      { id: 'mentions_topic', label: '提及话题', desc: '主体在内容中深度探讨或涉足此话题' },
+      { id: 'endorses', label: '核心主打', desc: '此话题是该主体的核心赛道或主打产品方向' },
+      { id: 'co_occurs', label: '通用关联', desc: '普通业务与数据共现关联' },
+    ]
+  }
+  return [
+    { id: 'co_occurs', label: '通用关联', desc: '两实体在当前调研范围内具有关联性' },
+  ]
+}
 
 /**
  * 知识图谱与实体治理视图 (KnowledgeGraphView)
@@ -169,38 +223,94 @@ export function KnowledgeGraphView({
   const [isSplitModalOpen, setIsSplitModalOpen] = useState(false)
   const [splitTargetName, setSplitTargetName] = useState('')
   const [isSubmittingSplit, setIsSubmittingSplit] = useState(false)
+  const [isSplitMode, setIsSplitMode] = useState(false)
+
+  // 连线关系选择弹窗
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false)
+  const [connectPair, setConnectPair] = useState<{ source: GraphNode; target: GraphNode } | null>(null)
+  const [selectedRelation, setSelectedRelation] = useState('co_occurs')
+  const [customRelationName, setCustomRelationName] = useState('')
+  const [isSubmittingConnect, setIsSubmittingConnect] = useState(false)
+
+  const [isIgnoreConfirmOpen, setIsIgnoreConfirmOpen] = useState(false)
+  const [nodeToIgnore, setNodeToIgnore] = useState<{ id: string; label: string; type: string; weight: number; edgeCount: number } | null>(null)
+  const [isSubmittingIgnore, setIsSubmittingIgnore] = useState(false)
+  const [isRebuilding, setIsRebuilding] = useState(false)
+
+  // 当任务范围 (Scope) 切换时，立即清空上一个图谱的选中实体与合并清单，防止悬空指针导致的白屏或渲染错乱
+  useEffect(() => {
+    setSelectedElement(null)
+    setMergeNodeIds([])
+    setSplitDocumentIds([])
+    setIsSplitMode(false)
+  }, [scope?.thread_id, scope?.workflow_id, scope?.run_id])
 
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
 
   const graphQuery = useQuery({
     queryKey: ['research-graph', scope],
-    queryFn: async () => (await fetch(`/api/graph?${search}`).then((res) => res.json())).graph as Graph,
-  })
-
-  const evidenceQuery = useQuery({
-    queryKey: ['graph-evidence', graphQuery.data?.id, selectedElement?.id],
-    queryFn: async () => fetch(`/api/graph/${encodeURIComponent(graphQuery.data!.id)}/evidence/${encodeURIComponent(selectedElement!.id)}`).then((res) => res.json()) as Promise<{ documents: Array<{ documentId: string; title: string; platform: string; excerpt: string; sourceUrl?: string }> }>,
-    enabled: Boolean(graphQuery.data?.id && selectedElement?.id),
-  })
-
-  const rulesQuery = useQuery({
-    queryKey: ['graph-entity-rules', graphQuery.data?.id],
-    queryFn: async () => (await fetch(`/api/graph/${encodeURIComponent(graphQuery.data!.id)}/entity-rules`).then((res) => res.json())).items as EntityRule[],
-    enabled: Boolean(graphQuery.data?.id),
+    queryFn: async () => {
+      const res = await fetch(`/api/graph?${search}`)
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.detail || '获取图谱数据失败')
+      }
+      const data = await res.json()
+      return (data.graph || null) as Graph | null
+    },
   })
 
   const graph = graphQuery.data
+
+  // 确保当图谱刷新后，如果选中的元素在新的图谱拓扑中不存在，自动清理选中态
+  useEffect(() => {
+    if (selectedElement && graph) {
+      const existsInNodes = (graph.nodes || []).some((n) => n.id === selectedElement.id)
+      const existsInEdges = (graph.edges || []).some((e) => e.id === selectedElement.id)
+      if (!existsInNodes && !existsInEdges) {
+        setSelectedElement(null)
+      }
+    }
+  }, [graph, selectedElement])
+
+  const evidenceQuery = useQuery({
+    queryKey: ['graph-evidence', graph?.id, selectedElement?.id],
+    queryFn: async () => {
+      if (!graph?.id || !selectedElement?.id) return { documents: [] }
+      const res = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/evidence/${encodeURIComponent(selectedElement.id)}`)
+      if (!res.ok) return { documents: [] }
+      const json = await res.json()
+      return (json as { documents: Array<{ documentId: string; title: string; platform: string; excerpt: string; sourceUrl?: string }> })
+    },
+    enabled: Boolean(graph?.id && selectedElement?.id),
+  })
+
+  const rulesQuery = useQuery({
+    queryKey: ['graph-entity-rules', graph?.id],
+    queryFn: async () => {
+      if (!graph?.id) return []
+      const res = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entity-rules`)
+      if (!res.ok) return []
+      const json = await res.json()
+      return (json.items || []) as EntityRule[]
+    },
+    enabled: Boolean(graph?.id),
+  })
+
   const visibleNodes = (graph?.nodes || []).slice(0, 60)
   const visibleIds = new Set(visibleNodes.map((node) => node.id))
   const visibleEdges = (graph?.edges || []).filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).slice(0, 120)
 
   const rebuild = async () => {
+    setIsRebuilding(true)
     try {
       await fetch('/api/graph/rebuild', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(scope) })
       await graphQuery.refetch()
       toast.success('图谱拓扑已重新计算生成')
     } catch (err: any) {
       toast.error(err.message || '重建图谱失败')
+    } finally {
+      setIsRebuilding(false)
     }
   }
 
@@ -290,53 +400,112 @@ export function KnowledgeGraphView({
   }
 
   const handleQuickMerge = (sourceNode: GraphNode, targetNode: GraphNode) => {
+    if (sourceNode.type === 'platform' || targetNode.type === 'platform') {
+      toast.error('平台节点为物理信源，受系统保护不可合并')
+      return
+    }
+    if (sourceNode.type !== targetNode.type) {
+      toast.error('只能合并同类型的实体节点')
+      return
+    }
     setMergeNodeIds([sourceNode.id, targetNode.id])
     setMergeTargetName(targetNode.label)
     setIsMergeModalOpen(true)
   }
 
-  const handleQuickConnect = async (sourceNode: GraphNode, targetNode: GraphNode) => {
-    if (!graph) return
+  const handleQuickConnect = (sourceNode: GraphNode, targetNode: GraphNode) => {
+    setConnectPair({ source: sourceNode, target: targetNode })
+    const options = getRelationOptions(sourceNode.type, targetNode.type)
+    setSelectedRelation(options[0]?.id || 'co_occurs')
+    setCustomRelationName('')
+    setIsConnectModalOpen(true)
+  }
+
+  const handleConfirmConnect = async () => {
+    if (!graph || !connectPair) return
+    const rel = (customRelationName.trim() || selectedRelation || 'co_occurs')
+    setIsSubmittingConnect(true)
     try {
       const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/link`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from_node_id: sourceNode.id, to_node_id: targetNode.id, relation: 'co_occurs' }),
+        body: JSON.stringify({ from_node_id: connectPair.source.id, to_node_id: connectPair.target.id, relation: rel }),
       })
       const result = await response.json()
       if (!response.ok) {
         toast.error(result.detail || '建立连线失败')
         return
       }
-      toast.success(`已建立「${sourceNode.label}」↔「${targetNode.label}」的关联连线`)
+      const relLabel = RELATION_LABELS[rel] || rel
+      toast.success(`已建立「${connectPair.source.label}」↔「${connectPair.target.label}」的【${relLabel}】关联`)
+      setIsConnectModalOpen(false)
+      setConnectPair(null)
       await graphQuery.refetch()
       await rulesQuery.refetch()
     } catch (err: any) {
       toast.error(err.message || '建立连线失败')
+    } finally {
+      setIsSubmittingConnect(false)
     }
   }
 
-  const handleIgnoreEntity = async (nodeId: string, nodeLabel: string) => {
-    if (!graph) return
+  const handleIgnoreClick = (node: GraphNode) => {
+    if (node.type === 'platform') {
+      toast.error('平台为客观信源节点，受系统保护不可移出')
+      return
+    }
+    const connectedEdges = (graph?.edges || []).filter((e) => e.from === node.id || e.to === node.id)
+    setNodeToIgnore({
+      ...node,
+      edgeCount: connectedEdges.length,
+    })
+    setIsIgnoreConfirmOpen(true)
+  }
+
+  const handleConfirmIgnore = async () => {
+    if (!graph || !nodeToIgnore) return
+    setIsSubmittingIgnore(true)
     try {
       const response = await fetch(`/api/graph/${encodeURIComponent(graph.id)}/entities/ignore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ node_id: nodeId }),
+        body: JSON.stringify({ node_id: nodeToIgnore.id }),
       })
       const result = await response.json()
       if (!response.ok) {
         toast.error(result.detail || '移出实体失败')
         return
       }
-      toast.success(`已将噪点实体「${nodeLabel}」从图谱中移出`)
+      toast.success(`已将实体「${nodeToIgnore.label}」从图谱中移出`)
       setSelectedElement(null)
-      setMergeNodeIds((current) => current.filter((id) => id !== nodeId))
+      setMergeNodeIds((current) => current.filter((id) => id !== nodeToIgnore.id))
+      setIsIgnoreConfirmOpen(false)
+      setNodeToIgnore(null)
       await graphQuery.refetch()
       await rulesQuery.refetch()
     } catch (err: any) {
       toast.error(err.message || '移出实体失败')
+    } finally {
+      setIsSubmittingIgnore(false)
     }
+  }
+
+  const handleAddToMerge = (node: GraphNode) => {
+    if (node.type === 'platform') {
+      toast.error('平台节点为物理信源，受系统保护不可合并')
+      return
+    }
+    if (mergeNodeIds.includes(node.id)) {
+      setMergeNodeIds((current) => current.filter((id) => id !== node.id))
+      return
+    }
+    const selectedNodes = (graph?.nodes || []).filter((n) => mergeNodeIds.includes(n.id))
+    if (selectedNodes.length > 0 && selectedNodes[0].type !== node.type) {
+      const typeMap: Record<string, string> = { subject: '主体', keyword: '关键词', topic: '话题' }
+      toast.error(`只能合并同类型的实体（当前已选 ${typeMap[selectedNodes[0].type] || selectedNodes[0].type} 节点）`)
+      return
+    }
+    setMergeNodeIds((current) => [...current, node.id])
   }
 
   return (
@@ -352,8 +521,8 @@ export function KnowledgeGraphView({
 
           <div className="hidden sm:flex items-center gap-2.5 text-[11px] text-cyber-text-muted border-l border-cyber-border-subtle pl-3">
             <span><strong>{graph?.documentCount || 0}</strong> 文档</span>
-            <span><strong>{graph?.nodes.length || 0}</strong> 实体节点</span>
-            <span><strong>{graph?.edges.length || 0}</strong> 关联边</span>
+            <span><strong>{graph?.nodes?.length || 0}</strong> 实体节点</span>
+            <span><strong>{graph?.edges?.length || 0}</strong> 关联边</span>
           </div>
 
           <div className="flex items-center gap-2.5 text-[10.5px] text-cyber-text-muted border-l border-cyber-border-subtle pl-3">
@@ -381,12 +550,13 @@ export function KnowledgeGraphView({
           <Button
             size="sm"
             variant="outline"
-            className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+            disabled={isRebuilding}
+            className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle transition-all"
             onClick={rebuild}
             title="重新计算图谱节点与边关系"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>重建图谱</span>
+            <RefreshCw className={`h-3.5 w-3.5 ${isRebuilding ? 'animate-spin text-cyber-neon-cyan' : ''}`} />
+            <span>{isRebuilding ? '计算中...' : '重建图谱'}</span>
           </Button>
 
           <Button
@@ -411,14 +581,41 @@ export function KnowledgeGraphView({
         </div>
       </div>
 
+      {/* 快照版本对比与增量新文档提示条 */}
+      {graph?.isOutdated && (graph?.newDocumentCount || 0) > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 dark:bg-amber-500/15 px-3.5 py-2 text-xs backdrop-blur-xs animate-in fade-in slide-in-from-top-1">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+              <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+            </span>
+            <div className="min-w-0 text-cyber-text-primary">
+              <span className="font-semibold text-amber-700 dark:text-amber-300">发现新增采集数据：</span>
+              <span className="text-cyber-text-secondary ml-1">
+                检测到新增了 <strong className="text-amber-700 dark:text-amber-400 font-bold font-mono">{graph.newDocumentCount}</strong> 篇关联文档
+                （当前快照基于 {graph.snapshotDocumentCount || graph.documentCount} 篇，最新共 {graph.currentDocumentCount} 篇）。
+              </span>
+            </div>
+          </div>
+          <Button
+            size="sm"
+            disabled={isRebuilding}
+            onClick={rebuild}
+            className="h-7 gap-1.5 px-3 text-xs bg-amber-500 hover:bg-amber-600 text-white dark:bg-amber-500/25 dark:text-amber-200 dark:border-amber-500/50 dark:hover:bg-amber-500/40 border border-amber-600/30 shrink-0 font-medium shadow-xs transition-all cursor-pointer"
+          >
+            <RefreshCw className={`h-3 w-3 ${isRebuilding ? 'animate-spin' : ''}`} />
+            <span>{isRebuilding ? '正在更新拓扑...' : '一键更新图谱'}</span>
+          </Button>
+        </div>
+      )}
+
       {/* 实体合并待办栏 (唯一的合并操作与清单入口) */}
       {mergeNodeIds.length > 0 && (
-        <div className="flex items-center justify-between rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/70 px-3 py-1.5 text-xs animate-in fade-in slide-in-from-top-1">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center justify-between rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/70 px-3 py-1.5 text-xs animate-in fade-in slide-in-from-top-1 w-full min-w-0 overflow-hidden gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <Combine className="h-4 w-4 text-cyber-text-primary shrink-0" />
-            <span className="text-cyber-text-primary truncate">
+            <span className="text-cyber-text-primary truncate min-w-0 flex-1">
               已选待合并 ({mergeNodeIds.length})：
-              <strong className="ml-1 text-cyber-text-primary font-semibold">
+              <strong className="ml-1 text-cyber-text-primary font-semibold truncate font-mono text-[11px]">
                 {(graph?.nodes || [])
                   .filter((n) => mergeNodeIds.includes(n.id))
                   .map((n) => n.label)
@@ -457,7 +654,12 @@ export function KnowledgeGraphView({
       >
         {/* 左侧 / 全屏图谱画布 */}
         <section className="relative flex min-w-0 flex-col overflow-hidden">
-          {graph && visibleNodes.length ? (
+          {graphQuery.isLoading ? (
+            <div className="flex min-h-[380px] flex-1 flex-col items-center justify-center rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-8 text-center backdrop-blur-xs">
+              <RefreshCw className="h-7 w-7 text-cyber-neon-cyan animate-spin mb-2.5" />
+              <p className="text-xs text-cyber-text-muted">正在加载图谱拓扑数据...</p>
+            </div>
+          ) : graph && visibleNodes.length ? (
             <div className="flex flex-col flex-1 min-h-0 relative">
               <ObsidianForceGraph
                 nodes={visibleNodes}
@@ -470,8 +672,73 @@ export function KnowledgeGraphView({
               />
             </div>
           ) : (
-            <div className="grid h-72 place-items-center text-xs text-cyber-text-muted rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/25">
-              当前任务范围暂无足够的关系数据以投影图谱
+            <div className="flex min-h-[380px] flex-1 flex-col items-center justify-center rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-8 text-center backdrop-blur-xs animate-in fade-in zoom-in-95">
+              <div className="relative mb-3.5 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyber-neon-cyan/30 bg-cyber-neon-cyan/10 shadow-lg shadow-cyber-neon-cyan/5">
+                <Network className="h-7 w-7 text-cyber-neon-cyan animate-pulse" />
+              </div>
+
+              <h4 className="text-sm font-semibold text-cyber-text-primary">
+                {(rulesQuery.data || []).length > 0 && (graph?.currentDocumentCount || 0) > 0
+                  ? '图谱实体已全部被规则过滤'
+                  : (graph?.currentDocumentCount || graph?.documentCount || 0) > 0
+                  ? '图谱关系拓扑待生成'
+                  : '暂无关联采集数据'}
+              </h4>
+
+              <p className="mt-2 max-w-md text-xs text-cyber-text-secondary leading-relaxed">
+                {(rulesQuery.data || []).length > 0 && (graph?.currentDocumentCount || 0) > 0
+                  ? '历史实体治理操作（移出/合并规则）已过滤当前分析范围内的全部节点，可打开操作历史查看或撤销规则。'
+                  : (graph?.currentDocumentCount || graph?.documentCount || 0) > 0
+                  ? `当前分析范围内已就绪 ${graph?.currentDocumentCount || graph?.documentCount} 篇文档，点击下方按钮一键提取实体并构建物理力导向关系网络。`
+                  : '当前任务范围尚未采集到有效证据文档，请先在工作台启动采集或导入数据。'}
+              </p>
+
+              <div className="mt-5 flex items-center gap-2.5">
+                {(rulesQuery.data || []).length > 0 && (graph?.currentDocumentCount || 0) > 0 ? (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIsHistoryModalOpen(true)}
+                      className="h-8 gap-1.5 px-3.5 text-xs border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/20 font-medium"
+                    >
+                      <HistoryIcon className="h-3.5 w-3.5" />
+                      <span>查看操作历史 ({rulesQuery.data!.length})</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={isRebuilding}
+                      onClick={rebuild}
+                      className="h-8 gap-1.5 px-3 text-xs border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isRebuilding ? 'animate-spin' : ''}`} />
+                      <span>重新计算</span>
+                    </Button>
+                  </>
+                ) : (graph?.currentDocumentCount || graph?.documentCount || 0) > 0 ? (
+                  <Button
+                    size="sm"
+                    disabled={isRebuilding}
+                    onClick={rebuild}
+                    className="h-8 gap-2 px-4 text-xs bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan-dim dark:bg-cyber-neon-cyan/25 dark:text-cyan-200 dark:border-cyber-neon-cyan/50 dark:hover:bg-cyber-neon-cyan/40 shadow-sm font-medium transition-all cursor-pointer"
+                  >
+                    <Sparkles className={`h-3.5 w-3.5 ${isRebuilding ? 'animate-spin text-white' : ''}`} />
+                    <span>{isRebuilding ? '正在提取实体与拓扑...' : '立即生成关系图谱'}</span>
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={isRebuilding}
+                    onClick={rebuild}
+                    className="h-8 gap-1.5 px-3 text-xs border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary cursor-pointer"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isRebuilding ? 'animate-spin' : ''}`} />
+                    <span>重新检测数据</span>
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -504,28 +771,35 @@ export function KnowledgeGraphView({
                   )}
                 </div>
                 <p className="mt-1 text-[11px] text-cyber-text-muted">
-                  共关联 <strong className="text-cyber-neon-cyan">{selectedElement.weight}</strong> 篇证据文档 · 精准溯源
+                  共关联 <strong className="text-cyber-neon-cyan">{selectedElement.weight || 0}</strong> 篇证据文档 · 精准溯源
                 </p>
               </div>
 
               <div className="flex items-center gap-1 shrink-0">
                 {'label' in selectedElement ? (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs text-cyber-text-muted hover:text-rose-400 hover:bg-rose-500/10"
-                    onClick={() => handleIgnoreEntity(selectedElement.id, selectedElement.label)}
-                    title="将此无意义或噪点实体从图谱中移出"
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-1" />
-                    <span>移出</span>
-                  </Button>
+                  selectedElement.type === 'platform' ? (
+                    <span className="flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-1 text-[10.5px] font-medium text-emerald-400 border border-emerald-500/30">
+                      <Shield className="h-3 w-3" />
+                      <span>客观信源保护</span>
+                    </span>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-xs text-cyber-text-muted hover:text-rose-400 hover:bg-rose-500/10"
+                      onClick={() => handleIgnoreClick(selectedElement)}
+                      title="将此无意义或噪点实体从图谱中移出"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      <span>移出</span>
+                    </Button>
+                  )
                 ) : null}
                 <Button
                   size="sm"
                   variant="ghost"
                   className="h-7 px-2 text-xs text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60 shrink-0"
-                  onClick={() => { setSelectedElement(null); setSplitDocumentIds([]) }}
+                  onClick={() => { setSelectedElement(null); setSplitDocumentIds([]); setIsSplitMode(false) }}
                 >
                   <X className="h-3.5 w-3.5 mr-1" />
                   <span>关闭</span>
@@ -533,45 +807,109 @@ export function KnowledgeGraphView({
               </div>
             </div>
 
-            {/* Action Toolbar */}
-            <div className="mt-2.5 flex items-center justify-between gap-2 flex-wrap text-xs">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {'label' in selectedElement && onFilter ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 gap-1 px-2.5 text-[11px] border-cyber-neon-cyan/40 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
-                    onClick={() => onFilter(selectedElement)}
-                  >
-                    <Filter className="h-3 w-3" />在数据透视表中查看
-                  </Button>
-                ) : null}
-                {'label' in selectedElement ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className={`h-7 gap-1 px-2.5 text-[11px] ${
-                      mergeNodeIds.includes(selectedElement.id)
-                        ? 'border-cyber-border-subtle bg-cyber-bg-secondary text-cyber-text-primary font-medium'
-                        : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'
-                    }`}
-                    onClick={() => setMergeNodeIds((current) => current.includes(selectedElement.id) ? current.filter((id) => id !== selectedElement.id) : [...current, selectedElement.id])}
-                  >
-                    <Combine className="h-3 w-3" />
-                    {mergeNodeIds.includes(selectedElement.id) ? '已加入待合并' : '加入合并清单'}
-                  </Button>
-                ) : null}
-              </div>
+            {/* 实体级操作区 (Entity Level Actions) */}
+            {'label' in selectedElement ? (
+              <div className="mt-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/40 p-2.5 space-y-2">
+                <div className="text-[10.5px] font-semibold text-cyber-text-muted flex items-center justify-between">
+                  <span>实体治理操作</span>
+                  <span className="text-[10px] text-cyber-text-muted font-normal">
+                    {selectedElement.type === 'platform' ? '物理信源受系统保护' : '透视 · 合并 · 拆分'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 w-full">
+                  {onFilter ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1 px-2 text-xs border-cyber-neon-cyan/40 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10 flex-1 min-w-0 justify-center"
+                      onClick={() => onFilter(selectedElement)}
+                      title="在数据透视表中查看此实体关联的全部数据"
+                    >
+                      <Filter className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">透视查看</span>
+                    </Button>
+                  ) : null}
 
-              {'label' in selectedElement ? (
-                <span className="text-[10px] text-cyber-text-muted">
-                  勾选证据可分离为新节点
-                </span>
-              ) : null}
+                  {'label' in selectedElement && selectedElement.type !== 'platform' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={`h-7 gap-1 px-2 text-xs flex-1 min-w-0 justify-center ${
+                        mergeNodeIds.includes(selectedElement.id)
+                          ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium'
+                          : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'
+                      }`}
+                      onClick={() => handleAddToMerge(selectedElement)}
+                      title="将此实体加入合并清单，与其他实体多对一合并"
+                    >
+                      <Combine className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{mergeNodeIds.includes(selectedElement.id) ? '已在合并池' : '加入合并'}</span>
+                    </Button>
+                  ) : null}
+
+                  {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={(selectedElement.weight || 0) <= 1}
+                      title={(selectedElement.weight || 0) <= 1 ? '当前实体仅关联 1 篇文档，无法拆分' : '从当前实体中勾选证据拆出新实体'}
+                      className={`h-7 gap-1 px-2 text-xs flex-1 min-w-0 justify-center ${
+                        isSplitMode
+                          ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-semibold shadow-sm'
+                          : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'
+                      }`}
+                      onClick={() => {
+                        const next = !isSplitMode
+                        setIsSplitMode(next)
+                        if (!next) setSplitDocumentIds([])
+                      }}
+                    >
+                      <Split className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate">{isSplitMode ? '退出拆分' : '拆分实体'}</span>
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {/* 证据文档与细分拆分区 Header */}
+            <div className="mt-3.5 flex items-center justify-between gap-2 px-0.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-cyber-text-primary">
+                <FileText className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                <span>关联证据文档 ({evidenceQuery.data?.documents?.length || selectedElement.weight || 0})</span>
+              </div>
             </div>
 
+            {/* 拆分模式提示条 */}
+            {isSplitMode && (
+              <div className="mt-2 flex items-center justify-between rounded-md border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-[11px] animate-in fade-in">
+                <span className="text-cyber-text-secondary font-medium">
+                  <span className="text-cyan-600 dark:text-cyan-400 font-semibold mr-1">💡 拆分模式：</span>
+                  请在下方勾选要拆出的证据文档
+                </span>
+                <div className="flex items-center gap-2">
+                  {splitDocumentIds.length > 0 && (
+                    <button
+                      type="button"
+                      className="text-[10.5px] text-cyan-600 dark:text-cyan-300 hover:text-cyan-700 dark:hover:text-cyan-200 underline underline-offset-2 font-medium"
+                      onClick={() => setSplitDocumentIds([])}
+                    >
+                      清空已选 ({splitDocumentIds.length})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-[10.5px] text-cyber-text-muted hover:text-cyber-text-primary"
+                    onClick={() => { setIsSplitMode(false); setSplitDocumentIds([]) }}
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Documents Evidence List */}
-            <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
+            <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
               {evidenceQuery.isLoading ? (
                 <div className="grid h-48 place-items-center text-xs text-cyber-text-muted">
                   <RefreshCw className="h-4 w-4 animate-spin mb-1 text-cyber-neon-cyan" />
@@ -582,13 +920,13 @@ export function KnowledgeGraphView({
                   <div
                     key={document.documentId}
                     className={`group rounded-lg border p-2.5 transition-colors ${
-                      splitDocumentIds.includes(document.documentId)
+                      isSplitMode && splitDocumentIds.includes(document.documentId)
                         ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10'
                         : 'border-cyber-border-subtle bg-cyber-bg-primary/50 hover:border-cyber-neon-cyan/40 hover:bg-cyber-bg-primary/80'
                     }`}
                   >
                     <div className="flex items-start gap-2.5">
-                      {'label' in selectedElement ? (
+                      {isSplitMode ? (
                         <input
                           type="checkbox"
                           className="mt-1 h-3.5 w-3.5 rounded border-cyber-border-subtle text-cyber-neon-cyan focus:ring-0 cursor-pointer"
@@ -649,14 +987,18 @@ export function KnowledgeGraphView({
             </div>
 
             {/* Footer split action */}
-            {'label' in selectedElement && ['subject', 'topic'].includes(selectedElement.type) && splitDocumentIds.length > 0 ? (
-              <div className="mt-3 flex items-center justify-between rounded-lg border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-2 text-xs">
+            {isSplitMode && splitDocumentIds.length > 0 ? (
+              <div className="mt-3 flex items-center justify-between rounded-lg border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-2.5 text-xs animate-in fade-in slide-in-from-bottom-2">
                 <span className="text-[11px] text-cyber-text-primary">
-                  已勾选 <strong>{splitDocumentIds.length}</strong> 篇文档
+                  已选 <strong>{splitDocumentIds.length}</strong> 篇文档
                 </span>
-                <Button size="sm" variant="outline" className="h-7 gap-1 px-3 text-[11px] border-cyber-neon-cyan text-cyber-neon-cyan bg-cyber-bg-primary hover:bg-cyber-neon-cyan/20" onClick={openSplitModal}>
-                  <Split className="h-3 w-3" />
-                  <span>分离为新概念节点</span>
+                <Button
+                  size="sm"
+                  className="h-7 gap-1.5 px-3 text-xs bg-cyber-neon-cyan text-cyber-bg-primary hover:bg-cyber-neon-cyan/90 font-medium"
+                  onClick={openSplitModal}
+                >
+                  <Split className="h-3.5 w-3.5" />
+                  <span>分离为新概念实体</span>
                 </Button>
               </div>
             ) : null}
@@ -708,13 +1050,13 @@ export function KnowledgeGraphView({
 
       {/* 实体合并统一命名弹窗 */}
       <Dialog open={isMergeModalOpen} onOpenChange={setIsMergeModalOpen}>
-        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+        <DialogContent className="max-w-md w-full overflow-hidden border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
           <DialogHeader>
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50">
                 <Combine className="h-5 w-5 text-cyber-neon-cyan" />
               </div>
-              <div className="text-left">
+              <div className="text-left min-w-0 flex-1">
                 <DialogTitle className="text-base font-semibold text-cyber-text-primary">
                   统一合并实体名称
                 </DialogTitle>
@@ -725,21 +1067,27 @@ export function KnowledgeGraphView({
             </div>
           </DialogHeader>
 
-          <div className="space-y-3 py-2">
+          <div className="space-y-3 py-2 min-w-0 overflow-hidden">
             <div>
               <label className="text-xs text-cyber-text-muted font-medium block mb-1.5">
-                选中的待合并实体：
+                选中的待合并实体 ({mergeNodeIds.length})：
               </label>
-              <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 max-h-24 overflow-y-auto">
+              <div className="flex flex-col gap-1.5 p-2 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 max-h-36 overflow-y-auto w-full min-w-0">
                 {(graph?.nodes || [])
                   .filter((n) => mergeNodeIds.includes(n.id))
                   .map((n) => (
-                    <span
+                    <div
                       key={n.id}
-                      className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium border border-cyber-border-subtle bg-cyber-bg-secondary text-cyber-text-primary"
+                      className="flex items-center gap-2 rounded px-2.5 py-1 text-xs font-medium border border-cyber-border-subtle bg-cyber-bg-secondary text-cyber-text-primary w-full min-w-0 overflow-hidden"
                     >
-                      {n.label}
-                    </span>
+                      <i className="h-2 w-2 rounded-full shrink-0" style={{ background: nodeColor[n.type] || '#94a3b8' }} />
+                      <span className="truncate flex-1 min-w-0 font-mono text-[11px]" title={n.label}>
+                        {n.label}
+                      </span>
+                      <span className="text-[10px] text-cyber-text-muted shrink-0">
+                        ({ { subject: '主体', keyword: '关键词', topic: '话题', platform: '平台' }[n.type] || n.type })
+                      </span>
+                    </div>
                   ))}
               </div>
             </div>
@@ -752,7 +1100,7 @@ export function KnowledgeGraphView({
                 value={mergeTargetName}
                 onChange={(e) => setMergeTargetName(e.target.value)}
                 placeholder="请输入统一实体名称..."
-                className="h-9 text-xs"
+                className="h-9 text-xs w-full min-w-0"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleConfirmMerge()
@@ -784,13 +1132,13 @@ export function KnowledgeGraphView({
 
       {/* 实体拆分新概念弹窗 */}
       <Dialog open={isSplitModalOpen} onOpenChange={setIsSplitModalOpen}>
-        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+        <DialogContent className="max-w-md w-full overflow-hidden border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
           <DialogHeader>
             <div className="flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10">
                 <Split className="h-5 w-5 text-cyber-neon-cyan" />
               </div>
-              <div className="text-left">
+              <div className="text-left min-w-0 flex-1">
                 <DialogTitle className="text-base font-semibold text-cyber-text-primary">
                   拆分新概念/实体
                 </DialogTitle>
@@ -801,10 +1149,10 @@ export function KnowledgeGraphView({
             </div>
           </DialogHeader>
 
-          <div className="space-y-3 py-2">
-            <div className="text-xs text-cyber-text-muted">
-              原实体节点：
-              <span className="font-semibold text-cyber-text-primary ml-1">
+          <div className="space-y-3 py-2 min-w-0 overflow-hidden">
+            <div className="flex items-center gap-1.5 text-xs text-cyber-text-muted min-w-0 overflow-hidden">
+              <span className="shrink-0">原实体节点：</span>
+              <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={selectedElement && 'label' in selectedElement ? selectedElement.label : ''}>
                 {selectedElement && 'label' in selectedElement ? selectedElement.label : ''}
               </span>
             </div>
@@ -817,7 +1165,7 @@ export function KnowledgeGraphView({
                 value={splitTargetName}
                 onChange={(e) => setSplitTargetName(e.target.value)}
                 placeholder="请输入新概念/实体名称..."
-                className="h-9 text-xs"
+                className="h-9 text-xs w-full min-w-0"
                 autoFocus
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleConfirmSplit()
@@ -842,6 +1190,181 @@ export function KnowledgeGraphView({
               disabled={!splitTargetName.trim() || isSubmittingSplit}
             >
               {isSubmittingSplit ? '正在拆分...' : '确认拆分'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 建立实体关联关系弹窗 */}
+      <Dialog open={isConnectModalOpen} onOpenChange={setIsConnectModalOpen}>
+        <DialogContent className="max-w-md w-full overflow-hidden border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-emerald-500/30 bg-emerald-500/10">
+                <Link2 className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div className="text-left min-w-0 flex-1">
+                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
+                  建立自定义关联连线
+                </DialogTitle>
+                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
+                  为两个图谱实体指定明确的业务语义关系
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {connectPair && (
+            <div className="space-y-3.5 py-2 min-w-0 overflow-hidden">
+              {/* 实体展示 */}
+              <div className="flex items-center justify-between gap-2 p-3 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 text-xs w-full min-w-0 overflow-hidden">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                  <i className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: nodeColor[connectPair.source.type] || '#94a3b8' }} />
+                  <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={connectPair.source.label}>{connectPair.source.label}</span>
+                  <span className="text-[10px] text-cyber-text-muted shrink-0">({ { subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[connectPair.source.type] || connectPair.source.type })</span>
+                </div>
+                <span className="text-cyber-neon-cyan font-bold shrink-0 px-1">↔</span>
+                <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                  <i className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: nodeColor[connectPair.target.type] || '#94a3b8' }} />
+                  <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={connectPair.target.label}>{connectPair.target.label}</span>
+                  <span className="text-[10px] text-cyber-text-muted shrink-0">({ { subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[connectPair.target.type] || connectPair.target.type })</span>
+                </div>
+              </div>
+
+              {/* 关系类型选择 */}
+              <div>
+                <label className="text-xs text-cyber-text-primary font-medium block mb-2">
+                  选择推荐业务关系：
+                </label>
+                <div className="space-y-1.5">
+                  {getRelationOptions(connectPair.source.type, connectPair.target.type).map((opt) => (
+                    <label
+                      key={opt.id}
+                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                        selectedRelation === opt.id && !customRelationName.trim()
+                          ? 'border-emerald-500/60 bg-emerald-500/10'
+                          : 'border-cyber-border-subtle bg-cyber-bg-primary/40 hover:bg-cyber-bg-primary/70'
+                      }`}
+                      onClick={() => { setSelectedRelation(opt.id); setCustomRelationName('') }}
+                    >
+                      <input
+                        type="radio"
+                        name="relation-type"
+                        className="mt-0.5 text-emerald-500 focus:ring-0 cursor-pointer"
+                        checked={selectedRelation === opt.id && !customRelationName.trim()}
+                        onChange={() => { setSelectedRelation(opt.id); setCustomRelationName('') }}
+                      />
+                      <div className="min-w-0 flex-1 text-xs">
+                        <div className="font-medium text-cyber-text-primary">{opt.label} <span className="text-[10px] text-cyber-text-muted font-normal">({opt.id})</span></div>
+                        <div className="text-[11px] text-cyber-text-muted mt-0.5 leading-relaxed">{opt.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 自定义关系输入 */}
+              <div>
+                <label className="text-xs text-cyber-text-muted font-medium block mb-1">
+                  或输入自定义关系名称（选填）：
+                </label>
+                <Input
+                  value={customRelationName}
+                  onChange={(e) => setCustomRelationName(e.target.value)}
+                  placeholder="例如：投资控股、供应链采购、替代品..."
+                  className="h-8 text-xs w-full min-w-0"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-cyber-border-subtle"
+              onClick={() => { setIsConnectModalOpen(false); setConnectPair(null) }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium text-xs"
+              onClick={handleConfirmConnect}
+              disabled={isSubmittingConnect}
+            >
+              {isSubmittingConnect ? '正在建立...' : '确认建立连线'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 移出实体二次确认与级联预警弹窗 */}
+      <Dialog open={isIgnoreConfirmOpen} onOpenChange={setIsIgnoreConfirmOpen}>
+        <DialogContent className="max-w-md w-full overflow-hidden border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-rose-500/30 bg-rose-500/10">
+                <Trash2 className="h-5 w-5 text-rose-400" />
+              </div>
+              <div className="text-left min-w-0 flex-1">
+                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
+                  确认从图谱中移出该实体？
+                </DialogTitle>
+                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
+                  清洗噪点节点并重新计算图谱拓扑
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {nodeToIgnore && (
+            <div className="space-y-3 py-2 text-xs min-w-0 overflow-hidden">
+              <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3 space-y-2 min-w-0 overflow-hidden">
+                <div className="flex items-center justify-between gap-2 min-w-0 overflow-hidden">
+                  <span className="text-cyber-text-muted shrink-0">待移出实体：</span>
+                  <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-end overflow-hidden">
+                    <i className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: nodeColor[nodeToIgnore.type] || '#94a3b8' }} />
+                    <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={nodeToIgnore.label}>{nodeToIgnore.label}</span>
+                    <span className="text-[10px] text-cyber-text-muted shrink-0">({ { subject: '主体', keyword: '关键词', topic: '话题' }[nodeToIgnore.type] || nodeToIgnore.type })</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-cyber-text-muted">关联证据文档：</span>
+                  <span className="font-medium text-cyber-text-primary">{nodeToIgnore.weight} 篇</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-cyber-text-muted">连带受影响的拓扑边：</span>
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">{nodeToIgnore.edgeCount} 条</span>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5 p-3 rounded-lg border border-amber-500/25 bg-amber-500/10 text-xs text-cyber-text-secondary leading-relaxed">
+                <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <div className="text-[11.5px] leading-relaxed text-cyber-text-secondary">
+                  <strong className="text-amber-600 dark:text-amber-400 font-semibold mr-1">安全说明：</strong>
+                  移出仅在当前任务视图中隐藏该节点及其相连边，底层的原始采集文档与数据库记录<strong className="text-cyber-text-primary font-semibold">不受任何破坏</strong>。你可在顶部「操作历史」中随时一键撤销并还原。
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-cyber-border-subtle"
+              onClick={() => { setIsIgnoreConfirmOpen(false); setNodeToIgnore(null) }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="bg-rose-500 hover:bg-rose-600 text-white font-medium text-xs"
+              onClick={handleConfirmIgnore}
+              disabled={isSubmittingIgnore}
+            >
+              {isSubmittingIgnore ? '正在移出...' : '确认移出'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -917,7 +1440,7 @@ export function KnowledgeGraphView({
                             : rule.operation === 'ignore'
                             ? `已移出「${rule.sourceLabels.join(', ')}」`
                             : rule.operation === 'link'
-                            ? `${rule.sourceLabels.join(' ↔ ')} (${rule.targetLabel || '语义共现'})`
+                            ? `${rule.sourceLabels.join(' ↔ ')} · 【${RELATION_LABELS[rule.targetLabel] || rule.targetLabel || '通用关联'}】`
                             : `${rule.documentIds.length} 篇文档 ➔ ${rule.targetLabel}`}
                         </p>
                       </div>
@@ -1086,9 +1609,9 @@ export function ResearchReportsView({
         )}
 
         {qualityQuery.data?.warnings && qualityQuery.data.warnings.length > 0 && (
-          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-300 flex items-start gap-2">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
+          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-cyber-text-secondary flex items-start gap-2">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <div className="space-y-0.5 leading-relaxed">
               {qualityQuery.data.warnings.map((warning, idx) => (
                 <p key={idx}>{warning}</p>
               ))}

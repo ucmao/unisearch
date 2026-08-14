@@ -145,16 +145,16 @@ export class GraphService {
       const fromNode = Array.from(nodes.values()).find((n) => n.label.toLocaleLowerCase() === link.fromLabel.toLocaleLowerCase());
       const toNode = Array.from(nodes.values()).find((n) => n.label.toLocaleLowerCase() === link.toLabel.toLocaleLowerCase());
       if (fromNode && toNode) {
-        const edgeId = stableId('edge', `${fromNode.id}|co_occurs|${toNode.id}`);
+        const edgeId = stableId('edge', `${fromNode.id}|${link.relation}|${toNode.id}`);
         if (!edges.has(edgeId)) {
           edges.set(edgeId, {
             id: edgeId,
             from: fromNode.id,
             to: toNode.id,
-            relation: 'co_occurs',
+            relation: link.relation as any,
             weight: 1,
             documentIds: [],
-            evidence: [{ documentId: 'manual', title: '用户自定义关联', excerpt: `手动关联「${fromNode.label}」与「${toNode.label}」` }],
+            evidence: [{ documentId: 'manual', title: '用户自定义关联', excerpt: `手动关联「${fromNode.label}」与「${toNode.label}」（${link.relation}）` }],
           });
         }
       }
@@ -175,17 +175,48 @@ export class GraphService {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}')`);
       for (const edge of edges.values()) insertEdge.run(graphId, edge.id, edge.from, edge.to, edge.relation, edge.weight, JSON.stringify(edge.documentIds), JSON.stringify(edge.evidence));
     })();
-    return this.get(graphId);
+    return this.get(graphId, scope);
+  }
+
+  countDocuments(scope: GraphScope): number {
+    try {
+      if (scope.runId) {
+        const row = this.db.prepare('SELECT COUNT(DISTINCT document_id) as c FROM document_sources WHERE run_id=?').get(scope.runId) as { c: number } | undefined;
+        return row?.c || 0;
+      }
+      if (scope.threadId) {
+        const row = this.db.prepare(`
+          SELECT COUNT(DISTINCT ds.document_id) as c FROM document_sources ds
+          JOIN crawl_runs r ON r.run_id=ds.run_id WHERE r.thread_id=?
+        `).get(scope.threadId) as { c: number } | undefined;
+        return row?.c || 0;
+      }
+      if (scope.workflowId) {
+        const row = this.db.prepare(`
+          SELECT COUNT(DISTINCT ds.document_id) as c FROM document_sources ds
+          JOIN crawl_runs r ON r.run_id=ds.run_id
+          JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+          JOIN documents d ON d.document_id=ds.document_id
+          JOIN document_versions dv ON dv.version_id=ds.document_version_id
+          WHERE r.workflow_id=? AND (w.incremental_since IS NULL OR d.created_at > w.incremental_since OR dv.created_at > w.incremental_since)
+        `).get(scope.workflowId) as { c: number } | undefined;
+        return row?.c || 0;
+      }
+      const row = this.db.prepare('SELECT COUNT(*) as c FROM documents').get() as { c: number } | undefined;
+      return row?.c || 0;
+    } catch {
+      return 0;
+    }
   }
 
   latest(scope: GraphScope): any | null {
     const scopeType = scope.runId ? 'run' : scope.threadId ? 'thread' : scope.workflowId ? 'workflow' : 'all';
     const scopeId = scope.runId || scope.threadId || scope.workflowId || 'all';
     const row = this.db.prepare('SELECT graph_id FROM graph_snapshots WHERE scope_type=? AND scope_id=? ORDER BY created_at DESC LIMIT 1').get(scopeType, scopeId) as any;
-    return row ? this.get(row.graph_id) : null;
+    return row ? this.get(row.graph_id, scope) : null;
   }
 
-  get(graphId: string): any {
+  get(graphId: string, scope?: GraphScope): any {
     const snapshot = this.db.prepare('SELECT * FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
     if (!snapshot) throw new Error('Graph snapshot not found');
     const nodes = (this.db.prepare('SELECT * FROM graph_nodes WHERE graph_id=? ORDER BY weight DESC, label').all(graphId) as any[]).map((row) => ({
@@ -196,11 +227,22 @@ export class GraphService {
       id: row.edge_id, from: row.from_node_id, to: row.to_node_id, relation: row.relation_type, weight: row.weight,
       documentIds: JSON.parse(row.document_ids_json), evidence: JSON.parse(row.evidence_json),
     }));
+
+    const resolvedScope: GraphScope = scope || this.scopeFromSnapshot(snapshot);
+    const currentDocumentCount = this.countDocuments(resolvedScope);
+    const snapshotDocumentCount = Number(snapshot.document_count || 0);
+    const isOutdated = currentDocumentCount !== snapshotDocumentCount;
+    const newDocumentCount = Math.max(0, currentDocumentCount - snapshotDocumentCount);
+
     return {
       id: snapshot.graph_id,
       scopeType: snapshot.scope_type,
       scopeId: snapshot.scope_id,
       documentCount: snapshot.document_count,
+      snapshotDocumentCount,
+      currentDocumentCount,
+      isOutdated,
+      newDocumentCount,
       createdAt: snapshot.created_at,
       metadata: JSON.parse(snapshot.metadata_json),
       nodes,
@@ -252,7 +294,8 @@ export class GraphService {
     const types = new Set(nodes.map((node) => node.node_type));
     if (types.size !== 1) throw new Error('只能合并同类型实体');
     const nodeType = String(nodes[0].node_type);
-    if (!['subject', 'topic', 'keyword', 'platform'].includes(nodeType)) throw new Error('不支持此类型实体的人工合并');
+    if (nodeType === 'platform') throw new Error('平台作为物理信源维度，受系统保护不可合并');
+    if (!['subject', 'topic', 'keyword'].includes(nodeType)) throw new Error('不支持此类型实体的人工合并');
     this.db.prepare(`INSERT INTO graph_entity_rules
       (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
       VALUES (?, ?, ?, ?, 'merge', ?, ?, '[]', ?)`)
@@ -267,7 +310,9 @@ export class GraphService {
     const snapshot = this.db.prepare('SELECT scope_type, scope_id FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
     const node = this.db.prepare('SELECT node_type, document_ids_json FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, nodeId) as any;
     if (!snapshot || !node) throw new Error('Graph entity not found');
-    if (!['subject', 'topic', 'keyword', 'platform'].includes(String(node.node_type))) throw new Error('不支持此类型实体的人工拆分');
+    const nodeType = String(node.node_type);
+    if (nodeType === 'platform') throw new Error('平台作为物理信源维度，受系统保护不可拆分');
+    if (!['subject', 'topic'].includes(nodeType)) throw new Error('不支持此类型实体的人工拆分');
     const available = new Set<string>(JSON.parse(node.document_ids_json || '[]'));
     const selected = [...new Set(documentIds.map(String))].filter((documentId) => available.has(documentId));
     if (!selected.length || selected.length >= available.size) throw new Error('拆分必须选择该实体的部分证据文档');
@@ -282,6 +327,9 @@ export class GraphService {
     const snapshot = this.db.prepare('SELECT scope_type, scope_id FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
     const node = this.db.prepare('SELECT node_type, label FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, nodeId) as any;
     if (!snapshot || !node) throw new Error('Graph entity not found');
+    const nodeType = String(node.node_type);
+    if (nodeType === 'platform') throw new Error('平台为客观信源节点，受系统保护不可移出');
+    if (!['subject', 'topic', 'keyword'].includes(nodeType)) throw new Error('不支持移出此类型实体');
     this.db.prepare(`INSERT INTO graph_entity_rules
       (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
       VALUES (?, ?, ?, ?, 'ignore', ?, '', '[]', ?)`)
@@ -290,6 +338,8 @@ export class GraphService {
   }
 
   linkEntities(graphId: string, fromNodeId: string, toNodeId: string, relation = 'co_occurs'): any {
+    const rel = (relation || 'co_occurs').trim();
+    if (!rel) throw new Error('关联关系名称不能为空');
     const snapshot = this.db.prepare('SELECT scope_type, scope_id FROM graph_snapshots WHERE graph_id=?').get(graphId) as any;
     const fromNode = this.db.prepare('SELECT node_type, label FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, fromNodeId) as any;
     const toNode = this.db.prepare('SELECT node_type, label FROM graph_nodes WHERE graph_id=? AND node_id=?').get(graphId, toNodeId) as any;
@@ -297,7 +347,7 @@ export class GraphService {
     this.db.prepare(`INSERT INTO graph_entity_rules
       (rule_id, scope_type, scope_id, node_type, operation, source_labels_json, target_label, document_ids_json, created_at)
       VALUES (?, ?, ?, ?, 'link', ?, ?, '[]', ?)`)
-      .run(crypto.randomUUID(), snapshot.scope_type, snapshot.scope_id, fromNode.node_type, JSON.stringify([fromNode.label, toNode.label]), relation, new Date().toISOString());
+      .run(crypto.randomUUID(), snapshot.scope_type, snapshot.scope_id, fromNode.node_type, JSON.stringify([fromNode.label, toNode.label]), rel, new Date().toISOString());
     return this.rebuild(this.scopeFromSnapshot(snapshot));
   }
 
