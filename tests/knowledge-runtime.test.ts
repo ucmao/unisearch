@@ -388,3 +388,139 @@ test('Processor capability catalog reports external binary availability honestly
     assert.equal(typeof capability.available, 'boolean');
   }
 });
+
+test('Chinese FTS5 lexical search matches local sub-phrases accurately', async () => {
+  const db = database();
+  try {
+    const engine = new DocumentEngine(() => db);
+    await engine.ingest(buildRawItem('emitXhsNote', {
+      note_id: 'xhs-refund-1',
+      title: '购物指南',
+      desc: '小红书售后退货流程体验很好，商家处理非常迅速。',
+      nickname: '评测家',
+      source_keyword: '售后体验',
+    }));
+    const index = new KnowledgeIndex(() => db);
+    index.rebuild();
+
+    // Query with Chinese subphrase "退货流程"
+    const results = await index.search('退货流程');
+    assert.ok(results.length > 0);
+    assert.match(results[0].content, /退货流程/);
+    assert.equal(results[0].source, 'xhs');
+    assert.equal(results[0].keyword, '售后体验');
+
+    // Query with single word "售后"
+    const shResults = await index.search('售后');
+    assert.ok(shResults.length > 0);
+    assert.match(shResults[0].content, /售后/);
+  } finally {
+    db.close();
+  }
+});
+
+test('Knowledge Projector preserves Markdown headings and tracks breadcrumbs across multi-level chunks', () => {
+  const markdown = [
+    '## 概述',
+    '这里是引言段落。介绍整体背景与目标。',
+    '',
+    '## 售后保障',
+    '这里是售后保障的第一部分内容，说明基本服务范围。',
+    '',
+    '### 退款规则',
+    '在七天无理由退货期限内，用户可直接申请全额退款。退款原路返回。',
+    '',
+    '### 换货流程',
+    '如果商品存在非人为损坏，可申请免费换货服务。',
+  ].join('\n');
+
+  const base = mapRawItemToCanonicalDocument(buildRawItem('emitXhsNote', {
+    note_id: 'note-breadcrumb-1',
+    title: '主题指南',
+    desc: '关于售后服务的完整指南说明。',
+    nickname: '作者',
+    source_keyword: '售后',
+  }));
+  const document = { ...base, markdown };
+
+  const chunks = knowledgeProjector.chunks(document, 150, 30);
+  assert.ok(chunks.length > 1);
+  for (const chunk of chunks) {
+    assert.ok(chunk.retrievalText.includes('[平台: xhs'));
+    assert.ok(chunk.retrievalText.includes('主题指南'));
+    assert.ok(Array.isArray(chunk.metadata.breadcrumbs));
+  }
+  // Check that at least one chunk captured breadcrumbs under 售后保障 / 退款规则
+  const refundChunk = chunks.find((c) => c.content.includes('退款原路返回'));
+  assert.ok(refundChunk);
+  assert.ok(refundChunk.metadata.breadcrumbs?.includes('售后保障') || refundChunk.metadata.breadcrumbs?.includes('退款规则'));
+});
+
+test('RAG service delivers full chunk content to LLM materials without 500-char truncation', async () => {
+  const db = database();
+  try {
+    const engine = new DocumentEngine(() => db);
+    const longContent = '关键线索开头：' + '详细描述文字。'.repeat(60) + '关键事实结尾：最终验证成功。';
+    await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      engine: 'bing',
+      content_id: 'long-doc-1',
+      title: '完整长文档',
+      snippet: longContent,
+      real_url: 'https://example.com/long-doc',
+    }));
+
+    const index = new KnowledgeIndex(() => db);
+    index.rebuild();
+
+    let capturedMaterials: any = null;
+    const mockModel = {
+      getProfile: () => ({ apiKeyConfigured: true }),
+      converse: async (_messages: any, options: any) => {
+        capturedMaterials = options?.materials;
+        return '根据资料回答完毕 [S1]';
+      },
+    } as any;
+
+    const rag = new RagService(index, mockModel);
+    const answer = await rag.answer('完整长文档的关键事实');
+
+    assert.ok(answer.sources.length > 0);
+    assert.ok(capturedMaterials);
+    assert.ok(capturedMaterials.texts.length > 0);
+    // The material content sent to LLM should include the text after char 500
+    assert.match(capturedMaterials.texts[0].content, /关键事实结尾：最终验证成功/);
+  } finally {
+    db.close();
+  }
+});
+
+test('KnowledgeIndex getAdjacentChunks retrieves neighboring chunks by ordinal', async () => {
+  const db = database();
+  try {
+    const engine = new DocumentEngine(() => db);
+    const longSections = Array.from({ length: 5 }, (_, i) => `## 第 ${i + 1} 节\n\n` + `这是第 ${i + 1} 节的内容说明。`.repeat(25)).join('\n\n');
+    const document = await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      engine: 'bing',
+      content_id: 'multi-chunk-doc',
+      title: '多段长文',
+      snippet: longSections,
+      real_url: 'https://example.com/multi',
+    }));
+
+    const index = new KnowledgeIndex(() => db);
+    index.rebuild();
+
+    const chunks = (db.prepare('SELECT chunk_id, ordinal FROM document_chunks WHERE document_id=? ORDER BY ordinal').all(document.documentId) as Array<{ chunk_id: string; ordinal: number }>);
+    assert.ok(chunks.length >= 3);
+
+    const middleChunk = chunks[1];
+    const neighbors = index.getAdjacentChunks(middleChunk.chunk_id, 1);
+    assert.ok(neighbors.length >= 2);
+    assert.ok(neighbors.some((n) => n.metadata.ordinal === middleChunk.ordinal - 1));
+    assert.ok(neighbors.some((n) => n.metadata.ordinal === middleChunk.ordinal));
+    assert.ok(neighbors.some((n) => n.metadata.ordinal === middleChunk.ordinal + 1));
+  } finally {
+    db.close();
+  }
+});
+

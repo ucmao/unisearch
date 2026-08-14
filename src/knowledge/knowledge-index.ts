@@ -2,6 +2,7 @@ import type { Database } from 'better-sqlite3';
 import { getDb } from '../database/connection';
 import { DocumentEngine } from '../document/document-engine';
 import {
+  knowledgeFtsTokens,
   knowledgeProjector,
   knowledgeTokens,
   type KnowledgeProjectionMetadata,
@@ -38,8 +39,8 @@ function cosine(left: number[], right: number[]): number {
 function ftsQuery(value: string): string {
   const tokens = knowledgeTokens(value)
     .map((token) => token.trim())
-    .filter((token) => token.length > 1)
-    .slice(0, 16);
+    .filter((token) => token.length > 0)
+    .slice(0, 32);
   const unique = [...new Set(tokens.length ? tokens : [value.trim()])];
   return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(' OR ');
 }
@@ -70,6 +71,8 @@ export interface KnowledgeSearchResult {
     totalChunks: number;
     characterStart: number;
     characterEnd: number;
+    breadcrumbs?: string[];
+    retrievalText?: string;
   };
   score: number;
 }
@@ -157,7 +160,12 @@ export class KnowledgeIndex {
           now,
           now,
         );
-        insertFts.run(chunk.chunkId, chunk.documentId, chunk.title, chunk.content);
+        insertFts.run(
+          chunk.chunkId,
+          chunk.documentId,
+          knowledgeFtsTokens(chunk.title),
+          knowledgeFtsTokens(chunk.retrievalText || chunk.content),
+        );
       }
     })();
     return chunks.length;
@@ -211,7 +219,7 @@ export class KnowledgeIndex {
     try {
       while (true) {
         const rows = this.db.prepare(`
-          SELECT c.chunk_id, c.title, c.content
+          SELECT c.chunk_id, c.title, c.content, c.metadata_json
           FROM document_chunks c
           LEFT JOIN document_chunk_embeddings e
             ON e.chunk_id=c.chunk_id AND e.provider=? AND e.model=?
@@ -222,9 +230,17 @@ export class KnowledgeIndex {
           chunk_id: string;
           title: string;
           content: string;
+          metadata_json: string;
         }>;
         if (!rows.length) break;
-        const vectors = await this.retrieval.embed(rows.map((row) => `${row.title}\n${row.content}`));
+        const texts = rows.map((row) => {
+          try {
+            const meta = JSON.parse(row.metadata_json);
+            if (meta?.retrievalText) return meta.retrievalText;
+          } catch {}
+          return `${row.title}\n${row.content}`;
+        });
+        const vectors = await this.retrieval.embed(texts);
         const now = new Date().toISOString();
         this.db.transaction(() => {
           const save = this.db.prepare(`
@@ -286,6 +302,17 @@ export class KnowledgeIndex {
     };
   }
 
+  getAdjacentChunks(chunkId: string, window = 1): KnowledgeSearchResult[] {
+    const current = this.db.prepare('SELECT document_id, ordinal FROM document_chunks WHERE chunk_id=?').get(chunkId) as any;
+    if (!current) return [];
+    const rows = this.db.prepare(`
+      SELECT chunk_id FROM document_chunks
+      WHERE document_id=? AND ordinal BETWEEN ? AND ?
+      ORDER BY ordinal
+    `).all(current.document_id, Math.max(0, current.ordinal - window), current.ordinal + window) as Array<{ chunk_id: string }>;
+    return rows.map((r) => this.result(r.chunk_id, 1)).filter(Boolean) as KnowledgeSearchResult[];
+  }
+
   async searchDetailed(query: string, options: KnowledgeSearchOptions = {}): Promise<KnowledgeSearchResponse> {
     const value = query.trim();
     if (!value) return { items: [], mode: 'lexical' };
@@ -313,14 +340,26 @@ export class KnowledgeIndex {
     try {
       const queryVector = (await this.retrieval.embed([value]))[0];
       const scoped = scope(options);
+
+      const lexicalChunkIds = lexical.map((item) => item.chunkId);
+      let lexicalFilter = '';
+      const queryParams: unknown[] = [profile.provider, profile.embeddingModel, ...scoped.params];
+      if (lexicalChunkIds.length > 0) {
+        const placeholders = lexicalChunkIds.map(() => '?').join(',');
+        lexicalFilter = `OR c.chunk_id IN (${placeholders})`;
+        queryParams.push(...lexicalChunkIds);
+      }
+
       const candidates = this.db.prepare(`
         SELECT c.chunk_id, e.vector_blob
         FROM document_chunks c
         JOIN document_chunk_embeddings e
           ON e.chunk_id=c.chunk_id AND e.provider=? AND e.model=?
-        WHERE 1=1 ${scoped.sql}
+        WHERE (1=1 ${scoped.sql}) ${lexicalFilter}
+        ORDER BY c.created_at DESC, c.document_id, c.ordinal
         LIMIT 5000
-      `).all(profile.provider, profile.embeddingModel, ...scoped.params) as Array<{ chunk_id: string; vector_blob: Buffer }>;
+      `).all(...queryParams) as Array<{ chunk_id: string; vector_blob: Buffer }>;
+
       const semantic = candidates
         .map((row) => ({ chunkId: row.chunk_id, score: cosine(queryVector, vectorFromBuffer(row.vector_blob)) }))
         .sort((left, right) => right.score - left.score)
@@ -340,7 +379,10 @@ export class KnowledgeIndex {
       try {
         const ranked = await this.retrieval.rerank(
           value,
-          fused.map((item) => `${item.title}\n${item.content}`),
+          fused.map((item) => {
+            const retrievalText = item.metadata?.retrievalText;
+            return retrievalText || `${item.title}\n${item.content}`;
+          }),
           boundedLimit,
         );
         return {

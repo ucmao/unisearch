@@ -18,6 +18,7 @@ export interface RagAnswer {
     subject: { type: string; id?: string; name?: string };
     sourceUrl?: string;
     excerpt: string;
+    content?: string;
     score: number;
   }>;
 }
@@ -64,7 +65,8 @@ export class RagService {
       keyword: result.keyword,
       subject: result.subject,
       sourceUrl: result.sourceUrl,
-      excerpt: result.content.slice(0, 500),
+      content: result.content,
+      excerpt: result.content.length <= 300 ? result.content : `${result.content.slice(0, 300)}...`,
       score: result.score,
     }));
     if (!sources.length) {
@@ -88,18 +90,32 @@ export class RagService {
       };
     }
 
-    const materials = {
-      texts: sources.map((source) => ({
+    // Allocate dynamic context budget across materials (up to 12,000 characters)
+    const MAX_TOTAL_CONTEXT_BUDGET = 12000;
+    let accumulatedChars = 0;
+    const texts = sources.flatMap((source) => {
+      if (accumulatedChars >= MAX_TOTAL_CONTEXT_BUDGET) return [];
+      const remainingBudget = MAX_TOTAL_CONTEXT_BUDGET - accumulatedChars;
+      const fullText = source.content || source.excerpt;
+      const textContent = fullText.length <= remainingBudget
+        ? fullText
+        : fullText.slice(0, remainingBudget);
+      accumulatedChars += textContent.length;
+      return [{
         label: `[${source.id}] ${source.title}`,
         content: [
-          source.excerpt,
+          textContent,
           `平台：${source.source}`,
           `类型：${source.kind}`,
           `主体：${source.subject.name || source.subject.id || '未知'} (${source.subject.type})`,
           source.keyword ? `关键词：${source.keyword}` : '',
           `来源：${source.sourceUrl || source.source}`,
         ].filter(Boolean).join('\n'),
-        })),
+      }];
+    });
+
+    const materials = {
+      texts,
       images: [],
     };
     const rawAnswer = await this.model.converse([
