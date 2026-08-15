@@ -129,7 +129,8 @@ function splitExplicitKeywords(value: string, sourceText: string): string[] {
 }
 
 function cleanResearchSubject(text: string): string {
-  const withoutDeliverables = text
+  const withoutSlash = text.replace(/^\s*\/(?:crawl|search|report|export|status|stop|help|clear|new|采集|搜索|简报|报告|导出|下载|状态|进度|停止|中止|帮助)\s*/gi, ' ');
+  const withoutDeliverables = withoutSlash
     .replace(/(?:[，,。；;!?！？\s]+)(?:并|然后|顺便|接着)?(?:告诉|回答|解答|说明|想知道|需要了解)(?:我|一下)?[\s\S]*$/gi, ' ')
     .replace(/(?:[，,。；;!?！？\s]+)(?:并|然后|顺便|接着)(?:分析)[\s\S]*$/gi, ' ');
 
@@ -416,6 +417,76 @@ export function isDirectParseRequest(
 export function localIntentDecision(text: string, context: IntentContext = {}): AgentDecision {
   const value = text.trim();
   const status = context.planStatus || null;
+
+  // 0. Explicit Slash Commands (System Control & Actions)
+  if (/^\/(?:help|帮助)(?:\s+|$|[，。！？、,.!?;；:：])/i.test(value)) {
+    const helpText = `### 💡 UniSearch 快捷指令与技能指南\n\n`
+      + `**快捷指令 (Slash Commands)**：输入 \`/\` 呼出系统级通用控制指令\n`
+      + `- \`/crawl [关键词] [平台]\`：发起多源采集规划（例如：\`/crawl 扫地机器人 小红书 微博\`）\n`
+      + `- \`/report\`：基于已采集数据，生成多维度综合分析简报\n`
+      + `- \`/export\`：将当前会话数据导出为 Excel (XLSX)、Markdown 或 JSON\n`
+      + `- \`/status\`：查看当前任务状态与各平台采集进度\n`
+      + `- \`/stop\`：中止当前后台正在运行的采集任务\n`
+      + `- \`/clear\`：清空输入并开启新任务\n`
+      + `- \`/help\`：查看本帮助说明\n\n`
+      + `**业务技能与数据源 (@ Mention)**：输入 \`@\` 呼出专属业务技能或具体采集平台\n`
+      + `- \`@销售课程竞争情报\` / \`@新媒体内容调研\` / \`@招聘岗位薪酬调研\` / \`@品牌GEO与风险监测\`\n`
+      + `- \`@小红书\` / \`@抖音\` / \`@微博\` / \`@知乎\` / \`@网页聚合搜索\` 等`;
+    return { action: 'chat', reply: helpText };
+  }
+
+  if (/^\/(?:status|状态|进度)(?:\s+|$|[，。！？、,.!?;；:：])/i.test(value)) {
+    return { action: 'status', reply: '' };
+  }
+
+  if (/^\/(?:stop|停止|中止|取消)(?:\s+|$|[，。！？、,.!?;；:：])/i.test(value)) {
+    if (['queued', 'running'].includes(String(status))) {
+      return { action: 'stop', reply: '好的，我正在停止当前采集任务。' };
+    }
+    return { action: 'stop', reply: '当前没有正在运行的采集任务。' };
+  }
+
+  if (/^\/(?:export|导出|下载)(?:\s+|$|[，。！？、,.!?;；:：])/i.test(value)) {
+    return { action: 'export', reply: '' };
+  }
+
+  if (/^\/(?:report|简报|报告|analyze|分析)(?:\s+|$|[，。！？、,.!?;；:：])/i.test(value)) {
+    return { action: 'analyze', reply: '' };
+  }
+
+  const crawlMatch = value.match(/^\/(?:crawl|search|采集|搜索)(?:\s+([\s\S]*))?$/i);
+  if (crawlMatch) {
+    const remainder = (crawlMatch[1] || '').trim();
+    if (!remainder && !context.hasPreviousPlanKeywords && !context.previousUserText) {
+      return {
+        action: 'clarify',
+        reply: '你想采集什么主题或关键词？可以直接告诉我（例如“/crawl 扫地机器人 小红书 微博”）。',
+        missingFields: ['subject'],
+      };
+    }
+    const platforms = inferResearchPlatforms(remainder);
+    const hasSubject = hasResearchSubject(remainder)
+      || Boolean(context.hasPreviousPlanKeywords)
+      || (Boolean(context.previousUserText) && hasResearchSubject(context.previousUserText || ''));
+
+    if (!hasSubject) {
+      return {
+        action: 'clarify',
+        reply: '可以。你最想采集的具体品牌、产品、事件或主题是什么？',
+        missingFields: ['subject'],
+      };
+    }
+
+    if (!platforms.length && !context.mentionedConnectors?.length && !context.mentionedSkills?.length) {
+      return {
+        action: 'clarify',
+        reply: '明白了。你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。如果没有采集量偏好，我会按快速模式自动开始并尽快返回首批结果。',
+        missingFields: ['platforms'],
+      };
+    }
+
+    return { action: status === 'awaiting_confirmation' ? 'revise_plan' : 'create_plan', reply: '' };
+  }
 
   if (context.mentionedSkills?.length) {
     if (!hasResearchSubject(value)) {

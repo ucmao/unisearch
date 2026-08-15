@@ -1609,6 +1609,30 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const submit = () => {
     const content = input.trim()
     if (!content || isCurrentMessagePending || (selectedId && stoppingMessageThreadIds.has(selectedId)) || create.isPending) return
+
+    // Slash command client-side shortcuts
+    if (content.toLowerCase() === '/clear' || content.toLowerCase() === '/new') {
+      setInput('')
+      setAttachments([])
+      setTaskReferences([])
+      setSelectedId(null)
+      toast.success('已开启新任务')
+      return
+    }
+
+    if (content.toLowerCase() === '/stop') {
+      setInput('')
+      if (isPlanRunning && activePlan) {
+        handleStopPlan(activePlan.plan_id)
+        toast.info('正在中止采集任务...')
+        return
+      } else if (isCurrentMessagePending) {
+        stopGenerating()
+        toast.info('已停止生成')
+        return
+      }
+    }
+
     const references = taskReferences.map(({ plan_id, platforms }) => ({ plan_id, platforms }))
     if (!selectedId) {
       const selectedTaskReferences = [...taskReferences]

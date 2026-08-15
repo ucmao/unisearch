@@ -554,3 +554,51 @@ test('negative platform exclusion directives filter out specified platforms', ()
   assert.deepEqual(additivePlan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'baidu']);
   assert.deepEqual(additivePlan.keywords, ['皮卡丘']);
 });
+
+test('explicit slash commands route deterministically to system actions', () => {
+  // 1. /help
+  const helpDecision = localIntentDecision('/help');
+  assert.equal(helpDecision.action, 'chat');
+  assert.ok(helpDecision.reply.includes('UniSearch 快捷指令与技能指南'));
+  assert.ok(helpDecision.reply.includes('/crawl'));
+
+  // 2. /status
+  assert.equal(localIntentDecision('/status').action, 'status');
+  assert.equal(localIntentDecision('/进度').action, 'status');
+
+  // 3. /stop
+  assert.equal(localIntentDecision('/stop', { planStatus: 'running' }).action, 'stop');
+  assert.equal(localIntentDecision('/stop', { planStatus: null }).action, 'stop');
+
+  // 4. /export
+  assert.equal(localIntentDecision('/export').action, 'export');
+  assert.equal(localIntentDecision('/导出').action, 'export');
+
+  // 5. /report
+  assert.equal(localIntentDecision('/report').action, 'analyze');
+  assert.equal(localIntentDecision('/简报').action, 'analyze');
+
+  // 6. /crawl - empty
+  const emptyCrawl = localIntentDecision('/crawl');
+  assert.equal(emptyCrawl.action, 'clarify');
+  assert.deepEqual(emptyCrawl.missingFields, ['subject']);
+
+  // 7. /crawl - only subject, no platform
+  const subjectOnlyCrawl = localIntentDecision('/crawl 扫地机器人');
+  assert.equal(subjectOnlyCrawl.action, 'clarify');
+  assert.deepEqual(subjectOnlyCrawl.missingFields, ['platforms']);
+
+  // 8. /crawl - subject + platforms
+  const fullCrawl = localIntentDecision('/crawl 扫地机器人 小红书 微博');
+  assert.equal(fullCrawl.action, 'create_plan');
+  assert.deepEqual(inferResearchKeywords('/crawl 扫地机器人 小红书 微博'), ['扫地机器人']);
+  assert.deepEqual(inferResearchPlatforms('/crawl 扫地机器人 小红书 微博'), ['xhs', 'weibo']);
+
+  // 9. /crawl combined with @Skill
+  const skillCrawl = localIntentDecision('/crawl @新媒体内容调研 扫地机器人', {
+    mentionedSkills: ['marketing-content-research'],
+  });
+  assert.equal(skillCrawl.action, 'create_plan');
+  assert.deepEqual(inferResearchKeywords('/crawl @新媒体内容调研 扫地机器人'), ['扫地机器人']);
+});
+
