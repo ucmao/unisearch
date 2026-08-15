@@ -2843,14 +2843,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                                   <span className="truncate text-cyber-text-secondary">
                                     {platformLabels[item.platform] || item.platform}
                                   </span>
+                                  {item.isAI ? (
+                                    <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan shrink-0">
+                                      AI
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <div className="flex items-center gap-1">
-                                    {item.isAI ? (
-                                      <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
-                                        AI
-                                      </span>
-                                    ) : null}
                                     <span className="font-mono text-[11px] text-cyber-text-primary">
                                       {count} {item.isAI ? '份' : '条'}
                                     </span>

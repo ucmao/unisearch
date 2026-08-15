@@ -20,7 +20,7 @@ export interface ContextBudgetResult {
   report: ContextBudgetReport;
 }
 
-const DEFAULT_MAX_CONTEXT_TOKENS = 64_000;
+const DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
 const MIN_MESSAGE_TOKENS = 256;
 
 function contentText(content: unknown): string {

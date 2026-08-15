@@ -650,8 +650,8 @@ export class AgentRepository {
         const activate = Boolean(
           mutation.explicit
           || existing?.status === 'active'
-          || (captureMode === 'balanced' && (incomingConfidence >= 0.86 || (evidenceCount >= 2 && combinedConfidence >= 0.9)))
-          || (captureMode === 'conservative' && evidenceCount >= 2 && combinedConfidence >= 0.97)
+          || (captureMode === 'balanced' && (incomingConfidence >= 0.75 || (evidenceCount >= 2 && combinedConfidence >= 0.8)))
+          || (captureMode === 'conservative' && (incomingConfidence >= 0.88 || (evidenceCount >= 2 && combinedConfidence >= 0.92)))
         );
 
         this.upsertMemory({
@@ -691,10 +691,10 @@ export class AgentRepository {
 
     const queryTerms = memoryTerms(query);
     const categoryHints = new Set<AgentMemoryRecord['category']>();
-    if (/(我是谁|名字|姓名|称呼|叫我|身份|职业)/.test(query)) categoryHints.add('identity');
-    if (/(偏好|喜欢|回答|语言|格式|风格|习惯)/.test(query)) categoryHints.add('preference');
-    if (/(规则|要求|必须|不要|以后|始终)/.test(query)) categoryHints.add('rule');
-    if (/(背景|项目|之前|过去|研究|任务)/.test(query)) categoryHints.add('context');
+    if (/(我是谁|名字|姓名|称呼|叫我|身份|职业|角色)/.test(query)) categoryHints.add('identity');
+    if (/(偏好|喜欢|常用|平台|格式|回答|语言|风格|习惯|输出|导出|深度)/.test(query)) categoryHints.add('preference');
+    if (/(规则|要求|必须|不要|以后|始终|禁止|注意)/.test(query)) categoryHints.add('rule');
+    if (/(背景|项目|之前|过去|研究|任务|领域|行业|赛道)/.test(query)) categoryHints.add('context');
 
     const ranked = candidates.map((memory) => {
       const terms = memoryTerms(`${memory.memory_key} ${memory.content}`);
@@ -704,18 +704,20 @@ export class AgentRepository {
       const manual = memory.memory_key.startsWith('user_manual_');
       const globalRule = memory.category === 'rule';
       const categoryMatch = categoryHints.has(memory.category);
+      const isHighImportance = Number(memory.importance || 0) >= 0.75;
       const score = relevance * 8
         + (manual ? 2.5 : 0)
-        + (globalRule ? 0.8 : 0)
+        + (globalRule ? 1.0 : 0)
         + (categoryMatch ? 2 : 0)
+        + (isHighImportance ? 1.0 : 0)
         + Number(memory.importance || 0)
         + Number(memory.confidence || 0) * 0.5;
-      return { memory, score, relevance, manual, categoryMatch };
+      return { memory, score, relevance, manual, globalRule, categoryMatch, isHighImportance };
     }).sort((left, right) => right.score - left.score
       || String(right.memory.updated_at).localeCompare(String(left.memory.updated_at)));
 
     const selected = ranked
-      .filter((item) => !queryTerms.size || item.manual || item.categoryMatch || item.relevance > 0)
+      .filter((item) => !queryTerms.size || item.manual || item.globalRule || item.categoryMatch || item.isHighImportance || item.relevance > 0)
       .slice(0, recallLimit)
       .map((item) => item.memory);
 

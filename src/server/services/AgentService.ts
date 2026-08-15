@@ -494,7 +494,15 @@ export class AgentService {
 
     this.memoryCaptureQueue = this.memoryCaptureQueue.then(async () => {
       if (this.processedMemoryMessageIds.has(sourceMessageId)) return;
-      const recent = [{ messageId: sourceMessageId, content: trimmed.slice(0, 1200) }];
+      const recentUserMessages = (sourceThread?.messages || [])
+        .filter((message: any) => message.role === 'user' && typeof message.content === 'string' && message.content.trim())
+        .slice(-4);
+      const recent = recentUserMessages.length
+        ? recentUserMessages.map((m: any) => ({
+            messageId: String(m.message_id),
+            content: String(m.content).trim().slice(0, 1200),
+          }))
+        : [{ messageId: sourceMessageId, content: trimmed.slice(0, 1200) }];
 
       const allMemories = agentRepository.listMemories();
       const existingMemories = allMemories
@@ -828,12 +836,14 @@ export class AgentService {
       const updatedThread = agentRepository.getThread(threadId);
       const messages = conversationMessages(updatedThread);
       try {
+        const memories = this.recallMemories(content);
         decision = await modelService.decide(
           messages,
           latest ? { status: latest.status, plan: latest.plan } : null,
           onRetry,
           signal,
           skillPlanningContext(activeSkill),
+          memories,
         );
         runTrace.recordRoute(decision.action, 'model');
         ensureMessageNotAborted(signal);

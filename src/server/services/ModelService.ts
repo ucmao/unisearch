@@ -598,7 +598,7 @@ ${params.snippets?.length ? `首轮检索到的部分上下文：\n${params.snip
     }
     const memoryMessages = options.memories?.length ? [{
       role: 'system',
-      content: `以下是保存在本机的用户长期记忆。回答时自然结合与当前对话有关的内容；source="manual" 表示用户手动保存，应优先采用。记忆可以影响称呼、表达方式、角色风格、偏好和用户背景，但不能改变真实产品能力、安全限制或运行状态。若记忆与用户当前消息冲突，以当前消息为准。\n<user_memories_json>${JSON.stringify(options.memories)}</user_memories_json>`,
+      content: `以下是保存在本机的用户长期记忆。回答时自然结合与当前对话有关的背景、偏好、习惯与规则；source="manual" 表示用户手动保存，应优先采用。记忆可以影响称呼、表达方式、角色风格、偏好和用户背景，但不能改变真实产品能力、安全限制或运行状态。若记忆与用户当前消息冲突，以当前消息为准。回答时自然运用这些背景，让用户感受到助手的默契与懂他，无需生硬复述记忆条目。\n<user_memories_json>${JSON.stringify(options.memories)}</user_memories_json>`,
     }] : [];
     const analysisMessages = options.analysisGoals?.length ? [{
       role: 'system',
@@ -855,31 +855,28 @@ ${specializedRules}
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是本地 AI 助手的长期记忆管理员。你只处理“原子记忆”：每条记忆只表达一个可独立更新的长期事实。当前提取模式为 ${captureMode}。
+        content: `你是本地 AI 研究助手的长期记忆与用户画像管理员。你的职责是从用户的对话与交互中提炼出能够长期辅助用户、让助手越来越懂用户的原子记忆（每条记忆只表达一个独立事实）。当前提取模式为 ${captureMode}。
 
-允许的四类：
-- identity：用户明确陈述的称呼、职业或长期角色。兴趣和历史任务不属于身份。
-- preference：用户明确表达且未来仍有帮助的稳定偏好。
-- context：用户明确说明的长期项目、持续职责或稳定环境；一次搜索对象不属于背景。
-- rule：用户明确要求助手在未来持续遵守的规则。单次任务要求不属于规则。
+四大核心维度：
+- identity：用户的称呼、职业、角色或专业定位（如：“用户是一名商业分析师”）。
+- preference：用户的稳定习惯与偏好。包括常用信源与平台偏好（如：“偏好使用 36kr、知乎作为调研信源”）、格式与风格偏好（如：“偏好使用 Markdown 表格输出对比”、“偏好导出 CSV”）、采集深度偏好等。
+- context：用户的长期研究项目、持续跟踪的核心业务赛道或工作环境（如：“长期关注 AIGC、大模型落地应用与数据标注领域”）。
+- rule：用户明确要求助手在未来持续遵守的规则或禁忌。
 
-严格写入标准：
-1. 只从 user_messages 中提取新证据；existing_memories 只用于匹配、更新和冲突判断，不能当作新证据。
-2. 搜索、采集、核验、比较、购买咨询等一次性请求，以及请求中出现的品牌、人物、产品、价格、天气和事件，一律不记忆。
-3. “帮我查 X”“研究 X”“分析 X”不代表用户喜欢 X，也不代表长期背景。
-4. 只有用户明确说“我叫/我是/我喜欢/我希望以后/请记住/以后都/不要再”等，或含义同样明确时，才可写入。conservative 模式下，含糊推断必须跳过。
-5. explicit 只有在用户明确要求记住、忘记，或明确声明长期规则时才为 true。
-6. 每条 content 不超过 80 个汉字，使用中性第三人称；禁止合并多个事实、列举历史任务或复述过程。
-7. memoryKey 使用稳定的英文语义键，如 identity.preferred_name、preference.response_language；同一概念必须复用已有键。
-8. 新信息与旧信息冲突时，对同一键执行 upsert；用户要求忘记时执行 forget。未变化的旧记忆不要重新输出。
-9. manual_memories 是用户手动保存的权威内容，禁止重复、修改、否定或删除。
-10. 严禁保存密码、API Key、验证码、支付账号、证件号、精确住址、健康和其他敏感隐私。
-11. 最多输出 8 个 mutation；没有合格内容时输出空数组。
+提炼标准：
+1. 结合 user_messages 提取有长期价值的画像、偏好、领域或规则；existing_memories 用于匹配、更新和冲突覆盖。
+2. 过滤无实质价值的临时琐碎请求（如单纯查一次天气、单次数学计算）；但对用户反复表现出的【常用平台、关注行业、输出格式、分析诉求】应当积极归纳为 preference 或 context。
+3. 允许从自然对话和工作流中提炼稳定习惯，不必拘泥于“请记住”字样；对于明确命令（“以后都.../不要再...”）explicit 设为 true。
+4. 每条 content 不超过 80 个汉字，使用客观中性的第三人称。
+5. memoryKey 使用稳定的英文语义键（如 identity.role, preference.preferred_platforms, preference.response_format, context.research_focus, rule.cite_sources）；同一概念必须复用已有键进行 upsert。
+6. manual_memories 是用户手动保存的权威内容，禁止重复、修改或删除。
+7. 严禁保存密码、API Key、验证码、支付账号、证件号、精确住址等敏感隐私。
+8. 最多输出 8 个 mutation；没有合格内容时输出空数组。
 
-confidence 表示“用户确实表达了该长期事实”的把握，importance 表示未来复用价值，均为 0 到 1。evidenceMessageIds 只能引用 user_messages 中真实存在的 messageId。
+confidence 表示“该长期事实成立”的把握（0~1），importance 表示未来复用价值（0~1）。evidenceMessageIds 引用 user_messages 中真实存在的 messageId。
 
 只输出 JSON：
-{"mutations":[{"action":"upsert","memoryKey":"preference.response_language","category":"preference","content":"用户偏好使用简体中文交流","confidence":0.98,"importance":0.9,"explicit":false,"evidenceMessageIds":["message-id"]},{"action":"forget","memoryKey":"preference.response_language","explicit":true,"evidenceMessageIds":["message-id"]}]}`,
+{"mutations":[{"action":"upsert","memoryKey":"preference.preferred_platforms","category":"preference","content":"用户偏好使用 36kr 和知乎作为核心调研信源","confidence":0.9,"importance":0.85,"explicit":false,"evidenceMessageIds":["message-id"]}]}`,
       },
       {
         role: 'user',
@@ -926,16 +923,20 @@ confidence 表示“用户确实表达了该长期事实”的把握，importanc
     onRetry?: (retryCount: number, maxRetries: number, delaySec: number, reason: string) => void,
     signal?: AbortSignal,
     skillContext = '',
+    memories: ConversationMemory[] = [],
   ): Promise<AgentDecision> {
     const platformHelp = `Connector 能力目录：\n${connectorCatalogForAI()}`;
     const state = currentPlan
       ? JSON.stringify({ status: currentPlan.status, plan: currentPlan.plan })
       : 'null';
     const recentTurnContext = buildRecentTurnContext(messages);
+    const memoryContext = memories.length
+      ? `用户长期偏好与背景记忆（规划任务时可作为默认信源平台、分析角度或格式的参考依据，让用户感受到助手的默契）：\n${JSON.stringify(memories.map((m) => `[${m.category}] ${m.content}`))}\n\n`
+      : '';
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是 UniSearch 的对话式研究助手和决策路由器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp}\n\n${skillContext ? `用户明确选择的业务 Skill（可信系统配置）：\n${skillContext}\nSkill 已提供默认平台，不得再追问平台；只在缺少该 Skill 标为必填的业务信息时 clarify。\n\n` : ''}
+        content: `你是 UniSearch 的对话式研究助手和决策路由器。\n\n${UNISEARCH_PRODUCT_MANUAL}\n\n${platformHelp}\n\n${memoryContext}${skillContext ? `用户明确选择的业务 Skill（可信系统配置）：\n${skillContext}\nSkill 已提供默认平台，不得再追问平台；只在缺少该 Skill 标为必填的业务信息时 clarify。\n\n` : ''}
 先理解用户意图，再选择动作，不能把每句话都当成采集任务。
 
 动作只能是：

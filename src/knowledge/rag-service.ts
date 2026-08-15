@@ -90,8 +90,8 @@ export class RagService {
       };
     }
 
-    // Allocate dynamic context budget across materials (up to 12,000 characters)
-    const MAX_TOTAL_CONTEXT_BUDGET = 12000;
+    // Allocate dynamic context budget across materials (up to 32,000 characters)
+    const MAX_TOTAL_CONTEXT_BUDGET = 32000;
     let accumulatedChars = 0;
     const texts = sources.flatMap((source) => {
       if (accumulatedChars >= MAX_TOTAL_CONTEXT_BUDGET) return [];

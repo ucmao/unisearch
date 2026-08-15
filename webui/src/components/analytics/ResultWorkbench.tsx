@@ -393,9 +393,10 @@ const assetRoleLabels: Record<CanonicalDocument['assets'][number]['role'], strin
 }
 
 function previewAsset(document: CanonicalDocument) {
-  return document.assets.find((asset) => asset.role === 'cover')
-    || document.assets.find((asset) => asset.role === 'thumbnail')
-    || document.assets.find((asset) => asset.kind === 'image')
+  const assets = document.assets || []
+  return assets.find((asset) => asset.role === 'cover')
+    || assets.find((asset) => asset.role === 'thumbnail')
+    || assets.find((asset) => asset.kind === 'image')
 }
 
 function formatNumber(value: number) {
@@ -542,14 +543,14 @@ function CommentsSection({ document }: { document: CanonicalDocument }) {
               <div className="flex items-center justify-between text-[11px] text-cyber-text-muted">
                 <span className="font-medium text-cyber-text-primary flex items-center gap-1">
                   <User className="h-3 w-3 text-cyber-neon-cyan/70" />
-                  {comment.subject.name || comment.subject.id || '匿名用户'}
+                  {comment.subject?.name || comment.subject?.id || '匿名用户'}
                 </span>
                 <span>{formatDate(comment.publishedAt)}</span>
               </div>
               <p className="text-cyber-text-secondary leading-relaxed font-sans whitespace-pre-wrap break-words">
                 {comment.markdown || comment.summary || '—'}
               </p>
-              {Object.keys(comment.metrics).length > 0 && (
+              {comment.metrics && Object.keys(comment.metrics).length > 0 && (
                 <div className="flex items-center gap-3 pt-1 text-[10px] text-cyber-text-muted font-mono">
                   {typeof comment.metrics.likes === 'number' && <span>👍 {formatNumber(comment.metrics.likes)}</span>}
                   {typeof comment.metrics.replies === 'number' && <span>💬 {formatNumber(comment.metrics.replies)}</span>}
@@ -786,7 +787,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
                       )}
                     </section>
 
-                    {document.assets.length ? (
+                    {document.assets && document.assets.length ? (
                       <div>
                         <p className="mb-1.5 text-[11px] font-medium text-cyber-text-muted">
                           底层资源 URL 数组 ({document.assets.length})
@@ -800,7 +801,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
                               rel="noreferrer"
                               className="truncate rounded border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-2 font-mono text-[10px] text-cyber-neon-cyan hover:underline"
                             >
-                              {assetRoleLabels[asset.role]} · {asset.kind}
+                              {assetRoleLabels[asset.role] || asset.role} · {asset.kind}
                             </a>
                           ))}
                         </div>
@@ -962,7 +963,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const scopeSummary = scopeSummaryQuery.data
   const summary = summaryQuery.data
   const documents = documentsQuery.data
-  const platformLabels = useMemo(() => new Map(scopeSummary?.filters.platforms || summary?.filters.platforms || []), [scopeSummary, summary])
+  const platformLabels = useMemo(() => new Map(scopeSummary?.filters?.platforms || summary?.filters?.platforms || []), [scopeSummary, summary])
 
   const currentScopeName = useMemo(() => {
     if (scope === 'all') return '全部任务数据'
@@ -972,14 +973,14 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
     if (selectedWorkflowId) {
       for (const task of tasks) {
-        const round = task.rounds.find((r) => r.plan_id === selectedWorkflowId)
+        const round = task.rounds?.find((r: any) => r.plan_id === selectedWorkflowId)
         if (round) return round.round_title || round.plan_id || '轮次数据'
       }
     }
     if (selectedRunId) {
       for (const task of tasks) {
-        for (const round of task.rounds) {
-          const run = round.runs.find((r) => r.run_id === selectedRunId)
+        for (const round of (task.rounds || [])) {
+          const run = round.runs?.find((r: any) => r.run_id === selectedRunId)
           if (run) return `${run.platform_label || run.platform || '批次'} · 采集数据`
         }
       }
@@ -994,13 +995,13 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     for (const g of groupList) {
       if (g.keyword) counts.set(g.keyword, g.document_count)
     }
-    const kwList = (scopeSummary?.filters.keywords || summary?.filters.keywords || [])
+    const kwList = (scopeSummary?.filters?.keywords || summary?.filters?.keywords || [])
       .filter((kw) => {
         const trimmed = (kw || '').trim()
         return Boolean(trimmed) && trimmed !== '指定作品' && trimmed !== '指定内容' && !/^https?:\/\//i.test(trimmed) && !/^www\./i.test(trimmed) && !trimmed.startsWith('作者:') && !trimmed.startsWith('创作者:') && !trimmed.startsWith('UP:')
       })
     const list = kwList.map((kw) => {
-      const trimmed = kw.trim()
+      const trimmed = (kw || '').trim()
       return {
         name: trimmed,
         count: counts.get(kw),
@@ -1015,15 +1016,15 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       if (countA !== countB) {
         return countB - countA
       }
-      return a.name.localeCompare(b.name, 'zh-CN')
+      return (a.name || '').localeCompare(b.name || '', 'zh-CN')
     })
 
     return list
   }, [scopeSummary, summary])
 
   const dynamicColumns = useMemo(() => [
-    ...(scopeSummary?.filters.metric_keys || summary?.filters.metric_keys || []).map((key) => ({ key: `metric:${key}`, label: metricLabels[key] || key, group: '指标' })),
-    ...(scopeSummary?.filters.attribute_keys || summary?.filters.attribute_keys || [])
+    ...(scopeSummary?.filters?.metric_keys || summary?.filters?.metric_keys || []).map((key) => ({ key: `metric:${key}`, label: metricLabels[key] || key, group: '指标' })),
+    ...(scopeSummary?.filters?.attribute_keys || summary?.filters?.attribute_keys || [])
       .filter((key) => key !== 'reasoningContent')
       .map((key) => ({ key: `attribute:${key}`, label: attributeLabels[key] || key, group: '扩展属性' })),
   ], [scopeSummary, summary])
@@ -1076,7 +1077,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       setExpandedTasks(new Set([threadId]))
     } else if (nextScope.startsWith('plan:')) {
       const planId = nextScope.slice(5)
-      const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === planId))
+      const parentTask = tasks.find((t) => t.rounds?.some((r: any) => r.plan_id === planId))
       if (parentTask) {
         setExpandedTasks(new Set([parentTask.thread_id]))
       }
@@ -1092,7 +1093,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   useEffect(() => {
     if (scope.startsWith('plan:') && tasks.length > 0) {
       const planId = scope.slice(5)
-      const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === planId))
+      const parentTask = tasks.find((t) => t.rounds?.some((r: any) => r.plan_id === planId))
       if (parentTask) {
         setExpandedTasks((prev) => {
           if (prev.has(parentTask.thread_id)) return prev
@@ -1119,11 +1120,11 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     setVisibleColumns((current) => new Set([...current, ...dynamicColumns.slice(0, 6).map((column) => column.key)]))
   }, [dynamicColumns])
   useEffect(() => {
-    if (!scopeSummary) return
-    const availablePlatforms = new Set(scopeSummary.filters.platforms.map(([value]) => value))
-    const availableKinds = new Set(scopeSummary.filters.kinds)
-    const availableKeywords = new Set(scopeSummary.filters.keywords)
-    const availableSubjectTypes = new Set(scopeSummary.filters.subject_types)
+    if (!scopeSummary?.filters) return
+    const availablePlatforms = new Set(scopeSummary.filters.platforms?.map(([value]) => value) || [])
+    const availableKinds = new Set(scopeSummary.filters.kinds || [])
+    const availableKeywords = new Set(scopeSummary.filters.keywords || [])
+    const availableSubjectTypes = new Set(scopeSummary.filters.subject_types || [])
 
     if (platform !== 'all' && !availablePlatforms.has(platform)) setPlatform('all')
     if (!['all', 'main_only'].includes(kind) && !availableKinds.has(kind)) setKind('main_only')
@@ -1167,7 +1168,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       if (scope.endsWith(id)) switchScope('all')
       if (type === 'task') {
         removePivotViewState(`thread:${id}`)
-        tasks.find((task) => task.thread_id === id)?.rounds.forEach((round) => removePivotViewState(`plan:${round.plan_id}`))
+        tasks.find((task) => task.thread_id === id)?.rounds?.forEach((round: any) => removePivotViewState(`plan:${round.plan_id}`))
         setExpandedTasks((current) => {
           const next = new Set(current)
           next.delete(id)
@@ -1194,7 +1195,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       if (selectedThreadId) {
         setExpandedTasks(new Set([selectedThreadId]))
       } else if (selectedWorkflowId) {
-        const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === selectedWorkflowId))
+        const parentTask = tasks.find((t) => t.rounds?.some((r: any) => r.plan_id === selectedWorkflowId))
         if (parentTask) {
           setExpandedTasks(new Set([parentTask.thread_id]))
         }
@@ -1272,8 +1273,8 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             const isTaskSelected = scope === `thread:${task.thread_id}`
             const isExpanded = expandedTasks.has(task.thread_id)
             const hasRounds = Boolean(task.rounds && task.rounds.length > 0)
-            const taskItemCount = task.rounds.reduce(
-              (sum, r) => sum + r.runs.reduce((rSum, run) => rSum + (run.item_count || 0), 0),
+            const taskItemCount = (task.rounds || []).reduce(
+              (sum: number, r: any) => sum + (r.runs || []).reduce((rSum: number, run: any) => rSum + (run.item_count || 0), 0),
               0
             )
 
@@ -1361,10 +1362,10 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                 {/* 2级节点：采集轮次子树（清晰树状错层缩进 28px） */}
                 {isExpanded && hasRounds && (
                   <div className="ml-[18px] pl-3 my-0.5 space-y-0.5 border-l border-cyber-border-subtle/60">
-                    {task.rounds.map((round) => {
+                    {(task.rounds || []).map((round: any) => {
                       const isRoundSelected = scope === `plan:${round.plan_id}`
-                      const roundItemCount = round.runs.reduce(
-                        (rSum, run) => rSum + (run.item_count || 0),
+                      const roundItemCount = (round.runs || []).reduce(
+                        (rSum: number, run: any) => rSum + (run.item_count || 0),
                         0
                       )
 
@@ -1492,13 +1493,15 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       </span>
     )
     if (key === 'subject') {
+      const subjectName = document.subject?.name || document.subject?.id || '—'
+      const subjectType = document.subject?.type || 'unknown'
       return (
         <div className="min-w-0">
-          <p className="truncate font-medium text-cyber-text-primary" title={document.subject.name || document.subject.id || '—'}>
-            {document.subject.name || document.subject.id || '—'}
+          <p className="truncate font-medium text-cyber-text-primary" title={subjectName}>
+            {subjectName}
           </p>
           <p className="text-[10px] text-cyber-text-muted shrink-0">
-            {subjectTypeLabels[document.subject.type] || document.subject.type}
+            {subjectTypeLabels[subjectType] || subjectType}
           </p>
         </div>
       )
@@ -1512,7 +1515,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     }
     if (key === 'publishedAt') return <span className="whitespace-nowrap font-mono text-[11px] text-cyber-text-muted">{formatDate(document.publishedAt)}</span>
     if (key.startsWith('metric:')) {
-      const value = document.metrics[key.slice(7)]
+      const value = document.metrics?.[key.slice(7)]
       return typeof value === 'number' ? (
         <span className="font-mono text-xs font-semibold text-cyber-text-primary">{formatNumber(value)}</span>
       ) : (
@@ -1520,7 +1523,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       )
     }
     if (key.startsWith('attribute:')) {
-      const val = displayValue(document.attributes[key.slice(10)])
+      const val = displayValue(document.attributes?.[key.slice(10)])
       return val === '—' ? <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span> : <span className="truncate block" title={val}>{val}</span>
     }
     return <span className="font-mono text-[11px] text-cyber-text-muted/30">—</span>
@@ -1845,7 +1848,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">全部平台</SelectItem>
-                          {(scopeSummary?.filters.platforms || summary?.filters.platforms || []).map(([value, label]) => (
+                          {(scopeSummary?.filters?.platforms || summary?.filters?.platforms || []).map(([value, label]) => (
                             <SelectItem key={value} value={value}>{label}</SelectItem>
                           ))}
                         </SelectContent>
@@ -1858,7 +1861,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">全部主体</SelectItem>
-                          {(scopeSummary?.filters.subject_types || summary?.filters.subject_types || []).map((value) => (
+                          {(scopeSummary?.filters?.subject_types || summary?.filters?.subject_types || []).map((value) => (
                             <SelectItem key={value} value={value}>{subjectTypeLabels[value] || value}</SelectItem>
                           ))}
                         </SelectContent>
@@ -1874,7 +1877,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                         <SelectContent>
                           <SelectItem value="main_only">正文/主帖(排除评论)</SelectItem>
                           <SelectItem value="all">全部内容(含评论)</SelectItem>
-                          {(scopeSummary?.filters.kinds || summary?.filters.kinds || []).map((value) => (
+                          {(scopeSummary?.filters?.kinds || summary?.filters?.kinds || []).map((value) => (
                             <SelectItem key={value} value={value}>{kindLabels[value] || value}</SelectItem>
                           ))}
                         </SelectContent>
@@ -1980,7 +1983,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                         const isSelected = selectedDocument?.documentId === document.documentId
                         return (
                           <tr
-                            key={`${document.documentId}:${document.provenance.runId || 'latest'}`}
+                            key={`${document.documentId}:${document.provenance?.runId || 'latest'}`}
                             onClick={() => setSelectedDocument(document)}
                             className={`cursor-pointer transition-colors ${isSelected
                               ? 'bg-cyber-neon-cyan/15 hover:bg-cyber-neon-cyan/20'
@@ -2309,7 +2312,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             <div className="flex items-center justify-between px-1 text-[11px] text-cyber-text-muted">
               <span>基于当前透视表筛选切片导出</span>
               <span className="font-mono font-medium text-cyber-neon-cyan bg-cyber-neon-cyan/10 px-1.5 py-0.5 rounded">
-                {summary?.totals.document_count || 0} 条
+                {summary?.totals?.document_count || 0} 条
               </span>
             </div>
 

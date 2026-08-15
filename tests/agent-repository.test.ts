@@ -546,3 +546,26 @@ test('memory recall ranks query-relevant atoms ahead of unrelated history', () =
     db.close();
   }
 });
+
+test('balanced mode activates sensible inferences above threshold immediately without explicit syntax', () => {
+  const { db, repository: repo } = repository();
+  try {
+    repo.applyAutomaticMemoryMutations([{
+      action: 'upsert', memoryKey: 'preference.preferred_platforms', category: 'preference',
+      content: '用户偏好使用 36kr 和知乎作为核心调研信源', confidence: 0.85, importance: 0.8,
+      evidenceMessageIds: ['msg-1'],
+    }], 'balanced');
+
+    const automatic = repo.listAutomaticMemories();
+    assert.equal(automatic.length, 1);
+    assert.equal(automatic[0].status, 'active');
+    assert.equal(automatic[0].content, '用户偏好使用 36kr 和知乎作为核心调研信源');
+
+    // General queries can recall high importance preferences
+    const recalled = repo.retrieveMemories('帮我调研 AIGC 动态');
+    assert.ok(recalled.length >= 1);
+    assert.equal(recalled[0].memory_key, 'auto_atom_preference.preferred_platforms');
+  } finally {
+    db.close();
+  }
+});

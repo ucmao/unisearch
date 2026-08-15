@@ -63,3 +63,12 @@ test('multimodal data URLs use a fixed image cost and remain structured', () => 
   assert.equal(result.report.compacted, false);
   assert.ok(result.report.estimatedInputTokensAfter < 2_000);
 });
+
+test('default context budget is configured to 128,000 tokens', () => {
+  const result = applyContextBudget([
+    { role: 'system', content: '系统' },
+    { role: 'user', content: '用户' },
+  ]);
+  assert.equal(result.report.maxContextTokens, 128_000);
+  assert.equal(result.report.compacted, false);
+});
