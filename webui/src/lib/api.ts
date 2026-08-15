@@ -525,6 +525,25 @@ export const dataApi = {
     })
     return `/api/data/analytics/export?${search.toString()}`
   },
+  getKnowledgeExportUrl: (params: {
+    exporterId: string
+    run_id?: string
+    workflow_id?: string
+    thread_id?: string
+    platform?: string
+    kind?: string
+    keyword?: string
+    subject_type?: string
+    query?: string
+    sort_by?: string
+    sort_order?: 'asc' | 'desc'
+  }) => {
+    const search = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value && value !== 'all') search.set(key, value)
+    })
+    return `/api/exporters/download?${search.toString()}`
+  },
 }
 
 function cleanAnalyticsParams<T extends Record<string, unknown>>(params: T): T {

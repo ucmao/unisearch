@@ -1374,10 +1374,43 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.get('/api/exporters/download', async (request, reply) => {
-    const { exporterId, workflowId } = (request.query || {}) as { exporterId?: string; workflowId?: string };
+    const query = (request.query || {}) as {
+      exporterId?: string;
+      workflowId?: string;
+      workflow_id?: string;
+      thread_id?: string;
+      threadId?: string;
+      run_id?: string;
+      platform?: string;
+      kind?: string;
+      keyword?: string;
+      subject_type?: string;
+      query?: string;
+      sort_by?: string;
+      sort_order?: 'asc' | 'desc';
+    };
+
+    const exporterId = query.exporterId;
     if (!exporterId) return reply.status(400).send({ detail: 'exporterId is required' });
     try {
-      const record = await exportService.run(exporterId, workflowId);
+      const effectiveWorkflowId = query.workflowId || query.workflow_id;
+      const effectiveThreadId = query.thread_id || query.threadId;
+      const record = await exportService.run(exporterId, {
+        workflowId: effectiveWorkflowId,
+        threadId: effectiveThreadId,
+        filterParams: {
+          run_id: query.run_id,
+          workflow_id: effectiveWorkflowId,
+          thread_id: effectiveThreadId,
+          platform: query.platform,
+          kind: query.kind,
+          keyword: query.keyword,
+          subject_type: query.subject_type,
+          query: query.query,
+          sort_by: query.sort_by,
+          sort_order: query.sort_order,
+        },
+      });
       const targetPath = record.output_path;
       if (!fs.existsSync(targetPath)) return reply.status(4404).send({ detail: 'Export output not found' });
       const stat = fs.statSync(targetPath);

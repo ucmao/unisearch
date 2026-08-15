@@ -216,21 +216,58 @@ exporterRegistry.register({
   },
 });
 
+export interface ExportRunOptions {
+  workflowId?: string;
+  threadId?: string;
+  filterParams?: {
+    run_id?: string;
+    workflow_id?: string;
+    thread_id?: string;
+    platform?: string;
+    kind?: string;
+    keyword?: string;
+    subject_type?: string;
+    query?: string;
+    sort_by?: string;
+    sort_order?: 'asc' | 'desc';
+  };
+}
+
 export class ExportService {
   constructor(private readonly databaseProvider: () => Database = getDb) {}
   private get db(): Database { return this.databaseProvider(); }
 
-  async run(exporterId: string, workflowId?: string): Promise<any> {
+  async run(exporterId: string, options?: string | ExportRunOptions): Promise<any> {
+    const opts: ExportRunOptions = typeof options === 'string' ? { workflowId: options } : (options || {});
     const exporter = exporterRegistry.get(exporterId);
-    const documents = new AnalysisService(this.databaseProvider).documents(workflowId);
+
+    let documents: Document[];
+    const filterParams = opts.filterParams;
+    const hasExplicitFilter = filterParams && Object.entries(filterParams).some(([k, v]) => Boolean(v) && k !== 'sort_order' && k !== 'sort_by');
+
+    if (hasExplicitFilter) {
+      // Dynamic import to avoid circular dependency
+      const { AnalyticsRepository } = require('../database/repository');
+      const analyticsRepo = new AnalyticsRepository(this.databaseProvider);
+      const res = analyticsRepo.queryDocuments({
+        ...filterParams,
+        page: 1,
+        page_size: 1000000,
+      });
+      documents = res.items;
+    } else {
+      documents = new AnalysisService(this.databaseProvider).documents(opts.workflowId, opts.threadId);
+    }
+
+    const effectiveWorkflowId = opts.workflowId || filterParams?.workflow_id;
     const exportId = randomUUID();
     const root = path.join(path.dirname(getDatabasePath()), 'exports', exportId);
     fs.mkdirSync(root, { recursive: true });
-    const result = await exporter.export(documents, { workflowId, outputDirectory: root, now: () => new Date() });
+    const result = await exporter.export(documents, { workflowId: effectiveWorkflowId, outputDirectory: root, now: () => new Date() });
     const record = {
       export_id: exportId,
       exporter_id: exporter.id,
-      workflow_id: workflowId || null,
+      workflow_id: effectiveWorkflowId || null,
       output_path: result.outputPath,
       item_count: result.itemCount,
       metadata: result.metadata,

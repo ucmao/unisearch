@@ -13,6 +13,11 @@ import {
   ChevronUp,
   ChevronsDown,
   ChevronsUp,
+  BookOpen,
+  Bot,
+  Settings2,
+  Sparkles,
+  Share2,
   Clock,
   Code,
   Columns3,
@@ -50,32 +55,148 @@ import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { KnowledgeGraphView, ResearchReportsView } from '@/components/analytics/ResearchAssetsPanel'
 
-type ExportFormat = 'xlsx' | 'csv' | 'json'
+type ExportCategory = 'data' | 'knowledge'
+type ExportFormat =
+  | 'xlsx'
+  | 'csv'
+  | 'json'
+  | 'markdown'
+  | 'obsidian'
+  | 'notion'
+  | 'dify'
+  | 'feishu'
+  | 'yuque'
+  | 'ima'
+  | 'logseq'
 type ExportFieldMode = 'recommended' | 'visible' | 'all'
 
-const EXPORT_FORMAT_OPTIONS = [
+interface ExportFormatOption {
+  id: ExportFormat
+  title: string
+  ext: string
+  hint: string
+  icon?: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+  logoUrl?: string
+  color?: string
+  category: ExportCategory
+  badge?: string
+}
+
+const DATA_FORMAT_OPTIONS: ExportFormatOption[] = [
   {
     id: 'xlsx',
     title: 'Excel 表格',
     ext: '.xlsx',
-    hint: '推荐，适合直接查看与筛选',
+    hint: '推荐，包含核心业务指标与清洗字段',
     icon: FileSpreadsheet,
+    color: '#10B981',
+    category: 'data',
+    badge: '最常用',
   },
   {
     id: 'csv',
-    title: 'CSV 表格',
+    title: 'CSV 数据',
     ext: '.csv',
-    hint: '适合 Excel / WPS 表格数据分析',
+    hint: '轻量通用，适合 Excel / WPS / Python 分析',
     icon: FileSpreadsheet,
+    color: '#059669',
+    category: 'data',
   },
   {
     id: 'json',
     title: 'JSON 原始数据',
     ext: '.json',
-    hint: '包含完整字段，适合开发与系统对接',
+    hint: '包含完整元数据与所有指标字段，适合系统对接',
     icon: FileJson,
+    color: '#F59E0B',
+    category: 'data',
   },
-] as const
+  {
+    id: 'markdown',
+    title: 'Markdown 全文合集',
+    ext: '.md',
+    hint: '合并所有筛选图文与 Frontmatter 的长文合集',
+    logoUrl: '/logos/exporter_markdown.png',
+    icon: FileText,
+    color: '#38BDF8',
+    category: 'data',
+  },
+]
+
+const KNOWLEDGE_FORMAT_OPTIONS: ExportFormatOption[] = [
+  {
+    id: 'obsidian',
+    title: 'Obsidian Vault',
+    ext: '.zip',
+    hint: '独立卡片笔记，构建双向链接与索引大纲',
+    logoUrl: '/logos/exporter_obsidian.png',
+    icon: Layers,
+    color: '#A855F7',
+    category: 'knowledge',
+    badge: '双链知识库',
+  },
+  {
+    id: 'notion',
+    title: 'Notion 导入包',
+    ext: '.zip',
+    hint: 'Markdown 文件与属性映射 database.csv',
+    logoUrl: '/logos/exporter_notion.png',
+    icon: BookOpen,
+    color: '#F43F5E',
+    category: 'knowledge',
+  },
+  {
+    id: 'dify',
+    title: 'Dify / RAG 知识库',
+    ext: '.zip',
+    hint: '按语义自动切片为 Chunks，构建 AI 智能体',
+    logoUrl: '/logos/exporter_dify.png',
+    icon: Bot,
+    color: '#3B82F6',
+    category: 'knowledge',
+    badge: 'RAG 智能体',
+  },
+  {
+    id: 'feishu',
+    title: '飞书 知识空间',
+    ext: '.zip',
+    hint: '包含多篇 Markdown 与 index.json 结构',
+    logoUrl: '/logos/exporter_lark.png',
+    icon: Share2,
+    color: '#0284C7',
+    category: 'knowledge',
+  },
+  {
+    id: 'yuque',
+    title: '语雀 知识库',
+    ext: '.zip',
+    hint: '包含标准目录树 toc.json 与文档包',
+    logoUrl: '/logos/exporter_yuque.png',
+    icon: BookOpen,
+    color: '#22C55E',
+    category: 'knowledge',
+  },
+  {
+    id: 'ima',
+    title: '腾讯 IMA',
+    ext: '.zip',
+    hint: '腾讯 IMA 知识库专有导入格式包',
+    logoUrl: '/logos/exporter_ima.png',
+    icon: Sparkles,
+    color: '#10B981',
+    category: 'knowledge',
+  },
+  {
+    id: 'logseq',
+    title: 'Logseq 大纲包',
+    ext: '.zip',
+    hint: '包含大纲属性块结构与 Pages 笔记库',
+    logoUrl: '/logos/exporter_logseq.png',
+    icon: Layers,
+    color: '#06B6D4',
+    category: 'knowledge',
+  },
+]
 
 const BASE_COLUMNS = [
   ['title', '标题 / 摘要'],
@@ -770,6 +891,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
   const [sidebarWidth, setSidebarWidth] = useState(initialLayout?.sidebarWidth || 270)
   const [isResizing, setIsResizing] = useState(false)
   const [activeMainTab, setActiveMainTab] = useState<'pivot' | 'graph' | 'reports'>('pivot')
+  const [exportCategory, setExportCategory] = useState<ExportCategory>('data')
   const [exportFormat, setExportFormat] = useState<ExportFormat>('xlsx')
   const [exportFieldMode, setExportFieldMode] = useState<ExportFieldMode>('recommended')
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
@@ -1399,14 +1521,23 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     if (column.key.startsWith('attribute:')) return [`attributes.${column.key.slice(10)}`]
     return [column.key]
   })
-  const exportUrl = dataApi.getAnalyticsExportUrl({
-    ...filters,
-    sort_by: sortBy,
-    sort_order: sortOrder,
-    format: exportFormat,
-    field_mode: exportFieldMode,
-    fields: exportFieldMode === 'visible' ? visibleExportFields.join(',') : undefined,
-  })
+  const isKnowledgeFormat = ['markdown', 'obsidian', 'notion', 'dify', 'feishu', 'yuque', 'ima', 'logseq'].includes(exportFormat)
+
+  const exportUrl = isKnowledgeFormat
+    ? dataApi.getKnowledgeExportUrl({
+        exporterId: exportFormat,
+        ...filters,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+      })
+    : dataApi.getAnalyticsExportUrl({
+        ...filters,
+        sort_by: sortBy,
+        sort_order: sortOrder,
+        format: exportFormat as any,
+        field_mode: exportFieldMode,
+        fields: exportFieldMode === 'visible' ? visibleExportFields.join(',') : undefined,
+      })
 
   // 基准数据（当前任务 Scope 下的总盘基准，用于计算筛选占比）
   const baselineTotals = scopeSummary?.totals || { document_count: 0, subject_count: 0, content_count: 0, comment_count: 0 }
@@ -2003,101 +2134,193 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       </Dialog>
 
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent className="sm:max-w-[440px] border-cyber-border-subtle bg-cyber-bg-panel/95 backdrop-blur-md p-5">
-          <DialogHeader className="pb-1">
+        <DialogContent className="sm:max-w-[500px] h-[550px] flex flex-col justify-between border-cyber-border-subtle bg-cyber-bg-panel/95 backdrop-blur-md p-5 overflow-hidden">
+          <DialogHeader className="pb-1 shrink-0">
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-cyber-text-primary">
               <Download className="h-4 w-4 text-cyber-neon-cyan" />
-              数据导出下载
+              数据与知识库导出
             </DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-3 py-1">
-            <div className="grid gap-2">
-              {EXPORT_FORMAT_OPTIONS.map((item) => {
-                const isSelected = exportFormat === item.id
-                const Icon = item.icon
-                return (
-                  <div
-                    key={item.id}
-                    onClick={() => setExportFormat(item.id as ExportFormat)}
-                    className={`group flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all ${isSelected
-                      ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/[0.08] shadow-xs'
-                      : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 hover:border-cyber-border-subtle/80 hover:bg-cyber-bg-secondary/70'
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`rounded-lg p-2 transition-colors ${isSelected ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan' : 'bg-cyber-bg-tertiary/70 text-cyber-text-muted'
-                          }`}
-                      >
-                        <Icon className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-xs font-semibold ${isSelected ? 'text-cyber-text-primary' : 'text-cyber-text-primary'}`}>{item.title}</span>
-                          <span className="font-mono text-[10px] text-cyber-text-muted">{item.ext}</span>
-                        </div>
-                        <p className="text-[11px] text-cyber-text-muted">{item.hint}</p>
-                      </div>
-                    </div>
-
-                    {isSelected && (
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-cyber-neon-cyan text-white shadow-xs">
-                        <Check className="h-3 w-3 stroke-[2.5]" />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            {(exportFormat === 'xlsx' || exportFormat === 'csv') && (
-              <div className="space-y-2 border-t border-cyber-border-subtle/40 pt-3">
-                <p className="px-1 text-[11px] font-medium text-cyber-text-secondary">导出字段</p>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {([
-                    ['recommended', '推荐字段'],
-                    ['visible', '当前显示'],
-                    ['all', '全部原始字段'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setExportFieldMode(value)}
-                      className={`h-8 rounded-lg border px-2 text-[11px] transition-colors ${exportFieldMode === value
-                        ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/[0.08] text-cyber-neon-cyan'
-                        : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 text-cyber-text-muted hover:bg-cyber-bg-secondary/70'
-                        }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between border-t border-cyber-border-subtle/40 px-1 pt-3 text-[11px] text-cyber-text-muted">
-              <span>将导出当前筛选条件下的全部数据</span>
-              <span className="font-mono font-medium text-cyber-text-secondary">{summary?.totals.document_count || 0} 条</span>
-            </div>
+          {/* 分类 Tabs */}
+          <div className="flex rounded-xl bg-cyber-bg-secondary/60 p-1 border border-cyber-border-subtle/50 my-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setExportCategory('data')
+                if (['obsidian', 'notion', 'dify', 'feishu', 'yuque', 'ima', 'logseq'].includes(exportFormat)) {
+                  setExportFormat('xlsx')
+                }
+              }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+                exportCategory === 'data'
+                  ? 'bg-cyber-bg-panel text-cyber-neon-cyan shadow-xs border border-cyber-border-subtle/70'
+                  : 'text-cyber-text-muted hover:text-cyber-text-secondary'
+              }`}
+            >
+              <FileSpreadsheet className="h-3.5 w-3.5" />
+              表格与通用数据 ({DATA_FORMAT_OPTIONS.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExportCategory('knowledge')
+                if (['xlsx', 'csv', 'json'].includes(exportFormat)) {
+                  setExportFormat('obsidian')
+                }
+              }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+                exportCategory === 'knowledge'
+                  ? 'bg-cyber-bg-panel text-cyber-neon-cyan shadow-xs border border-cyber-border-subtle/70'
+                  : 'text-cyber-text-muted hover:text-cyber-text-secondary'
+              }`}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              知识库与智能体 ({KNOWLEDGE_FORMAT_OPTIONS.length})
+            </button>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-cyber-border-subtle/40">
-            <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(false)} className="h-8 text-xs">
-              取消
-            </Button>
-            <Button size="sm" className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan text-white font-medium hover:bg-cyber-neon-cyan/90 active:scale-[0.98] shadow-xs" asChild>
-              <a
-                href={exportUrl}
-                onClick={() => {
-                  setExportDialogOpen(false)
-                  toast.success(`开始导出下载 (${exportFormat.toUpperCase()})`)
-                }}
-              >
-                <Download className="h-3.5 w-3.5" />
-                下载 {exportFormat.toUpperCase()}
-              </a>
-            </Button>
+          {/* 格式选项列表 (固定高度，自适应滚动) */}
+          <div className="grid gap-2 flex-1 min-h-0 overflow-y-auto pr-1 my-1">
+            {(exportCategory === 'data' ? DATA_FORMAT_OPTIONS : KNOWLEDGE_FORMAT_OPTIONS).map((item) => {
+              const isSelected = exportFormat === item.id
+              const Icon = item.icon
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => setExportFormat(item.id)}
+                  className={`group flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all ${
+                    isSelected
+                      ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/[0.08] shadow-xs'
+                      : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 hover:border-cyber-border-subtle/80 hover:bg-cyber-bg-secondary/70'
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 p-1.5 transition-colors ${
+                        item.logoUrl
+                          ? 'bg-white/90 border border-slate-200/60 shadow-2xs'
+                          : isSelected
+                          ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan'
+                          : 'bg-cyber-bg-tertiary/70 text-cyber-text-muted'
+                      }`}
+                    >
+                      {item.logoUrl ? (
+                        <img src={item.logoUrl} alt={item.title} className="h-5 w-5 object-contain" />
+                      ) : Icon ? (
+                        <Icon className="h-4 w-4" style={item.color ? { color: item.color } : undefined} />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-cyber-text-primary">{item.title}</span>
+                        <span className="font-mono text-[10px] text-cyber-text-muted">{item.ext}</span>
+                        {item.badge && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-cyber-text-muted truncate">{item.hint}</p>
+                    </div>
+                  </div>
+
+                  {isSelected && (
+                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyber-neon-cyan text-white shadow-xs">
+                      <Check className="h-3 w-3 stroke-[2.5]" />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* 底部配置与状态区 (高度完全固定，无论切换任何格式均不跳动) */}
+          <div className="shrink-0 space-y-2 border-t border-cyber-border-subtle/50 pt-2.5 mt-1">
+            {/* 配置/规范行 */}
+            <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-cyber-bg-secondary/40 border border-cyber-border-subtle/30 text-xs min-h-[34px]">
+              {exportFormat === 'xlsx' || exportFormat === 'csv' ? (
+                <>
+                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
+                    <Settings2 className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                    字段范围
+                  </span>
+                  <div className="flex items-center gap-1">
+                    {([
+                      ['recommended', '推荐字段'],
+                      ['visible', '当前列'],
+                      ['all', '全部字段'],
+                    ] as const).map(([val, lbl]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        onClick={() => setExportFieldMode(val)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                          exportFieldMode === val
+                            ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/40 font-semibold'
+                            : 'text-cyber-text-muted hover:text-cyber-text-primary'
+                        }`}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : exportFormat === 'dify' ? (
+                <>
+                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
+                    <Bot className="h-3.5 w-3.5 text-blue-400" />
+                    RAG 切片规范
+                  </span>
+                  <span className="text-[11px] text-cyber-text-muted">按语义/段落自动拆分 Chunks</span>
+                </>
+              ) : exportFormat === 'obsidian' || exportFormat === 'notion' || exportFormat === 'feishu' || exportFormat === 'yuque' || exportFormat === 'ima' || exportFormat === 'logseq' ? (
+                <>
+                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-purple-400" />
+                    知识库规范
+                  </span>
+                  <span className="text-[11px] text-cyber-text-muted">独立 Markdown 笔记 + 索引大纲</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-amber-400" />
+                    原始全集规范
+                  </span>
+                  <span className="text-[11px] text-cyber-text-muted">包含完整字段与 Frontmatter 元数据</span>
+                </>
+              )}
+            </div>
+
+            {/* 条数与提示行 */}
+            <div className="flex items-center justify-between px-1 text-[11px] text-cyber-text-muted">
+              <span>基于当前透视表筛选切片导出</span>
+              <span className="font-mono font-medium text-cyber-neon-cyan bg-cyber-neon-cyan/10 px-1.5 py-0.5 rounded">
+                {summary?.totals.document_count || 0} 条
+              </span>
+            </div>
+
+            {/* 操作按钮行 */}
+            <div className="flex items-center justify-end gap-2 pt-1 border-t border-cyber-border-subtle/30">
+              <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(false)} className="h-8 text-xs">
+                取消
+              </Button>
+              <Button size="sm" className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan text-white font-medium hover:bg-cyber-neon-cyan/90 active:scale-[0.98] shadow-xs" asChild>
+                <a
+                  href={exportUrl}
+                  download
+                  onClick={() => {
+                    setExportDialogOpen(false)
+                    const targetOption = [...DATA_FORMAT_OPTIONS, ...KNOWLEDGE_FORMAT_OPTIONS].find((o) => o.id === exportFormat)
+                    toast.success(`开始导出下载 (${targetOption?.title || exportFormat.toUpperCase()})`)
+                  }}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  下载 {([...DATA_FORMAT_OPTIONS, ...KNOWLEDGE_FORMAT_OPTIONS].find((o) => o.id === exportFormat)?.title) || exportFormat.toUpperCase()}
+                </a>
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
