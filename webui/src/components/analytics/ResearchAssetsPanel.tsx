@@ -170,7 +170,10 @@ const RELATION_LABELS: Record<string, string> = {
   mentions_topic: '提及话题',
   published_on: '来源归属',
   matched_keyword: '关键词匹配',
-  co_occurs: '通用关联',
+  co_occurs: '共现关联',
+  competes_with: '竞品对手',
+  belongs_to: '归属组织',
+  produces: '生产研发',
 }
 
 function getRelationOptions(sourceType: string, targetType: string) {
@@ -299,20 +302,43 @@ export function KnowledgeGraphView({
     enabled: Boolean(graph?.id),
   })
 
-  const visibleNodes = useMemo(() => {
-    return (graph?.nodes || []).slice(0, 60).map((node) => {
-      if (node.type === 'platform') {
-        return {
-          ...node,
-          label: platformLabel(platformLabels, node.label),
+  const [activeTypeFilters, setActiveTypeFilters] = useState<Set<string>>(
+    new Set(['subject', 'keyword', 'platform', 'topic'])
+  )
+
+  const toggleTypeFilter = (type: string) => {
+    setActiveTypeFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(type)) {
+        if (next.size > 1) {
+          next.delete(type)
+        } else {
+          return new Set(['subject', 'keyword', 'platform', 'topic'])
         }
+      } else {
+        next.add(type)
       }
-      return node
+      return next
     })
-  }, [graph?.nodes, platformLabels])
+  }
+
+  const visibleNodes = useMemo(() => {
+    return (graph?.nodes || [])
+      .filter((node) => activeTypeFilters.has(node.type))
+      .slice(0, 150)
+      .map((node) => {
+        if (node.type === 'platform') {
+          return {
+            ...node,
+            label: platformLabel(platformLabels, node.label),
+          }
+        }
+        return node
+      })
+  }, [graph?.nodes, platformLabels, activeTypeFilters])
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes])
   const visibleEdges = useMemo(() => {
-    return (graph?.edges || []).filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).slice(0, 120)
+    return (graph?.edges || []).filter((edge) => visibleIds.has(edge.from) && visibleIds.has(edge.to)).slice(0, 300)
   }, [graph?.edges, visibleIds])
 
   const rebuild = async () => {
@@ -539,13 +565,26 @@ export function KnowledgeGraphView({
             <span><strong>{graph?.edges?.length || 0}</strong> 关联边</span>
           </div>
 
-          <div className="flex items-center gap-2.5 text-[10.5px] text-cyber-text-muted border-l border-cyber-border-subtle pl-3">
-            {Object.entries({ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }).map(([type, label]) => (
-              <span key={type} className="flex items-center gap-1">
-                <i className="h-2 w-2 rounded-full" style={{ background: nodeColor[type] }} />
-                {label}
-              </span>
-            ))}
+          <div className="flex items-center gap-1.5 text-[10.5px] border-l border-cyber-border-subtle pl-3">
+            {Object.entries({ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }).map(([type, label]) => {
+              const isActive = activeTypeFilters.has(type)
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => toggleTypeFilter(type)}
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-cyber-bg-primary/80 border border-cyber-border-subtle/80 text-cyber-text-primary shadow-2xs font-medium'
+                      : 'opacity-40 hover:opacity-75 text-cyber-text-muted border border-transparent'
+                  }`}
+                  title={`点击${isActive ? '隐藏' : '显示'}${label}类型实体`}
+                >
+                  <i className="h-2 w-2 rounded-full shrink-0" style={{ background: nodeColor[type] }} />
+                  <span>{label}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -767,22 +806,32 @@ export function KnowledgeGraphView({
                   <h3 className="text-sm font-semibold text-cyber-text-primary truncate">
                     {'label' in selectedElement
                       ? (selectedElement.type === 'platform' ? platformLabel(platformLabels, selectedElement.label) : selectedElement.label)
-                      : selectedElement.relation}
+                      : (() => {
+                          const fromNode = (graph?.nodes || []).find((n) => n.id === selectedElement.from)
+                          const toNode = (graph?.nodes || []).find((n) => n.id === selectedElement.to)
+                          const fromLabel = fromNode ? (fromNode.type === 'platform' ? platformLabel(platformLabels, fromNode.label) : fromNode.label) : ''
+                          const toLabel = toNode ? (toNode.type === 'platform' ? platformLabel(platformLabels, toNode.label) : toNode.label) : ''
+                          if (fromLabel && toLabel) {
+                            return `${fromLabel} ↔ ${toLabel}`
+                          }
+                          return RELATION_LABELS[selectedElement.relation] || selectedElement.relation || '关联关系'
+                        })()}
                   </h3>
                   {'type' in selectedElement ? (
                     <span
                       className="rounded px-1.5 py-0.5 text-[10px] font-medium"
                       style={{
-                        backgroundColor: `${nodeColor[selectedElement.type] || '#94a3b8'}20`,
-                        color: nodeColor[selectedElement.type] || '#cbd5e1',
-                        border: `1px solid ${nodeColor[selectedElement.type] || '#94a3b8'}40`,
+                        backgroundColor: `${nodeColor[selectedElement.type] || '#4a82b3'}20`,
+                        color: nodeColor[selectedElement.type] || '#334155',
+                        border: `1px solid ${nodeColor[selectedElement.type] || '#4a82b3'}40`,
                       }}
                     >
                       {{ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[selectedElement.type] || selectedElement.type}
                     </span>
                   ) : (
-                    <span className="rounded bg-slate-500/20 px-1.5 py-0.5 text-[10px] text-slate-300 border border-slate-500/40">
-                      关联关系
+                    <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 dark:bg-blue-500/20 px-2 py-0.5 text-[10.5px] font-semibold text-blue-600 dark:text-blue-300 border border-blue-500/30">
+                      <Link2 className="h-3 w-3" />
+                      <span>{RELATION_LABELS[selectedElement.relation] || selectedElement.relation || '关联关系'}</span>
                     </span>
                   )}
                 </div>
@@ -1654,7 +1703,16 @@ export function ResearchReportsView({
             <div className="flex items-center justify-between border-b border-cyber-neon-cyan/20 pb-2">
               <strong className="text-cyber-text-primary text-sm flex items-center gap-2">
                 <GitCompare className="h-4 w-4 text-cyber-neon-cyan" />
-                报告演进差异对比：V{comparison.from.versionNumber} ➔ V{comparison.to.versionNumber}
+                <span className="inline-flex items-center gap-1.5">
+                  报告演进差异对比：
+                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 leading-none">
+                    v{comparison.from.versionNumber}
+                  </span>
+                  <span className="text-cyber-text-muted text-xs">➔</span>
+                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 leading-none">
+                    v{comparison.to.versionNumber}
+                  </span>
+                </span>
               </strong>
               <button
                 type="button"
@@ -1699,8 +1757,8 @@ export function ResearchReportsView({
                       <h4 className="text-sm font-semibold text-cyber-text-primary truncate">
                         {report.title}
                       </h4>
-                      <span className="rounded-md bg-cyber-neon-cyan/15 px-2 py-0.5 text-xs font-semibold text-cyber-neon-cyan border border-cyber-neon-cyan/30">
-                        V{report.versionNumber}
+                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/25 leading-none">
+                        v{report.versionNumber}
                       </span>
                     </div>
                     <p className="mt-1 text-xs text-cyber-text-muted">
@@ -1718,7 +1776,7 @@ export function ResearchReportsView({
                         onClick={() => compareReport(report.artifactId)}
                       >
                         <GitCompare className="h-3 w-3" />
-                        <span>对比 V{report.versionNumber - 1}</span>
+                        <span>对比 v{report.versionNumber - 1}</span>
                       </Button>
                     ) : null}
                     {report.workflowId ? (

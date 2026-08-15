@@ -1,5 +1,16 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { Combine, Link2, Move, Pause, Play, RotateCcw, Wand2, ZoomIn, ZoomOut } from 'lucide-react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import {
+  Combine,
+  Link2,
+  Move,
+  RotateCcw,
+  Wand2,
+  ZoomIn,
+  ZoomOut,
+  Search,
+  Layers,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export type GraphNode = {
@@ -18,7 +29,7 @@ export type Edge = {
   weight: number
 }
 
-interface SimNode extends GraphNode {
+export interface SimNode extends GraphNode {
   x: number
   y: number
   vx: number
@@ -37,8 +48,19 @@ interface SimParticle {
   size: number
 }
 
-interface SimEdge extends Edge {
+export interface SimEdge extends Edge {
   particles: SimParticle[]
+}
+
+const GRAPH_RELATION_LABELS: Record<string, string> = {
+  published_on: '发布于',
+  matched_keyword: '命中词',
+  co_occurs: '共现关联',
+  mentions_topic: '提及主题',
+  competes_with: '竞品对手',
+  belongs_to: '归属组织',
+  produces: '生产研发',
+  endorses: '核心主打',
 }
 
 const DEFAULT_NODE_COLORS: Record<string, string> = {
@@ -133,7 +155,6 @@ function computeFitTransform(
 
   const scaleX = (width - 60) / boundsW
   const scaleY = (height - 60) / boundsH
-  // Cap max zoom to 1.0 so it never over-magnifies into a narrow tunnel
   const naturalZoom = Math.min(Math.max(Math.min(scaleX, scaleY) * 0.90, 0.35), 1.0)
   const fitZoom = customZoom ?? naturalZoom
 
@@ -209,10 +230,6 @@ export function ObsidianForceGraph({
     duration: 160,
   })
 
-  const [isPaused, setIsPaused] = useState(false)
-  const isPausedRef = useRef(false)
-  isPausedRef.current = isPaused
-
   const [isLinkMode, setIsLinkMode] = useState(false)
   const isLinkModeRef = useRef(false)
   isLinkModeRef.current = isLinkMode
@@ -221,9 +238,23 @@ export function ObsidianForceGraph({
   const isMergeModeRef = useRef(false)
   isMergeModeRef.current = isMergeMode
 
+  // Subgraph Hop Depth: 1 = 1-hop focus, 2 = 2-hop spread, 0 = global topology
+  const [hopDepth, setHopDepth] = useState<1 | 2 | 0>(1)
+  const hopDepthRef = useRef<1 | 2 | 0>(1)
+  hopDepthRef.current = hopDepth
+
+  // Hover states for rich tooltips
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null)
   const hoveredNodeRef = useRef<SimNode | null>(null)
   hoveredNodeRef.current = hoveredNode
+
+  const [hoveredEdge, setHoveredEdge] = useState<SimEdge | null>(null)
+  const hoveredEdgeRef = useRef<SimEdge | null>(null)
+  hoveredEdgeRef.current = hoveredEdge
+
+  // Search feature state
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Evolution Growth Animation state
   const [isEvolving, setIsEvolving] = useState(false)
@@ -278,7 +309,6 @@ export function ObsidianForceGraph({
     const edgeList = simEdgesRef.current
     const nodeMap = simNodesRef.current
 
-    // Obsidian-like expansive force parameters: broader repulsion, longer natural spring length, gentle center gravity
     const repulsion = 7200
     const baseSpringLength = 160
     const springK = 0.016
@@ -297,7 +327,6 @@ export function ObsidianForceGraph({
       const n1 = nodeList[i]
       for (let j = i + 1; j < nodeList.length; j++) {
         const n2 = nodeList[j]
-        // If in deliberate Merge mode (Alt key or button), mute mutual repulsion so target node stays steady
         if (isMerging && draggingNode && (n1 === draggingNode || n2 === draggingNode)) {
           continue
         }
@@ -311,7 +340,6 @@ export function ObsidianForceGraph({
         const minDist = n1.radius + n2.radius + 16
 
         let force = (repulsion * alpha) / Math.max(distSq, minDistance * minDistance)
-        // Collision push if overlapping
         if (dist < minDist) {
           force += (minDist - dist) * 0.9 * alpha
         }
@@ -329,14 +357,13 @@ export function ObsidianForceGraph({
         }
       }
 
-      // Gentle centering gravity to keep galaxy centered without clumping
       if (n1 !== draggingNode) {
         n1.vx += (centerX - n1.x) * centerGravity * alpha
         n1.vy += (centerY - n1.y) * centerGravity * alpha
       }
     }
 
-    // 2. Spring attraction for connected edges (with adaptive length for hub satellites)
+    // 2. Spring attraction for connected edges
     for (let i = 0; i < edgeList.length; i++) {
       const edge = edgeList[i]
       const source = nodeMap.get(edge.from)
@@ -347,7 +374,6 @@ export function ObsidianForceGraph({
       const dy = target.y - source.y
       const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
 
-      // Allow satellites around large hub nodes to stretch further out
       const hubDegreeBonus = Math.min(((source.degree || 0) + (target.degree || 0)) * 2.6, 65)
       const effectiveSpringLength = baseSpringLength + hubDegreeBonus
 
@@ -385,7 +411,7 @@ export function ObsidianForceGraph({
     }
   }, [])
 
-  // Center/Reset View - Scaled cleanly to fill ~85% of the canvas area
+  // Center/Reset View
   const resetView = useCallback((customZoom?: number, smooth = false) => {
     const canvas = canvasRef.current
     const width = canvas?.clientWidth || containerRef.current?.clientWidth || 550
@@ -413,7 +439,29 @@ export function ObsidianForceGraph({
     }
   }, [])
 
-  // Skip Evolution Animation (instantly reveal all nodes)
+  // Focus Smoothly on Specific Node
+  const focusOnNode = useCallback((node: SimNode) => {
+    const canvas = canvasRef.current
+    const width = canvas?.clientWidth || 550
+    const height = canvas?.clientHeight || 450
+    const targetZoom = 1.35
+
+    cameraAnimRef.current = {
+      active: true,
+      startTime: performance.now(),
+      duration: 350,
+      startPanX: transformRef.current.panX,
+      startPanY: transformRef.current.panY,
+      startZoom: transformRef.current.zoom,
+      targetPanX: width / 2 - node.x * targetZoom,
+      targetPanY: height / 2 - node.y * targetZoom,
+      targetZoom: targetZoom,
+    }
+    onSelectElement(node)
+    setIsSearchOpen(false)
+  }, [onSelectElement])
+
+  // Skip Evolution Animation
   const skipEvolutionAnimation = useCallback(() => {
     const currentNodes = simNodesRef.current
     currentNodes.forEach((n) => {
@@ -426,7 +474,7 @@ export function ObsidianForceGraph({
     reheat(0.6)
   }, [resetView, reheat])
 
-  // Start Evolution Growth Animation (Obsidian Time-lapse)
+  // Start Evolution Growth Animation
   const startEvolutionAnimation = useCallback(() => {
     const canvas = canvasRef.current
     const width = canvas?.clientWidth || 550
@@ -435,12 +483,9 @@ export function ObsidianForceGraph({
     const centerY = height / 2
 
     const currentNodes = simNodesRef.current
-
-    // 1. Medium-Shot Camera (中景展现: 主体圆点与文字清晰可读，约 0.92 ~ 0.98 舒适中景)
     const midShotZoom = 0.94
 
     cameraAnimRef.current.active = false
-    // Set camera to medium-shot view centered precisely on the growth center
     transformRef.current = {
       zoom: midShotZoom,
       panX: width / 2 - centerX * midShotZoom,
@@ -455,7 +500,6 @@ export function ObsidianForceGraph({
 
     const sequence = computeGrowthSequence(nodes, edges, degreeMap)
     const count = sequence.length
-    // Slower, graceful pacing (approx 300ms - 650ms per node so users can clearly watch the evolution)
     const interval = Math.max(280, Math.min(650, 7200 / Math.max(count, 1)))
     const now = performance.now()
 
@@ -523,7 +567,6 @@ export function ObsidianForceGraph({
     nodes.forEach((node, idx) => {
       const existing = currentNodes.get(node.id)
       const degree = degreeMap.get(node.id) || 0
-      // Obsidian-style delicate scale: leaf nodes are compact dots (3.2-4.5px), while major hubs scale up gracefully (9-14px)
       const radius = Math.min(14, Math.max(3.2, 2.6 + Math.sqrt(degree) * 1.5 + Math.log2((node.weight || 1) + 1) * 0.8))
 
       if (existing) {
@@ -560,17 +603,15 @@ export function ObsidianForceGraph({
       particles: [],
     }))
 
-    // Pre-warm the simulation for 60 ticks so nodes are already well distributed
+    // Pre-warm the simulation for 60 ticks
     for (let k = 0; k < 60; k++) {
       runPhysicsStep(0.9 * (1 - k / 70), width, height)
     }
 
-    // Synchronously calculate and apply optimal fit transform before first paint to prevent zoom flash
     const fitTransform = computeFitTransform(Array.from(newMap.values()), width, height)
     transformRef.current = fitTransform
     cameraAnimRef.current.active = false
 
-    // Smooth subtle entrance fade-in (160ms) to make data switch look seamless
     fadeRef.current = {
       active: true,
       startTime: performance.now(),
@@ -580,7 +621,7 @@ export function ObsidianForceGraph({
     reheat(0.8)
   }, [nodes, edges, reheat, runPhysicsStep])
 
-  // Keep canvas responsive on container resize (e.g. sidebar toggle / dragging)
+  // Keep canvas responsive on resize
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -604,7 +645,7 @@ export function ObsidianForceGraph({
     }
   }, [resetView])
 
-  // Main Animation Loop
+  // Main Canvas Animation Loop
   useEffect(() => {
     let animId: number
 
@@ -627,9 +668,10 @@ export function ObsidianForceGraph({
       ctx.scale(dpr, dpr)
       ctx.clearRect(0, 0, width, height)
 
-      // --- 0. Camera Animation (Smooth Reset/Fit Transition) ---
+      // --- 0. Camera Animation ---
       if (cameraAnimRef.current.active) {
-        const { startTime, duration, startPanX, startPanY, startZoom, targetPanX, targetPanY, targetZoom } = cameraAnimRef.current
+        const { startTime, duration, startPanX, startPanY, startZoom, targetPanX, targetPanY, targetZoom } =
+          cameraAnimRef.current
         const progress = Math.min(1, (_time - startTime) / duration)
         const ease = 1 - Math.pow(1 - progress, 3)
         transformRef.current = {
@@ -702,7 +744,7 @@ export function ObsidianForceGraph({
 
       // --- 1. Physics Step ---
       const alpha = alphaRef.current
-      if (!isPausedRef.current && alpha > 0.003) {
+      if (alpha > 0.003) {
         runPhysicsStep(alpha, width, height)
         alphaRef.current *= 0.985
       }
@@ -730,25 +772,85 @@ export function ObsidianForceGraph({
       }
 
       const activeHover = hoveredNodeRef.current
-      const selectedId = selectedElement && 'id' in selectedElement ? selectedElement.id : null
+      const activeHoverEdge = hoveredEdgeRef.current
+      const selectedNodeId = selectedElement && 'label' in selectedElement ? selectedElement.id : null
+      const selectedEdgeId = selectedElement && 'from' in selectedElement ? selectedElement.id : null
+      const currentHop = hopDepthRef.current
 
-      // Build Set of connected node IDs if hover/selected
-      const connectedNodeIds = new Set<string>()
+      // Build 1-hop and 2-hop neighbor adjacency
+      const neighbor1HopMap = new Map<string, Set<string>>()
+      edgeList.forEach((e) => {
+        if (!neighbor1HopMap.has(e.from)) neighbor1HopMap.set(e.from, new Set())
+        if (!neighbor1HopMap.has(e.to)) neighbor1HopMap.set(e.to, new Set())
+        neighbor1HopMap.get(e.from)!.add(e.to)
+        neighbor1HopMap.get(e.to)!.add(e.from)
+      })
+
+      const focusNodeIds = new Set<string>()
       const highlightedEdgeIds = new Set<string>()
-      const targetFocusId = activeHover?.id || selectedId
 
-      if (targetFocusId) {
-        connectedNodeIds.add(targetFocusId)
+      // 1. Process Selected Element (Always keep selected element in focus)
+      if (selectedNodeId) {
+        focusNodeIds.add(selectedNodeId)
+        const oneHop = neighbor1HopMap.get(selectedNodeId) || new Set()
+        oneHop.forEach((id) => focusNodeIds.add(id))
+
+        if (currentHop === 2) {
+          oneHop.forEach((nbrId) => {
+            const twoHop = neighbor1HopMap.get(nbrId) || new Set()
+            twoHop.forEach((id) => focusNodeIds.add(id))
+          })
+        }
+
         edgeList.forEach((e) => {
-          if (e.from === targetFocusId || e.to === targetFocusId) {
-            connectedNodeIds.add(e.from)
-            connectedNodeIds.add(e.to)
+          if (currentHop === 1) {
+            if (e.from === selectedNodeId || e.to === selectedNodeId) {
+              highlightedEdgeIds.add(e.id)
+            }
+          } else if (currentHop === 2) {
+            if (focusNodeIds.has(e.from) && focusNodeIds.has(e.to)) {
+              highlightedEdgeIds.add(e.id)
+            }
+          } else if (currentHop === 0) {
             highlightedEdgeIds.add(e.id)
           }
         })
+      } else if (selectedEdgeId) {
+        const targetEdge = edgeList.find((e) => e.id === selectedEdgeId)
+        if (targetEdge) {
+          focusNodeIds.add(targetEdge.from)
+          focusNodeIds.add(targetEdge.to)
+          highlightedEdgeIds.add(targetEdge.id)
+        }
       }
 
-      // --- 2.1 Draw Edges (Pass 1: Clean background network with 3-tier visibility) ---
+      // 2. Process Hovered Element (Add to focus so preview is seamless without clearing selected nodes)
+      if (activeHover) {
+        focusNodeIds.add(activeHover.id)
+        const oneHop = neighbor1HopMap.get(activeHover.id) || new Set()
+        oneHop.forEach((id) => focusNodeIds.add(id))
+
+        edgeList.forEach((e) => {
+          if (e.from === activeHover.id || e.to === activeHover.id) {
+            highlightedEdgeIds.add(e.id)
+          }
+        })
+      } else if (activeHoverEdge) {
+        focusNodeIds.add(activeHoverEdge.from)
+        focusNodeIds.add(activeHoverEdge.to)
+        highlightedEdgeIds.add(activeHoverEdge.id)
+      }
+
+      const hasActiveFocus = focusNodeIds.size > 0
+
+      // Detect bidirectional / multi-edges for Bezier curve offset
+      const pairCountMap = new Map<string, number>()
+      edgeList.forEach((e) => {
+        const key = [e.from, e.to].sort().join(':::')
+        pairCountMap.set(key, (pairCountMap.get(key) || 0) + 1)
+      })
+
+      // --- 2.1 Draw Edges (Pass 1: Clean network with curved bidirectional & directional arrows) ---
       edgeList.forEach((edge) => {
         const source = nodeMap.get(edge.from)
         const target = nodeMap.get(edge.to)
@@ -758,8 +860,31 @@ export function ObsidianForceGraph({
         const pTarget = target.spawnProgress ?? 1
         const edgeProgress = Math.min(pSource, pTarget)
 
+        const isHoveredSpecificEdge = activeHoverEdge?.id === edge.id
         const isHighlighted = highlightedEdgeIds.has(edge.id)
-        const isDimmed = Boolean(targetFocusId && !isHighlighted)
+        const isDimmed = Boolean(hasActiveFocus && !isHighlighted)
+
+        // Compute Bezier midpoint if multi/bidirectional edge
+        const pairKey = [edge.from, edge.to].sort().join(':::')
+        const isMulti = (pairCountMap.get(pairKey) || 0) > 1
+
+        let midX = (source.x + target.x) / 2
+        let midY = (source.y + target.y) / 2
+        let isCurved = false
+
+        if (isMulti) {
+          const dx = target.x - source.x
+          const dy = target.y - source.y
+          const dist = Math.hypot(dx, dy)
+          if (dist > 1) {
+            const nx = -dy / dist
+            const ny = dx / dist
+            const curveOffset = edge.from < edge.to ? 20 : -20
+            midX += nx * curveOffset
+            midY += ny * curveOffset
+            isCurved = true
+          }
+        }
 
         ctx.save()
         ctx.globalAlpha = Math.min(1, edgeProgress * 1.5)
@@ -768,7 +893,6 @@ export function ObsidianForceGraph({
         ctx.moveTo(source.x, source.y)
 
         if (edgeProgress < 0.96) {
-          // Dynamic progressive budding stroke from source to target
           const drawX = source.x + (target.x - source.x) * edgeProgress
           const drawY = source.y + (target.y - source.y) * edgeProgress
           ctx.lineTo(drawX, drawY)
@@ -776,52 +900,117 @@ export function ObsidianForceGraph({
           ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.92)' : 'rgba(2, 132, 199, 0.90)'
           ctx.lineWidth = 1.3
           ctx.stroke()
-
-          // Sparkle tip on new edge
-          ctx.beginPath()
-          ctx.arc(drawX, drawY, 2.0, 0, Math.PI * 2)
-          ctx.fillStyle = isDark ? '#38bdf8' : '#0284c7'
-          ctx.fill()
         } else {
-          ctx.lineTo(target.x, target.y)
+          if (isCurved) {
+            ctx.quadraticCurveTo(midX, midY, target.x, target.y)
+          } else {
+            ctx.lineTo(target.x, target.y)
+          }
 
           if (isHighlighted) {
-            // Tier 1: Focus Highlighted Edge (Crisp 1.0px hairline)
             ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.95)' : 'rgba(2, 132, 199, 0.92)'
-            ctx.lineWidth = 1.0
+            ctx.lineWidth = 1.6
           } else if (isDimmed) {
-            // Tier 3: Dimmed Background Edge (Faint secondary context)
-            ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(100, 116, 139, 0.10)'
+            ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(100, 116, 139, 0.08)'
             ctx.lineWidth = 0.5
           } else {
-            // Tier 2: Default Edge (Soft, translucent gray network)
             ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.28)'
             ctx.lineWidth = 0.75
           }
           ctx.stroke()
+
+          // Draw directional arrow & predicate label when highlighted
+          if (isHighlighted && edgeProgress >= 0.96) {
+            const tangentAngle = isCurved
+              ? Math.atan2(target.y - midY, target.x - midX)
+              : Math.atan2(target.y - source.y, target.x - source.x)
+
+            const tipDist = target.radius + 3.5
+            const tipX = target.x - Math.cos(tangentAngle) * tipDist
+            const tipY = target.y - Math.sin(tangentAngle) * tipDist
+
+            const arrowLen = 6.0
+            const arrowWidth = 3.5
+            const leftX = tipX - Math.cos(tangentAngle) * arrowLen + Math.sin(tangentAngle) * arrowWidth
+            const leftY = tipY - Math.sin(tangentAngle) * arrowLen - Math.cos(tangentAngle) * arrowWidth
+            const rightX = tipX - Math.cos(tangentAngle) * arrowLen - Math.sin(tangentAngle) * arrowWidth
+            const rightY = tipY - Math.sin(tangentAngle) * arrowLen + Math.cos(tangentAngle) * arrowWidth
+
+            ctx.beginPath()
+            ctx.moveTo(tipX, tipY)
+            ctx.lineTo(leftX, leftY)
+            ctx.lineTo(rightX, rightY)
+            ctx.closePath()
+            ctx.fillStyle = isDark ? '#38bdf8' : '#0284c7'
+            ctx.fill()
+
+            // Draw predicate pill badge ONLY for:
+            // 1. Actively hovered edge
+            // 2. Or directly clicked/selected edge
+            // 3. Or when the active subgraph is very small (<= 2 edges)
+            const shouldShowPredicateBadge =
+              isHoveredSpecificEdge ||
+              selectedEdgeId === edge.id ||
+              (highlightedEdgeIds.size <= 2 && highlightedEdgeIds.has(edge.id))
+
+            if (shouldShowPredicateBadge) {
+              const badgeX = isCurved
+                ? 0.25 * source.x + 0.5 * midX + 0.25 * target.x
+                : (source.x + target.x) / 2
+              const badgeY = isCurved
+                ? 0.25 * source.y + 0.5 * midY + 0.25 * target.y
+                : (source.y + target.y) / 2
+
+              const relName = GRAPH_RELATION_LABELS[edge.relation] || edge.relation || '关联'
+              ctx.font = '550 9.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+              const textMetrics = ctx.measureText(relName)
+              const textW = textMetrics.width
+              const pillW = textW + 10
+              const pillH = 15
+              const pillX = badgeX - pillW / 2
+              const pillY = badgeY - pillH / 2
+
+              ctx.beginPath()
+              ctx.roundRect(pillX, pillY, pillW, pillH, 4)
+              ctx.fillStyle = isDark ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.95)'
+              ctx.fill()
+              ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.5)' : 'rgba(2, 132, 199, 0.4)'
+              ctx.lineWidth = 1.0
+              ctx.stroke()
+
+              ctx.fillStyle = isDark ? '#38bdf8' : '#0284c7'
+              ctx.textAlign = 'center'
+              ctx.textBaseline = 'middle'
+              ctx.fillText(relName, badgeX, badgeY)
+            }
+          }
         }
 
         ctx.restore()
       })
 
-      // Top Nodes for Level-of-Detail label density
-      const topNodes = new Set(
-        [...nodeList]
-          .filter((n) => n.isVisible !== false)
-          .sort((a, b) => (b.weight * 2 + b.degree) - (a.weight * 2 + a.degree))
-          .slice(0, 18)
+      // Top Core Nodes for LOD (Adaptive top 12%, min 4, max 16)
+      const allVisibleNodes = nodeList.filter((n) => n.isVisible !== false)
+      const hubNodeIds = new Set(
+        [...allVisibleNodes]
+          .sort((a, b) => b.degree * 2.5 + (b.weight || 1) - (a.degree * 2.5 + (a.weight || 1)))
+          .slice(0, Math.min(16, Math.max(4, Math.ceil(allVisibleNodes.length * 0.12))))
           .map((n) => n.id)
       )
 
-      // --- 2.2 Draw Nodes & Typography (Pass 2: Clean solid colored discs on top of lines, pure Obsidian aesthetic) ---
+      // --- 2.2 Draw Nodes & Typography (Pass 2: Clean solid discs with LOD typography) ---
       nodeList.forEach((node) => {
         if (node.isVisible === false) return
 
-        const isSelected = selectedId === node.id
+        const isSelectedNode = selectedNodeId === node.id
+        const selectedEdgeObj = selectedEdgeId ? edgeList.find((e) => e.id === selectedEdgeId) : null
+        const isSelectedEdgeEndpoint = Boolean(
+          selectedEdgeObj && (selectedEdgeObj.from === node.id || selectedEdgeObj.to === node.id)
+        )
         const isHovered = activeHover?.id === node.id
-        const isConnected = connectedNodeIds.has(node.id)
-        const isDimmed = Boolean(targetFocusId && !isConnected)
-        const isMajorNode = topNodes.has(node.id)
+        const isInFocus = focusNodeIds.has(node.id)
+        const isDimmed = Boolean(hasActiveFocus && !isInFocus)
+        const isMajorHub = hubNodeIds.has(node.id)
 
         const baseColor = nodeColors[node.type] || '#94a3b8'
 
@@ -832,103 +1021,86 @@ export function ObsidianForceGraph({
 
         ctx.save()
         ctx.translate(node.x, node.y)
-        ctx.globalAlpha = nodeAlpha
+        ctx.globalAlpha = isDimmed ? nodeAlpha * 0.18 : nodeAlpha
 
-        // 0. Spawn Ripple Wave effect when budding
-        if (p < 0.95) {
-          const rippleRadius = node.radius + (1 - p) * 16
-          const rippleAlpha = (1 - p) * 0.7
+        // Focus / Selection Outer Glow Ring
+        if (isSelectedNode || isSelectedEdgeEndpoint) {
           ctx.beginPath()
-          ctx.arc(0, 0, rippleRadius, 0, Math.PI * 2)
-          ctx.strokeStyle = `${baseColor}${Math.floor(rippleAlpha * 255).toString(16).padStart(2, '0')}`
-          ctx.lineWidth = 1.3
-          ctx.stroke()
-        }
-
-        // 1. External Focus / Hover Ring
-        if (isSelected) {
-          ctx.beginPath()
-          ctx.arc(0, 0, currentRadius + 2.6, 0, Math.PI * 2)
-          ctx.strokeStyle = `${baseColor}dd`
-          ctx.lineWidth = 1.3
+          ctx.arc(0, 0, currentRadius + 3.5, 0, Math.PI * 2)
+          ctx.strokeStyle = isDark ? '#38bdf8' : '#0284c7'
+          ctx.lineWidth = 1.8
           ctx.stroke()
         } else if (isHovered) {
           ctx.beginPath()
-          ctx.arc(0, 0, currentRadius + 2.0, 0, Math.PI * 2)
-          ctx.strokeStyle = `${baseColor}88`
-          ctx.lineWidth = 1.1
+          ctx.arc(0, 0, currentRadius + 2.5, 0, Math.PI * 2)
+          ctx.strokeStyle = `${baseColor}cc`
+          ctx.lineWidth = 1.4
           ctx.stroke()
         }
 
-        // 2. Solid Pure Colored Disc (Clean solid circle covering line ends, zero center dot)
+        // Solid Pure Colored Disc
         ctx.beginPath()
         ctx.arc(0, 0, currentRadius, 0, Math.PI * 2)
         if (isDimmed) {
-          ctx.fillStyle = isDark ? 'rgba(51, 65, 85, 0.25)' : 'rgba(203, 213, 225, 0.4)'
+          ctx.fillStyle = isDark ? 'rgba(51, 65, 85, 0.3)' : 'rgba(203, 213, 225, 0.4)'
         } else {
           ctx.fillStyle = baseColor
         }
         ctx.fill()
 
-        // 3. Obsidian Authentic Typography with Anti-Collision Text Halo
-        const isHubNode = (node.degree || 0) >= 3 || (node.weight || 1) >= 2
-        const shouldShowLabel =
-          p > 0.5 &&
-          (isHovered ||
-            isSelected ||
-            (targetFocusId && isConnected) ||
-            (!targetFocusId &&
-              (zoom >= 0.9 ||
-                (zoom >= 0.62 && (isMajorNode || isHubNode)) ||
-                (zoom >= 0.38 && isMajorNode))))
+        // --- Node LOD Typography Strategy ---
+        let shouldShowLabel = false
+        if (p > 0.4) {
+          if (hasActiveFocus) {
+            shouldShowLabel = isInFocus
+          } else {
+            if (isMajorHub && zoom >= 0.35) {
+              shouldShowLabel = true
+            } else if (zoom >= 1.15 && (node.degree >= 2 || (node.weight || 1) >= 2)) {
+              shouldShowLabel = true
+            } else if (zoom >= 1.6) {
+              shouldShowLabel = true
+            }
+          }
+        }
 
         if (shouldShowLabel) {
-          const labelAlpha = Math.min(1, (p - 0.5) * 2)
-          ctx.globalAlpha = nodeAlpha * labelAlpha
+          const labelAlpha = Math.min(1, (p - 0.4) * 2)
+          ctx.globalAlpha = (isDimmed ? 0.2 : 1) * labelAlpha
 
-          const fontSize = isSelected ? 11.5 : isHovered ? 11 : isMajorNode ? 9.8 : 9
-          const fontWeight = isSelected ? '700' : isHovered ? '600' : isMajorNode ? '550' : '450'
+          const fontSize = isSelectedNode || isSelectedEdgeEndpoint ? 11.5 : isHovered ? 11 : isMajorHub ? 10 : 9.2
+          const fontWeight = isSelectedNode || isSelectedEdgeEndpoint ? '700' : isHovered ? '600' : isMajorHub ? '600' : '450'
           ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'
 
-          const labelY = currentRadius + (isSelected || isHovered ? 4.5 : 3.8)
+          const labelY = currentRadius + (isSelectedNode || isSelectedEdgeEndpoint || isHovered ? 4.5 : 3.8)
           const text = node.label.length > 16 ? `${node.label.slice(0, 15)}…` : node.label
 
-          // 3.1 Anti-Collision Text Halo (防止背后穿过的密集线段切碎文字笔画)
+          // Anti-Collision Text Halo
           ctx.lineJoin = 'round'
           ctx.miterLimit = 2
-          if (isSelected || isHovered) {
-            ctx.strokeStyle = isDark ? 'rgba(10, 15, 29, 0.95)' : 'rgba(255, 255, 255, 0.95)'
-            ctx.lineWidth = 3.6
-            ctx.strokeText(text, 0, labelY)
-          } else {
-            ctx.strokeStyle = isDark ? 'rgba(10, 15, 29, 0.75)' : 'rgba(255, 255, 255, 0.85)'
-            ctx.lineWidth = 2.4
-            ctx.strokeText(text, 0, labelY)
-          }
+          ctx.strokeStyle = isDark ? 'rgba(10, 15, 29, 0.95)' : 'rgba(255, 255, 255, 0.95)'
+          ctx.lineWidth = isSelectedNode || isSelectedEdgeEndpoint || isHovered ? 3.6 : 2.5
+          ctx.strokeText(text, 0, labelY)
 
-          // 3.2 High-Contrast Text Fill (选中态为醒目主题蓝，悬浮态为曜石黑/纯白)
+          // High-Contrast Text Fill
           if (isDark) {
-            ctx.fillStyle = isSelected
-              ? '#38bdf8' // 选中态：主题亮青蓝
+            ctx.fillStyle = isSelectedNode || isSelectedEdgeEndpoint
+              ? '#38bdf8'
               : isHovered
-                ? '#ffffff' // 悬浮态：高亮纯白
-                : isMajorNode
-                  ? '#f1f5f9'
-                  : !isDimmed
-                    ? '#cbd5e1'
-                    : 'rgba(148, 163, 184, 0.35)'
+              ? '#ffffff'
+              : isMajorHub
+              ? '#f1f5f9'
+              : '#cbd5e1'
           } else {
-            ctx.fillStyle = isSelected
-              ? '#0284c7' // 选中态：主题宝蓝
+            ctx.fillStyle = isSelectedNode || isSelectedEdgeEndpoint
+              ? '#0284c7'
               : isHovered
-                ? '#090d16' // 悬浮态：深曜石黑
-                : isMajorNode
-                  ? '#1e293b'
-                  : !isDimmed
-                    ? '#334155'
-                    : 'rgba(100, 116, 139, 0.4)'
+              ? '#090d16'
+              : isMajorHub
+              ? '#1e293b'
+              : '#334155'
           }
 
           ctx.fillText(text, 0, labelY)
@@ -937,7 +1109,7 @@ export function ObsidianForceGraph({
         ctx.restore()
       })
 
-      // --- 3. Draw Link in Progress (Shift-drag or Link Mode) ---
+      // --- 3. Draw Link in Progress ---
       if (dragRef.current.isLinking && dragRef.current.node && linkingCursorRef.current) {
         const source = dragRef.current.node
         const cursor = linkingCursorRef.current
@@ -973,7 +1145,7 @@ export function ObsidianForceGraph({
         ctx.restore()
       }
 
-      // --- 4. Draw Merge Target Indicator (Drag over another node) ---
+      // --- 4. Draw Merge Target Indicator ---
       if (dragRef.current.node && !dragRef.current.isLinking && mergeTargetNodeRef.current) {
         const source = dragRef.current.node
         const target = mergeTargetNodeRef.current
@@ -992,8 +1164,8 @@ export function ObsidianForceGraph({
         ctx.restore()
       }
 
-      ctx.restore() // Restore transform
-      ctx.restore() // Restore dpr scale
+      ctx.restore()
+      ctx.restore()
 
       animId = requestAnimationFrame(render)
     }
@@ -1025,9 +1197,9 @@ export function ObsidianForceGraph({
   }
 
   const findNodeAt = (worldX: number, worldY: number, excludeId?: string, extraRadius = 14): SimNode | null => {
-    const nodes = Array.from(simNodesRef.current.values())
-    for (let i = nodes.length - 1; i >= 0; i--) {
-      const n = nodes[i]
+    const nodesList = Array.from(simNodesRef.current.values())
+    for (let i = nodesList.length - 1; i >= 0; i--) {
+      const n = nodesList[i]
       if (n.isVisible === false) continue
       if (excludeId && n.id === excludeId) continue
       const dx = n.x - worldX
@@ -1040,10 +1212,10 @@ export function ObsidianForceGraph({
     return null
   }
 
-  const findEdgeAt = (worldX: number, worldY: number, maxDist = 10): SimEdge | null => {
-    const edges = simEdgesRef.current
+  const findEdgeAt = (worldX: number, worldY: number, maxDist = 12): SimEdge | null => {
+    const edgesList = simEdgesRef.current
     const nodeMap = simNodesRef.current
-    for (const edge of edges) {
+    for (const edge of edgesList) {
       const s = nodeMap.get(edge.from)
       const t = nodeMap.get(edge.to)
       if (!s || !t || s.isVisible === false || t.isVisible === false) continue
@@ -1160,7 +1332,6 @@ export function ObsidianForceGraph({
       drag.node.vy = 0
       reheat(0.25)
 
-      // Detect hover over another node to merge (must match node type and cannot be platform)
       const target = findNodeAt(worldX, worldY, drag.node.id, 32)
       if (target && target.type === drag.node.type && drag.node.type !== 'platform') {
         target.vx = 0
@@ -1170,7 +1341,6 @@ export function ObsidianForceGraph({
         mergeTargetNodeRef.current = null
       }
     } else if (drag.node) {
-      // Normal physics dragging (explore dynamic electromagnetic repulsion)
       drag.node.x = worldX
       drag.node.y = worldY
       drag.node.vx = 0
@@ -1181,8 +1351,25 @@ export function ObsidianForceGraph({
       transformRef.current.panX = drag.initialPanX + dx
       transformRef.current.panY = drag.initialPanY + dy
     } else {
-      const hovered = findNodeAt(worldX, worldY, undefined, 14)
-      setHoveredNode(hovered)
+      const hoveredN = findNodeAt(worldX, worldY, undefined, 14)
+      setHoveredNode(hoveredN)
+      if (!hoveredN) {
+        const hoveredE = findEdgeAt(worldX, worldY, 12)
+        if (hoveredE) {
+          const selectedId = selectedElement && 'id' in selectedElement ? selectedElement.id : null
+          if (selectedId) {
+            // When a node is selected, only allow hovering edges connected to it
+            const isRelevant = hoveredE.from === selectedId || hoveredE.to === selectedId
+            setHoveredEdge(isRelevant ? hoveredE : null)
+          } else {
+            setHoveredEdge(hoveredE)
+          }
+        } else {
+          setHoveredEdge(null)
+        }
+      } else {
+        setHoveredEdge(null)
+      }
     }
   }
 
@@ -1205,21 +1392,17 @@ export function ObsidianForceGraph({
         onMergeNodes?.(source, target)
       }
     } else {
-      // 1. If user interacted with a node (pressed down on it), ALWAYS select that node!
       if (drag.node) {
         onSelectElement(drag.node)
       } else {
-        // Did user click on a node near release position?
         const clickedNode = findNodeAt(worldX, worldY, undefined, 20)
         if (clickedNode) {
           onSelectElement(clickedNode)
         } else if (distMoved < 8) {
-          // Did user click on an edge?
           const clickedEdge = findEdgeAt(worldX, worldY, 12)
           if (clickedEdge) {
             onSelectElement(clickedEdge)
           } else {
-            // Clicked empty canvas -> deselect
             onSelectElement(null)
           }
         }
@@ -1292,18 +1475,79 @@ export function ObsidianForceGraph({
     }
   }
 
+  // Filter nodes for the search popup
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    const query = searchQuery.toLowerCase().trim()
+    const all = Array.from(simNodesRef.current.values()).filter((n) => n.isVisible !== false)
+    return all
+      .filter((n) => n.label.toLowerCase().includes(query))
+      .sort((a, b) => b.degree * 2 + (b.weight || 1) - (a.degree * 2 + (a.weight || 1)))
+      .slice(0, 8)
+  }, [searchQuery])
+
+  const selectedNode = selectedElement && 'label' in selectedElement ? (selectedElement as GraphNode) : null
+
   return (
-    <div ref={containerRef} className="relative h-full w-full min-h-[360px] overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/70 select-none group">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full min-h-[360px] overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/70 select-none group"
+    >
       <canvas
         ref={canvasRef}
-        className={`h-full w-full ${isLinkMode ? 'cursor-crosshair' : isMergeMode ? 'cursor-alias' : 'cursor-grab active:cursor-grabbing'
-          }`}
+        className={`h-full w-full ${
+          isLinkMode ? 'cursor-crosshair' : isMergeMode ? 'cursor-alias' : 'cursor-grab active:cursor-grabbing'
+        }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={() => {
+          setHoveredNode(null)
+          setHoveredEdge(null)
+        }}
         onWheel={handleWheel}
       />
+
+      {/* Subgraph Hop Depth Controller (When a node is selected) */}
+      {selectedNode && (
+        <div className="absolute top-2.5 right-3 flex items-center gap-1 rounded-lg border border-sky-500/30 bg-cyber-bg-secondary/95 px-2 py-1 shadow-md backdrop-blur-md z-10 animate-in fade-in slide-in-from-top-1">
+          <Layers className="h-3.5 w-3.5 text-sky-400 mr-1" />
+          <span className="text-[10.5px] text-cyber-text-muted mr-1">子图聚焦:</span>
+          <button
+            onClick={() => setHopDepth(1)}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+              hopDepth === 1
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60'
+            }`}
+            title="仅聚焦显示选中实体直接相连的 1 跳邻居"
+          >
+            1跳
+          </button>
+          <button
+            onClick={() => setHopDepth(2)}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+              hopDepth === 2
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60'
+            }`}
+            title="扩散展示选中实体的 2 跳扩展关系网络"
+          >
+            2跳
+          </button>
+          <button
+            onClick={() => setHopDepth(0)}
+            className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer ${
+              hopDepth === 0
+                ? 'bg-sky-500 text-white shadow-xs'
+                : 'text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-primary/60'
+            }`}
+            title="查看完整图谱全景"
+          >
+            全图
+          </button>
+        </div>
+      )}
 
       {/* Evolution Animation Status Indicator */}
       {isEvolving && (
@@ -1321,15 +1565,29 @@ export function ObsidianForceGraph({
         </div>
       )}
 
-      {/* Floating Control Toolbar (Obsidian style) */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/90 p-1 shadow-md backdrop-blur-md">
+      {/* Floating Control Toolbar */}
+      <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/90 p-1 shadow-md backdrop-blur-md z-10">
+        {/* Quick Search Trigger */}
         <Button
           size="sm"
           variant="ghost"
-          className={`h-7 px-2 gap-1 text-xs transition-colors ${isMergeMode
-            ? 'text-indigo-400 bg-indigo-500/15 border border-indigo-500/30 font-medium'
-            : 'text-cyber-text-muted hover:text-indigo-300 hover:bg-indigo-500/10'
-            }`}
+          className={`h-7 w-7 p-0 transition-colors ${
+            isSearchOpen ? 'text-sky-400 bg-sky-500/15' : 'text-cyber-text-muted hover:text-cyber-text-primary'
+          }`}
+          onClick={() => setIsSearchOpen((prev) => !prev)}
+          title="搜索图谱实体"
+        >
+          <Search className="h-3.5 w-3.5" />
+        </Button>
+        <div className="h-4 w-px bg-cyber-border-subtle mx-0.5" />
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`h-7 px-2 gap-1 text-xs transition-colors ${
+            isMergeMode
+              ? 'text-indigo-400 bg-indigo-500/15 border border-indigo-500/30 font-medium'
+              : 'text-cyber-text-muted hover:text-indigo-300 hover:bg-indigo-500/10'
+          }`}
           onClick={() => {
             setIsMergeMode((prev) => !prev)
             if (!isMergeMode) setIsLinkMode(false)
@@ -1342,10 +1600,11 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className={`h-7 px-2 gap-1 text-xs transition-colors ${isLinkMode
-            ? 'text-sky-400 bg-sky-500/15 border border-sky-500/30 font-medium'
-            : 'text-cyber-text-muted hover:text-sky-300 hover:bg-sky-500/10'
-            }`}
+          className={`h-7 px-2 gap-1 text-xs transition-colors ${
+            isLinkMode
+              ? 'text-sky-400 bg-sky-500/15 border border-sky-500/30 font-medium'
+              : 'text-cyber-text-muted hover:text-sky-300 hover:bg-sky-500/10'
+          }`}
           onClick={() => {
             setIsLinkMode((prev) => !prev)
             if (!isLinkMode) setIsMergeMode(false)
@@ -1378,7 +1637,10 @@ export function ObsidianForceGraph({
           size="sm"
           variant="ghost"
           className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-secondary"
-          onClick={() => { resetView(undefined, true); reheat(0.8) }}
+          onClick={() => {
+            resetView(undefined, true)
+            reheat(0.8)
+          }}
           title="居中适应画布"
         >
           <RotateCcw className="h-3.5 w-3.5" />
@@ -1386,33 +1648,127 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className={`h-7 w-7 p-0 transition-all ${isEvolving
-            ? 'text-sky-400 bg-sky-500/20 border border-sky-500/40'
-            : 'text-cyber-text-muted hover:text-sky-300 hover:bg-cyber-bg-secondary'
-            }`}
+          className={`h-7 w-7 p-0 transition-all ${
+            isEvolving
+              ? 'text-sky-400 bg-sky-500/20 border border-sky-500/40'
+              : 'text-cyber-text-muted hover:text-sky-300 hover:bg-cyber-bg-secondary'
+          }`}
           onClick={isEvolving ? skipEvolutionAnimation : startEvolutionAnimation}
           title={isEvolving ? '点击跳过生长动画' : '演化生长回放 (Obsidian 延时生长动效)'}
         >
           <Wand2 className={`h-3.5 w-3.5 ${isEvolving ? 'animate-spin' : ''}`} />
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={`h-7 w-7 p-0 ${isPaused ? 'text-amber-400 bg-amber-400/10' : 'text-cyber-text-muted hover:text-cyber-text-primary'}`}
-          onClick={() => setIsPaused((prev) => !prev)}
-          title={isPaused ? '恢复物理动力学' : '锁定当前位置'}
-        >
-          {isPaused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
-        </Button>
       </div>
 
-      {/* Quick Interactive Hint Overlay */}
-      <div className="pointer-events-none absolute top-2.5 left-3 text-[11px] text-cyber-text-muted/80 flex items-center gap-2 bg-cyber-bg-primary/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-cyber-border-subtle/60 shadow-xs">
-        <span className="flex items-center gap-1"><Move className="h-3 w-3 text-sky-400" /> 拖拽探索节点</span>
-        <span className="opacity-30">|</span>
-        <span className="flex items-center gap-1"><Combine className="h-3 w-3 text-indigo-400" /> 按住 Alt 拖拽合并</span>
-        <span className="opacity-30">|</span>
-        <span className="flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-400" /> 按住 Shift 拖拽连线</span>
+      {/* Quick Search Popover */}
+      {isSearchOpen && (
+        <div className="absolute bottom-12 right-3 w-72 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/95 p-2.5 shadow-2xl backdrop-blur-xl z-20 animate-in fade-in slide-in-from-bottom-2">
+          <div className="flex items-center gap-1.5 border-b border-cyber-border-subtle/80 pb-2">
+            <Search className="h-3.5 w-3.5 text-cyber-text-muted ml-1" />
+            <input
+              type="text"
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索实体节点名称..."
+              className="flex-1 bg-transparent text-xs text-cyber-text-primary outline-none placeholder:text-cyber-text-muted/60"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-cyber-text-muted hover:text-cyber-text-primary p-0.5"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <div className="mt-1.5 max-h-48 overflow-y-auto space-y-1">
+            {searchResults.length > 0 ? (
+              searchResults.map((node) => (
+                <button
+                  key={node.id}
+                  onClick={() => focusOnNode(node)}
+                  className="flex items-center justify-between w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-cyber-bg-primary/80 transition-colors group/item cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ background: nodeColors[node.type] || '#94a3b8' }}
+                    />
+                    <span className="text-cyber-text-primary font-medium truncate">{node.label}</span>
+                  </div>
+                  <span className="text-[10px] text-cyber-text-muted font-mono shrink-0 ml-2">
+                    {node.degree} 连接
+                  </span>
+                </button>
+              ))
+            ) : searchQuery.trim() ? (
+              <div className="p-3 text-center text-xs text-cyber-text-muted">未找到匹配的实体</div>
+            ) : (
+              <div className="p-2 text-center text-[11px] text-cyber-text-muted/70">
+                输入实体关键词快速对焦与查看关联
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sleek Single-Line Status / Hint Bar (Unobstructed Canvas) */}
+      <div className="pointer-events-none absolute top-2.5 left-3 text-[11px] text-cyber-text-muted/85 flex items-center gap-2 bg-cyber-bg-primary/85 backdrop-blur-md px-3 py-1.5 rounded-lg border border-cyber-border-subtle/70 shadow-xs z-10 transition-all">
+        {hoveredNode ? (
+          <div className="flex items-center gap-2 animate-in fade-in">
+            <span
+              className="h-2 w-2 rounded-full shrink-0"
+              style={{ background: nodeColors[hoveredNode.type] || '#94a3b8' }}
+            />
+            <span className="font-semibold text-cyber-text-primary">{hoveredNode.label}</span>
+            <span className="opacity-30">|</span>
+            <span
+              className="text-[10px] px-1 py-0.2 rounded font-medium"
+              style={{
+                backgroundColor: `${nodeColors[hoveredNode.type] || '#94a3b8'}20`,
+                color: nodeColors[hoveredNode.type] || '#94a3b8',
+              }}
+            >
+              {{ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[hoveredNode.type] ||
+                hoveredNode.type}
+            </span>
+            <span className="opacity-30">|</span>
+            <span className="text-cyber-text-secondary font-mono text-[10.5px]">
+              {hoveredNode.degree || 0} 连接 · {hoveredNode.weight || 0} 证据
+            </span>
+          </div>
+        ) : hoveredEdge ? (
+          <div className="flex items-center gap-1.5 animate-in fade-in text-xs">
+            <span className="font-medium text-cyber-text-primary">
+              {simNodesRef.current.get(hoveredEdge.from)?.label || hoveredEdge.from}
+            </span>
+            <span className="text-sky-400 font-semibold text-[10.5px] px-1 bg-sky-500/10 rounded">
+              {GRAPH_RELATION_LABELS[hoveredEdge.relation] || hoveredEdge.relation}
+            </span>
+            <span className="font-medium text-cyber-text-primary">
+              {simNodesRef.current.get(hoveredEdge.to)?.label || hoveredEdge.to}
+            </span>
+            <span className="opacity-30">|</span>
+            <span className="text-cyber-text-muted font-mono text-[10.5px]">
+              {hoveredEdge.weight || 1} 篇证据
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-cyber-text-muted/75">
+            <span className="flex items-center gap-1">
+              <Move className="h-3 w-3 text-sky-400" /> 拖拽探索
+            </span>
+            <span className="opacity-30">|</span>
+            <span className="flex items-center gap-1">
+              <Combine className="h-3 w-3 text-indigo-400" /> Alt 拖拽合并
+            </span>
+            <span className="opacity-30">|</span>
+            <span className="flex items-center gap-1">
+              <Link2 className="h-3 w-3 text-emerald-400" /> Shift 拖拽连线
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )
