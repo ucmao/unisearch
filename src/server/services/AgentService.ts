@@ -1530,8 +1530,8 @@ export class AgentService {
     return `当前任务状态为 ${plan.status}${targetInfo}，已入库 ${stats.content_count} 条内容。${distribution}`.trim();
   }
 
-  executePlan(planId: string) {
-    const plan = workflowRuntime.queue(planId);
+  executePlan(planId: string, options?: { stepKeys?: string[]; platforms?: string[] }) {
+    const plan = workflowRuntime.queue(planId, options);
     void this.tick();
     return plan;
   }

@@ -22,7 +22,7 @@ function App() {
       {resultsContext ? (
         <Suspense fallback={<div className="h-full bg-cyber-bg" />}>
           <ResultWorkbench
-            initialScope={resultsContext.scope || (resultsContext.threadId ? `thread:${resultsContext.threadId}` : 'all')}
+            initialScope={resultsContext.scope || (resultsContext.planId ? `plan:${resultsContext.planId}` : resultsContext.threadId ? `thread:${resultsContext.threadId}` : 'all')}
             onBack={() => setResultsContext(null)}
           />
         </Suspense>

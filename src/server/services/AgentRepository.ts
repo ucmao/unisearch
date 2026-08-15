@@ -1022,10 +1022,14 @@ export class AgentRepository {
 
   private hydratePlan(row: any) {
     const steps = (this.db.prepare(`
-      SELECT s.*, COALESCE(r.item_count, 0) AS item_count, COALESCE(r.comment_count, 0) AS comment_count
+      SELECT s.*,
+             MAX(COALESCE(r.item_count, 0), COALESCE(cp.collected_item_count, 0)) AS item_count,
+             MAX(COALESCE(r.comment_count, 0), COALESCE(cp.collected_comment_count, 0)) AS comment_count
       FROM workflow_steps s
       LEFT JOIN crawl_runs r
         ON r.run_id=json_extract(s.output_json, '$.runId')
+      LEFT JOIN workflow_step_checkpoints cp
+        ON cp.step_id=s.step_id
       WHERE s.workflow_id=? AND s.kind='connector'
       ORDER BY s.created_at
     `).all(row.workflow_id) as any[]).map((step) => ({

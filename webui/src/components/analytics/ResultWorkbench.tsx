@@ -1090,6 +1090,18 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
     if (initialScope !== scope) switchScope(initialScope)
   }, [initialScope, scope, switchScope])
   useEffect(() => {
+    if (scope.startsWith('plan:') && tasks.length > 0) {
+      const planId = scope.slice(5)
+      const parentTask = tasks.find((t) => t.rounds.some((r) => r.plan_id === planId))
+      if (parentTask) {
+        setExpandedTasks((prev) => {
+          if (prev.has(parentTask.thread_id)) return prev
+          return new Set([parentTask.thread_id])
+        })
+      }
+    }
+  }, [scope, tasks])
+  useEffect(() => {
     savePivotViewState(scope, currentViewState)
   }, [scope, currentViewState])
   useEffect(() => {

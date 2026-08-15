@@ -898,7 +898,7 @@ export function ObsidianForceGraph({
           ctx.lineTo(drawX, drawY)
 
           ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.92)' : 'rgba(2, 132, 199, 0.90)'
-          ctx.lineWidth = 1.3
+          ctx.lineWidth = 1.0
           ctx.stroke()
         } else {
           if (isCurved) {
@@ -909,7 +909,7 @@ export function ObsidianForceGraph({
 
           if (isHighlighted) {
             ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.95)' : 'rgba(2, 132, 199, 0.92)'
-            ctx.lineWidth = 1.6
+            ctx.lineWidth = 1.2
           } else if (isDimmed) {
             ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(100, 116, 139, 0.08)'
             ctx.lineWidth = 0.5
@@ -925,12 +925,12 @@ export function ObsidianForceGraph({
               ? Math.atan2(target.y - midY, target.x - midX)
               : Math.atan2(target.y - source.y, target.x - source.x)
 
-            const tipDist = target.radius + 3.5
+            const tipDist = target.radius + 3.0
             const tipX = target.x - Math.cos(tangentAngle) * tipDist
             const tipY = target.y - Math.sin(tangentAngle) * tipDist
 
-            const arrowLen = 6.0
-            const arrowWidth = 3.5
+            const arrowLen = 5.0
+            const arrowWidth = 2.8
             const leftX = tipX - Math.cos(tangentAngle) * arrowLen + Math.sin(tangentAngle) * arrowWidth
             const leftY = tipY - Math.sin(tangentAngle) * arrowLen - Math.cos(tangentAngle) * arrowWidth
             const rightX = tipX - Math.cos(tangentAngle) * arrowLen - Math.sin(tangentAngle) * arrowWidth

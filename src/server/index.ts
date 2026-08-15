@@ -599,7 +599,8 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.post('/api/agent/plans/:plan_id/execute', async (request, reply) => {
     const { plan_id } = request.params as { plan_id: string };
-    try { return agentService.executePlan(plan_id); }
+    const body = (request.body || {}) as { stepKeys?: string[]; platforms?: string[] };
+    try { return agentService.executePlan(plan_id, body); }
     catch (error: any) { return reply.status(400).send({ detail: error.message }); }
   });
 

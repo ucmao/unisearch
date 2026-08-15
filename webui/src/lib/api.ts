@@ -703,7 +703,8 @@ export const agentApi = {
   },
   deleteMessagePair: (threadId: string, messageId: string) =>
     api.delete<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}`),
-  executePlan: (planId: string) => api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`),
+  executePlan: (planId: string, options?: { stepKeys?: string[]; platforms?: string[] }) =>
+    api.post<AgentPlan>(`/agent/plans/${encodeURIComponent(planId)}/execute`, options),
   stopPlan: (planId: string) =>
     api.post<{ stopped: boolean; plan: AgentPlan }>(`/agent/plans/${encodeURIComponent(planId)}/stop`, null, { timeout: 60000 }),
   updatePlan: (planId: string, updates: {

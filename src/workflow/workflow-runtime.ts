@@ -174,9 +174,19 @@ export class WorkflowRuntime {
     }
   }
 
-  queue(workflowId: string): any {
+  queue(workflowId: string, options?: { stepKeys?: string[]; platforms?: string[] }): any {
     const workflow = agentRepository.getPlan(workflowId);
     if (!workflow) throw new Error('Workflow 不存在');
+    
+    const selective = Boolean(options?.stepKeys?.length || options?.platforms?.length);
+    const targetStepKeys = Array.isArray(options?.stepKeys) && options.stepKeys.length > 0
+      ? options.stepKeys.map(String)
+      : Array.isArray(options?.platforms) && options.platforms.length > 0
+        ? (workflow.steps || [])
+          .filter((step: any) => options.platforms!.includes(step.platform) || options.platforms!.includes(step.external_ref))
+          .map((step: any) => String(step.step_key))
+        : collectEmptyStepKeys(workflow);
+
     // A connector that exits cleanly without collecting anything is 'completed',
     // so an all-empty plan reads as 'completed' too. Treat those steps as retryable.
     const emptyStepKeys = collectEmptyStepKeys(workflow);
@@ -184,11 +194,11 @@ export class WorkflowRuntime {
     // resume the platforms that never finished, without rebuilding the plan.
     const isRetryableStatus = ['awaiting_confirmation', 'failed', 'partially_completed', 'interrupted', 'stopped']
       .includes(workflow.status);
-    if (!isRetryableStatus && !(workflow.status === 'completed' && emptyStepKeys.length)) {
+    if (!isRetryableStatus && !(workflow.status === 'completed' && (selective ? targetStepKeys.length : emptyStepKeys.length))) {
       throw new Error('当前 Workflow 不能执行');
     }
     if (workflow.status === 'awaiting_confirmation') agentRepository.updatePlanStatus(workflowId, 'queued');
-    else workflowEngine.retry(workflowId, emptyStepKeys);
+    else workflowEngine.retry(workflowId, targetStepKeys, selective);
     return agentRepository.getPlan(workflowId);
   }
 

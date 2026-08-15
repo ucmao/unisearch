@@ -181,12 +181,16 @@ export class WorkflowRepository {
     })();
   }
 
-  resetForRetry(workflowId: string, retryStepKeys: string[] = []): void {
+  resetForRetry(workflowId: string, retryStepKeys: string[] = [], selective = false): void {
     const now = new Date().toISOString();
     // Steps that finished with zero items are 'completed', so they need to be
     // named explicitly to be picked up again.
     const placeholders = retryStepKeys.map(() => '?').join(',');
-    const stepFilter = placeholders ? `(status!='completed' OR step_key IN (${placeholders}))` : `status!='completed'`;
+    const stepFilter = selective && placeholders
+      ? `step_key IN (${placeholders})`
+      : placeholders
+        ? `(status!='completed' OR step_key IN (${placeholders}))`
+        : `status!='completed'`;
     this.db.transaction(() => {
       this.db.prepare(`
         UPDATE workflow_runs SET status='queued', cancel_requested=0, error_message=NULL,

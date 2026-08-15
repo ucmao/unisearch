@@ -966,6 +966,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [deleteAnalyticsData, setDeleteAnalyticsData] = useState(true)
   const [terminalOpen, setTerminalOpen] = useState(false)
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false)
+  const [sidebarSelectedRound, setSidebarSelectedRound] = useState<'all' | number>('all')
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(() => storedPanelSize('unisearch-left-sidebar-width', 270))
   const [rightSidebarWidth, setRightSidebarWidth] = useState(() => storedPanelSize('unisearch-right-sidebar-width', 300))
   const [terminalHeight, setTerminalHeight] = useState(() => storedPanelSize('unisearch-terminal-height', 220))
@@ -979,6 +980,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   }>>({})
 
   useEffect(() => {
+    setSidebarSelectedRound('all')
     if (!selectedId) {
       setRightSidebarOpen(false)
       setTerminalOpen(false)
@@ -1009,68 +1011,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const [isComposerFocused, setIsComposerFocused] = useState(false)
   const [activeCitation, setActiveCitation] = useState<SourceCitation | null>(null)
   const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false)
-
-  const threadDocumentsQuery = useQuery({
-    queryKey: ['thread-documents', selectedId],
-    queryFn: async () => {
-      if (!selectedId) return []
-      const res = await fetch(`/api/knowledge/documents?thread_id=${encodeURIComponent(selectedId)}`)
-      const data = await res.json()
-      return data.documents || []
-    },
-    enabled: !!selectedId,
-    refetchInterval: 3000,
-  })
-
-  // 归档量必须和"数据分布"同口径：正文与评论分开数，否则两个数字永远对不上
-  const knowledgeCounts = useMemo(() => {
-    const docs = (threadDocumentsQuery.data || []) as Array<{ kind?: string }>
-    const comments = docs.filter((doc) => doc.kind === 'comment').length
-    return { articles: docs.length - comments, comments }
-  }, [threadDocumentsQuery.data])
-
-  const [exportConfirmPlatform, setExportConfirmPlatform] = useState<PlatformConfig | null>(null)
-
-  const handleExecuteDownload = (exporterId: string) => {
-    const activeWorkflowId = (activePlan as any)?.workflow_id || activePlan?.plan_id
-    const params = new URLSearchParams({ exporterId })
-    if (activeWorkflowId) params.append('workflowId', activeWorkflowId)
-    const downloadUrl = `/api/exporters/download?${params.toString()}`
-
-    const link = document.createElement('a')
-    link.href = downloadUrl
-    link.setAttribute('download', '')
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  const handleCitationClick = useCallback((sourceId: string) => {
-    const num = parseInt(sourceId.replace(/\D/g, ''), 10)
-    const docs = client.getQueryData<any[]>(['thread-documents', selectedId]) || []
-    const doc = (num > 0 && docs[num - 1]) ? docs[num - 1] : docs[0]
-    if (doc) {
-      setActiveCitation({
-        id: sourceId.startsWith('S') ? sourceId : `S${sourceId}`,
-        documentId: doc.documentId || doc.canonical_key || 'doc-1',
-        title: doc.title || '规范化数据文档',
-        source: doc.provenance?.source || doc.metadata?.source || 'UniSearch 知识库',
-        sourceUrl: doc.sourceUrl || doc.metadata?.source_url,
-        excerpt: doc.markdown ? doc.markdown.slice(0, 600) : '已归档存入本地 SQLite 知识库引擎。',
-        score: 0.95,
-      })
-    } else {
-      setActiveCitation({
-        id: sourceId.startsWith('S') ? sourceId : `S${sourceId}`,
-        documentId: 'doc-unknown',
-        title: `参考资料片段 [${sourceId}]`,
-        source: 'UniSearch 知识库',
-        excerpt: `出处标签为 [${sourceId}] 的原始采样本段。数据已落地于 SQLite 全文及向量索引库。`,
-        score: 0.90,
-      })
-    }
-    setSourceDrawerOpen(true)
-  }, [client, selectedId])
   const workspaceRef = useRef<HTMLDivElement>(null)
   const messagesScrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1594,8 +1534,18 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     onError: (error) => toast.error(getError(error)),
   })
   const execute = useMutation({
-    mutationFn: (planId: string) => agentApi.executePlan(planId),
-    onSuccess: () => { client.invalidateQueries({ queryKey: ['agent-thread', selectedId] }) },
+    mutationFn: (variables: string | { planId: string; platforms?: string[]; stepKeys?: string[] }) => {
+      const planId = typeof variables === 'string' ? variables : variables.planId
+      const options = typeof variables === 'string' ? undefined : { platforms: variables.platforms, stepKeys: variables.stepKeys }
+      return agentApi.executePlan(planId, options)
+    },
+    onSuccess: (_data, variables) => {
+      client.invalidateQueries({ queryKey: ['agent-thread', selectedId] })
+      if (typeof variables === 'object' && variables.platforms?.length) {
+        const names = variables.platforms.map((p) => platformLabels[p] || p).join('、')
+        toast.info(`正在重新采集 ${names}...`)
+      }
+    },
     onError: (error) => toast.error(getError(error)),
   })
   const stopPlan = useMutation({
@@ -1716,6 +1666,86 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
   }
   const activePlan = threadQuery.data?.plan || null
+
+  const currentSelectedPlan = useMemo(() => {
+    const plans = threadQuery.data?.plans || (activePlan ? [activePlan] : [])
+    if (typeof sidebarSelectedRound === 'number') {
+      return plans.find((p, idx) => (p.round_number || idx + 1) === sidebarSelectedRound) || plans[sidebarSelectedRound - 1]
+    }
+    return activePlan
+  }, [sidebarSelectedRound, threadQuery.data?.plans, activePlan])
+
+  const targetWorkflowId = typeof sidebarSelectedRound === 'number' && currentSelectedPlan
+    ? (currentSelectedPlan.plan_id || (currentSelectedPlan as any).workflow_id)
+    : undefined
+
+  const threadDocumentsQuery = useQuery({
+    queryKey: ['thread-documents', selectedId, targetWorkflowId || 'all'],
+    queryFn: async () => {
+      if (!selectedId) return []
+      const url = targetWorkflowId
+        ? `/api/knowledge/documents?workflow_id=${encodeURIComponent(targetWorkflowId)}`
+        : `/api/knowledge/documents?thread_id=${encodeURIComponent(selectedId)}`
+      const res = await fetch(url)
+      const data = await res.json()
+      return data.documents || []
+    },
+    enabled: !!selectedId,
+    refetchInterval: 3000,
+  })
+
+  // 归档量必须和"数据分布"同口径：正文与评论分开数，否则两个数字永远对不上
+  const knowledgeCounts = useMemo(() => {
+    const docs = (threadDocumentsQuery.data || []) as Array<{ kind?: string }>
+    const comments = docs.filter((doc) => doc.kind === 'comment').length
+    return { articles: docs.length - comments, comments }
+  }, [threadDocumentsQuery.data])
+
+  const [exportConfirmPlatform, setExportConfirmPlatform] = useState<PlatformConfig | null>(null)
+
+  const handleExecuteDownload = (exporterId: string) => {
+    const params = new URLSearchParams({ exporterId })
+    if (targetWorkflowId) {
+      params.append('workflowId', targetWorkflowId)
+    } else if (selectedId) {
+      params.append('threadId', selectedId)
+    }
+    const downloadUrl = `/api/exporters/download?${params.toString()}`
+
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.setAttribute('download', '')
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const handleCitationClick = useCallback((sourceId: string) => {
+    const num = parseInt(sourceId.replace(/\D/g, ''), 10)
+    const docs = (threadDocumentsQuery.data || []) as Array<any>
+    const doc = (num > 0 && docs[num - 1]) ? docs[num - 1] : docs[0]
+    if (doc) {
+      setActiveCitation({
+        id: sourceId.startsWith('S') ? sourceId : `S${sourceId}`,
+        documentId: doc.documentId || doc.canonical_key || 'doc-1',
+        title: doc.title || '规范化数据文档',
+        source: doc.provenance?.source || doc.metadata?.source || 'UniSearch 知识库',
+        sourceUrl: doc.sourceUrl || doc.metadata?.source_url,
+        excerpt: doc.markdown ? doc.markdown.slice(0, 600) : '已归档存入本地 SQLite 知识库引擎。',
+        score: 0.95,
+      })
+    } else {
+      setActiveCitation({
+        id: sourceId.startsWith('S') ? sourceId : `S${sourceId}`,
+        documentId: 'doc-unknown',
+        title: `参考资料片段 [${sourceId}]`,
+        source: 'UniSearch 知识库',
+        excerpt: `出处标签为 [${sourceId}] 的原始采样本段。数据已落地于 SQLite 全文及向量索引库。`,
+        score: 0.90,
+      })
+    }
+    setSourceDrawerOpen(true)
+  }, [threadDocumentsQuery.data])
   const displayMessages = useMemo<Array<{ message: AgentMessage; planConfigContent?: string }>>(() => {
     const messages = threadQuery.data?.messages || []
     const planMessages = new Map<string, AgentMessage>()
@@ -2496,64 +2526,96 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                   return sum + count
                 }, 0)
 
-                const isPending = activePlan?.status === 'awaiting_confirmation'
-                const isRunning = activePlan ? ['queued', 'running'].includes(activePlan.status) : false
-                const activeConnectorSteps = activePlan
-                  ? activePlan.steps.filter((s) => s.kind === 'connector' || (s.kind !== 'processor' && s.step_key !== 'business-analysis'))
+                // 选中的轮次对象（若为 'all' 则根据最新活跃计划决定控制卡片；若为数字则严格取对应轮次）
+                const isSpecificRound = typeof sidebarSelectedRound === 'number'
+                const selectedPlan = isSpecificRound
+                  ? (allPlans.find((p, idx) => (p.round_number || idx + 1) === sidebarSelectedRound) || allPlans[sidebarSelectedRound - 1] || activePlan)
+                  : activePlan
+                const displayedPlan = selectedPlan || activePlan
+
+                const roundItemCount = isSpecificRound && displayedPlan
+                  ? (displayedPlan.stats?.content_count ?? displayedPlan.steps.reduce((acc, s) => acc + (s.item_count || 0), 0))
+                  : sessionTotalItems
+
+                const isPending = displayedPlan?.status === 'awaiting_confirmation'
+                const isRunning = displayedPlan ? ['queued', 'running'].includes(displayedPlan.status) : false
+                const activeConnectorSteps = displayedPlan
+                  ? displayedPlan.steps.filter((s) => s.kind === 'connector' || (s.kind !== 'processor' && s.step_key !== 'business-analysis'))
                   : []
-                const activeConnectorsCompleted = activePlan
+                const activeConnectorsCompleted = displayedPlan
                   ? activeConnectorSteps.length > 0 && activeConnectorSteps.every((step) => ['completed', 'failed', 'stopped', 'skipped'].includes(step.status))
                   : false
-                // 正常退出但 0 条的平台同样计入可重试，否则它会被算作“已完成”而失去补救入口
-                const emptyStepCount = activePlan
-                  ? activePlan.steps.filter((s) => s.status === 'completed' && !(s.item_count || 0)).length
-                  : 0
-                const canRetry = activePlan
-                  ? ['failed', 'partially_completed', 'stopped'].includes(activePlan.status)
-                  || (activePlan.status === 'completed' && emptyStepCount > 0)
-                  : false
 
-                // 汇总各平台累计抓取数据分布
-                const platformSummaryMap = new Map<string, {
-                  platform: string
-                  count: number
-                  commentCount: number
-                  status: string
-                  isAI: boolean
-                  error_message?: string
-                }>()
+                const allowRetryInView = isSpecificRound || allPlans.length <= 1
 
-                allPlans.forEach((plan) => {
-                  plan.steps.forEach((step) => {
-                    const existing = platformSummaryMap.get(step.platform)
-                    const isAI = AI_PLATFORMS.has(step.platform)
-                    const count = step.role === 'quality_enrichment' ? 0 : step.item_count || 0
-                    const commentCount = step.role === 'quality_enrichment' ? 0 : step.comment_count || 0
-                    if (!existing) {
-                      platformSummaryMap.set(step.platform, {
-                        platform: step.platform,
-                        count,
-                        commentCount,
-                        status: step.status,
-                        isAI,
-                        error_message: step.error_message || undefined,
-                      })
-                    } else {
-                      existing.count += count
-                      existing.commentCount += commentCount
-                      if (step.status === 'running' || existing.status === 'running') {
-                        existing.status = 'running'
-                      } else if (step.status === 'completed') {
-                        existing.status = 'completed'
+                const platformSummaryList = (() => {
+                  const targetPlans = isSpecificRound && displayedPlan ? [displayedPlan] : allPlans
+                  const platformSummaryMap = new Map<string, {
+                    platform: string
+                    count: number
+                    commentCount: number
+                    status: string
+                    isAI: boolean
+                    error_message?: string
+                  }>()
+
+                  targetPlans.forEach((plan) => {
+                    plan.steps.forEach((step) => {
+                      const existing = platformSummaryMap.get(step.platform)
+                      const isAI = AI_PLATFORMS.has(step.platform)
+                      const count = step.role === 'quality_enrichment' ? 0 : step.item_count || 0
+                      const commentCount = step.role === 'quality_enrichment' ? 0 : step.comment_count || 0
+                      if (!existing) {
+                        platformSummaryMap.set(step.platform, {
+                          platform: step.platform,
+                          count,
+                          commentCount,
+                          status: step.status,
+                          isAI,
+                          error_message: step.error_message || undefined,
+                        })
+                      } else {
+                        existing.count += count
+                        existing.commentCount += commentCount
+                        if (step.status === 'failed' || step.status === 'stopped' || step.status === 'running') {
+                          existing.status = step.status
+                          if (step.error_message) existing.error_message = step.error_message
+                        }
                       }
-                      if (step.error_message) {
-                        existing.error_message = step.error_message
-                      }
-                    }
+                    })
                   })
-                })
 
-                const platformSummaryList = Array.from(platformSummaryMap.values())
+                  if (!isSpecificRound) {
+                    platformSummaryMap.forEach((entry, platform) => {
+                      const activeStep = activePlan?.steps.find((s) => s.platform === platform)
+                      if (activeStep) {
+                        entry.status = activeStep.status
+                        entry.error_message = activeStep.error_message || undefined
+                      } else if (entry.count > 0) {
+                        entry.status = 'completed'
+                        entry.error_message = undefined
+                      }
+                    })
+                  }
+
+                  return Array.from(platformSummaryMap.values())
+                })()
+
+                const isPlatformRetryable = (platform: string) => {
+                  if (!allowRetryInView || !displayedPlan || isRunning || execute.isPending) return false
+                  const target = platformSummaryList.find((p) => p.platform === platform)
+                  if (!target) return false
+                  return target.status === 'failed' || target.status === 'stopped' || target.count === 0
+                }
+
+                const currentRoundNum = (displayedPlan as any)?.round_number || (isSpecificRound ? sidebarSelectedRound : (allPlans.length || 1))
+
+                const handleOpenResults = () => {
+                  if (selectedId && (sessionTotalItems > 0 || latestFinishedPlanId)) {
+                    const targetPlanId = isSpecificRound ? (displayedPlan?.plan_id || '') : ''
+                    onOpenResults({ threadId: selectedId, planId: targetPlanId })
+                  }
+                }
 
                 const handleApplyPrompt = (promptText: string) => {
                   setInput(promptText)
@@ -2562,167 +2624,227 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
                 const latestFinishedPlanId = [...allPlans].reverse().find((p) => ['completed', 'partially_completed'].includes(p.status))?.plan_id || activePlan?.plan_id
 
-                const handleOpenResults = () => {
-                  if (selectedId && (sessionTotalItems > 0 || latestFinishedPlanId)) {
-                    onOpenResults({ threadId: selectedId, planId: latestFinishedPlanId || activePlan?.plan_id || '' })
-                  }
-                }
-
                 return (
-                  <div className="space-y-5 text-xs">
+                  <div className="space-y-4 text-xs">
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyber-text-muted">任务与数据大盘</p>
-                      {activePlan ? (() => {
-                        const isAnalyzing = activePlan.status === 'running' && activeConnectorsCompleted
-                        const statusKey = isAnalyzing ? 'analyzing' : activePlan.status
-                        const cfg = STATUS_CONFIG[statusKey] || {
-                          label: STATUS_LABELS[activePlan.status] || activePlan.status,
+                      {displayedPlan ? (() => {
+                        const isAnalyzing = displayedPlan.status === 'running' && activeConnectorsCompleted
+                        const isAllPlatformsSuccess = platformSummaryList.length > 0 && platformSummaryList.every((p) => p.count > 0 && p.status !== 'failed' && p.status !== 'stopped')
+                        const effectiveStatus = isAnalyzing
+                          ? 'analyzing'
+                          : (displayedPlan.status === 'partially_completed' && isAllPlatformsSuccess)
+                            ? 'completed'
+                            : displayedPlan.status
+                        const cfg = STATUS_CONFIG[effectiveStatus] || {
+                          label: STATUS_LABELS[effectiveStatus] || effectiveStatus,
                           bg: 'bg-slate-500/10',
-                          text: 'text-cyber-text-secondary',
-                          border: 'border-cyber-border-DEFAULT/50',
+                          border: 'border-slate-500/30',
+                          text: 'text-slate-400',
                           dot: 'bg-slate-400',
                         }
+                        const isRound2Partially = (displayedPlan as any)?.round_number === 2 && effectiveStatus === 'partially_completed'
+                        const badgeLabel = isRound2Partially
+                          ? '第 2 轮 · 部分完成'
+                          : isSpecificRound
+                            ? `第 ${sidebarSelectedRound} 轮 · ${cfg.label}`
+                            : cfg.label
+
                         return (
-                          <span className={cn(
-                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium select-none cursor-default pointer-events-none",
-                            cfg.bg, cfg.text, cfg.border
-                          )}>
-                            <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", cfg.dot)} />
-                            <span>{cfg.label}</span>
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-medium border ${cfg.bg} ${cfg.border} ${cfg.text}`}
+                          >
+                            <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} ${displayedPlan.status === 'running' ? 'animate-ping' : ''}`} />
+                            {badgeLabel}
                           </span>
                         )
                       })() : null}
                     </div>
-                    {/* 区域 A：当前任务状态 / 控制卡片 */}
-                    {activePlan && isPending ? (
+
+                    {/* 极简轮次胶囊切换栏 (全部 / 第 1 轮 / 第 2 轮...) */}
+                    {allPlans.length > 1 ? (
+                      <div className="flex items-center gap-1.5 rounded-lg border border-cyber-border-subtle/80 bg-cyber-bg-panel/60 p-1 overflow-x-auto scrollbar-none">
+                        <button
+                          type="button"
+                          onClick={() => setSidebarSelectedRound('all')}
+                          className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${
+                            sidebarSelectedRound === 'all'
+                              ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
+                              : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
+                          }`}
+                        >
+                          <span>全部</span>
+                          <span className="font-mono text-[10px] opacity-80">({sessionTotalItems})</span>
+                        </button>
+                        {allPlans.map((plan, idx) => {
+                          const roundNum = (plan as any).round_number || (idx + 1)
+                          const isSelected = sidebarSelectedRound === roundNum
+                          const roundCount = plan.stats?.content_count ?? plan.steps.reduce((acc, s) => acc + (s.role === 'quality_enrichment' ? 0 : s.item_count || 0), 0)
+                          const isPlanRunning = plan.status === 'running'
+                          const hasWarning = plan.status === 'failed' || plan.status === 'partially_completed' || plan.status === 'stopped'
+                          return (
+                            <button
+                              key={plan.plan_id || idx}
+                              type="button"
+                              onClick={() => setSidebarSelectedRound(roundNum)}
+                              className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${
+                                isSelected
+                                  ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
+                                  : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
+                              }`}
+                            >
+                              {isPlanRunning ? (
+                                <span className="h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan animate-ping shrink-0" />
+                              ) : hasWarning ? (
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                              ) : null}
+                              <span>第 {roundNum} 轮</span>
+                              <span className="font-mono text-[10px] opacity-80">({roundCount})</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+
+                    {displayedPlan && isPending ? (
                       <div className="rounded-xl border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-3.5 shadow-sm ring-1 ring-cyber-neon-cyan/30">
                         <div className="flex items-center justify-between text-[10px]">
                           <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
-                            <Sparkles className="h-3.5 w-3.5" /> 待确认采集任务
+                            <Sparkles className="h-3.5 w-3.5" /> 待确认采集任务 {isSpecificRound ? `(第 ${sidebarSelectedRound} 轮)` : ''}
                           </span>
                         </div>
                         <div className="mt-2.5 space-y-1.5 text-xs">
-                          {activePlan.plan.keywords.length > 0 ? (
-                            <p className="truncate font-medium text-cyber-text-primary" title={activePlan.plan.keywords.join(' / ')}>
-                              关键词：<span className="text-cyber-neon-cyan">{activePlan.plan.keywords.join(' / ')}</span>
+                          {displayedPlan.plan.keywords.length > 0 ? (
+                            <p className="truncate font-medium text-cyber-text-primary" title={displayedPlan.plan.keywords.join(' / ')}>
+                              关键词：<span className="text-cyber-neon-cyan">{displayedPlan.plan.keywords.join(' / ')}</span>
                             </p>
                           ) : null}
                           <div className="flex flex-wrap items-center gap-1 text-[10px] text-cyber-text-muted">
-                            <span>平台：{activePlan.plan.platforms.map((p) => platformLabels[p] || p).join('、')}</span>
+                            <span>平台：{displayedPlan.plan.platforms.map((p) => platformLabels[p] || p).join('、')}</span>
                           </div>
                         </div>
                         <Button
                           className="mt-3 w-full h-8.5 text-xs gap-1.5 bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 font-medium shadow-xs"
-                          onClick={() => execute.mutate(activePlan.plan_id)}
+                          onClick={() => execute.mutate(displayedPlan.plan_id)}
                           disabled={execute.isPending}
                         >
                           {execute.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5 fill-white" />}
                           确认并开始采集
                         </Button>
                       </div>
-                    ) : activePlan && isRunning ? (
-                      <div className="rounded-xl border border-cyber-neon-cyan/30 bg-cyber-bg-panel/80 p-3.5 shadow-sm">
-                        <div className="flex items-center justify-between text-[10px]">
-                          <span className="flex items-center gap-1.5 font-semibold text-cyber-neon-cyan">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" /> {activePlan.status === 'queued'
-                              ? '采集任务排队中...'
-                              : activeConnectorsCompleted
-                                ? '正在分析采集结果...'
-                                : '正在执行采集任务...'}
-                          </span>
-                          <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
-                        </div>
-                        {activePlan.plan.keywords.length ? (
-                          <p className="mt-2 truncate text-[10px] text-cyber-text-muted">
-                            关键词：{activePlan.plan.keywords.join(' / ')}
-                          </p>
-                        ) : null}
-                      </div>
                     ) : null}
 
-                    {/* 区域 B：全会话已采集数据总量 */}
+                    {/* 区域 B：数据总量与实时状态一体化卡片 */}
                     <button
                       type="button"
                       onClick={handleOpenResults}
                       disabled={sessionTotalItems <= 0}
-                      aria-label={sessionTotalItems > 0 ? `查看已采集的 ${sessionTotalItems} 条数据` : undefined}
-                      className={`w-full rounded-xl border border-cyber-border-default bg-cyber-bg-panel/70 p-3.5 text-left shadow-sm transition-colors ${sessionTotalItems > 0 ? 'cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70' : 'cursor-default'}`}
+                      aria-label={sessionTotalItems > 0 ? `查看已采集的 ${roundItemCount} 条数据` : undefined}
+                      className={`w-full rounded-xl border p-3.5 text-left shadow-sm transition-all ${
+                        displayedPlan && isRunning
+                          ? 'border-cyber-neon-cyan/40 bg-cyber-bg-panel/90 shadow-xs'
+                          : sessionTotalItems > 0
+                          ? 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70'
+                          : 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-default'
+                      }`}
                     >
                       <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                        <span>全会话已采集总量</span>
-                        <span className="flex items-center gap-0.5 font-mono">
-                          {sessionTotalItems > 0 ? <ChevronRight className="h-3 w-3" /> : null}
+                        <span className="font-semibold uppercase tracking-wider">
+                          {sidebarSelectedRound === 'all' ? '全会话已采集' : `第 ${sidebarSelectedRound} 轮已采集`}
                         </span>
+                        {displayedPlan && isRunning ? (
+                          <span className="flex items-center gap-1 font-semibold text-cyber-neon-cyan text-[10px]">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            <span>
+                              {displayedPlan.status === 'queued'
+                                ? '排队中'
+                                : activeConnectorsCompleted
+                                ? '正在分析采集结果'
+                                : '采集中'}
+                            </span>
+                            <PlanElapsedTime plan={displayedPlan} className="ml-1 font-mono text-cyber-text-secondary" />
+                          </span>
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
+                        )}
                       </div>
                       <div className="mt-2 flex items-baseline gap-2">
-                        <span className={`text-3xl font-bold tracking-tight text-cyber-neon-cyan ${isRunning ? 'animate-pulse' : ''}`}>
-                          {sessionTotalItems.toLocaleString()}
+                        <span className="font-mono text-2xl font-bold tracking-tight text-cyber-text-primary">
+                          {roundItemCount}
                         </span>
                         <span className="text-xs text-cyber-text-secondary">条内容</span>
                       </div>
+                      {displayedPlan && isRunning && displayedPlan.plan.keywords.length ? (
+                        <p className="mt-2 truncate text-[10px] text-cyber-text-muted border-t border-cyber-border-subtle/50 pt-1.5">
+                          关键词：<span className="text-cyber-text-secondary">{displayedPlan.plan.keywords.join(' / ')}</span>
+                        </p>
+                      ) : null}
                     </button>
 
-                    {/* 全会话分平台采集分布 */}
                     <div>
                       <div className="flex items-center justify-between text-[10px] text-cyber-text-muted mb-1.5">
-                        <span>数据分布与状态</span>
-                        {sessionTotalItems > 0 ? <span>已接入平台</span> : null}
+                        <span>{sidebarSelectedRound === 'all' ? '全会话数据分布与状态' : `第 ${sidebarSelectedRound} 轮平台分布与状态`}</span>
+                        {roundItemCount > 0 ? <span>已接入平台</span> : null}
                       </div>
                       <div className="divide-y divide-cyber-border-subtle/60">
                         {platformSummaryList.length > 0 ? (
                           platformSummaryList.map((item) => {
                             const count = item.count
-                            const unit = item.isAI ? '份' : '条'
-                            const isRunning = item.status === 'running'
+                            const isPlatformRunning = item.status === 'running'
                             const isPartialSuccess = count > 0 && (item.status === 'failed' || item.status === 'stopped')
                             const isZeroSuccess = item.status === 'completed' && count === 0
                             const isFailedZero = (item.status === 'failed' || item.status === 'stopped') && count === 0
                             const isSuccess = item.status === 'completed' && count > 0
+                            const platformRetryable = isPlatformRetryable(item.platform)
 
-                            let tooltip: string
-                            if (isRunning) {
-                              tooltip = '正在采集数据...'
-                            } else if (isSuccess) {
-                              tooltip = `已成功采集 ${count} ${unit}`
-                            } else if (isPartialSuccess) {
-                              tooltip = item.error_message
-                                ? `已采集 ${count} ${unit}（后续抓取中断: ${item.error_message}）`
-                                : `已采集 ${count} ${unit}（采集提前结束或部分中断）`
-                            } else if (isZeroSuccess) {
-                              tooltip = item.error_message || '平台未检索到相关内容'
-                            } else if (isFailedZero) {
-                              tooltip = item.error_message ? `采集失败: ${item.error_message}` : '采集失败，未获取到数据'
-                            } else {
-                              tooltip = item.error_message || ''
-                            }
+                            const tooltip = isPlatformRunning
+                              ? '正在执行采集'
+                              : isSuccess
+                              ? `采集成功（共获取 ${count} 条内容）`
+                              : isPartialSuccess
+                              ? `已采集 ${count} 条，后续抓取中断或遭遇限流`
+                              : isZeroSuccess
+                              ? '已检索，该平台暂未命中有效相关内容'
+                              : isFailedZero
+                              ? (item.error_message || '采集未完成/连接异常')
+                              : undefined
 
                             return (
-                              <div key={item.platform} className="py-2.5 text-xs">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="truncate font-medium text-cyber-text-primary">
-                                      {platformLabels[item.platform] || item.platform}
-                                    </span>
+                              <div
+                                key={item.platform}
+                                className="group relative flex items-center justify-between py-2 transition-colors hover:bg-cyber-bg-surface/30"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-cyber-text-muted/40 shrink-0" />
+                                  <span className="truncate text-cyber-text-secondary">
+                                    {platformLabels[item.platform] || item.platform}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1">
                                     {item.isAI ? (
                                       <span className="rounded bg-cyber-bg-tertiary px-1 py-0.5 text-[9px] font-medium text-cyber-neon-cyan">
                                         AI
                                       </span>
                                     ) : null}
-                                  </div>
-                                  <div className="flex items-center gap-2 shrink-0">
-                                    <span className={`font-mono text-xs ${
-                                      isZeroSuccess
-                                        ? 'text-amber-400 font-normal text-[11px]'
-                                        : isFailedZero
-                                        ? 'text-cyber-neon-pink font-normal text-[11px]'
-                                        : isRunning
-                                        ? 'text-cyber-neon-cyan'
-                                        : 'text-cyber-text-primary'
-                                    }`}>
-                                      {count > 0 ? `${count} ${unit}` : (item.status === 'completed' || isFailedZero) ? `0 ${unit}` : ''}
-                                      {item.commentCount > 0 ? <span className="ml-1 text-[10px] font-normal text-cyber-text-muted">+{item.commentCount} 评论</span> : null}
+                                    <span className="font-mono text-[11px] text-cyber-text-primary">
+                                      {count} {item.isAI ? '份' : '条'}
                                     </span>
                                     <StepIcon status={item.status} count={count} title={tooltip} />
+                                    {platformRetryable && displayedPlan ? (
+                                      <button
+                                        type="button"
+                                        className="inline-flex h-5 w-5 items-center justify-center rounded border border-cyber-border-subtle bg-cyber-bg-tertiary/60 text-cyber-text-muted hover:border-cyber-neon-cyan/50 hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan transition-colors"
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          execute.mutate({ planId: displayedPlan.plan_id, platforms: [item.platform] })
+                                        }}
+                                        disabled={execute.isPending}
+                                        title={`仅重新采集当前第 ${currentRoundNum} 轮的 ${platformLabels[item.platform] || item.platform}`}
+                                      >
+                                        <RotateCw className={cn("h-2.5 w-2.5", execute.isPending && "animate-spin")} />
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </div>
                               </div>
@@ -2736,28 +2858,22 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       </div>
                     </div>
 
-                    {/* 动作区 */}
                     <div className="space-y-2 border-t border-cyber-border-subtle pt-3">
                       {sessionTotalItems > 0 ? (
                         <div className="grid grid-cols-2 gap-2">
                           <Button variant="outline" className="h-9 min-w-0 gap-1.5 px-2 text-xs" onClick={handleOpenResults}>
                             <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan" />
-                            <span className="truncate">结果看板</span>
+                            <span className="truncate">{isSpecificRound ? `第 ${sidebarSelectedRound} 轮看板` : '结果看板'}</span>
                           </Button>
-                          {selectedId ? <SpreadsheetDownloadLink threadId={selectedId} compact /> : latestFinishedPlanId ? <SpreadsheetDownloadLink planId={latestFinishedPlanId} compact /> : null}
+                          {isSpecificRound && displayedPlan ? (
+                            <SpreadsheetDownloadLink planId={displayedPlan.plan_id} compact />
+                          ) : selectedId ? (
+                            <SpreadsheetDownloadLink threadId={selectedId} compact />
+                          ) : latestFinishedPlanId ? (
+                            <SpreadsheetDownloadLink planId={latestFinishedPlanId} compact />
+                          ) : null}
                         </div>
                       ) : null}
-                      {isRunning && sessionTotalItems > 0 ? (
-                        <Button
-                          variant="outline"
-                          className="h-9 w-full gap-1.5 text-xs"
-                          onClick={() => handleApplyPrompt('先分析目前已采集的结果')}
-                        >
-                          <Sparkles className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                          分析当前结果（阶段性）
-                        </Button>
-                      ) : null}
-                      {canRetry && activePlan ? <Button className="w-full h-9 text-xs" onClick={() => execute.mutate(activePlan.plan_id)} disabled={execute.isPending}><Play />{activePlan.status === 'completed' ? '重试无结果平台' : activePlan.status === 'stopped' ? '继续采集未完成平台' : '重试失败/无结果平台'}</Button> : null}
                     </div>
 
                     {/* 知识资产与一键导出 (8 平台图标栏) */}
@@ -2973,6 +3089,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
           <div className="my-2 rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
             <div className="flex items-center justify-between text-xs text-slate-700">
+              <span className="font-medium">导出范围：</span>
+              <span className="font-semibold text-slate-900">
+                {typeof sidebarSelectedRound === 'number' ? `第 ${sidebarSelectedRound} 轮已归档数据` : '全会话已归档数据'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs text-slate-700 border-t border-slate-200/80 pt-2">
               <span className="font-medium">归档文档总数：</span>
               <span className="font-mono font-bold text-cyan-600">
                 {knowledgeCounts.articles} 篇正文
