@@ -21,6 +21,7 @@ import { AiHotCrawler } from '../crawler/platforms/aihot';
 import { ArxivCrawler } from '../crawler/platforms/arxiv';
 import { WebReaderCrawler } from '../crawler/platforms/web_reader';
 import { GitHubRepositoriesCrawler } from '../crawler/platforms/github_repositories';
+import { Kr36Crawler } from '../crawler/platforms/kr36';
 import { getConnectorManifest } from './registry';
 
 const executors: Record<string, () => { start(): Promise<void> }> = {
@@ -41,6 +42,7 @@ const executors: Record<string, () => { start(): Promise<void> }> = {
   aihot: () => new AiHotCrawler(),
   arxiv: () => new ArxivCrawler(),
   github_repositories: () => new GitHubRepositoriesCrawler(),
+  kr36: () => new Kr36Crawler(),
   media_parser: () => new MediaParserCrawler(),
   web_reader: () => new WebReaderCrawler(),
   zhaopin: () => new ZhaopinCrawler(),

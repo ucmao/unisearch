@@ -499,6 +499,76 @@ const aiHot: ConnectorManifest = {
   ],
 };
 
+const kr36Outputs: ConnectorOutputField[] = [
+  { key: 'content_id', label: '文章 ID', type: 'string', required: true },
+  { key: 'title', label: '文章标题', type: 'string', required: true },
+  { key: 'summary', label: '摘要', type: 'string' },
+  { key: 'description', label: '正文', type: 'string' },
+  { key: 'creator_id', label: '作者 ID', type: 'string' },
+  { key: 'creator_name', label: '作者/来源', type: 'string' },
+  { key: 'content_url', label: '文章链接', type: 'string' },
+  { key: 'published_at', label: '发布时间', type: 'number' },
+  { key: 'cover_url', label: '封面图片', type: 'string' },
+  { key: 'column_name', label: '所属栏目/频道', type: 'string' },
+  { key: 'likes', label: '点赞数', type: 'number' },
+  { key: 'comments', label: '评论数', type: 'number' },
+  { key: 'views', label: '浏览/阅读数', type: 'number' },
+];
+
+const kr36: ConnectorManifest = {
+  id: 'kr36', version: '1.0.0', name: '36氪', icon: 'newspaper', category: 'web_search',
+  description: '36氪科技商业报道、创投融资动态、7×24h 商业快讯与实时人气热榜数据采集连接器。',
+  auth: {
+    required: false, methods: ['none'],
+    description: '无需登录，直接通过公开 HTTP 接口与网页高速免认证检索。',
+  },
+  runtime: { engine: 'http', isolatedProcess: true, supportsHeadless: true },
+  capabilities: [
+    {
+      id: 'keyword_search', label: '商业资讯关键词搜索',
+      description: '按关键词、企业名、赛道或主题检索 36氪公开商业深度报道、特稿与资讯文章。也可切换至 24h 商业快讯流或 24h 人气热榜。',
+      runtimeMode: 'search', budgetModel: 'true_pagination',
+      depthBudget: { quick: 15, standard: 30, deep: 60 },
+      inputFields: [
+        {
+          key: 'content_mode', label: '内容模式', description: '默认按关键词搜索商业文章；亦可切换为 7x24h 即时快讯或 24h 人气热榜。',
+          type: 'select', default: 'article', runtimeConfigKey: 'kr36_content_mode',
+          options: [
+            { value: 'article', label: '关键词搜索文章' },
+            { value: 'newsflashes', label: '7×24h 商业快讯' },
+            { value: 'hot_topics', label: '24h 人气商业热榜' },
+          ],
+        },
+        {
+          key: 'max_items', label: '最大采集数量', description: '每个关键词最多采集的文章数。',
+          type: 'number', default: 20, min: 1, max: 100, runtimeConfigKey: 'crawler_max_notes_count',
+        },
+        {
+          key: 'start_page', label: '起始页', description: '从第几页开始采集，支持翻页与跳页。',
+          type: 'number', default: 1, min: 1, max: 20, runtimeConfigKey: 'start_page',
+        },
+      ],
+      outputType: 'kr36_article', outputFields: kr36Outputs,
+      limitations: [
+        '依靠 36氪 公开商业报道与快讯，部分付费会员专享长文仅返回公开摘要。',
+        '快讯和热榜为实时快照流。',
+        '无需用户登录态。',
+      ],
+    },
+    {
+      id: 'content_detail', label: '文章特稿详情',
+      description: '根据 36氪文章 ID 或链接（如 https://36kr.com/p/xxxx）提取完整文章正文、标题、作者与元数据。',
+      runtimeMode: 'detail', budgetModel: 'single_target',
+      inputFields: [targetField('36氪文章链接或 ID')],
+      outputType: 'kr36_article', outputFields: kr36Outputs,
+      limitations: [
+        '支持 36氪 /p/xxxx 文章链接或纯数字文章 ID。',
+        '依赖 36氪 公开可见正文 DOM 与 JSON 元数据。',
+      ],
+    },
+  ],
+};
+
 const utilityParser = (
   id: string,
   name: string,
@@ -812,6 +882,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   arxiv,
   githubRepositories,
   aiHot,
+  kr36,
   webReader,
   utilityParser('media_parser', '综合无水印解析', 'link'),
   jobPlatform('zhaopin', '智联招聘', 'briefcase'),

@@ -123,6 +123,9 @@ test('fallback keywords contain the subject rather than the whole request', () =
   assert.deepEqual(inferResearchKeywords('我要采集快手 两个关键词 sap sap学习'), ['sap', 'sap学习']);
   assert.deepEqual(inferResearchKeywords('采集小红书 2个关键词：华为手机 小米手机'), ['华为手机', '小米手机']);
   assert.deepEqual(inferResearchKeywords('采集关键词 MiniMax M3'), ['MiniMax M3']);
+  assert.deepEqual(inferResearchKeywords('请你去百度和知乎上面搜索一下数据标注。采集信息，并告诉我这个职位是什么意思。'), ['数据标注']);
+  assert.deepEqual(inferResearchKeywords('在知乎搜索数据标注，并告诉我这个职位是什么意思'), ['数据标注']);
+  assert.deepEqual(inferResearchKeywords('去百度搜索数据分析师，告诉我这个岗位是做什么的'), ['数据分析师']);
   assert.deepEqual(inferResearchPlatforms('采集小红书和知乎'), ['xhs', 'zhihu']);
   assert.deepEqual(inferResearchPlatforms('解析 https://www.bilibili.com/video/BV1xx411c7mD'), ['bili']);
   assert.deepEqual(inferResearchPlatforms('抓取 https://v.douyin.com/example/ 的评论'), ['douyin']);

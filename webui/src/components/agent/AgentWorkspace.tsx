@@ -645,7 +645,7 @@ function PlanMessageContent({
   cleanContent: string
   isPlanRunning: boolean
 }) {
-  const [runningDetailsOpen, setRunningDetailsOpen] = useState(true)
+  const [runningDetailsOpen, setRunningDetailsOpen] = useState(false)
   const { configText, noticeText } = parsePlanText(cleanContent)
   const displayConfig = configText || cleanContent
 

@@ -150,6 +150,21 @@ export const CONNECTOR_MAPPING_MATRIX: Record<string, ConnectorMappingDefinition
       period: ['period'],
     },
   },
+  kr36: {
+    family: 'search',
+    subjectType: 'publisher',
+    metricAliases: {
+      views: ['views', 'pv', 'viewCount', 'view_count'],
+      likes: ['likes', 'likeCount', 'like_count'],
+      comments: ['comments', 'commentCount', 'comment_count'],
+      shares: ['shares', 'shareCount', 'share_count'],
+    },
+    attributeAliases: {
+      columnName: ['column_name', 'channel_name'],
+      coverUrl: ['cover_url', 'cover'],
+      contentMode: ['content_mode'],
+    },
+  },
   media_parser: {
     family: 'media', subjectType: 'creator', metricAliases: {},
     attributeAliases: { mediaType: ['media_type', 'type'] },

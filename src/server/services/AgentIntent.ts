@@ -73,7 +73,7 @@ const ALL_PLATFORM_IDS = [
   'arxiv', 'github_repositories', 'aihot', 'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao', 'boss', 'zhaopin', 'job51', 'liepin',
 ];
 const WEB_SEARCH_PLATFORM_IDS = ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'];
-const EXCLUDED_WEB_SEARCH_GROUP = /(?:不要|不再?|别|排除|除去|移除|删除|去掉)(?:再)?(?:使用|采集|抓取|搜索|查询|检索)?\s*(?:所有|全部|全|主流|普通)?\s*(?:搜索引擎|搜索平台|网页搜索)|(?:所有|全部|全|主流|普通)?\s*(?:搜索引擎|搜索平台|网页搜索)\s*(?:除外|不用|不要|不使用)/i;
+const EXCLUDED_WEB_SEARCH_GROUP = /(?:不要|不再?|别|排除|除去|移除|删除|去掉)(?:再)?(?:使用|采集|抓取|搜索|查询|检索)?\s*(?:所有|全部|全|主流|普通)?\s*(?:搜索引擎|搜索平台|网页搜索)|(?:所有|全部|全|主流|普通)?\s*(?:搜索引擎|搜索平台|网页搜索)\s*(?:除外|不用|不要|不采|不抓|不搜)/i;
 
 function hasBossPlatformMention(text: string): boolean {
   return BOSS_STRONG_MENTION.test(text) || BOSS_CONTEXTUAL_MENTION.test(text) || BOSS_LIST_MENTION.test(text);
@@ -129,7 +129,11 @@ function splitExplicitKeywords(value: string, sourceText: string): string[] {
 }
 
 function cleanResearchSubject(text: string): string {
-  const withoutBossPlatform = text
+  const withoutDeliverables = text
+    .replace(/(?:[，,。；;!?！？\s]+)(?:并|然后|顺便|接着)?(?:告诉|回答|解答|说明|想知道|需要了解)(?:我|一下)?[\s\S]*$/gi, ' ')
+    .replace(/(?:[，,。；;!?！？\s]+)(?:并|然后|顺便|接着)(?:分析)[\s\S]*$/gi, ' ');
+
+  const withoutBossPlatform = withoutDeliverables
     .replace(/(?:不要|不采|不抓|不搜|排除|除去|除|移除|删除|去掉)(?:采集|抓取|搜索|查询)?\s*@?(?:BOSS\s*直聘|(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b|boss\b(?=\s*(?:直聘|招聘|平台|网站|app)?(?:[\s，。；;、]|$)))/gi, ' ')
     .replace(/(?:BOSS\s*直聘|(?:https?:\/\/)?(?:[\w-]+\.)*zhipin\.com\b|(?:^|[\s，。；;、@])boss\b)\s*(?:除外|不用|不要|不采|不抓|不搜)/gi, ' ')
     .replace(/https?:\/\/(?:[\w-]+\.)*zhipin\.com\b[^\s，。；;]*/gi, ' ')
@@ -147,13 +151,16 @@ function cleanResearchSubject(text: string): string {
     .replace(/(?:这|这些|上述)?\s*(?:[\d一二两三四五六七八九十]+\s*个?)?\s*AI\s*平台/gi, ' ')
     .replace(/关键词/gi, ' ')
     .replace(/用户补充[:：]?/gi, ' ')
-    .replace(/请|麻烦|帮我|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|加|再|也|还|额外|另外|此外/gi, ' ')
-    .replace(/采集|收集|抓取|搜索|搜|查询|检索|查找|查一下|调查|调研|研究|监测|分析/gi, ' ')
-    .replace(/(?:的)?(?:舆情|口碑|竞品|评论|评价|帖子|论文|内容|信息|数据|讨论|报告)/gi, ' ')
+    .replace(/请你(?:去|帮我)?|麻烦你(?:去|帮我)?|帮我去|带我|替我|帮我|请|麻烦|帮|你去|去|我想要|我想|我需要|想要|我要|准备|开始|一下|看看|了解|关于|进行|做个|做一份|一个|一份|这个|那个|任务|项目|需求|加|再|也|还|额外|另外|此外/gi, ' ')
+    .replace(/采集|收集|抓取|搜索|搜|查询|检索|查找|查一下|调查|调研|监测|研究(?!员|生|所|院)|(?<!数据|业务|财务|需求|量化|算法|行业|系统|安全|竞品|文本|情感|舆情)分析(?!师|人员|岗|法)/gi, ' ')
+    .replace(/(?:在|从)?\s*(?:上面|里面|各大平台|各平台|平台上|平台)(?=\s|[，。；;！？,]|$)/gi, ' ')
+    .replace(/(?:的)?(?:舆情|口碑|竞品|评论|评价|帖子|论文|内容|信息|讨论|报告)/gi, ' ')
+    .replace(/(?:相关|所有|全网|各平台)?数据(?=[，。！？、,.!?;；:：\s]|$)|(?:采集|收集|抓取|获取|导出|分析)的?数据/gi, ' ')
     .replace(/(^|\s)(?:在|从|上|里|中)(?=\s|$)/g, ' ')
     .replace(/[，。！？、,.!?;；:：()（）[\]]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+    .replace(/^(?:和|与|及|以及|跟|在|从|上|里|中|上面|里面|平台)\s+/g, '')
     .replace(/^的|的$/g, '')
     .replace(/(?:了|啦|吧|呢|呀|啊)+$/g, '')
     .trim();
@@ -188,7 +195,9 @@ export function inferExplicitResearchKeywords(text: string): string[] {
   const explicitJobTitle = text.match(/(?:岗位|职位)(?:名称)?\s*(?:是|为|[:：])\s*([^，。；;！？?\n]{2,60})/i);
   if (explicitJobTitle?.[1]) {
     const jobTitle = explicitJobTitle[1].trim().replace(/^(?:一个|一份)\s*/, '').replace(/\s*(?:岗位|职位)$/, '').trim();
-    if (jobTitle.length >= 2) return [jobTitle.slice(0, 40)];
+    const isQuestionPhrase = /^(?:什么|啥|怎么|如何|哪|做(?:什么|啥)|干(?:什么|啥|嘛)|(?:什么|啥)意思|谁|多少)/i.test(jobTitle)
+      || /(?:什么意思|干什么|做什么|干嘛|怎么样|如何)/i.test(jobTitle);
+    if (jobTitle.length >= 2 && !isQuestionPhrase) return [jobTitle.slice(0, 40)];
   }
 
   return [];

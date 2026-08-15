@@ -22,7 +22,7 @@ const baseRequest: ConnectorStartRequest = {
   loop_execution: false,
 };
 
-assert.equal(listConnectorManifests().length, 31);
+assert.equal(listConnectorManifests().length, 32);
 assert.ok(listConnectorManifests().every((manifest) => !manifest.auth.methods.includes('cookie' as never)));
 assert.deepEqual(listWebSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
 assert.deepEqual(listLiveSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
@@ -53,7 +53,7 @@ assert.throws(
 );
 
 for (const manifest of listConnectorManifests()) {
-  const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv' || manifest.id === 'github_repositories'
+  const expectedCapabilities = manifest.id === 'aihot' || manifest.id === 'arxiv' || manifest.id === 'github_repositories' || manifest.id === 'kr36'
     ? ['keyword_search', 'content_detail']
     : manifest.id === 'heimao'
     ? ['keyword_search', 'content_detail', 'comments']
@@ -108,6 +108,7 @@ assert.match(catalog, /toutiao=头条搜索/);
 assert.match(catalog, /aihot=AI 资讯搜索（AI HOT）/);
 assert.match(catalog, /arxiv=arXiv/);
 assert.match(catalog, /github_repositories=GitHub 仓库/);
+assert.match(catalog, /kr36=36氪/);
 
 const bossManifest = listConnectorManifests().find((manifest) => manifest.id === 'boss');
 assert.ok(bossManifest);
@@ -117,6 +118,11 @@ assert.deepEqual(bossManifest.capabilities.map((capability) => capability.id), [
 const heimaoManifest = listConnectorManifests().find((manifest) => manifest.id === 'heimao');
 assert.ok(heimaoManifest);
 assert.deepEqual(heimaoManifest.capabilities.map((capability) => capability.id), ['keyword_search', 'content_detail', 'comments']);
+
+const kr36Manifest = listConnectorManifests().find((manifest) => manifest.id === 'kr36');
+assert.ok(kr36Manifest);
+assert.equal(kr36Manifest.name, '36氪');
+assert.deepEqual(kr36Manifest.capabilities.map((capability) => capability.id), ['keyword_search', 'content_detail']);
 
 const bossRequest = normalizeConnectorRequest({
   ...baseRequest,
@@ -193,5 +199,23 @@ assert.equal((aiHotRequest as any).aihot_items_mode, 'all');
 assert.equal((aiHotRequest as any).aihot_window, '7d');
 assert.equal((aiHotRequest as any).aihot_category, 'ai-models');
 assert.equal((aiHotRequest as any).crawler_max_notes_count, 12);
+
+const kr36Request = normalizeConnectorRequest({
+  ...baseRequest,
+  platform: 'kr36',
+  connector_id: 'kr36',
+  login_type: 'qrcode',
+  keywords: '具身智能',
+  connector_options: {
+    content_mode: 'article',
+    max_items: 35,
+    start_page: 2,
+  },
+});
+assert.equal(kr36Request.platform, 'kr36');
+assert.equal(kr36Request.login_type, 'none');
+assert.equal((kr36Request as any).kr36_content_mode, 'article');
+assert.equal((kr36Request as any).crawler_max_notes_count, 35);
+assert.equal(kr36Request.start_page, 2);
 
 console.log('connector registry tests passed');
