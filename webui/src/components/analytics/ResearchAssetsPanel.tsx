@@ -158,7 +158,7 @@ export type EntityRule = { ruleId: string; nodeType: string; operation: 'merge' 
 
 const stateLabel: Record<string, string> = { healthy: '正常', degraded: '降级', blocked: '需处理验证', broken: '疑似结构变化', unknown: '暂无结论' }
 const stateColor: Record<string, string> = { healthy: 'text-emerald-400', degraded: 'text-amber-400', blocked: 'text-orange-400', broken: 'text-rose-400', unknown: 'text-cyber-text-muted' }
-const nodeColor: Record<string, string> = { subject: '#22d3ee', keyword: '#a78bfa', platform: '#34d399', topic: '#fb923c' }
+const nodeColor: Record<string, string> = { subject: '#4a82b3', keyword: '#818cf8', platform: '#34d399', topic: '#e06a68' }
 
 const RELATION_LABELS: Record<string, string> = {
   competitor: '竞品对抗',

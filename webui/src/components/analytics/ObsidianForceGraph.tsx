@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { Combine, Link2, Move, Pause, Play, RotateCcw, Sparkles, ZoomIn, ZoomOut } from 'lucide-react'
+import { Combine, Link2, Move, Pause, Play, RotateCcw, Wand2, ZoomIn, ZoomOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export type GraphNode = {
@@ -25,6 +25,10 @@ interface SimNode extends GraphNode {
   vy: number
   radius: number
   degree: number
+  spawnTime?: number
+  spawnProgress?: number
+  isVisible?: boolean
+  parentId?: string | null
 }
 
 interface SimParticle {
@@ -38,10 +42,109 @@ interface SimEdge extends Edge {
 }
 
 const DEFAULT_NODE_COLORS: Record<string, string> = {
-  subject: '#22d3ee',
-  keyword: '#a78bfa',
-  platform: '#34d399',
-  topic: '#fb923c',
+  subject: '#4a82b3', // Obsidian-like calm slate/steel blue
+  keyword: '#818cf8', // Soft indigo
+  platform: '#34d399', // Emerald
+  topic: '#e06a68', // Obsidian-like warm coral/red
+}
+
+function computeGrowthSequence(
+  graphNodes: GraphNode[],
+  graphEdges: Edge[],
+  degreeMap: Map<string, number>
+): { id: string; parentId: string | null; depth: number }[] {
+  if (!graphNodes.length) return []
+
+  const adj = new Map<string, string[]>()
+  graphNodes.forEach((n) => adj.set(n.id, []))
+  graphEdges.forEach((e) => {
+    adj.get(e.from)?.push(e.to)
+    adj.get(e.to)?.push(e.from)
+  })
+
+  // Sort candidate seeds by importance score (degree + weight)
+  const sortedCandidates = [...graphNodes].sort((a, b) => {
+    const degA = degreeMap.get(a.id) || 0
+    const degB = degreeMap.get(b.id) || 0
+    return degB * 2.5 + (b.weight || 1) - (degA * 2.5 + (a.weight || 1))
+  })
+
+  const visited = new Set<string>()
+  const sequence: { id: string; parentId: string | null; depth: number }[] = []
+
+  for (const candidate of sortedCandidates) {
+    if (visited.has(candidate.id)) continue
+
+    const queue: { id: string; parentId: string | null; depth: number }[] = [
+      { id: candidate.id, parentId: null, depth: 0 },
+    ]
+    visited.add(candidate.id)
+
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      sequence.push(current)
+
+      const neighbors = adj.get(current.id) || []
+      const unvisitedNeighbors = neighbors
+        .filter((nbrId) => !visited.has(nbrId))
+        .sort((idA, idB) => {
+          const degA = degreeMap.get(idA) || 0
+          const degB = degreeMap.get(idB) || 0
+          return degB - degA
+        })
+
+      for (const nbrId of unvisitedNeighbors) {
+        visited.add(nbrId)
+        queue.push({
+          id: nbrId,
+          parentId: current.id,
+          depth: current.depth + 1,
+        })
+      }
+    }
+  }
+
+  return sequence
+}
+
+function computeFitTransform(
+  nodesList: SimNode[],
+  width: number,
+  height: number,
+  customZoom?: number
+): { panX: number; panY: number; zoom: number } {
+  if (!nodesList.length || !width || !height) {
+    return { panX: width / 2 || 0, panY: height / 2 || 0, zoom: 1 }
+  }
+
+  let minX = Infinity,
+    maxX = -Infinity,
+    minY = Infinity,
+    maxY = -Infinity
+  nodesList.forEach((n) => {
+    if (n.x < minX) minX = n.x
+    if (n.x > maxX) maxX = n.x
+    if (n.y < minY) minY = n.y
+    if (n.y > maxY) maxY = n.y
+  })
+
+  const boundsW = Math.max(maxX - minX + 160, 260)
+  const boundsH = Math.max(maxY - minY + 160, 260)
+
+  const scaleX = (width - 60) / boundsW
+  const scaleY = (height - 60) / boundsH
+  // Cap max zoom to 1.0 so it never over-magnifies into a narrow tunnel
+  const naturalZoom = Math.min(Math.max(Math.min(scaleX, scaleY) * 0.90, 0.35), 1.0)
+  const fitZoom = customZoom ?? naturalZoom
+
+  const clusterCenterX = (minX + maxX) / 2
+  const clusterCenterY = (minY + maxY) / 2
+
+  return {
+    zoom: fitZoom,
+    panX: width / 2 - clusterCenterX * fitZoom,
+    panY: height / 2 - clusterCenterY * fitZoom,
+  }
 }
 
 interface ObsidianForceGraphProps {
@@ -72,6 +175,40 @@ export function ObsidianForceGraph({
   const transformRef = useRef({ panX: 0, panY: 0, zoom: 1 })
   const alphaRef = useRef<number>(1.0)
 
+  // Smooth camera tweening animation
+  const cameraAnimRef = useRef<{
+    active: boolean
+    startTime: number
+    duration: number
+    startPanX: number
+    startPanY: number
+    startZoom: number
+    targetPanX: number
+    targetPanY: number
+    targetZoom: number
+  }>({
+    active: false,
+    startTime: 0,
+    duration: 250,
+    startPanX: 0,
+    startPanY: 0,
+    startZoom: 1,
+    targetPanX: 0,
+    targetPanY: 0,
+    targetZoom: 1,
+  })
+
+  // Subtle entrance fade-in on dataset switch
+  const fadeRef = useRef<{
+    active: boolean
+    startTime: number
+    duration: number
+  }>({
+    active: false,
+    startTime: 0,
+    duration: 160,
+  })
+
   const [isPaused, setIsPaused] = useState(false)
   const isPausedRef = useRef(false)
   isPausedRef.current = isPaused
@@ -87,6 +224,21 @@ export function ObsidianForceGraph({
   const [hoveredNode, setHoveredNode] = useState<SimNode | null>(null)
   const hoveredNodeRef = useRef<SimNode | null>(null)
   hoveredNodeRef.current = hoveredNode
+
+  // Evolution Growth Animation state
+  const [isEvolving, setIsEvolving] = useState(false)
+  const [evolutionProgress, setEvolutionProgress] = useState({ current: 0, total: 0 })
+  const evolutionRef = useRef<{
+    active: boolean
+    startTime: number
+    totalDuration: number
+    sequence: { id: string; parentId: string | null; depth: number }[]
+  }>({
+    active: false,
+    startTime: 0,
+    totalDuration: 0,
+    sequence: [],
+  })
 
   const linkingCursorRef = useRef<{ worldX: number; worldY: number } | null>(null)
   const linkTargetNodeRef = useRef<SimNode | null>(null)
@@ -121,16 +273,18 @@ export function ObsidianForceGraph({
 
   // Physics simulation single step function
   const runPhysicsStep = useCallback((alpha: number, width: number, height: number) => {
-    const nodeList = Array.from(simNodesRef.current.values())
+    const allNodes = Array.from(simNodesRef.current.values())
+    const nodeList = allNodes.filter((n) => n.isVisible !== false)
     const edgeList = simEdgesRef.current
     const nodeMap = simNodesRef.current
 
-    const repulsion = 3800
-    const springLength = 110
-    const springK = 0.022
-    const centerGravity = 0.004
-    const minDistance = 32
-    const maxDistance = 450
+    // Obsidian-like expansive force parameters: broader repulsion, longer natural spring length, gentle center gravity
+    const repulsion = 7200
+    const baseSpringLength = 160
+    const springK = 0.016
+    const centerGravity = 0.0022
+    const minDistance = 24
+    const maxDistance = 680
 
     const centerX = width / 2
     const centerY = height / 2
@@ -154,16 +308,16 @@ export function ObsidianForceGraph({
         if (distSq > maxDistance * maxDistance) continue
 
         const dist = Math.max(Math.sqrt(distSq), 0.1)
-        const minDist = n1.radius + n2.radius + 18
+        const minDist = n1.radius + n2.radius + 16
 
         let force = (repulsion * alpha) / Math.max(distSq, minDistance * minDistance)
-        // Strong collision push if overlapping
+        // Collision push if overlapping
         if (dist < minDist) {
-          force += ((minDist - dist) * 0.8 * alpha)
+          force += (minDist - dist) * 0.9 * alpha
         }
 
-        const fx = Math.min((dx / dist) * force, 6)
-        const fy = Math.min((dy / dist) * force, 6)
+        const fx = Math.min((dx / dist) * force, 7)
+        const fy = Math.min((dy / dist) * force, 7)
 
         if (n1 !== draggingNode) {
           n1.vx -= fx
@@ -175,26 +329,31 @@ export function ObsidianForceGraph({
         }
       }
 
-      // Centering gravity
+      // Gentle centering gravity to keep galaxy centered without clumping
       if (n1 !== draggingNode) {
         n1.vx += (centerX - n1.x) * centerGravity * alpha
         n1.vy += (centerY - n1.y) * centerGravity * alpha
       }
     }
 
-    // 2. Spring attraction for connected edges
+    // 2. Spring attraction for connected edges (with adaptive length for hub satellites)
     for (let i = 0; i < edgeList.length; i++) {
       const edge = edgeList[i]
       const source = nodeMap.get(edge.from)
       const target = nodeMap.get(edge.to)
-      if (!source || !target) continue
+      if (!source || !target || source.isVisible === false || target.isVisible === false) continue
 
       const dx = target.x - source.x
       const dy = target.y - source.y
       const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
-      const force = (dist - springLength) * springK * alpha * Math.min(edge.weight || 1, 2)
-      const fx = Math.min(Math.max((dx / dist) * force, -6), 6)
-      const fy = Math.min(Math.max((dy / dist) * force, -6), 6)
+
+      // Allow satellites around large hub nodes to stretch further out
+      const hubDegreeBonus = Math.min(((source.degree || 0) + (target.degree || 0)) * 2.6, 65)
+      const effectiveSpringLength = baseSpringLength + hubDegreeBonus
+
+      const force = (dist - effectiveSpringLength) * springK * alpha * Math.min(edge.weight || 1, 1.8)
+      const fx = Math.min(Math.max((dx / dist) * force, -7), 7)
+      const fy = Math.min(Math.max((dy / dist) * force, -7), 7)
 
       if (source !== dragRef.current.node) {
         source.vx += fx
@@ -207,8 +366,8 @@ export function ObsidianForceGraph({
     }
 
     // 3. Velocity integration & damping
-    const damping = 0.82
-    const maxSpeed = 8
+    const damping = 0.84
+    const maxSpeed = 9
     for (let i = 0; i < nodeList.length; i++) {
       const n = nodeList[i]
       if (n === dragRef.current.node) continue
@@ -226,13 +385,129 @@ export function ObsidianForceGraph({
     }
   }, [])
 
+  // Center/Reset View - Scaled cleanly to fill ~85% of the canvas area
+  const resetView = useCallback((customZoom?: number, smooth = false) => {
+    const canvas = canvasRef.current
+    const width = canvas?.clientWidth || containerRef.current?.clientWidth || 550
+    const height = canvas?.clientHeight || containerRef.current?.clientHeight || 450
+    if (!width || !height) return
+
+    const allNodes = Array.from(simNodesRef.current.values())
+    const target = computeFitTransform(allNodes, width, height, customZoom)
+
+    if (smooth) {
+      cameraAnimRef.current = {
+        active: true,
+        startTime: performance.now(),
+        duration: 260,
+        startPanX: transformRef.current.panX,
+        startPanY: transformRef.current.panY,
+        startZoom: transformRef.current.zoom,
+        targetPanX: target.panX,
+        targetPanY: target.panY,
+        targetZoom: target.zoom,
+      }
+    } else {
+      cameraAnimRef.current.active = false
+      transformRef.current = target
+    }
+  }, [])
+
+  // Skip Evolution Animation (instantly reveal all nodes)
+  const skipEvolutionAnimation = useCallback(() => {
+    const currentNodes = simNodesRef.current
+    currentNodes.forEach((n) => {
+      n.isVisible = true
+      n.spawnProgress = 1
+    })
+    evolutionRef.current.active = false
+    setIsEvolving(false)
+    resetView(undefined, true)
+    reheat(0.6)
+  }, [resetView, reheat])
+
+  // Start Evolution Growth Animation (Obsidian Time-lapse)
+  const startEvolutionAnimation = useCallback(() => {
+    const canvas = canvasRef.current
+    const width = canvas?.clientWidth || 550
+    const height = canvas?.clientHeight || 450
+    const centerX = width / 2
+    const centerY = height / 2
+
+    const currentNodes = simNodesRef.current
+
+    // 1. Medium-Shot Camera (中景展现: 主体圆点与文字清晰可读，约 0.92 ~ 0.98 舒适中景)
+    const midShotZoom = 0.94
+
+    cameraAnimRef.current.active = false
+    // Set camera to medium-shot view centered precisely on the growth center
+    transformRef.current = {
+      zoom: midShotZoom,
+      panX: width / 2 - centerX * midShotZoom,
+      panY: height / 2 - centerY * midShotZoom,
+    }
+
+    const degreeMap = new Map<string, number>()
+    edges.forEach((e) => {
+      degreeMap.set(e.from, (degreeMap.get(e.from) || 0) + 1)
+      degreeMap.set(e.to, (degreeMap.get(e.to) || 0) + 1)
+    })
+
+    const sequence = computeGrowthSequence(nodes, edges, degreeMap)
+    const count = sequence.length
+    // Slower, graceful pacing (approx 300ms - 650ms per node so users can clearly watch the evolution)
+    const interval = Math.max(280, Math.min(650, 7200 / Math.max(count, 1)))
+    const now = performance.now()
+
+    sequence.forEach((item, index) => {
+      const node = currentNodes.get(item.id)
+      if (!node) return
+
+      node.parentId = item.parentId
+      node.spawnTime = now + index * interval
+      node.spawnProgress = 0
+      node.isVisible = index === 0
+
+      if (index === 0) {
+        node.x = centerX + (Math.random() - 0.5) * 10
+        node.y = centerY + (Math.random() - 0.5) * 10
+        node.vx = 0
+        node.vy = 0
+      } else if (item.parentId) {
+        const parent = currentNodes.get(item.parentId)
+        const angle = (Math.PI * 2 * (index % 6)) / 6 + (Math.random() - 0.5) * 0.4
+        node.x = (parent?.x || centerX) + Math.cos(angle) * 15
+        node.y = (parent?.y || centerY) + Math.sin(angle) * 15
+        node.vx = Math.cos(angle) * 1.5
+        node.vy = Math.sin(angle) * 1.5
+      } else {
+        const angle = (Math.PI * 2 * index) / count
+        node.x = centerX + Math.cos(angle) * 120
+        node.y = centerY + Math.sin(angle) * 120
+        node.vx = 0
+        node.vy = 0
+      }
+    })
+
+    evolutionRef.current = {
+      active: true,
+      startTime: now,
+      totalDuration: count * interval + 900,
+      sequence,
+    }
+
+    setIsEvolving(true)
+    setEvolutionProgress({ current: 1, total: count })
+    reheat(0.85)
+  }, [nodes, edges, reheat])
+
   // Sync incoming nodes/edges with simulation ref
   useEffect(() => {
     const currentNodes = simNodesRef.current
     const newMap = new Map<string, SimNode>()
 
-    const width = containerRef.current?.clientWidth || 550
-    const height = containerRef.current?.clientHeight || 450
+    const width = containerRef.current?.clientWidth || canvasRef.current?.clientWidth || 550
+    const height = containerRef.current?.clientHeight || canvasRef.current?.clientHeight || 450
     const centerX = width / 2
     const centerY = height / 2
 
@@ -243,12 +518,13 @@ export function ObsidianForceGraph({
       degreeMap.set(e.to, (degreeMap.get(e.to) || 0) + 1)
     })
 
-    const initialRadius = Math.min(width, height) * 0.35
+    const initialRadius = Math.min(width, height) * 0.42
 
     nodes.forEach((node, idx) => {
       const existing = currentNodes.get(node.id)
       const degree = degreeMap.get(node.id) || 0
-      const radius = Math.min(18, Math.max(6, 5 + Math.sqrt(node.weight || 1) * 2.5 + Math.min(degree * 0.4, 4)))
+      // Obsidian-style delicate scale: leaf nodes are compact dots (3.2-4.5px), while major hubs scale up gracefully (9-14px)
+      const radius = Math.min(14, Math.max(3.2, 2.6 + Math.sqrt(degree) * 1.5 + Math.log2((node.weight || 1) + 1) * 0.8))
 
       if (existing) {
         newMap.set(node.id, {
@@ -256,10 +532,12 @@ export function ObsidianForceGraph({
           ...node,
           radius,
           degree,
+          isVisible: existing.isVisible !== undefined ? existing.isVisible : true,
+          spawnProgress: existing.spawnProgress !== undefined ? existing.spawnProgress : 1,
         })
       } else {
         const angle = (Math.PI * 2 * idx) / Math.max(nodes.length, 1) + (Math.random() - 0.5) * 0.3
-        const dist = initialRadius * (0.3 + (idx % 6) * 0.15) + (Math.random() - 0.5) * 40
+        const dist = initialRadius * (0.35 + (idx % 6) * 0.14) + (Math.random() - 0.5) * 45
         newMap.set(node.id, {
           ...node,
           x: centerX + Math.cos(angle) * dist,
@@ -268,91 +546,69 @@ export function ObsidianForceGraph({
           vy: 0,
           radius,
           degree,
+          isVisible: true,
+          spawnProgress: 1,
         })
       }
     })
 
     simNodesRef.current = newMap
 
-    // Prepare edges with photon particles
-    simEdgesRef.current = edges.map((e) => {
-      const particles: SimParticle[] = [
-        { t: Math.random(), speed: 0.0022 + Math.random() * 0.0018, size: 2.2 },
-        { t: (Math.random() + 0.5) % 1, speed: 0.0022 + Math.random() * 0.0018, size: 1.8 },
-      ]
-      return {
-        ...e,
-        particles,
-      }
-    })
+    // Prepare edges
+    simEdgesRef.current = edges.map((e) => ({
+      ...e,
+      particles: [],
+    }))
 
-    // Pre-warm the simulation for 50 ticks so nodes are already well distributed
-    for (let k = 0; k < 50; k++) {
-      runPhysicsStep(0.9 * (1 - k / 60), width, height)
+    // Pre-warm the simulation for 60 ticks so nodes are already well distributed
+    for (let k = 0; k < 60; k++) {
+      runPhysicsStep(0.9 * (1 - k / 70), width, height)
+    }
+
+    // Synchronously calculate and apply optimal fit transform before first paint to prevent zoom flash
+    const fitTransform = computeFitTransform(Array.from(newMap.values()), width, height)
+    transformRef.current = fitTransform
+    cameraAnimRef.current.active = false
+
+    // Smooth subtle entrance fade-in (160ms) to make data switch look seamless
+    fadeRef.current = {
+      active: true,
+      startTime: performance.now(),
+      duration: 160,
     }
 
     reheat(0.8)
   }, [nodes, edges, reheat, runPhysicsStep])
 
-  // Center/Reset View - Scaled cleanly to fill ~82% of the canvas area
-  const resetView = useCallback(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const width = canvas.clientWidth
-    const height = canvas.clientHeight
-    if (!width || !height) return
+  // Keep canvas responsive on container resize (e.g. sidebar toggle / dragging)
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
 
-    const allNodes = Array.from(simNodesRef.current.values())
-    if (!allNodes.length) {
-      transformRef.current = { panX: width / 2, panY: height / 2, zoom: 1 }
-      return
-    }
-
-    let minX = Infinity,
-      maxX = -Infinity,
-      minY = Infinity,
-      maxY = -Infinity
-    allNodes.forEach((n) => {
-      if (n.x < minX) minX = n.x
-      if (n.x > maxX) maxX = n.x
-      if (n.y < minY) minY = n.y
-      if (n.y > maxY) maxY = n.y
+    let initialized = false
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (width > 0 && height > 0) {
+          if (!initialized) {
+            initialized = true
+            resetView(undefined, false)
+          }
+        }
+      }
     })
 
-    const boundsW = Math.max(maxX - minX + 80, 150)
-    const boundsH = Math.max(maxY - minY + 80, 150)
-
-    const scaleX = (width - 40) / boundsW
-    const scaleY = (height - 40) / boundsH
-    const fitZoom = Math.min(Math.max(Math.min(scaleX, scaleY) * 0.92, 0.45), 1.6)
-
-    const clusterCenterX = (minX + maxX) / 2
-    const clusterCenterY = (minY + maxY) / 2
-
-    transformRef.current = {
-      zoom: fitZoom,
-      panX: width / 2 - clusterCenterX * fitZoom,
-      panY: height / 2 - clusterCenterY * fitZoom,
-    }
-  }, [])
-
-  // Auto fit once after mount & whenever nodes change
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      resetView()
-      reheat(0.8)
-    }, 80)
-
+    resizeObserver.observe(container)
     return () => {
-      clearTimeout(timer)
+      resizeObserver.disconnect()
     }
-  }, [nodes, resetView, reheat])
+  }, [resetView])
 
   // Main Animation Loop
   useEffect(() => {
     let animId: number
 
-    const render = (time: number) => {
+    const render = (_time: number) => {
       const canvas = canvasRef.current
       if (!canvas) return
       const ctx = canvas.getContext('2d')
@@ -371,9 +627,78 @@ export function ObsidianForceGraph({
       ctx.scale(dpr, dpr)
       ctx.clearRect(0, 0, width, height)
 
+      // --- 0. Camera Animation (Smooth Reset/Fit Transition) ---
+      if (cameraAnimRef.current.active) {
+        const { startTime, duration, startPanX, startPanY, startZoom, targetPanX, targetPanY, targetZoom } = cameraAnimRef.current
+        const progress = Math.min(1, (_time - startTime) / duration)
+        const ease = 1 - Math.pow(1 - progress, 3)
+        transformRef.current = {
+          panX: startPanX + (targetPanX - startPanX) * ease,
+          panY: startPanY + (targetPanY - startPanY) * ease,
+          zoom: startZoom + (targetZoom - startZoom) * ease,
+        }
+        if (progress >= 1) {
+          cameraAnimRef.current.active = false
+        }
+      }
+
+      // --- 0.1 Smooth Switch Fade-In ---
+      let alphaMultiplier = 1
+      if (fadeRef.current.active) {
+        const p = Math.min(1, (_time - fadeRef.current.startTime) / fadeRef.current.duration)
+        alphaMultiplier = Math.max(0, Math.min(1, p))
+        if (p >= 1) {
+          fadeRef.current.active = false
+        }
+      }
+      ctx.globalAlpha = alphaMultiplier
+
       const nodeList = Array.from(simNodesRef.current.values())
       const edgeList = simEdgesRef.current
       const nodeMap = simNodesRef.current
+
+      // --- 0.2 Evolution Animation Step ---
+      if (evolutionRef.current.active) {
+        const { sequence, startTime, totalDuration } = evolutionRef.current
+        let allDone = true
+
+        for (let i = 0; i < sequence.length; i++) {
+          const item = sequence[i]
+          const node = nodeMap.get(item.id)
+          if (!node || node.spawnTime === undefined) continue
+
+          if (_time >= node.spawnTime) {
+            if (!node.isVisible) {
+              node.isVisible = true
+              alphaRef.current = Math.max(alphaRef.current, 0.45)
+            }
+            const elapsed = _time - node.spawnTime
+            const spawnDuration = 600
+            node.spawnProgress = Math.min(1, elapsed / spawnDuration)
+            if (node.spawnProgress < 1) {
+              allDone = false
+            }
+          } else {
+            node.isVisible = false
+            node.spawnProgress = 0
+            allDone = false
+          }
+        }
+
+        let visibleCount = 0
+        nodeMap.forEach((n) => {
+          if (n.isVisible) visibleCount++
+        })
+
+        setEvolutionProgress((prev) =>
+          prev.current !== visibleCount ? { current: visibleCount, total: sequence.length } : prev
+        )
+
+        if (allDone && _time > startTime + totalDuration) {
+          evolutionRef.current.active = false
+          setIsEvolving(false)
+        }
+      }
 
       // --- 1. Physics Step ---
       const alpha = alphaRef.current
@@ -382,28 +707,22 @@ export function ObsidianForceGraph({
         alphaRef.current *= 0.985
       }
 
-      // Update Edge Particles
-      for (let i = 0; i < edgeList.length; i++) {
-        const edge = edgeList[i]
-        edge.particles.forEach((p) => {
-          p.t = (p.t + p.speed) % 1
-        })
-      }
-
       // --- 2. Canvas Rendering with Transform ---
       const { panX, panY, zoom } = transformRef.current
       ctx.save()
       ctx.translate(panX, panY)
       ctx.scale(zoom, zoom)
 
-      // Subtle Cyber Grid
-      const gridSize = 45
+      const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
+
+      // Subtle Minimal Grid Dots
+      const gridSize = 48
       const startX = -panX / zoom - 50
       const startY = -panY / zoom - 50
       const endX = (width - panX) / zoom + 50
       const endY = (height - panY) / zoom + 50
 
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.05)'
+      ctx.fillStyle = isDark ? 'rgba(148, 163, 184, 0.04)' : 'rgba(100, 116, 139, 0.06)'
       for (let gx = Math.floor(startX / gridSize) * gridSize; gx < endX; gx += gridSize) {
         for (let gy = Math.floor(startY / gridSize) * gridSize; gy < endY; gy += gridSize) {
           ctx.fillRect(gx, gy, 1, 1)
@@ -429,67 +748,75 @@ export function ObsidianForceGraph({
         })
       }
 
-      // Draw Edges
+      // --- 2.1 Draw Edges (Pass 1: Clean background network with 3-tier visibility) ---
       edgeList.forEach((edge) => {
         const source = nodeMap.get(edge.from)
         const target = nodeMap.get(edge.to)
-        if (!source || !target) return
+        if (!source || !target || source.isVisible === false || target.isVisible === false) return
+
+        const pSource = source.spawnProgress ?? 1
+        const pTarget = target.spawnProgress ?? 1
+        const edgeProgress = Math.min(pSource, pTarget)
 
         const isHighlighted = highlightedEdgeIds.has(edge.id)
         const isDimmed = Boolean(targetFocusId && !isHighlighted)
 
+        ctx.save()
+        ctx.globalAlpha = Math.min(1, edgeProgress * 1.5)
+
         ctx.beginPath()
         ctx.moveTo(source.x, source.y)
-        ctx.lineTo(target.x, target.y)
 
-        if (isHighlighted) {
-          ctx.strokeStyle = '#22d3ee'
-          ctx.lineWidth = Math.min(3, 1.6 + edge.weight * 0.2)
-          ctx.shadowColor = '#22d3ee'
-          ctx.shadowBlur = 8
-        } else if (isDimmed) {
-          ctx.strokeStyle = 'rgba(71, 85, 105, 0.12)'
-          ctx.lineWidth = 0.6
-          ctx.shadowBlur = 0
+        if (edgeProgress < 0.96) {
+          // Dynamic progressive budding stroke from source to target
+          const drawX = source.x + (target.x - source.x) * edgeProgress
+          const drawY = source.y + (target.y - source.y) * edgeProgress
+          ctx.lineTo(drawX, drawY)
+
+          ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.92)' : 'rgba(2, 132, 199, 0.90)'
+          ctx.lineWidth = 1.3
+          ctx.stroke()
+
+          // Sparkle tip on new edge
+          ctx.beginPath()
+          ctx.arc(drawX, drawY, 2.0, 0, Math.PI * 2)
+          ctx.fillStyle = isDark ? '#38bdf8' : '#0284c7'
+          ctx.fill()
         } else {
-          ctx.strokeStyle = 'rgba(100, 116, 139, 0.28)'
-          ctx.lineWidth = Math.min(1.6, 0.8 + edge.weight * 0.08)
-          ctx.shadowBlur = 0
+          ctx.lineTo(target.x, target.y)
+
+          if (isHighlighted) {
+            // Tier 1: Focus Highlighted Edge (Crisp 1.0px hairline)
+            ctx.strokeStyle = isDark ? 'rgba(56, 189, 248, 0.95)' : 'rgba(2, 132, 199, 0.92)'
+            ctx.lineWidth = 1.0
+          } else if (isDimmed) {
+            // Tier 3: Dimmed Background Edge (Faint secondary context)
+            ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.08)' : 'rgba(100, 116, 139, 0.10)'
+            ctx.lineWidth = 0.5
+          } else {
+            // Tier 2: Default Edge (Soft, translucent gray network)
+            ctx.strokeStyle = isDark ? 'rgba(148, 163, 184, 0.25)' : 'rgba(100, 116, 139, 0.28)'
+            ctx.lineWidth = 0.75
+          }
+          ctx.stroke()
         }
 
-        ctx.stroke()
-        ctx.shadowBlur = 0
-
-        // Animated photon particles
-        if (!isDimmed) {
-          edge.particles.forEach((p) => {
-            const px = source.x + (target.x - source.x) * p.t
-            const py = source.y + (target.y - source.y) * p.t
-
-            ctx.beginPath()
-            ctx.arc(px, py, isHighlighted ? p.size * 1.3 : p.size, 0, Math.PI * 2)
-            ctx.fillStyle = isHighlighted ? '#38bdf8' : 'rgba(34, 211, 238, 0.7)'
-            if (isHighlighted) {
-              ctx.shadowColor = '#38bdf8'
-              ctx.shadowBlur = 5
-            }
-            ctx.fill()
-            ctx.shadowBlur = 0
-          })
-        }
+        ctx.restore()
       })
 
-      // Sort nodes to find top important ones for smart label density (Obsidian Style)
+      // Top Nodes for Level-of-Detail label density
       const topNodes = new Set(
         [...nodeList]
+          .filter((n) => n.isVisible !== false)
           .sort((a, b) => (b.weight * 2 + b.degree) - (a.weight * 2 + a.degree))
-          .slice(0, 16)
+          .slice(0, 18)
           .map((n) => n.id)
       )
 
-      // Draw Nodes
-      const now = time * 0.0025
+      // --- 2.2 Draw Nodes & Typography (Pass 2: Clean solid colored discs on top of lines, pure Obsidian aesthetic) ---
       nodeList.forEach((node) => {
+        if (node.isVisible === false) return
+
         const isSelected = selectedId === node.id
         const isHovered = activeHover?.id === node.id
         const isConnected = connectedNodeIds.has(node.id)
@@ -498,92 +825,110 @@ export function ObsidianForceGraph({
 
         const baseColor = nodeColors[node.type] || '#94a3b8'
 
+        const p = node.spawnProgress !== undefined ? node.spawnProgress : 1
+        const elasticScale = p >= 1 ? 1 : 0.15 + (0.85 + 0.4 * Math.sin(p * Math.PI)) * p
+        const currentRadius = node.radius * elasticScale
+        const nodeAlpha = Math.min(1, p * 1.5)
+
         ctx.save()
         ctx.translate(node.x, node.y)
+        ctx.globalAlpha = nodeAlpha
 
-        // 1. Outer Pulse Aura / Halo
-        if (isSelected || isHovered) {
-          const pulseR = node.radius + 5 + Math.sin(now * 3.5) * 1.8
-          const gradient = ctx.createRadialGradient(0, 0, node.radius * 0.7, 0, 0, pulseR)
-          gradient.addColorStop(0, `${baseColor}60`)
-          gradient.addColorStop(1, `${baseColor}00`)
-
+        // 0. Spawn Ripple Wave effect when budding
+        if (p < 0.95) {
+          const rippleRadius = node.radius + (1 - p) * 16
+          const rippleAlpha = (1 - p) * 0.7
           ctx.beginPath()
-          ctx.arc(0, 0, pulseR, 0, Math.PI * 2)
-          ctx.fillStyle = gradient
-          ctx.fill()
-        }
-
-        // 2. Node Core Circle
-        ctx.beginPath()
-        ctx.arc(0, 0, node.radius, 0, Math.PI * 2)
-
-        if (isDimmed) {
-          ctx.fillStyle = 'rgba(51, 65, 85, 0.3)'
-          ctx.fill()
-        } else {
-          ctx.fillStyle = baseColor
-          if (isSelected || isHovered) {
-            ctx.shadowColor = baseColor
-            ctx.shadowBlur = 12
-          }
-          ctx.fill()
-
-          ctx.lineWidth = isSelected ? 2.4 : isHovered ? 1.8 : 1.2
-          ctx.strokeStyle = isSelected ? '#ffffff' : isHovered ? '#f8fafc' : 'rgba(255, 255, 255, 0.45)'
+          ctx.arc(0, 0, rippleRadius, 0, Math.PI * 2)
+          ctx.strokeStyle = `${baseColor}${Math.floor(rippleAlpha * 255).toString(16).padStart(2, '0')}`
+          ctx.lineWidth = 1.3
           ctx.stroke()
         }
-        ctx.shadowBlur = 0
 
-        // 3. Obsidian Authentic Label Density (Hides labels on zoom-out, pure starry constellation)
-        // - When hovered or selected: show label for this node and directly connected neighbors
-        // - When zoomed in (zoom >= 1.25): show labels for major hub nodes
-        // - When deeply zoomed in (zoom >= 1.7): show all visible labels
-        // - When zoomed out (zoom < 1.25): hide all background labels for a clean, minimal graph
+        // 1. External Focus / Hover Ring
+        if (isSelected) {
+          ctx.beginPath()
+          ctx.arc(0, 0, currentRadius + 2.6, 0, Math.PI * 2)
+          ctx.strokeStyle = `${baseColor}dd`
+          ctx.lineWidth = 1.3
+          ctx.stroke()
+        } else if (isHovered) {
+          ctx.beginPath()
+          ctx.arc(0, 0, currentRadius + 2.0, 0, Math.PI * 2)
+          ctx.strokeStyle = `${baseColor}88`
+          ctx.lineWidth = 1.1
+          ctx.stroke()
+        }
+
+        // 2. Solid Pure Colored Disc (Clean solid circle covering line ends, zero center dot)
+        ctx.beginPath()
+        ctx.arc(0, 0, currentRadius, 0, Math.PI * 2)
+        if (isDimmed) {
+          ctx.fillStyle = isDark ? 'rgba(51, 65, 85, 0.25)' : 'rgba(203, 213, 225, 0.4)'
+        } else {
+          ctx.fillStyle = baseColor
+        }
+        ctx.fill()
+
+        // 3. Obsidian Authentic Typography with Anti-Collision Text Halo
+        const isHubNode = (node.degree || 0) >= 3 || (node.weight || 1) >= 2
         const shouldShowLabel =
-          isHovered ||
-          isSelected ||
-          (targetFocusId && isConnected) ||
-          (!targetFocusId && (
-            (zoom >= 1.7) ||
-            (zoom >= 1.25 && isMajorNode)
-          ))
+          p > 0.5 &&
+          (isHovered ||
+            isSelected ||
+            (targetFocusId && isConnected) ||
+            (!targetFocusId &&
+              (zoom >= 0.9 ||
+                (zoom >= 0.62 && (isMajorNode || isHubNode)) ||
+                (zoom >= 0.38 && isMajorNode))))
 
         if (shouldShowLabel) {
-          const fontSize = isSelected || isHovered ? 11 : isMajorNode ? 10 : 9.5
-          ctx.font = `${isSelected || isHovered ? '600' : isMajorNode ? '600' : '500'} ${fontSize}px Inter, -apple-system, system-ui, sans-serif`
+          const labelAlpha = Math.min(1, (p - 0.5) * 2)
+          ctx.globalAlpha = nodeAlpha * labelAlpha
+
+          const fontSize = isSelected ? 11.5 : isHovered ? 11 : isMajorNode ? 9.8 : 9
+          const fontWeight = isSelected ? '700' : isHovered ? '600' : isMajorNode ? '550' : '450'
+          ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif`
           ctx.textAlign = 'center'
           ctx.textBaseline = 'top'
 
-          const labelY = node.radius + 4
-          const text = node.label.length > 14 ? `${node.label.slice(0, 13)}…` : node.label
+          const labelY = currentRadius + (isSelected || isHovered ? 4.5 : 3.8)
+          const text = node.label.length > 16 ? `${node.label.slice(0, 15)}…` : node.label
 
-          ctx.shadowBlur = 0
-          ctx.shadowColor = 'transparent'
+          // 3.1 Anti-Collision Text Halo (防止背后穿过的密集线段切碎文字笔画)
+          ctx.lineJoin = 'round'
+          ctx.miterLimit = 2
+          if (isSelected || isHovered) {
+            ctx.strokeStyle = isDark ? 'rgba(10, 15, 29, 0.95)' : 'rgba(255, 255, 255, 0.95)'
+            ctx.lineWidth = 3.6
+            ctx.strokeText(text, 0, labelY)
+          } else {
+            ctx.strokeStyle = isDark ? 'rgba(10, 15, 29, 0.75)' : 'rgba(255, 255, 255, 0.85)'
+            ctx.lineWidth = 2.4
+            ctx.strokeText(text, 0, labelY)
+          }
 
-          const isDark = typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
-
+          // 3.2 High-Contrast Text Fill (选中态为醒目主题蓝，悬浮态为曜石黑/纯白)
           if (isDark) {
             ctx.fillStyle = isSelected
-              ? '#38bdf8'
+              ? '#38bdf8' // 选中态：主题亮青蓝
               : isHovered
-              ? '#ffffff'
-              : isMajorNode
-              ? '#f1f5f9'
-              : !isDimmed
-              ? '#cbd5e1'
-              : 'rgba(148, 163, 184, 0.35)'
+                ? '#ffffff' // 悬浮态：高亮纯白
+                : isMajorNode
+                  ? '#f1f5f9'
+                  : !isDimmed
+                    ? '#cbd5e1'
+                    : 'rgba(148, 163, 184, 0.35)'
           } else {
-            // Light Theme (Clean, Sharp, High-Contrast)
             ctx.fillStyle = isSelected
-              ? '#0284c7'
+              ? '#0284c7' // 选中态：主题宝蓝
               : isHovered
-              ? '#0f172a'
-              : isMajorNode
-              ? '#0f172a'
-              : !isDimmed
-              ? '#334155'
-              : '#94a3b8'
+                ? '#090d16' // 悬浮态：深曜石黑
+                : isMajorNode
+                  ? '#1e293b'
+                  : !isDimmed
+                    ? '#334155'
+                    : 'rgba(100, 116, 139, 0.4)'
           }
 
           ctx.fillText(text, 0, labelY)
@@ -603,32 +948,27 @@ export function ObsidianForceGraph({
         ctx.moveTo(source.x, source.y)
         if (target) {
           ctx.lineTo(target.x, target.y)
-          ctx.strokeStyle = '#34d399'
-          ctx.shadowColor = '#34d399'
+          ctx.strokeStyle = '#10b981'
         } else {
           ctx.lineTo(cursor.worldX, cursor.worldY)
-          ctx.strokeStyle = '#22d3ee'
-          ctx.shadowColor = '#22d3ee'
+          ctx.strokeStyle = isDark ? '#38bdf8' : '#0284c7'
         }
-        ctx.lineWidth = 2.5
-        ctx.shadowBlur = 10
-        ctx.setLineDash([6, 4])
+        ctx.lineWidth = 2
+        ctx.setLineDash([5, 4])
         ctx.stroke()
         ctx.setLineDash([])
 
         if (target) {
           ctx.beginPath()
-          const pulse = (Math.sin(Date.now() / 150) + 1) * 3 + target.radius + 6
-          ctx.arc(target.x, target.y, pulse, 0, Math.PI * 2)
-          ctx.strokeStyle = 'rgba(52, 211, 153, 0.9)'
-          ctx.lineWidth = 2.5
+          ctx.arc(target.x, target.y, target.radius + 6, 0, Math.PI * 2)
+          ctx.strokeStyle = 'rgba(16, 185, 129, 0.9)'
+          ctx.lineWidth = 2
           ctx.stroke()
 
-          ctx.font = '600 11px Inter, system-ui, sans-serif'
-          ctx.fillStyle = '#059669'
+          ctx.font = '500 11px -apple-system, BlinkMacSystemFont, sans-serif'
+          ctx.fillStyle = isDark ? '#34d399' : '#059669'
           ctx.textAlign = 'center'
-          ctx.shadowBlur = 0
-          ctx.fillText(`⚡ 松开建立关联: ${source.label} ↔ ${target.label}`, target.x, target.y - target.radius - 12)
+          ctx.fillText(`松开建立关联: ${source.label} ↔ ${target.label}`, target.x, target.y - target.radius - 10)
         }
         ctx.restore()
       }
@@ -640,31 +980,30 @@ export function ObsidianForceGraph({
 
         ctx.save()
         ctx.beginPath()
-        const pulse = (Math.sin(Date.now() / 120) + 1) * 4 + target.radius + 8
-        ctx.arc(target.x, target.y, pulse, 0, Math.PI * 2)
-        ctx.strokeStyle = '#a855f7'
-        ctx.shadowColor = '#a855f7'
-        ctx.shadowBlur = 14
-        ctx.lineWidth = 2.5
+        ctx.arc(target.x, target.y, target.radius + 7, 0, Math.PI * 2)
+        ctx.strokeStyle = '#818cf8'
+        ctx.lineWidth = 2
         ctx.stroke()
 
-        ctx.font = '600 11.5px Inter, system-ui, sans-serif'
-        ctx.fillStyle = '#7c3aed'
+        ctx.font = '500 11px -apple-system, BlinkMacSystemFont, sans-serif'
+        ctx.fillStyle = isDark ? '#a5b4fc' : '#4f46e5'
         ctx.textAlign = 'center'
-        ctx.shadowBlur = 0
-        ctx.fillText(`🧩 松开以合并「${source.label}」入「${target.label}」`, target.x, target.y - target.radius - 14)
+        ctx.fillText(`松开合并实体: ${source.label} → ${target.label}`, target.x, target.y - target.radius - 10)
         ctx.restore()
       }
 
-      ctx.restore()
-      ctx.restore()
+      ctx.restore() // Restore transform
+      ctx.restore() // Restore dpr scale
 
       animId = requestAnimationFrame(render)
     }
 
     animId = requestAnimationFrame(render)
-    return () => cancelAnimationFrame(animId)
-  }, [selectedElement, nodeColors, runPhysicsStep])
+
+    return () => {
+      cancelAnimationFrame(animId)
+    }
+  }, [runPhysicsStep, selectedElement, nodeColors])
 
   // Mouse Handlers
   const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>): { screenX: number; screenY: number } => {
@@ -689,6 +1028,7 @@ export function ObsidianForceGraph({
     const nodes = Array.from(simNodesRef.current.values())
     for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i]
+      if (n.isVisible === false) continue
       if (excludeId && n.id === excludeId) continue
       const dx = n.x - worldX
       const dy = n.y - worldY
@@ -706,7 +1046,7 @@ export function ObsidianForceGraph({
     for (const edge of edges) {
       const s = nodeMap.get(edge.from)
       const t = nodeMap.get(edge.to)
-      if (!s || !t) continue
+      if (!s || !t || s.isVisible === false || t.isVisible === false) continue
       const dx = t.x - s.x
       const dy = t.y - s.y
       const lenSq = dx * dx + dy * dy
@@ -724,6 +1064,7 @@ export function ObsidianForceGraph({
   }
 
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    cameraAnimRef.current.active = false
     const { screenX, screenY } = getCanvasCoords(e)
     const { worldX, worldY } = screenToWorld(screenX, screenY)
     const hitNode = findNodeAt(worldX, worldY, undefined, 14)
@@ -903,6 +1244,7 @@ export function ObsidianForceGraph({
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault()
+    cameraAnimRef.current.active = false
     const { screenX, screenY } = getCanvasCoords(e)
     const zoomFactor = e.deltaY < 0 ? 1.12 : 0.89
 
@@ -919,6 +1261,7 @@ export function ObsidianForceGraph({
   }
 
   const handleZoomIn = () => {
+    cameraAnimRef.current.active = false
     const canvas = canvasRef.current
     if (!canvas) return
     const cx = canvas.clientWidth / 2
@@ -934,6 +1277,7 @@ export function ObsidianForceGraph({
   }
 
   const handleZoomOut = () => {
+    cameraAnimRef.current.active = false
     const canvas = canvasRef.current
     if (!canvas) return
     const cx = canvas.clientWidth / 2
@@ -952,9 +1296,8 @@ export function ObsidianForceGraph({
     <div ref={containerRef} className="relative h-full w-full min-h-[360px] overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/70 select-none group">
       <canvas
         ref={canvasRef}
-        className={`h-full w-full ${
-          isLinkMode ? 'cursor-crosshair' : isMergeMode ? 'cursor-alias' : 'cursor-grab active:cursor-grabbing'
-        }`}
+        className={`h-full w-full ${isLinkMode ? 'cursor-crosshair' : isMergeMode ? 'cursor-alias' : 'cursor-grab active:cursor-grabbing'
+          }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
@@ -962,16 +1305,31 @@ export function ObsidianForceGraph({
         onWheel={handleWheel}
       />
 
+      {/* Evolution Animation Status Indicator */}
+      {isEvolving && (
+        <div className="absolute top-2.5 right-3 flex items-center gap-2 rounded-full border border-sky-500/30 bg-cyber-bg-secondary/90 px-3 py-1 shadow-md backdrop-blur-md animate-in fade-in slide-in-from-top-1 z-10">
+          <Wand2 className="h-3.5 w-3.5 text-sky-400 animate-spin" />
+          <span className="text-[11px] font-medium text-cyber-text-primary">
+            网络演化生长中 · {evolutionProgress.current} / {evolutionProgress.total}
+          </span>
+          <button
+            onClick={skipEvolutionAnimation}
+            className="text-[10px] text-sky-400 hover:text-sky-300 underline font-medium transition-colors ml-0.5 cursor-pointer"
+          >
+            跳过
+          </button>
+        </div>
+      )}
+
       {/* Floating Control Toolbar (Obsidian style) */}
-      <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/90 p-1 shadow-xl backdrop-blur-md">
+      <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/90 p-1 shadow-md backdrop-blur-md">
         <Button
           size="sm"
           variant="ghost"
-          className={`h-7 px-2 gap-1 text-xs transition-colors ${
-            isMergeMode
-              ? 'text-violet-300 bg-violet-500/25 border border-violet-500/50 font-medium'
-              : 'text-cyber-text-muted hover:text-violet-300 hover:bg-violet-500/10'
-          }`}
+          className={`h-7 px-2 gap-1 text-xs transition-colors ${isMergeMode
+            ? 'text-indigo-400 bg-indigo-500/15 border border-indigo-500/30 font-medium'
+            : 'text-cyber-text-muted hover:text-indigo-300 hover:bg-indigo-500/10'
+            }`}
           onClick={() => {
             setIsMergeMode((prev) => !prev)
             if (!isMergeMode) setIsLinkMode(false)
@@ -984,11 +1342,10 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className={`h-7 px-2 gap-1 text-xs transition-colors ${
-            isLinkMode
-              ? 'text-cyber-neon-cyan bg-cyber-neon-cyan/20 border border-cyber-neon-cyan/50 font-medium'
-              : 'text-cyber-text-muted hover:text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10'
-          }`}
+          className={`h-7 px-2 gap-1 text-xs transition-colors ${isLinkMode
+            ? 'text-sky-400 bg-sky-500/15 border border-sky-500/30 font-medium'
+            : 'text-cyber-text-muted hover:text-sky-300 hover:bg-sky-500/10'
+            }`}
           onClick={() => {
             setIsLinkMode((prev) => !prev)
             if (!isLinkMode) setIsMergeMode(false)
@@ -1002,7 +1359,7 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
+          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-secondary"
           onClick={handleZoomIn}
           title="放大 (滚轮向上)"
         >
@@ -1011,7 +1368,7 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
+          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-secondary"
           onClick={handleZoomOut}
           title="缩小 (滚轮向下)"
         >
@@ -1020,8 +1377,8 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
-          onClick={() => { resetView(); reheat(0.8) }}
+          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-text-primary hover:bg-cyber-bg-secondary"
+          onClick={() => { resetView(undefined, true); reheat(0.8) }}
           title="居中适应画布"
         >
           <RotateCcw className="h-3.5 w-3.5" />
@@ -1029,11 +1386,14 @@ export function ObsidianForceGraph({
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 w-7 p-0 text-cyber-text-muted hover:text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
-          onClick={() => reheat(0.8)}
-          title="重新激活力学布局"
+          className={`h-7 w-7 p-0 transition-all ${isEvolving
+            ? 'text-sky-400 bg-sky-500/20 border border-sky-500/40'
+            : 'text-cyber-text-muted hover:text-sky-300 hover:bg-cyber-bg-secondary'
+            }`}
+          onClick={isEvolving ? skipEvolutionAnimation : startEvolutionAnimation}
+          title={isEvolving ? '点击跳过生长动画' : '演化生长回放 (Obsidian 延时生长动效)'}
         >
-          <Sparkles className="h-3.5 w-3.5" />
+          <Wand2 className={`h-3.5 w-3.5 ${isEvolving ? 'animate-spin' : ''}`} />
         </Button>
         <Button
           size="sm"
@@ -1047,12 +1407,12 @@ export function ObsidianForceGraph({
       </div>
 
       {/* Quick Interactive Hint Overlay */}
-      <div className="pointer-events-none absolute top-2.5 left-3 text-[10.5px] text-cyber-text-muted/80 flex items-center gap-2 bg-cyber-bg-primary/75 backdrop-blur-xs px-2.5 py-1 rounded-md border border-cyber-border-subtle/50">
-        <span className="flex items-center gap-1"><Move className="h-3 w-3 text-cyber-neon-cyan" /> 拖拽探索斥力</span>
-        <span className="opacity-40">|</span>
-        <span className="flex items-center gap-1"><Combine className="h-3 w-3 text-violet-400" /> 按住 Alt 拖拽可合并</span>
-        <span className="opacity-40">|</span>
-        <span className="flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-400" /> 按住 Shift 拖拽可连线</span>
+      <div className="pointer-events-none absolute top-2.5 left-3 text-[11px] text-cyber-text-muted/80 flex items-center gap-2 bg-cyber-bg-primary/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-cyber-border-subtle/60 shadow-xs">
+        <span className="flex items-center gap-1"><Move className="h-3 w-3 text-sky-400" /> 拖拽探索节点</span>
+        <span className="opacity-30">|</span>
+        <span className="flex items-center gap-1"><Combine className="h-3 w-3 text-indigo-400" /> 按住 Alt 拖拽合并</span>
+        <span className="opacity-30">|</span>
+        <span className="flex items-center gap-1"><Link2 className="h-3 w-3 text-emerald-400" /> 按住 Shift 拖拽连线</span>
       </div>
     </div>
   )
