@@ -19,6 +19,7 @@ import {
   History as HistoryIcon,
   Info,
   Link2,
+  Loader2,
   Network,
   RefreshCw,
   Shield,
@@ -1557,6 +1558,8 @@ export function ResearchReportsView({
 }) {
   const [comparison, setComparison] = useState<ReportComparison | null>(null)
   const [incrementalWorkflowId, setIncrementalWorkflowId] = useState<string | null>(null)
+  const [confirmIncrementalReport, setConfirmIncrementalReport] = useState<Report | null>(null)
+  const [isSubmittingIncremental, setIsSubmittingIncremental] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
 
@@ -1596,8 +1599,8 @@ export function ResearchReportsView({
     }
   }
 
-  const createIncremental = async (workflowId: string) => {
-    if (!window.confirm('将以该报告对应任务为基线，只分析基线完成后新增的证据。立即开始吗？')) return
+  const executeIncremental = async (workflowId: string) => {
+    setIsSubmittingIncremental(true)
     setIncrementalWorkflowId(workflowId)
     try {
       const response = await fetch(`/api/agent/plans/${encodeURIComponent(workflowId)}/incremental`, {
@@ -1611,9 +1614,11 @@ export function ResearchReportsView({
         return
       }
       toast.success('增量任务已创建并进入执行队列')
+      setConfirmIncrementalReport(null)
     } catch (err: any) {
       toast.error(err.message || '增量任务创建失败')
     } finally {
+      setIsSubmittingIncremental(false)
       setIncrementalWorkflowId(null)
     }
   }
@@ -1785,7 +1790,7 @@ export function ResearchReportsView({
                         variant="outline"
                         className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
                         disabled={incrementalWorkflowId === report.workflowId}
-                        onClick={() => createIncremental(report.workflowId!)}
+                        onClick={() => setConfirmIncrementalReport(report)}
                       >
                         <RefreshCw className={`h-3 w-3 ${incrementalWorkflowId === report.workflowId ? 'animate-spin' : ''}`} />
                         <span>增量研究更新</span>
@@ -1879,6 +1884,86 @@ export function ResearchReportsView({
           </div>
         )}
       </section>
+
+      {/* 增量研究更新二次确认弹窗 */}
+      <Dialog
+        open={!!confirmIncrementalReport}
+        onOpenChange={(open) => {
+          if (!open && !isSubmittingIncremental) {
+            setConfirmIncrementalReport(null)
+          }
+        }}
+      >
+        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10 text-cyber-neon-cyan shadow-[0_0_16px_rgba(34,211,238,0.15)]">
+                <RefreshCw className="h-5 w-5" />
+              </div>
+              <div className="text-left min-w-0 flex-1">
+                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
+                  发起增量研究更新
+                </DialogTitle>
+                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
+                  基于历史基线研报进行差异化递增分析
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="my-2 rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3.5 space-y-2.5 text-xs">
+            <div className="flex items-center justify-between text-cyber-text-muted">
+              <span>基线研报：</span>
+              <span className="font-medium text-cyber-text-primary truncate max-w-[220px]" title={confirmIncrementalReport?.title}>
+                {confirmIncrementalReport?.title}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-cyber-text-muted">
+              <span>基线版本：</span>
+              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/25">
+                v{confirmIncrementalReport?.versionNumber}
+              </span>
+            </div>
+            <div className="border-t border-cyber-border-subtle/60 pt-2.5 text-cyber-text-secondary leading-relaxed">
+              系统将以该报告对应任务为基线，仅分析基线完成之后<span className="text-cyber-neon-cyan font-medium">新增的证据文档与关联线索</span>，自动增量生成新版本研究报告。
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary"
+              onClick={() => setConfirmIncrementalReport(null)}
+              disabled={isSubmittingIncremental}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5 bg-cyber-neon-cyan text-cyber-bg-primary hover:bg-cyber-neon-cyan/90 font-medium text-xs shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+              disabled={isSubmittingIncremental}
+              onClick={() => {
+                if (confirmIncrementalReport?.workflowId) {
+                  executeIncremental(confirmIncrementalReport.workflowId)
+                }
+              }}
+            >
+              {isSubmittingIncremental ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>正在启动...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span>立即开始</span>
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

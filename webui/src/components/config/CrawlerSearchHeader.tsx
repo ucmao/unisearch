@@ -1,5 +1,6 @@
 import { useEffect, useState, KeyboardEvent } from 'react'
 import {
+  AlertTriangle,
   BookOpen,
   Music,
   Video,
@@ -23,6 +24,14 @@ import {
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { usePlatforms, useStartCrawler, useStopCrawler } from '@/hooks/useCrawler'
 import { usePlatformLabels } from '@/hooks/usePlatformCatalog'
@@ -125,6 +134,39 @@ export function CrawlerSearchHeader() {
   const isAnyRunning = Object.values(statuses).some((s) => s === 'running')
   const isAnyStopping = Object.values(statuses).some((s) => s === 'stopping')
 
+  const [largeSearchConfirmOpen, setLargeSearchConfirmOpen] = useState(false)
+  const [pendingLaunchParams, setPendingLaunchParams] = useState<{
+    finalKeywords: string
+    platforms: string[]
+  } | null>(null)
+
+  const executeLaunch = (finalKeywords: string, platformsToRun: string[]) => {
+    const taskId = crypto.randomUUID().replace(/-/g, '')
+    const onlyAiHot = platformsToRun.length === 1 && platformsToRun[0] === 'aihot'
+    const onlyGitHubRepositories = platformsToRun.length === 1 && platformsToRun[0] === 'github_repositories'
+    const aiHotMode = String(connectorOptions.aihot?.content_mode || 'items')
+    const taskTitle = finalKeywords || (config.crawler_type === 'detail'
+      ? '指定内容采集'
+        : onlyAiHot
+        ? aiHotMode === 'hot_topics' ? 'AI 当前热点（AI HOT）' : aiHotMode === 'latest_daily' ? 'AI 最新日报（AI HOT）' : 'AI 资讯搜索（AI HOT）'
+        : onlyGitHubRepositories
+          ? String(connectorOptions.github_repositories?.mode || 'general') === 'ai' ? 'GitHub AI 仓库趋势' : 'GitHub 仓库趋势'
+        : '创作者采集')
+    platformsToRun.forEach((p) => {
+      if (statuses[p] !== 'running' && statuses[p] !== 'stopping') {
+        startCrawler({
+          ...config,
+          platform: p,
+          connector_id: p,
+          connector_options: connectorOptions[p] || {},
+          keywords: finalKeywords,
+          thread_id: taskId,
+          task_title: taskTitle,
+        })
+      }
+    })
+  }
+
   const handleStartAll = () => {
     // If input is not empty, commit it first
     let finalKeywords = config.keywords
@@ -161,34 +203,12 @@ export function CrawlerSearchHeader() {
       .map((platform) => Number(connectorOptions[platform]?.max_items))
       .filter((target) => Number.isFinite(target) && target > 100)
     if (largeSearchTargets.length > 0) {
-      const confirmed = window.confirm(
-        '当前包含超过 100 条的单平台、单关键词目标。大批量搜索可能耗时较长，并可能因重复结果、结果耗尽或平台限制而少于目标数量。是否继续？',
-      )
-      if (!confirmed) return
+      setPendingLaunchParams({ finalKeywords, platforms: selectedPlatforms })
+      setLargeSearchConfirmOpen(true)
+      return
     }
 
-    const taskId = crypto.randomUUID().replace(/-/g, '')
-    const aiHotMode = String(connectorOptions.aihot?.content_mode || 'items')
-    const taskTitle = finalKeywords || (config.crawler_type === 'detail'
-      ? '指定内容采集'
-        : onlyAiHot
-        ? aiHotMode === 'hot_topics' ? 'AI 当前热点（AI HOT）' : aiHotMode === 'latest_daily' ? 'AI 最新日报（AI HOT）' : 'AI 资讯搜索（AI HOT）'
-        : onlyGitHubRepositories
-          ? String(connectorOptions.github_repositories?.mode || 'general') === 'ai' ? 'GitHub AI 仓库趋势' : 'GitHub 仓库趋势'
-        : '创作者采集')
-    selectedPlatforms.forEach((p) => {
-      if (statuses[p] !== 'running' && statuses[p] !== 'stopping') {
-        startCrawler({
-          ...config,
-          platform: p,
-          connector_id: p,
-          connector_options: connectorOptions[p] || {},
-          keywords: finalKeywords,
-          thread_id: taskId,
-          task_title: taskTitle,
-        })
-      }
-    })
+    executeLaunch(finalKeywords, selectedPlatforms)
   }
 
   const handleStopAll = () => {
@@ -349,6 +369,58 @@ export function CrawlerSearchHeader() {
           })}
         </div>
       </div>}
+
+      {/* 大批量搜索提示确认弹窗 */}
+      <Dialog open={largeSearchConfirmOpen} onOpenChange={setLargeSearchConfirmOpen}>
+        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.15)]">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div className="text-left min-w-0 flex-1">
+                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
+                  大批量搜索任务提示
+                </DialogTitle>
+                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
+                  单平台目标条数较多（超过 100 条）
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="my-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5 space-y-2 text-xs text-cyber-text-secondary leading-relaxed">
+            当前包含超过 100 条的单平台、单关键词采集目标。大批量搜索可能耗时较长，并可能因重复结果、数据耗尽或平台接口限制导致实际入库量少于目标条数。
+          </div>
+
+          <DialogFooter className="gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary"
+              onClick={() => {
+                setLargeSearchConfirmOpen(false)
+                setPendingLaunchParams(null)
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5 bg-cyber-neon-cyan text-cyber-bg-primary hover:bg-cyber-neon-cyan/90 font-medium text-xs shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+              onClick={() => {
+                if (pendingLaunchParams) {
+                  executeLaunch(pendingLaunchParams.finalKeywords, pendingLaunchParams.platforms)
+                }
+                setLargeSearchConfirmOpen(false)
+                setPendingLaunchParams(null)
+              }}
+            >
+              继续启动
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
