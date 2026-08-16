@@ -847,6 +847,20 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     return { status: 'ok', artifact_id };
   });
 
+  fastify.patch('/api/reports/:artifact_id', async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+    const body = (request.body || {}) as { title?: string };
+    if (!body.title || !body.title.trim()) {
+      return reply.status(400).send({ detail: '报告标题不能为空' });
+    }
+    try {
+      const updated = reportArtifactService.updateTitle(artifact_id, body.title);
+      return { status: 'ok', report: updated };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
   fastify.post('/api/reports/batch-delete', async (request, reply) => {
     const body = (request.body || {}) as { artifact_ids?: string[] };
     if (!Array.isArray(body.artifact_ids) || !body.artifact_ids.length) {

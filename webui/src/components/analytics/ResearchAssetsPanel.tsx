@@ -4,11 +4,14 @@ import { dataApi } from '@/lib/api'
 import {
   Activity,
   AlertTriangle,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Combine,
+  Copy,
   Download,
+  Edit3,
   ExternalLink,
   FileCode,
   FileJson,
@@ -44,6 +47,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ObsidianForceGraph } from './ObsidianForceGraph'
+import { MarkdownContent } from '@/components/agent/MarkdownContent'
 import { usePlatformLabels, platformLabel } from '@/hooks/usePlatformCatalog'
 
 const REPORT_FORMAT_OPTIONS = [
@@ -92,18 +96,18 @@ export function ReportDownloadDropdown({ artifactId }: { artifactId: string }) {
         size="sm"
         variant="outline"
         onClick={() => setOpen((prev) => !prev)}
-        className="h-7 gap-1.5 px-2.5 text-[11px] border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/20 hover:border-cyber-neon-cyan/60 transition-colors"
+        className="h-8 gap-1.5 px-3 text-xs border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white transition-colors shadow-sm font-medium"
       >
-        <Download className="h-3 w-3" />
+        <Download className="h-3.5 w-3.5" />
         <span>导出报告</span>
-        <ChevronDown className={`h-3 w-3 opacity-70 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3 w-3 opacity-60 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
       </Button>
 
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-40 w-64 rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/95 p-1.5 shadow-2xl backdrop-blur-md animate-in fade-in-0 zoom-in-95">
+        <div className="absolute right-0 top-full mt-1.5 z-40 w-64 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 p-1.5 shadow-xl backdrop-blur-md animate-in fade-in-0 zoom-in-95">
           {REPORT_FORMAT_OPTIONS.map((group, gIdx) => (
-            <div key={group.category} className={gIdx > 0 ? 'mt-1.5 border-t border-cyber-border-subtle/60 pt-1.5' : ''}>
-              <div className="px-2 py-0.5 text-[9px] font-semibold tracking-wider text-cyber-text-muted/70 uppercase">
+            <div key={group.category} className={gIdx > 0 ? 'mt-1.5 border-t border-slate-100 dark:border-slate-700/60 pt-1.5' : ''}>
+              <div className="px-2 py-0.5 text-[10px] font-semibold tracking-wider text-slate-400 dark:text-slate-400 uppercase">
                 {group.category}
               </div>
               <div className="mt-0.5 space-y-0.5">
@@ -113,17 +117,17 @@ export function ReportDownloadDropdown({ artifactId }: { artifactId: string }) {
                     href={`/api/reports/${artifactId}/download?format=${item.format}`}
                     download
                     onClick={() => setOpen(false)}
-                    className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-cyber-text-primary hover:bg-cyber-neon-cyan/10 hover:text-cyber-neon-cyan transition-colors group"
+                    className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white transition-colors group"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <item.icon className="h-3.5 w-3.5 shrink-0 text-cyber-text-muted group-hover:text-cyber-neon-cyan" />
+                      <item.icon className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
                       <div className="min-w-0">
-                        <span className="font-medium text-cyber-text-primary group-hover:text-cyber-neon-cyan">{item.label}</span>
-                        <span className="ml-1.5 text-[10px] text-cyber-text-muted">{item.hint}</span>
+                        <span className="font-medium text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400">{item.label}</span>
+                        <span className="ml-1.5 text-[10px] text-slate-400 dark:text-slate-400">{item.hint}</span>
                       </div>
                     </div>
                     {item.highlight && (
-                      <span className="shrink-0 rounded bg-cyber-neon-cyan/20 px-1 py-0.5 text-[9px] text-cyber-neon-cyan font-medium">
+                      <span className="shrink-0 rounded bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 px-1.5 py-0.5 text-[10px] font-medium">
                         推荐
                       </span>
                     )}
@@ -151,7 +155,7 @@ export type Graph = {
   nodes: GraphNode[]
   edges: Edge[]
 }
-export type Report = { artifactId: string; workflowId?: string; title: string; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string; isArchived?: boolean }
+export type Report = { artifactId: string; workflowId?: string; title: string; content?: string; citations?: any[]; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string; isArchived?: boolean }
 export type ReportComparison = { from: { versionNumber: number }; to: { versionNumber: number }; documents: { added: string[]; removed: string[]; updated: string[]; unchanged: number }; citations: { added: string[]; removed: string[] }; sections: { added: string[]; removed: string[]; changed: string[] }; contentChanged: boolean }
 export type RelevanceAssessment = { assessmentId: string; phase: 'initial' | 'rewrite'; provider: string; query: string; resultCount: number; precisionAt10: number; status: 'good' | 'weak' | 'empty'; rewrittenQuery?: string }
 export type Health = { connectorId: string; state: string; successRate: number; yieldRate: number; fieldCoverage: number; lastErrorMessage?: string }
@@ -1581,6 +1585,154 @@ export function KnowledgeGraphView({
 }
 
 /**
+ * 格式化完整的 Markdown 研报正文（包含标题、正文、引用溯源资料与生成信息）
+ * 确保“复制全文”与下载的 Markdown / Word / PDF 内容 100% 保持一致
+ */
+function formatFullReportMarkdown(report: Report): string {
+  const parts: string[] = []
+  const content = (report.content || '').trim()
+  if (!content.startsWith('# ')) {
+    parts.push(`# ${report.title}\n`)
+  }
+  parts.push(content)
+
+  if (report.citations && report.citations.length > 0) {
+    parts.push('\n\n## 引用资料\n')
+    report.citations.forEach((source: any, idx: number) => {
+      const sid = source.id || `S${idx + 1}`
+      const title = source.title || source.source || '参考来源'
+      const url = source.sourceUrl || '#'
+      parts.push(`- [${sid}] [${title}](${url})`)
+    })
+    parts.push('\n---\n')
+    parts.push(`报告制品：${report.artifactId}`)
+    parts.push(`生成时间：${new Date(report.createdAt).toLocaleString()}`)
+  }
+
+  return parts.join('\n')
+}
+
+/**
+ * 研报正文白底居中阅读 Modal (ReportPreviewModal)
+ * - 顶部栏采用清爽浅灰色 (bg-slate-50)，与纯白正文形成雅致微区分
+ * - 顶栏右侧配置“复制全文”（含完整引用与来源链接）、“导出报告”（已修复对齐防止裁剪）与单有关闭 X 图标
+ * - 正文底部预留 80px (pb-20) 充足呼吸空间并附加优雅的“正文完”结束符，符合顶级阅读器规范
+ */
+function ReportPreviewModal({
+  report,
+  onOpenChange,
+}: {
+  report: Report | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const [isCopied, setIsCopied] = useState(false)
+
+  const handleCopyContent = () => {
+    if (!report?.content) return
+    const fullMarkdown = formatFullReportMarkdown(report)
+    navigator.clipboard.writeText(fullMarkdown)
+    setIsCopied(true)
+    toast.success('已复制完整报告（含引用来源与元数据）')
+    setTimeout(() => setIsCopied(false), 2000)
+  }
+
+  return (
+    <Dialog open={Boolean(report)} onOpenChange={onOpenChange}>
+      <DialogContent
+        hideClose
+        className="max-w-4xl w-[90vw] max-h-[86vh] flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 !bg-white bg-white !p-0 !gap-0 shadow-2xl text-slate-900"
+      >
+        {report ? (
+          <>
+            {/* 顶栏 Header - 浅灰背景 (bg-slate-50)，带有微弱边框与白底正文形成恰到好处的区分 */}
+            <div className="px-6 sm:px-8 py-3.5 border-b border-slate-200/80 shrink-0 bg-slate-50 flex items-center justify-between gap-4">
+              {/* 左侧：版本号徽章与元资料 */}
+              <div className="flex items-center gap-2.5 min-w-0 flex-1 flex-wrap">
+                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-mono font-semibold bg-white text-slate-700 border border-slate-200 shadow-2xs leading-none">
+                  v{report.versionNumber}
+                </span>
+
+                {report.isArchived ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100/70 text-amber-800 border border-amber-200/80">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    源数据已归档
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-emerald-100/70 text-emerald-800 border border-emerald-200/80">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    数据源完整
+                  </span>
+                )}
+
+                <span className="text-slate-300 text-xs hidden sm:inline">|</span>
+
+                <span className="text-xs text-slate-500 truncate">
+                  固化引用 {report.documentIds?.length || 0} 个证据文档 · 生成于 {new Date(report.createdAt).toLocaleString()}
+                </span>
+
+                {/* 隐式 DialogTitle 保障 accessibility */}
+                <DialogTitle className="sr-only">
+                  {report.title}
+                </DialogTitle>
+              </div>
+
+              {/* 右侧：复制全文、导出与单有关闭按钮 */}
+              <div className="shrink-0 flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopyContent}
+                  className="h-8 gap-1.5 px-3 text-xs font-medium text-slate-700 bg-white border-slate-200 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-2xs rounded-lg"
+                  title="一键复制完整报告 Markdown（含引用来源与元数据）"
+                >
+                  {isCopied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5 text-slate-500" />}
+                  <span>{isCopied ? '已复制完整内容' : '复制全文'}</span>
+                </Button>
+
+                <ReportDownloadDropdown artifactId={report.artifactId} />
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onOpenChange(false)}
+                  className="h-8 w-8 rounded-lg text-slate-400 hover:bg-slate-200/60 hover:text-slate-700 transition-colors"
+                  title="关闭预览 (Esc)"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* 纯白正文阅读区 - 预留 80px (pb-20) 底部舒适呼吸空间 */}
+            <div className="flex-1 overflow-y-auto px-6 sm:px-14 pt-6 pb-20 !bg-white bg-white min-h-0">
+              <div className="report-markdown-light text-slate-800 text-sm leading-relaxed">
+                {report.content ? (
+                  <>
+                    <MarkdownContent
+                      content={report.content}
+                      sources={report.citations}
+                    />
+                    {/* 大厂规范：正文结尾标识与统计 */}
+                    <div className="mt-12 pt-6 border-t border-slate-100 flex items-center justify-center text-xs text-slate-400 select-none">
+                      <span>— 研报正文完 · 共 {report.content.length.toLocaleString()} 字 —</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="py-20 text-center text-slate-400 text-xs">
+                    <FileText className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                    暂无报告正文内容
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
  * 研报制品与对比视图 (ResearchReportsView)
  */
 export function ResearchReportsView({
@@ -1602,6 +1754,31 @@ export function ResearchReportsView({
   const [selectedReportIds, setSelectedReportIds] = useState<string[]>([])
   const [isBatchDeleting, setIsBatchDeleting] = useState(false)
   const [isBatchConfirmOpen, setIsBatchConfirmOpen] = useState(false)
+
+  // 标题修改与正文预览状态
+  const [editingArtifactId, setEditingArtifactId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const [isSubmittingTitle, setIsSubmittingTitle] = useState(false)
+  const [previewReport, setPreviewReport] = useState<Report | null>(null)
+  const [showQualityWarningsModal, setShowQualityWarningsModal] = useState(false)
+
+  const handleSaveTitle = async (artifactId: string) => {
+    if (!editingTitle.trim()) {
+      toast.error('报告标题不能为空')
+      return
+    }
+    setIsSubmittingTitle(true)
+    try {
+      await dataApi.updateReportTitle(artifactId, editingTitle.trim())
+      await queryClient.invalidateQueries({ queryKey: ['research-reports'] })
+      toast.success('已更新报告标题')
+      setEditingArtifactId(null)
+    } catch (err: any) {
+      toast.error(err.message || '更新标题失败')
+    } finally {
+      setIsSubmittingTitle(false)
+    }
+  }
 
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
 
@@ -1699,28 +1876,39 @@ export function ResearchReportsView({
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-3 sm:p-4">
       {/* 顶部：数据质量门禁概览卡片 */}
-      <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4">
+      <section className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 p-4 shadow-sm backdrop-blur-sm">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-cyber-neon-cyan" />
-            <h3 className="text-sm font-semibold text-cyber-text-primary">数据质量门禁</h3>
+            <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">数据质量门禁</h3>
+            {qualityQuery.data?.warnings && qualityQuery.data.warnings.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowQualityWarningsModal(true)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/80 dark:text-amber-300 dark:bg-amber-950/40 dark:border-amber-800/60 transition-colors"
+                title="点击查看采集与数据质量说明"
+              >
+                <Info className="h-3 w-3 text-amber-600 dark:text-amber-400" />
+                <span>{qualityQuery.data.warnings.length} 条数据提示</span>
+              </button>
+            )}
           </div>
           {qualityQuery.data && (
             <span
               className={`rounded-full px-2.5 py-0.5 text-xs font-medium border flex items-center gap-1.5 ${
                 qualityQuery.data.status === 'ready'
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                  ? 'border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
                   : qualityQuery.data.status === 'limited'
-                  ? 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-                  : 'border-rose-500/30 bg-rose-500/10 text-rose-400'
+                  ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                  : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
               }`}
             >
               {qualityQuery.data.status === 'ready' ? (
-                <><CheckCircle2 className="h-3.5 w-3.5" /><span>质量合格 · 可生成严谨研报</span></>
+                <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /><span>质量合格 · 可生成严谨研报</span></>
               ) : qualityQuery.data.status === 'limited' ? (
-                <><AlertTriangle className="h-3.5 w-3.5" /><span>有限结论 · 建议补充采集</span></>
+                <><AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" /><span>有限结论 · 建议补充采集</span></>
               ) : (
-                <><XCircle className="h-3.5 w-3.5" /><span>样本不足</span></>
+                <><XCircle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" /><span>样本不足</span></>
               )}
             </span>
           )}
@@ -1728,48 +1916,37 @@ export function ResearchReportsView({
 
         {qualityQuery.data ? (
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3">
-              <span className="text-[11px] text-cyber-text-muted">合格文档数</span>
-              <p className="mt-1 text-base font-semibold text-cyber-text-primary">
-                {qualityQuery.data.qualifiedCount} <span className="text-xs font-normal text-cyber-text-muted">/ {qualityQuery.data.documentCount}</span>
+            <div className="rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60 p-3">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">合格文档数</span>
+              <p className="mt-1 text-base font-bold text-slate-900 dark:text-white">
+                {qualityQuery.data.qualifiedCount} <span className="text-xs font-normal text-slate-400 dark:text-slate-500">/ {qualityQuery.data.documentCount}</span>
               </p>
             </div>
-            <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3">
-              <span className="text-[11px] text-cyber-text-muted">正文覆盖率</span>
-              <p className="mt-1 text-base font-semibold text-emerald-400">
+            <div className="rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60 p-3">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">正文覆盖率</span>
+              <p className="mt-1 text-base font-bold text-slate-900 dark:text-white">
                 {Math.round(qualityQuery.data.metrics.textCoverage * 100)}%
               </p>
             </div>
-            <div className="rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3">
-              <span className="text-[11px] text-cyber-text-muted">原始来源覆盖</span>
-              <p className="mt-1 text-base font-semibold text-cyber-neon-cyan">
+            <div className="rounded-lg border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60 p-3">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">原始来源覆盖</span>
+              <p className="mt-1 text-base font-bold text-slate-900 dark:text-white">
                 {Math.round(qualityQuery.data.metrics.urlCoverage * 100)}%
               </p>
             </div>
           </div>
         ) : (
-          <p className="mt-2 text-xs text-cyber-text-muted">暂无质量门禁评估数据</p>
-        )}
-
-        {qualityQuery.data?.warnings && qualityQuery.data.warnings.length > 0 && (
-          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-cyber-text-secondary flex items-start gap-2">
-            <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
-            <div className="space-y-0.5 leading-relaxed">
-              {qualityQuery.data.warnings.map((warning, idx) => (
-                <p key={idx}>{warning}</p>
-              ))}
-            </div>
-          </div>
+          <p className="mt-2 text-xs text-slate-400">暂无质量门禁评估数据</p>
         )}
       </section>
 
       {/* 研报制品列表 */}
-      <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4 flex-1">
-        <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
+      <section className="rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 p-4 flex-1 shadow-sm backdrop-blur-sm">
+        <div className="mb-3.5 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-cyber-neon-cyan" />
-            <h3 className="text-sm font-semibold text-cyber-text-primary">版本化研究报告</h3>
-            <span className="text-xs text-cyber-text-muted">
+            <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white">版本化研究报告</h3>
+            <span className="text-xs text-slate-400 dark:text-slate-500">
               (已生成 {(reportsQuery.data || []).length} 份版本制品)
             </span>
           </div>
@@ -1780,7 +1957,7 @@ export function ResearchReportsView({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 text-xs text-cyber-text-muted hover:text-cyber-text-primary"
+                  className="h-7 text-xs text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                   onClick={() => {
                     const allIds = (reportsQuery.data || []).map((r) => r.artifactId)
                     if (selectedReportIds.length === allIds.length) {
@@ -1795,7 +1972,7 @@ export function ResearchReportsView({
                 {selectedReportIds.length > 0 && (
                   <Button
                     size="sm"
-                    className="h-7 gap-1.5 px-2.5 text-xs bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40"
+                    className="h-7 gap-1.5 px-2.5 text-xs bg-rose-500 text-white hover:bg-rose-600 font-medium"
                     onClick={() => setIsBatchConfirmOpen(true)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -1805,7 +1982,7 @@ export function ResearchReportsView({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+                  className="h-7 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
                   onClick={() => {
                     setIsBatchMode(false)
                     setSelectedReportIds([])
@@ -1819,7 +1996,7 @@ export function ResearchReportsView({
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+                  className="h-7 gap-1.5 px-2.5 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                   onClick={() => setIsBatchMode(true)}
                 >
                   <Filter className="h-3.5 w-3.5" />
@@ -1832,68 +2009,68 @@ export function ResearchReportsView({
 
         {/* 报告版本对比结果面板 */}
         {comparison && (
-          <div className="mb-4 rounded-xl border border-cyber-neon-cyan/40 bg-cyber-neon-cyan/10 p-3.5 text-xs">
-            <div className="flex items-center justify-between border-b border-cyber-neon-cyan/20 pb-2">
-              <strong className="text-cyber-text-primary text-sm flex items-center gap-2">
-                <GitCompare className="h-4 w-4 text-cyber-neon-cyan" />
+          <div className="mb-4 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 p-3.5 text-xs">
+            <div className="flex items-center justify-between border-b border-blue-100 dark:border-blue-900/40 pb-2">
+              <strong className="text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                <GitCompare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                 <span className="inline-flex items-center gap-1.5">
                   报告演进差异对比：
-                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 leading-none">
+                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 leading-none">
                     v{comparison.from.versionNumber}
                   </span>
-                  <span className="text-cyber-text-muted text-xs">➔</span>
-                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 leading-none">
+                  <span className="text-slate-400 text-xs">➔</span>
+                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 leading-none">
                     v{comparison.to.versionNumber}
                   </span>
                 </span>
               </strong>
               <button
                 type="button"
-                className="text-cyber-text-muted hover:text-cyber-text-primary text-xs px-2 py-0.5"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs px-2 py-0.5"
                 onClick={() => setComparison(null)}
               >
                 关闭对比
               </button>
             </div>
-            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-cyber-text-secondary">
+            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-600 dark:text-slate-300">
               <div>
-                <span className="font-medium text-cyber-text-primary">证据文档变化：</span>
+                <span className="font-medium text-slate-900 dark:text-white">证据文档变化：</span>
                 <p className="mt-1">
-                  新增 <strong className="text-emerald-400">{comparison.documents.added.length}</strong> 篇、更新 <strong className="text-amber-400">{comparison.documents.updated.length}</strong> 篇、移除 <strong className="text-rose-400">{comparison.documents.removed.length}</strong> 篇、沿用 {comparison.documents.unchanged} 篇
+                  新增 <strong className="text-emerald-600 dark:text-emerald-400">{comparison.documents.added.length}</strong> 篇、更新 <strong className="text-amber-600 dark:text-amber-400">{comparison.documents.updated.length}</strong> 篇、移除 <strong className="text-rose-600 dark:text-rose-400">{comparison.documents.removed.length}</strong> 篇、沿用 {comparison.documents.unchanged} 篇
                 </p>
               </div>
               <div>
-                <span className="font-medium text-cyber-text-primary">章节结构变化：</span>
+                <span className="font-medium text-slate-900 dark:text-white">章节结构变化：</span>
                 <p className="mt-1">
-                  新增 <strong className="text-emerald-400">{comparison.sections.added.length}</strong> 节、删除 <strong className="text-rose-400">{comparison.sections.removed.length}</strong> 节、内容修订 <strong className="text-cyber-neon-cyan">{comparison.sections.changed.length}</strong> 节
+                  新增 <strong className="text-emerald-600 dark:text-emerald-400">{comparison.sections.added.length}</strong> 节、删除 <strong className="text-rose-600 dark:text-rose-400">{comparison.sections.removed.length}</strong> 节、内容修订 <strong className="text-blue-600 dark:text-blue-400">{comparison.sections.changed.length}</strong> 节
                 </p>
               </div>
             </div>
             {comparison.sections.changed.length > 0 && (
-              <p className="mt-2 text-[11px] text-cyber-text-muted truncate">
+              <p className="mt-2 text-[11px] text-slate-400 truncate">
                 发生修订的章节：{comparison.sections.changed.join('、')}
               </p>
             )}
           </div>
         )}
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {(reportsQuery.data || []).length > 0 ? (
             reportsQuery.data!.map((report) => (
               <div
                 key={report.artifactId}
-                className={`rounded-xl border p-4 transition-all ${
+                className={`rounded-xl border p-3.5 sm:p-4 transition-all ${
                   isBatchMode && selectedReportIds.includes(report.artifactId)
-                    ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10'
-                    : 'border-cyber-border-subtle bg-cyber-bg-primary/50 hover:border-cyber-border-default'
+                    ? 'border-blue-500/50 bg-blue-50/30 dark:bg-blue-950/20'
+                    : 'border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-slate-850/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm'
                 }`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
+                <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-3 min-w-0">
                     {isBatchMode && (
                       <input
                         type="checkbox"
-                        className="mt-1 h-4 w-4 rounded border-cyber-border-subtle text-cyber-neon-cyan focus:ring-0 cursor-pointer"
+                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
                         checked={selectedReportIds.includes(report.artifactId)}
                         onChange={() => {
                           setSelectedReportIds((current) =>
@@ -1904,67 +2081,126 @@ export function ResearchReportsView({
                         }}
                       />
                     )}
-                    <div className="min-w-0">
+                    <div className="min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="text-sm font-semibold text-cyber-text-primary truncate">
-                          {report.title}
-                        </h4>
-                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/25 leading-none">
-                          v{report.versionNumber}
-                        </span>
-                        {report.isArchived ? (
-                          <span
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30"
-                            title="原始抓取任务及文档已被清理，报告处于归档快照模式，正文与导出功能完整保存"
-                          >
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-                            源数据已归档
-                          </span>
+                        {editingArtifactId === report.artifactId ? (
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <input
+                              type="text"
+                              className="h-7 rounded border border-blue-500/60 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[260px] sm:max-w-[380px]"
+                              value={editingTitle}
+                              onChange={(e) => setEditingTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  handleSaveTitle(report.artifactId)
+                                } else if (e.key === 'Escape') {
+                                  setEditingArtifactId(null)
+                                }
+                              }}
+                              autoFocus
+                              disabled={isSubmittingTitle}
+                            />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50"
+                              onClick={() => handleSaveTitle(report.artifactId)}
+                              disabled={isSubmittingTitle}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-slate-600"
+                              onClick={() => setEditingArtifactId(null)}
+                              disabled={isSubmittingTitle}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
                         ) : (
+                          <div className="flex items-center gap-2 group/title min-w-0">
+                            <h4
+                              className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                              title="点击在线预览研报正文"
+                              onClick={() => setPreviewReport(report)}
+                            >
+                              {report.title}
+                            </h4>
+
+                            {/* V1, V2 标识紧跟在标题后面 */}
+                            <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 leading-none">
+                              v{report.versionNumber}
+                            </span>
+
+                            <button
+                              type="button"
+                              className="opacity-0 group-hover/title:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                              title="修改报告标题"
+                              onClick={() => {
+                                setEditingArtifactId(report.artifactId)
+                                setEditingTitle(report.title)
+                              }}
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* 去掉绿色“数据源完整”标签，仅在归档模式时显示细型无压迫提示 */}
+                        {report.isArchived && (
                           <span
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                            title="底层抓取数据完整，可随时回溯证据链出处"
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.25 text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/50"
+                            title="原始抓取任务及文档已被清理，报告处于归档快照模式"
                           >
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                            数据源完整
+                            源数据已归档
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-cyber-text-muted">
-                        固化引用 <strong className="text-cyber-text-primary">{report.documentIds.length}</strong> 个证据文档 · 生成于 {new Date(report.createdAt).toLocaleString()}
+
+                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
+                        <span>固化引用 <strong className="font-semibold text-slate-800 dark:text-slate-200">{report.documentIds.length}</strong> 个文档</span>
+                        <span>·</span>
+                        <span>生成于 {new Date(report.createdAt).toLocaleString()}</span>
                       </p>
                     </div>
                   </div>
 
+                  {/* 右侧操作按钮 */}
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    {/* 导出 */}
                     <ReportDownloadDropdown artifactId={report.artifactId} />
-                    {report.previousArtifactId ? (
+
+                    {/* 功能辅助按钮 */}
+                    {report.previousArtifactId && (
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+                        className="h-8 gap-1.5 px-2.5 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                         onClick={() => compareReport(report.artifactId)}
                       >
-                        <GitCompare className="h-3 w-3" />
+                        <GitCompare className="h-3.5 w-3.5" />
                         <span>对比 v{report.versionNumber - 1}</span>
                       </Button>
-                    ) : null}
-                    {report.workflowId ? (
+                    )}
+                    {report.workflowId && (
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+                        className="h-8 gap-1.5 px-2.5 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                         disabled={incrementalWorkflowId === report.workflowId}
                         onClick={() => setConfirmIncrementalReport(report)}
                       >
-                        <RefreshCw className={`h-3 w-3 ${incrementalWorkflowId === report.workflowId ? 'animate-spin' : ''}`} />
-                        <span>增量研究更新</span>
+                        <RefreshCw className={`h-3.5 w-3.5 ${incrementalWorkflowId === report.workflowId ? 'animate-spin' : ''}`} />
+                        <span>增量更新</span>
                       </Button>
-                    ) : null}
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="h-7 w-7 p-0 text-cyber-text-muted hover:text-rose-400 hover:bg-rose-500/10"
+                      className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
                       onClick={() => setReportToDelete(report)}
                       title="删除此研报"
                     >
@@ -1975,8 +2211,8 @@ export function ResearchReportsView({
               </div>
             ))
           ) : (
-            <div className="py-12 text-center text-xs text-cyber-text-muted space-y-2">
-              <FileText className="h-8 w-8 mx-auto opacity-40 text-cyber-neon-cyan" />
+            <div className="py-12 text-center text-xs text-slate-400 space-y-2">
+              <FileText className="h-8 w-8 mx-auto opacity-30 text-slate-500" />
               <p>当前任务范围暂无生成的研报制品</p>
               <p className="text-[11px] opacity-75">在智能对话中完成一次深度研究任务后，会自动在此生成带严格证据链的版本化研报</p>
             </div>
@@ -2182,6 +2418,47 @@ export function ResearchReportsView({
             <Button size="sm" className="h-8 text-xs bg-rose-500 text-white hover:bg-rose-600 font-medium" onClick={handleDeleteBatchReports} disabled={isBatchDeleting}>
               {isBatchDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
               确认批量删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 研报正文白底居中阅读 Modal */}
+      <ReportPreviewModal
+        report={previewReport}
+        onOpenChange={(open) => { if (!open) setPreviewReport(null) }}
+      />
+
+      {/* 数据质量警告说明 Dialog */}
+      <Dialog open={showQualityWarningsModal} onOpenChange={setShowQualityWarningsModal}>
+        <DialogContent className="max-w-md border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Info className="h-4 w-4 text-amber-500" />
+              数据质量与采集说明
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              以下为本任务在数据采集与校验过程中产生的提示信息：
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-3 space-y-2 max-h-60 overflow-y-auto pr-1">
+            {qualityQuery.data?.warnings?.map((warning, idx) => (
+              <div key={idx} className="rounded-lg border border-amber-200/80 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-950/30 p-2.5 text-xs text-amber-900 dark:text-amber-200 leading-relaxed flex items-start gap-2">
+                <span className="font-semibold text-amber-600 dark:text-amber-400">•</span>
+                <span>{warning}</span>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="mt-4">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+              onClick={() => setShowQualityWarningsModal(false)}
+            >
+              知道了
             </Button>
           </DialogFooter>
         </DialogContent>

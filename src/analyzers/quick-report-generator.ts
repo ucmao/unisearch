@@ -130,6 +130,20 @@ export function buildQuickReportBoundary(coverage: QuickAnalysisCoverage): strin
   ].join('\n');
 }
 
+export function extractReportTitle(markdown: string, fallbackName?: string, userGoal?: string): string {
+  const match = markdown.match(/^#\s+(.+)$/m);
+  if (match && match[1].trim()) {
+    const title = match[1].trim().replace(/[*_~`]/g, '');
+    if (title.length > 0) return title;
+  }
+  const goalStr = (userGoal || '').trim().replace(/[\r\n]+/g, ' ').slice(0, 40);
+  if (goalStr) {
+    const prefix = fallbackName ? `${fallbackName}：` : '';
+    return `${prefix}${goalStr}`;
+  }
+  return fallbackName || '数据采集分析报告';
+}
+
 export class QuickReportGenerator {
   constructor(
     private readonly selector: Pick<EvidenceSelector, 'select'> = evidenceSelector,
@@ -285,8 +299,9 @@ export class QuickReportGenerator {
       ].join('\n');
     }
     const coverage = buildQuickAnalysisCoverage(request.datasetProfile, selection.evidence, body, Boolean(request.partial));
+    const derivedTitle = extractReportTitle(body, request.reportName, request.userRequest || request.workflowGoal);
     return {
-      title: request.reportName,
+      title: derivedTitle,
       answer: body,
       sources,
       coverage,

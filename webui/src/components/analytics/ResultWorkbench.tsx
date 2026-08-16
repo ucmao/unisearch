@@ -14,7 +14,10 @@ import {
   ChevronsDown,
   ChevronsUp,
   BookOpen,
+  Bookmark,
   Bot,
+  Eye,
+  ThumbsUp,
   Settings2,
   Sparkles,
   Share2,
@@ -48,7 +51,6 @@ import { isMacPlatform } from '@/lib/utils'
 import { useCrawlerStore } from '@/store/crawlerStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { DeleteConfirmDialog } from '@/components/data/DeleteConfirmDialog'
@@ -517,11 +519,11 @@ function CommentsSection({ document }: { document: CanonicalDocument }) {
   if (isLoading) {
     return (
       <section className="space-y-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-cyber-text-muted flex items-center gap-1.5">
-          <MessageSquare className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <MessageSquare className="h-3.5 w-3.5 text-blue-500" />
           关联评论区
         </h3>
-        <div className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-4 text-xs text-cyber-text-muted animate-pulse">
+        <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-4 text-xs text-slate-400 animate-pulse">
           正在检索该主帖关联评论...
         </div>
       </section>
@@ -531,27 +533,27 @@ function CommentsSection({ document }: { document: CanonicalDocument }) {
   return (
     <section className="space-y-2.5">
       <div className="flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-cyber-text-muted flex items-center gap-1.5">
-          <MessageSquare className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+          <MessageSquare className="h-3.5 w-3.5 text-blue-500" />
           关联评论区 ({comments.length})
         </h3>
       </div>
       {comments.length > 0 ? (
         <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
           {comments.map((comment) => (
-            <div key={comment.documentId} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/30 p-3 text-xs space-y-1 hover:border-cyber-neon-cyan/30 transition-colors">
-              <div className="flex items-center justify-between text-[11px] text-cyber-text-muted">
-                <span className="font-medium text-cyber-text-primary flex items-center gap-1">
-                  <User className="h-3 w-3 text-cyber-neon-cyan/70" />
+            <div key={comment.documentId} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-3.5 text-xs space-y-1.5 hover:border-slate-200 hover:bg-white hover:shadow-xs transition-all">
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span className="font-semibold text-slate-800 flex items-center gap-1">
+                  <User className="h-3 w-3 text-blue-500/80" />
                   {comment.subject?.name || comment.subject?.id || '匿名用户'}
                 </span>
                 <span>{formatDate(comment.publishedAt)}</span>
               </div>
-              <p className="text-cyber-text-secondary leading-relaxed font-sans whitespace-pre-wrap break-words">
+              <p className="text-slate-700 leading-relaxed font-sans whitespace-pre-wrap break-words">
                 {comment.markdown || comment.summary || '—'}
               </p>
               {comment.metrics && Object.keys(comment.metrics).length > 0 && (
-                <div className="flex items-center gap-3 pt-1 text-[10px] text-cyber-text-muted font-mono">
+                <div className="flex items-center gap-3 pt-1 text-[10px] text-slate-400 font-mono">
                   {typeof comment.metrics.likes === 'number' && <span>👍 {formatNumber(comment.metrics.likes)}</span>}
                   {typeof comment.metrics.replies === 'number' && <span>💬 {formatNumber(comment.metrics.replies)}</span>}
                 </div>
@@ -560,7 +562,7 @@ function CommentsSection({ document }: { document: CanonicalDocument }) {
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-cyber-border-subtle/80 bg-cyber-bg-secondary/20 p-4 text-center text-xs text-cyber-text-muted/70">
+        <div className="rounded-xl border border-slate-100 bg-slate-50/40 p-4 text-center text-xs text-slate-400">
           当前数据集中未包含该主帖的衍生评论
         </div>
       )}
@@ -620,36 +622,36 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
     <Dialog open={Boolean(document)} onOpenChange={onOpenChange}>
       <DialogContent
         hideClose
-        overlayClassName="bg-black/20 backdrop-blur-[1px]"
+        overlayClassName="bg-black/25 backdrop-blur-xs"
         style={{ width: `min(${drawerWidth}px, 94vw)` }}
-        className={`left-auto right-0 top-0 flex h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-cyber-border-subtle bg-cyber-bg-panel/95 p-0 shadow-2xl backdrop-blur-md data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right ${isResizing ? 'select-none' : ''}`}
+        className={`left-auto right-0 top-0 flex h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-r-0 border-l border-slate-200/80 bg-white p-0 shadow-2xl backdrop-blur-md data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right ${isResizing ? 'select-none' : ''}`}
       >
         <div
           onMouseDown={startResizing}
-          className={`absolute -left-[3px] top-0 bottom-0 z-50 w-1.5 touch-none cursor-col-resize transition-colors hover:bg-cyber-neon-cyan/25 ${isResizing ? 'bg-cyber-neon-cyan/35' : ''}`}
+          className={`absolute -left-[3px] top-0 bottom-0 z-50 w-1.5 touch-none cursor-col-resize transition-colors hover:bg-blue-500/25 ${isResizing ? 'bg-blue-500/35' : ''}`}
           title="拖动调整抽屉宽度"
         />
         {document ? (
           <>
             {/* 顶栏 Header */}
-            <div className="flex h-16 shrink-0 items-center justify-between border-b border-cyber-border-subtle bg-cyber-bg-secondary/40 px-6 sm:px-7 gap-3">
+            <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-white/95 px-6 sm:px-7 gap-3 backdrop-blur-md">
               <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
                 {renderPlatformBadge(document.platform, platformLabel)}
-                <Badge variant="secondary" className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-normal">
+                <span className="shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-3 py-0.5 text-xs font-normal text-slate-600 border border-slate-200/60">
                   {kindLabels[document.kind] || document.kind}
-                </Badge>
+                </span>
                 {document.keyword && !document.keyword.startsWith('http') ? (
-                  <span className="shrink-0 max-w-[160px] truncate rounded-full bg-cyber-bg-tertiary/70 px-3 py-1 font-mono text-xs text-cyber-text-secondary" title={document.keyword}>
+                  <span className="shrink-0 max-w-[160px] truncate rounded-full bg-blue-50/80 text-blue-600 border border-blue-100/80 px-3 py-0.5 text-xs font-medium" title={document.keyword}>
                     #{document.keyword}
                   </span>
                 ) : null}
               </div>
 
-              <div className="flex items-center gap-2.5 shrink-0">
+              <div className="flex items-center gap-2 shrink-0">
                 {document.sourceUrl && (
-                  <Button size="sm" variant="outline" className="h-9 gap-2 rounded-xl px-4 text-xs font-medium text-cyber-text-primary hover:bg-cyber-bg-tertiary hover:border-cyber-neon-cyan/40 transition-colors shadow-xs" asChild>
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 rounded-lg px-3 text-xs font-medium text-slate-700 bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-blue-600 transition-all shadow-xs" asChild>
                     <a href={document.sourceUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                      <ExternalLink className="h-3.5 w-3.5 text-slate-500 group-hover:text-blue-600" />
                       <span>打开原帖</span>
                     </a>
                   </Button>
@@ -658,34 +660,34 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
                   variant="ghost"
                   size="icon"
                   onClick={() => onOpenChange(false)}
-                  className="h-9 w-9 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary transition-colors"
+                  className="h-8 w-8 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
                   title="关闭详情面板"
                 >
-                  <span className="text-lg font-light leading-none">✕</span>
+                  <X className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
             {/* 内容区 */}
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6 sm:p-7">
+            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6 sm:p-7 bg-white">
               {/* 大标题 & 作者/时间属性 */}
               <div className="space-y-3.5">
                 <h2
-                  className="line-clamp-2 text-base sm:text-lg font-semibold leading-relaxed tracking-normal text-cyber-text-primary break-words"
+                  className="line-clamp-2 text-xl sm:text-2xl font-bold tracking-tight leading-snug text-slate-900 break-words"
                   title={document.title || '无标题文档'}
                 >
                   {document.title || '无标题文档'}
                 </h2>
 
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl bg-cyber-bg-secondary/40 border border-cyber-border-subtle/50 px-3.5 py-2.5 text-xs text-cyber-text-muted">
-                  <div className="flex items-center gap-1.5 font-medium text-cyber-text-secondary">
-                    <User className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl bg-slate-50/90 border border-slate-100 px-4 py-2.5 text-xs text-slate-500">
+                  <div className="flex items-center gap-1.5 font-medium text-slate-700">
+                    <User className="h-3.5 w-3.5 text-blue-500" />
                     <span className="truncate max-w-[240px]">{document.subject.name || document.subject.id || '未知作者'}</span>
-                    <span className="text-[10px] text-cyber-text-muted shrink-0">
+                    <span className="text-[10px] text-slate-400 shrink-0 font-normal">
                       ({subjectTypeLabels[document.subject.type] || document.subject.type})
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0 text-cyber-text-muted">
+                  <div className="flex items-center gap-1.5 shrink-0 text-slate-400">
                     <Clock className="h-3.5 w-3.5" />
                     <span>发布于 {formatDate(document.publishedAt)}</span>
                   </div>
@@ -693,9 +695,10 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
 
                 {/* 仅当摘要非空且与正文/标题不重复时显示 */}
                 {document.summary && !isSummaryIdentical ? (
-                  <div className="rounded-xl border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/5 p-4 text-xs leading-relaxed text-cyber-text-secondary">
-                    <p className="mb-1.5 font-semibold text-cyber-neon-cyan flex items-center gap-1">
-                      <span>📌 摘要提炼</span>
+                  <div className="rounded-2xl border border-blue-100/90 bg-gradient-to-br from-blue-50/70 via-indigo-50/30 to-purple-50/20 p-4 text-xs leading-relaxed text-slate-700 shadow-xs">
+                    <p className="mb-1.5 font-semibold text-blue-600 flex items-center gap-1.5">
+                      <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+                      <span>AI 摘要提炼</span>
                     </p>
                     <p className="whitespace-pre-wrap break-words">{document.summary}</p>
                   </div>
@@ -704,12 +707,12 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
 
               {/* 封面图 / 媒体展示 */}
               {cover ? (
-                <div className="group relative overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 shadow-xs flex items-center justify-center max-h-80">
+                <div className="group relative overflow-hidden rounded-2xl border border-slate-100 bg-slate-50/50 shadow-xs flex items-center justify-center max-h-80 p-2">
                   <img
                     src={cover.url}
                     alt={document.title || '文档封面'}
                     referrerPolicy="no-referrer"
-                    className="max-h-80 w-auto max-w-full rounded-lg object-contain transition-transform duration-300 group-hover:scale-[1.01]"
+                    className="max-h-76 w-auto max-w-full rounded-xl object-contain transition-transform duration-300 group-hover:scale-[1.01]"
                   />
                 </div>
               ) : null}
@@ -725,19 +728,20 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
               ) : null}
 
               {/* 正文内容 */}
-              <section className="space-y-1.5">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">
+              <section className="space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5 text-slate-400" />
                   正文内容
                 </h3>
-                <div className="whitespace-pre-wrap break-words rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4 font-sans text-sm leading-relaxed text-cyber-text-primary shadow-inner">
+                <div className="whitespace-pre-wrap break-words rounded-2xl border border-slate-100 bg-slate-50/50 p-5 font-sans text-sm leading-7 text-slate-700 shadow-xs selection:bg-blue-100">
                   {document.markdown || document.summary || '—'}
                 </div>
               </section>
 
               {/* 引用 */}
               {document.citations.length ? (
-                <section>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">
+                <section className="space-y-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                     引用出处 ({document.citations.length})
                   </h3>
                   <div className="space-y-2">
@@ -747,7 +751,7 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
                         href={citation.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="block rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/30 p-2.5 text-xs text-cyber-neon-cyan transition-colors hover:border-cyber-neon-cyan/40 hover:bg-cyber-neon-cyan/5"
+                        className="block rounded-xl border border-slate-100 bg-white p-3 text-xs text-blue-600 transition-all hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-xs"
                       >
                         {citation.title || citation.source || citation.url}
                       </a>
@@ -764,17 +768,17 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
                 <button
                   type="button"
                   onClick={() => setTechDetailsOpen(!techDetailsOpen)}
-                  className="flex w-full items-center justify-between rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/30 px-3 py-2 text-xs text-cyber-text-muted hover:bg-cyber-bg-secondary/60 hover:text-cyber-text-primary transition-colors"
+                  className="flex w-full items-center justify-between rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-2.5 text-xs font-medium text-slate-500 hover:bg-slate-100/70 hover:text-slate-800 transition-colors"
                 >
-                  <span className="flex items-center gap-1.5 font-medium">
-                    <Code className="h-3.5 w-3.5" />
+                  <span className="flex items-center gap-1.5">
+                    <Code className="h-3.5 w-3.5 text-slate-400" />
                     高级技术属性 (ID & 原始资源)
                   </span>
-                  {techDetailsOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {techDetailsOpen ? <ChevronUp className="h-3.5 w-3.5 text-slate-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-400" />}
                 </button>
 
                 {techDetailsOpen && (
-                  <div className="mt-3 space-y-4 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-4">
+                  <div className="mt-3 space-y-4 rounded-2xl border border-slate-100 bg-slate-50/40 p-4">
                     <section className="grid gap-2 sm:grid-cols-2">
                       <Detail label="Document ID" value={document.documentId} mono />
                       <Detail label="来源内容 ID" value={document.sourceItemId} mono />
@@ -789,17 +793,17 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
 
                     {document.assets && document.assets.length ? (
                       <div>
-                        <p className="mb-1.5 text-[11px] font-medium text-cyber-text-muted">
+                        <p className="mb-2 text-[11px] font-medium text-slate-400">
                           底层资源 URL 数组 ({document.assets.length})
                         </p>
-                        <div className="grid gap-1.5 sm:grid-cols-2">
+                        <div className="grid gap-2 sm:grid-cols-2">
                           {document.assets.map((asset) => (
                             <a
                               key={asset.assetId}
                               href={asset.url}
                               target="_blank"
                               rel="noreferrer"
-                              className="truncate rounded border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-2 font-mono text-[10px] text-cyber-neon-cyan hover:underline"
+                              className="truncate rounded-lg border border-slate-100 bg-white p-2.5 font-mono text-[10px] text-blue-600 hover:bg-blue-50/50 hover:underline transition-colors"
                             >
                               {assetRoleLabels[asset.role] || asset.role} · {asset.kind}
                             </a>
@@ -820,11 +824,41 @@ function DocumentDrawer({ document, platformLabel, onOpenChange }: {
 
 function Detail({ label, value, mono = false }: { label: string; value: unknown; mono?: boolean }) {
   return (
-    <div className="min-w-0 rounded-lg border border-cyber-border-subtle bg-cyber-bg-secondary/20 p-3">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-cyber-text-muted">{label}</p>
-      <p className={`mt-1 truncate text-xs text-cyber-text-secondary ${mono ? 'font-mono text-[11px]' : ''}`} title={String(value)}>
+    <div className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 p-3 transition-colors hover:bg-slate-50">
+      <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{label}</p>
+      <p className={`mt-1 truncate text-xs font-medium text-slate-700 ${mono ? 'font-mono text-[11px]' : ''}`} title={String(value)}>
         {displayValue(value, 300)}
       </p>
+    </div>
+  )
+}
+
+function MetricCard({ label, keyName, value }: { label: string; keyName: string; value: unknown }) {
+  const numValue = typeof value === 'number' ? value : Number(value) || 0
+  const isZero = numValue === 0
+
+  const getIcon = () => {
+    const k = keyName.toLowerCase()
+    const l = label.toLowerCase()
+    if (k.includes('like') || l.includes('赞')) return <ThumbsUp className="h-3.5 w-3.5 text-rose-500/80" />
+    if (k.includes('collect') || k.includes('favorite') || l.includes('藏')) return <Bookmark className="h-3.5 w-3.5 text-amber-500/80" />
+    if (k.includes('comment') || k.includes('reply') || l.includes('评')) return <MessageSquare className="h-3.5 w-3.5 text-blue-500/80" />
+    if (k.includes('share') || l.includes('享')) return <Share2 className="h-3.5 w-3.5 text-emerald-500/80" />
+    if (k.includes('view') || k.includes('read') || l.includes('看')) return <Eye className="h-3.5 w-3.5 text-indigo-500/80" />
+    return <Sparkles className="h-3.5 w-3.5 text-slate-400" />
+  }
+
+  return (
+    <div className="group min-w-0 rounded-xl border border-slate-100 bg-slate-50/70 p-3.5 transition-all hover:border-slate-200 hover:bg-white hover:shadow-xs flex flex-col justify-between">
+      <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
+        {getIcon()}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className="mt-2 text-xl font-bold font-mono tracking-tight">
+        <span className={isZero ? 'text-slate-300' : 'text-slate-800 group-hover:text-blue-600 transition-colors'}>
+          {formatNumber(numValue)}
+        </span>
+      </div>
     </div>
   )
 }
@@ -838,11 +872,18 @@ function RecordSection({ title, record, labels, numeric = false, cols }: {
 }) {
   const gridColsClass = (cols === 4 || numeric) ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2 sm:grid-cols-3'
   return (
-    <section>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-cyber-text-muted">{title}</h3>
-      <div className={`grid gap-2 ${gridColsClass}`}>
+    <section className="space-y-2">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+        {numeric ? <Sparkles className="h-3.5 w-3.5 text-amber-500/80" /> : <Tag className="h-3.5 w-3.5 text-slate-400" />}
+        {title}
+      </h3>
+      <div className={`grid gap-2.5 ${gridColsClass}`}>
         {Object.entries(record).map(([key, value]) => (
-          <Detail key={key} label={labels[key] || key} value={numeric && typeof value === 'number' ? formatNumber(value) : value} />
+          numeric ? (
+            <MetricCard key={key} label={labels[key] || key} keyName={key} value={value} />
+          ) : (
+            <Detail key={key} label={labels[key] || key} value={value} />
+          )
         ))}
       </div>
     </section>
@@ -2213,15 +2254,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 p-1.5 transition-colors ${
-                        item.logoUrl
-                          ? 'bg-white/90 border border-slate-200/60 shadow-2xs'
-                          : isSelected
-                          ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan'
-                          : 'bg-cyber-bg-tertiary/70 text-cyber-text-muted'
-                      }`}
-                    >
+                    <div className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0 p-1.5 transition-colors bg-white/90 border border-slate-200/60 shadow-2xs">
                       {item.logoUrl ? (
                         <img src={item.logoUrl} alt={item.title} className="h-5 w-5 object-contain" />
                       ) : Icon ? (

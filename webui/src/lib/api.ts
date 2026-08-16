@@ -496,6 +496,8 @@ export const dataApi = {
     api.post<{ status: string; deleted: number }>('/data/analytics/rounds/batch-delete', { plan_ids: planIds }),
   deleteReport: (artifactId: string) =>
     api.delete<{ status: string; artifact_id: string }>(`/reports/${encodeURIComponent(artifactId)}`),
+  updateReportTitle: (artifactId: string, title: string) =>
+    api.patch<{ status: string; report: any }>(`/reports/${encodeURIComponent(artifactId)}`, { title }),
   deleteReports: (artifactIds: string[]) =>
     api.post<{ status: string; deleted: number }>('/reports/batch-delete', { artifact_ids: artifactIds }),
   getStorageSummary: () => api.get<StorageSummary>('/data/storage/summary'),

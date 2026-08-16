@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Sparkles, Terminal, BookOpen, Music, Video, Tv, MessageCircle, MessagesSquare, HelpCircle, Search, Globe, Compass, Briefcase, ShieldAlert, Brain, Bot, Atom, Gem, Link2, Zap, Shield, Newspaper, FileText, Download, Activity, Square, RotateCcw } from 'lucide-react'
+import { Sparkles, Terminal, BookOpen, Music, Video, Tv, MessageCircle, MessagesSquare, HelpCircle, Search, Globe, Compass, Briefcase, ShieldAlert, Brain, Bot, Atom, Gem, Link2, Zap, Shield, Newspaper, FileText } from 'lucide-react'
 import type { MentionEntity } from '@/hooks/useMentionCommands'
 
 interface CommandPopoverProps {
@@ -28,11 +28,6 @@ const ENTITY_ICONS: Record<string, any> = {
   // Slash Commands
   crawl: Search,
   report: FileText,
-  export: Download,
-  status: Activity,
-  stop: Square,
-  clear: RotateCcw,
-  help: HelpCircle,
   // Platforms & Connectors
   xhs: BookOpen,
   douyin: Music,

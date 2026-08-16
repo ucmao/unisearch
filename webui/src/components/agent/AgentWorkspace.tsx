@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowRight, ArrowUpRight, BookOpen, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileCode, FileSpreadsheet, FileText, Globe,
+  AlertTriangle, ArrowRight, ArrowUpRight, BookOpen, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
   Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
@@ -482,7 +482,7 @@ function renderMentionText(text: string) {
       parts.push(
         <span
           key={`${matchIndex}-${matchText}`}
-          className="font-semibold text-sky-500"
+          className="font-semibold tracking-[-0.02em] text-sky-500 dark:text-sky-400"
         >
           {matchText}
         </span>
@@ -491,7 +491,7 @@ function renderMentionText(text: string) {
       parts.push(
         <span
           key={`${matchIndex}-${matchText}`}
-          className="font-semibold text-purple-400"
+          className="font-semibold tracking-[-0.02em] text-purple-500 dark:text-purple-400"
         >
           {matchText}
         </span>
@@ -843,57 +843,6 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
             stopping={Boolean(stoppingPlan)}
             hasStreamingAnswer={Boolean(hasStreamingAnswer)}
           />
-        ) : null}
-        {!isUser && targetArtifactId ? (
-          <div className="mt-3.5 space-y-2 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-3 backdrop-blur-xs animate-in fade-in">
-            <div className="flex items-center justify-between text-[11px] text-cyber-text-muted">
-              <span className="flex items-center gap-1.5 font-semibold text-cyber-text-primary">
-                <FileText className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                <span>研报成果极速导出 (v{(message.metadata?.report_artifact_version as number) || latestReport?.versionNumber || 1})</span>
-              </span>
-              <span className="text-[10px] text-cyber-text-muted font-mono truncate max-w-[180px]" title={latestReport?.title}>
-                {latestReport?.title || '1-Click 离线生成'}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-              <a
-                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=docx`}
-                download
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-400 transition-all cursor-pointer shadow-2xs"
-                title="一键导出适用 Word 编排修订的 .docx 文档"
-              >
-                <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-blue-400" />
-                <span>Word 文档</span>
-              </a>
-              <a
-                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=pdf`}
-                download
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-rose-500/60 hover:bg-rose-500/10 hover:text-rose-400 transition-all cursor-pointer shadow-2xs"
-                title="一键导出适用正式汇报归档的 .pdf 文件"
-              >
-                <FileText className="h-3.5 w-3.5 shrink-0 text-rose-400" />
-                <span>PDF 报告</span>
-              </a>
-              <a
-                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=markdown`}
-                download
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-cyan-500/60 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all cursor-pointer shadow-2xs"
-                title="一键导出带 Obsidian/Notion 知识库引用的 .md 文件"
-              >
-                <FileCode className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-                <span>Markdown</span>
-              </a>
-              <a
-                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=html`}
-                download
-                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all cursor-pointer shadow-2xs"
-                title="一键导出可直接在浏览器中打开的离线 HTML 网页"
-              >
-                <FileCode className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                <span>HTML 网页</span>
-              </a>
-            </div>
-          </div>
         ) : null}
         <div className={`mt-1.5 flex items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
           <p className="text-[9px] text-cyber-text-muted">{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
@@ -2154,12 +2103,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       }
                     }}
                     title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
-                    className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-colors ${
+                    className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-all ${
                       selectedId === thread.thread_id
                         ? 'bg-cyber-neon-cyan/10 font-semibold text-cyber-text-primary border border-cyber-neon-cyan/30 shadow-sm'
                         : threadMenuId === thread.thread_id
-                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary/95 font-medium'
-                          : 'font-normal text-cyber-text-primary/80 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
+                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary font-medium'
+                          : 'font-medium text-cyber-text-primary/70 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
                     }`}
                   >
                     {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}
@@ -2523,7 +2472,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     <div
                       ref={composerBackdropRef}
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 min-h-[60px] w-full overflow-hidden whitespace-pre-wrap break-words px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans text-cyber-text-primary"
+                      className="pointer-events-none absolute inset-0 min-h-[60px] w-full overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans text-cyber-text-primary"
                     >
                       {renderMentionText(input)}
                       {input.endsWith('\n') ? '\u200b' : null}
@@ -2552,7 +2501,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       onFocus={() => setIsComposerFocused(true)}
                       onBlur={() => setIsComposerFocused(false)}
                       placeholder={isPlanRunning ? '采集在后台进行中，你可以继续提问…' : !selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
-                      className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
+                      className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
                       spellCheck={false}
                     />
                   </div>
@@ -2990,59 +2939,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         </div>
                       ) : null}
                     </div>
-
-                    {/* 研报极速导出工具栏 */}
-                    {latestReport && (
-                      <div className="space-y-2 border-t border-cyber-border-subtle pt-3 animate-in fade-in">
-                        <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                          <span className="flex items-center gap-1.5 font-medium text-cyber-text-primary">
-                            <FileText className="h-3.5 w-3.5 text-cyber-neon-cyan" />
-                            <span>研报成果极速导出 (v{latestReport.versionNumber})</span>
-                          </span>
-                          <span className="text-[10px] text-cyber-text-muted truncate max-w-[160px]" title={latestReport.title}>
-                            {latestReport.title}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                          <a
-                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=docx`}
-                            download
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-blue-500/50 hover:bg-blue-500/10 hover:text-blue-400 transition-all cursor-pointer"
-                            title="一键导出适用 Word 编排修订的 .docx 文档"
-                          >
-                            <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-blue-400" />
-                            <span>Word 文档</span>
-                          </a>
-                          <a
-                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=pdf`}
-                            download
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400 transition-all cursor-pointer"
-                            title="一键导出适用正式汇报归档的 .pdf 文件"
-                          >
-                            <FileText className="h-3.5 w-3.5 shrink-0 text-rose-400" />
-                            <span>PDF 报告</span>
-                          </a>
-                          <a
-                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=markdown`}
-                            download
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-cyan-500/50 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all cursor-pointer"
-                            title="一键导出带 Obsidian/Notion 知识库引用的 .md 文件"
-                          >
-                            <FileCode className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
-                            <span>Markdown</span>
-                          </a>
-                          <a
-                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=html`}
-                            download
-                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all cursor-pointer"
-                            title="一键导出可直接在浏览器中打开的离线 HTML 网页"
-                          >
-                            <FileCode className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-                            <span>HTML 网页</span>
-                          </a>
-                        </div>
-                      </div>
-                    )}
 
                     {/* 知识资产与一键导出 (8 平台图标栏) */}
                     <div className="space-y-2 border-t border-cyber-border-subtle pt-3">

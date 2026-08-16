@@ -297,6 +297,15 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e2e8f0; col
     };
   }
 
+  updateTitle(artifactId: string, title: string): any {
+    const trimmedTitle = (title || '').trim();
+    if (!trimmedTitle) throw new Error('报告标题不能为空');
+    const artifact = this.get(artifactId);
+    this.db.prepare('UPDATE report_artifacts SET title=? WHERE artifact_id=?').run(trimmedTitle, artifactId);
+    this.db.prepare('UPDATE analysis_reports SET title=? WHERE report_id=?').run(trimmedTitle, artifact.reportId);
+    return this.get(artifactId);
+  }
+
   delete(artifactId: string): boolean {
     const changes = this.db.prepare('DELETE FROM report_artifacts WHERE artifact_id=?').run(artifactId).changes;
     this.db.prepare('DELETE FROM analysis_reports WHERE report_id=?').run(artifactId);
