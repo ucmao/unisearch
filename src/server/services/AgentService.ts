@@ -1151,8 +1151,8 @@ export class AgentService {
             threadId,
             workflowId: latest?.plan_id,
             workflowGoal: threadGoals || latest?.goal || content,
-            reportName: analysisSkill?.name || '采集结果分析',
-            userRequest: content,
+            reportName: analysisSkill?.name || (threadGoals ? `${threadGoals}分析报告` : '数据调研分析报告'),
+            userRequest: content || (threadGoals ? `基于围绕“${threadGoals}”的数据采集结果，生成专业分析报告` : '基于多源采集数据生成专业研报'),
             analysisGoals: threadAnalysisGoals.length ? threadAnalysisGoals : (latest?.plan?.analysis || []),
             skillName: analysisSkill?.name,
             skillInstructions: analysisSkill?.analysisInstructions,
@@ -1633,8 +1633,10 @@ export class AgentService {
                 threadId: final.thread_id,
                 workflowId: final.plan_id,
                 workflowGoal: final.goal,
-                reportName: analysisSkill?.name || '采集结果分析',
-                userRequest: `分析本次“${final.goal}”的采集结果`,
+                reportName: analysisSkill?.name || (final.goal ? `${final.goal}分析报告` : '数据调研分析报告'),
+                userRequest: final.goal
+                  ? `基于围绕“${final.goal}”采集的数据，生成专业分析研报`
+                  : '基于采集的多源数据生成专业分析研报',
                 analysisGoals: final.plan.analysis,
                 skillName: analysisSkill?.name,
                 skillInstructions: analysisSkill?.analysisInstructions,

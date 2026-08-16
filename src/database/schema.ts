@@ -398,6 +398,7 @@ export function initSchema(db: Database): void {
 
     CREATE TABLE IF NOT EXISTS analysis_reports (
       report_id TEXT PRIMARY KEY,
+      thread_id TEXT,
       analyzer_id TEXT NOT NULL,
       analyzer_version TEXT NOT NULL,
       workflow_id TEXT,
@@ -405,8 +406,10 @@ export function initSchema(db: Database): void {
       content TEXT NOT NULL,
       metadata_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL,
+      FOREIGN KEY(thread_id) REFERENCES agent_threads(thread_id) ON DELETE CASCADE,
       FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
     );
+    CREATE INDEX IF NOT EXISTS idx_analysis_reports_thread ON analysis_reports(thread_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS graph_snapshots (
       graph_id TEXT PRIMARY KEY,

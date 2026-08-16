@@ -74,6 +74,7 @@ const crawlerTabStates = new Map<string, CrawlerTabStatus>();
 let activeCrawlerPlatform: string | null = null;
 let isQuitting = false;
 const windowStateTimers = new Map<string, NodeJS.Timeout>();
+const guardedCrawlerPartitions = new Set<string>();
 
 let apiPort = 8080;
 
@@ -511,16 +512,28 @@ export function createCrawlerView(platform: string): BrowserView {
     return existing;
   }
   createCrawlerHubWindow();
+  const partition = `persist:unisearch-crawler-${platform}`;
   const view = new BrowserView({
     webPreferences: {
       backgroundThrottling: false,
-      partition: `persist:unisearch-crawler-${platform}`,
+      partition,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   view.webContents.session.setUserAgent(CRAWLER_USER_AGENT, CRAWLER_ACCEPT_LANGUAGE);
   view.webContents.setUserAgent(CRAWLER_USER_AGENT);
+
+  // 严禁采集器页面触发任何系统级文件下载（例如抖音/小红书等推广客户端安装包）
+  if (!guardedCrawlerPartitions.has(partition)) {
+    guardedCrawlerPartitions.add(partition);
+    view.webContents.session.on('will-download', (event, item) => {
+      event.preventDefault();
+      item.cancel();
+      console.log(`[Crawler] 已静默拦截平台 "${platform}" 发起的非预期文件下载: ${item.getFilename()} (${item.getURL()})`);
+    });
+  }
+
   crawlerViews.set(platform, view);
   crawlerTabStates.set(platform, 'running');
   view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -783,20 +796,38 @@ function createWindow(port: number): void {
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
-  mainWindow.webContents.session.on('will-download', (_event, item) => {
-    if (!item.getFilename().startsWith('UniSearch_')) return;
+  mainWindow.webContents.session.on('will-download', async (_event, item) => {
+    let rawFilename = item.getFilename();
+    try {
+      rawFilename = decodeURIComponent(rawFilename);
+    } catch {}
+    // 移除非法文件名字符
+    const cleanFilename = rawFilename.replace(/[\\/:*?"<>|]/g, '_') || '下载文件';
     const downloadsDir = app.getPath('downloads');
-    const parsed = path.parse(item.getFilename());
-    let savePath = path.join(downloadsDir, item.getFilename());
-    let suffix = 2;
-    while (fs.existsSync(savePath)) {
-      savePath = path.join(downloadsDir, `${parsed.name}_${suffix}${parsed.ext}`);
-      suffix++;
+    const defaultPath = path.join(downloadsDir, cleanFilename);
+
+    try {
+      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow!, {
+        title: '选择保存位置',
+        defaultPath,
+        properties: ['showOverwriteConfirmation'],
+      });
+
+      if (canceled || !filePath) {
+        item.cancel();
+        return;
+      }
+
+      item.setSavePath(filePath);
+      item.once('done', (_downloadEvent, state) => {
+        if (state === 'completed') {
+          shell.showItemInFolder(filePath);
+        }
+      });
+    } catch (dialogErr) {
+      console.error('[Download] 显示保存对话框异常:', dialogErr);
+      item.cancel();
     }
-    item.setSavePath(savePath);
-    item.once('done', (_downloadEvent, state) => {
-      if (state === 'completed') shell.showItemInFolder(savePath);
-    });
   });
 
   mainWindow.on('close', (event) => {

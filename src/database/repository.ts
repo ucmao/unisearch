@@ -578,7 +578,7 @@ export class AnalyticsRepository {
   deleteThreads(ids: string[], withReports: boolean = false): number { return this.deleteScope('thread_id', ids, withReports); }
   deletePlans(ids: string[], withReports: boolean = false): number { return this.deleteScope('workflow_id', ids, withReports); }
 
-  deleteRuns(runIds: string[], withReports: boolean = false): number {
+  deleteRuns(runIds: string[], _withReports: boolean = false): number {
     const ids = [...new Set(runIds.filter(Boolean))];
     if (!ids.length) return 0;
     const all = ids.includes('all');

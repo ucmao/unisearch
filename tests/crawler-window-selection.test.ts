@@ -27,3 +27,19 @@ test('standalone browser fallback accepts its only blank page', async () => {
   const page: any = await getElectronCrawlerPage(context, 'douyin', 1);
   assert.equal(page.url(), 'about:blank');
 });
+
+test('crawler runtime and electron sessions suppress unexpected file downloads', async () => {
+  const { readFileSync } = await import('node:fs');
+  const path = await import('node:path');
+  const mainSource = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'main', 'index.ts'), 'utf8');
+  const baseCrawlerSource = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'crawler', 'base', 'BaseCrawler.ts'), 'utf8');
+
+  // Electron 主进程中必须针对 crawler session 拦截 will-download
+  assert.match(mainSource, /guardedCrawlerPartitions/);
+  assert.match(mainSource, /view\.webContents\.session\.on\('will-download'/);
+  assert.match(mainSource, /item\.cancel\(\)/);
+
+  // BaseCrawler 中必须配置 Page.setDownloadBehavior 和 page.on('download')
+  assert.match(baseCrawlerSource, /Page\.setDownloadBehavior/);
+  assert.match(baseCrawlerSource, /page\.on\('download'/);
+});

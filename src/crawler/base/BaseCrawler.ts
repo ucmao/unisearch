@@ -82,12 +82,17 @@ async function configureCrawlerPage(
     });
     await session.send('Emulation.setTimezoneOverride', { timezoneId: CRAWLER_TIMEZONE });
     await session.send('Emulation.setLocaleOverride', { locale: CRAWLER_LOCALE });
+    // 采集器只抓取结构化数据，拒绝所有由页面发起的非预期文件下载
+    await session.send('Page.setDownloadBehavior', { behavior: 'deny' } as any).catch(() => {});
     await page.addInitScript(() => {
       Object.defineProperty(Navigator.prototype, 'language', { configurable: true, get: () => 'zh-CN' });
       Object.defineProperty(Navigator.prototype, 'languages', { configurable: true, get: () => ['zh-CN', 'zh'] });
     });
+    page.on('download', (download) => {
+      download.cancel().catch(() => {});
+    });
   } catch (error: any) {
-    console.warn(`[BaseCrawler] Failed to align browser locale/timezone: ${error.message}`);
+    console.warn(`[BaseCrawler] Failed to align browser locale/timezone/downloadBehavior: ${error.message}`);
   }
   return page;
 }

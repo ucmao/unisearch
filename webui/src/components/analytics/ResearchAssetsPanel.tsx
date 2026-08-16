@@ -104,7 +104,7 @@ export function ReportDownloadDropdown({ artifactId }: { artifactId: string }) {
       </Button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 z-40 w-64 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-800 p-1.5 shadow-xl backdrop-blur-md animate-in fade-in-0 zoom-in-95">
+        <div className="absolute right-0 top-full mt-1.5 z-40 w-64 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-850 p-1.5 shadow-xl backdrop-blur-md animate-in fade-in-0 zoom-in-95">
           {REPORT_FORMAT_OPTIONS.map((group, gIdx) => (
             <div key={group.category} className={gIdx > 0 ? 'mt-1.5 border-t border-slate-100 dark:border-slate-700/60 pt-1.5' : ''}>
               <div className="px-2 py-0.5 text-[10px] font-semibold tracking-wider text-slate-400 dark:text-slate-400 uppercase">
@@ -114,10 +114,10 @@ export function ReportDownloadDropdown({ artifactId }: { artifactId: string }) {
                 {group.items.map((item) => (
                   <a
                     key={item.format}
-                    href={`/api/reports/${artifactId}/download?format=${item.format}`}
+                    href={`/api/reports/${encodeURIComponent(artifactId)}/download?format=${encodeURIComponent(item.format)}`}
                     download
                     onClick={() => setOpen(false)}
-                    className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700/60 hover:text-slate-900 dark:hover:text-white transition-colors group"
+                    className="w-full flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-750 hover:text-slate-900 dark:hover:text-white transition-colors group text-left"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <item.icon className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400" />
@@ -155,7 +155,24 @@ export type Graph = {
   nodes: GraphNode[]
   edges: Edge[]
 }
-export type Report = { artifactId: string; workflowId?: string; title: string; content?: string; citations?: any[]; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string; isArchived?: boolean }
+export type Report = {
+  artifactId: string
+  workflowId?: string
+  threadId?: string
+  title: string
+  content?: string
+  citations?: any[]
+  createdAt: string
+  documentIds: string[]
+  graphId: string
+  seriesId: string
+  versionNumber: number
+  previousArtifactId?: string
+  isArchived?: boolean
+  isLatestInSeries?: boolean
+  latestVersionNumber?: number
+  hasNewData?: boolean
+}
 export type ReportComparison = { from: { versionNumber: number }; to: { versionNumber: number }; documents: { added: string[]; removed: string[]; updated: string[]; unchanged: number }; citations: { added: string[]; removed: string[] }; sections: { added: string[]; removed: string[]; changed: string[] }; contentChanged: boolean }
 export type RelevanceAssessment = { assessmentId: string; phase: 'initial' | 'rewrite'; provider: string; query: string; resultCount: number; precisionAt10: number; status: 'good' | 'weak' | 'empty'; rewrittenQuery?: string }
 export type Health = { connectorId: string; state: string; successRate: number; yieldRate: number; fieldCoverage: number; lastErrorMessage?: string }
@@ -1735,17 +1752,29 @@ function ReportPreviewModal({
 /**
  * 研报制品与对比视图 (ResearchReportsView)
  */
+interface ReportSeries {
+  seriesId: string
+  title: string
+  latestReport: Report
+  versions: Report[]
+}
+
 export function ResearchReportsView({
   scope,
 }: {
   scope: { thread_id?: string; workflow_id?: string; run_id?: string }
 }) {
   const queryClient = useQueryClient()
-  const [comparison, setComparison] = useState<ReportComparison | null>(null)
-  const [incrementalWorkflowId, setIncrementalWorkflowId] = useState<string | null>(null)
-  const [confirmIncrementalReport, setConfirmIncrementalReport] = useState<Report | null>(null)
-  const [isSubmittingIncremental, setIsSubmittingIncremental] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+
+  // 研报免爬虫智能升级状态（支持多卡片并发提炼）
+  const [refreshingArtifactIds, setRefreshingArtifactIds] = useState<string[]>([])
+
+  // 课题版本选择与就地对比展开状态
+  const [selectedVersionBySeries, setSelectedVersionBySeries] = useState<Record<string, number>>({})
+  const [inlineComparisonBySeries, setInlineComparisonBySeries] = useState<Record<string, ReportComparison | null>>({})
+  const [loadingComparisonSeriesId, setLoadingComparisonSeriesId] = useState<string | null>(null)
+  const [versionDropdownOpenSeriesId, setVersionDropdownOpenSeriesId] = useState<string | null>(null)
 
   // 单个与批量删除状态
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
@@ -1813,10 +1842,56 @@ export function ResearchReportsView({
     }
   }
 
+  const handleRefreshReport = async (report: Report) => {
+    setRefreshingArtifactIds((prev) => [...prev, report.artifactId])
+    try {
+      const response = await fetch(`/api/reports/${encodeURIComponent(report.artifactId)}/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const result = await response.json()
+      if (!response.ok) {
+        toast.error(result.detail || '升级生成新版研报失败')
+        return
+      }
+      toast.success(`已基于当前任务全部多轮数据重新核验，升级至 v${result.report?.versionNumber || report.versionNumber + 1}`)
+      await queryClient.invalidateQueries({ queryKey: ['research-reports'] })
+    } catch (err: any) {
+      toast.error(err.message || '升级研报失败')
+    } finally {
+      setRefreshingArtifactIds((prev) => prev.filter((id) => id !== report.artifactId))
+    }
+  }
+
   const reportsQuery = useQuery({
     queryKey: ['research-reports', scope],
     queryFn: async () => (await fetch(`/api/reports?${search}`).then((res) => res.json())).items as Report[],
   })
+
+  // 按 seriesId 聚合为独立课题系列，避免重复罗列平铺
+  const seriesList = useMemo<ReportSeries[]>(() => {
+    const reports = reportsQuery.data || []
+    const map = new Map<string, Report[]>()
+    for (const r of reports) {
+      const sId = r.seriesId || r.artifactId
+      const list = map.get(sId) || []
+      list.push(r)
+      map.set(sId, list)
+    }
+    const result: ReportSeries[] = []
+    for (const [seriesId, versions] of map.entries()) {
+      versions.sort((a, b) => b.versionNumber - a.versionNumber)
+      const latestReport = versions[0]
+      result.push({
+        seriesId,
+        title: latestReport.title,
+        latestReport,
+        versions,
+      })
+    }
+    return result
+  }, [reportsQuery.data])
 
   const qualityQuery = useQuery({
     queryKey: ['quality-gate', scope],
@@ -1835,7 +1910,12 @@ export function ResearchReportsView({
     queryFn: async () => (await fetch('/api/connectors/health').then((res) => res.json())).items as Health[],
   })
 
-  const compareReport = async (artifactId: string) => {
+  const toggleInlineComparison = async (seriesId: string, artifactId: string) => {
+    if (inlineComparisonBySeries[seriesId]) {
+      setInlineComparisonBySeries((prev) => ({ ...prev, [seriesId]: null }))
+      return
+    }
+    setLoadingComparisonSeriesId(seriesId)
     try {
       const response = await fetch(`/api/reports/${encodeURIComponent(artifactId)}/compare`)
       const result = await response.json()
@@ -1843,33 +1923,11 @@ export function ResearchReportsView({
         toast.error(result.detail || '报告版本对比失败')
         return
       }
-      setComparison(result as ReportComparison)
+      setInlineComparisonBySeries((prev) => ({ ...prev, [seriesId]: result as ReportComparison }))
     } catch (err: any) {
       toast.error(err.message || '报告版本对比失败')
-    }
-  }
-
-  const executeIncremental = async (workflowId: string) => {
-    setIsSubmittingIncremental(true)
-    setIncrementalWorkflowId(workflowId)
-    try {
-      const response = await fetch(`/api/agent/plans/${encodeURIComponent(workflowId)}/incremental`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ execute: true }),
-      })
-      const result = await response.json()
-      if (!response.ok) {
-        toast.error(result.detail || '增量任务创建失败')
-        return
-      }
-      toast.success('增量任务已创建并进入执行队列')
-      setConfirmIncrementalReport(null)
-    } catch (err: any) {
-      toast.error(err.message || '增量任务创建失败')
     } finally {
-      setIsSubmittingIncremental(false)
-      setIncrementalWorkflowId(null)
+      setLoadingComparisonSeriesId(null)
     }
   }
 
@@ -1952,6 +2010,7 @@ export function ResearchReportsView({
           </div>
 
           <div className="flex items-center gap-2">
+
             {isBatchMode ? (
               <div className="flex items-center gap-2 animate-in fade-in">
                 <Button
@@ -2007,209 +2066,325 @@ export function ResearchReportsView({
           </div>
         </div>
 
-        {/* 报告版本对比结果面板 */}
-        {comparison && (
-          <div className="mb-4 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 p-3.5 text-xs">
-            <div className="flex items-center justify-between border-b border-blue-100 dark:border-blue-900/40 pb-2">
-              <strong className="text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                <GitCompare className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                <span className="inline-flex items-center gap-1.5">
-                  报告演进差异对比：
-                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 leading-none">
-                    v{comparison.from.versionNumber}
-                  </span>
-                  <span className="text-slate-400 text-xs">➔</span>
-                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 leading-none">
-                    v{comparison.to.versionNumber}
-                  </span>
-                </span>
-              </strong>
-              <button
-                type="button"
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs px-2 py-0.5"
-                onClick={() => setComparison(null)}
-              >
-                关闭对比
-              </button>
-            </div>
-            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-600 dark:text-slate-300">
-              <div>
-                <span className="font-medium text-slate-900 dark:text-white">证据文档变化：</span>
-                <p className="mt-1">
-                  新增 <strong className="text-emerald-600 dark:text-emerald-400">{comparison.documents.added.length}</strong> 篇、更新 <strong className="text-amber-600 dark:text-amber-400">{comparison.documents.updated.length}</strong> 篇、移除 <strong className="text-rose-600 dark:text-rose-400">{comparison.documents.removed.length}</strong> 篇、沿用 {comparison.documents.unchanged} 篇
-                </p>
-              </div>
-              <div>
-                <span className="font-medium text-slate-900 dark:text-white">章节结构变化：</span>
-                <p className="mt-1">
-                  新增 <strong className="text-emerald-600 dark:text-emerald-400">{comparison.sections.added.length}</strong> 节、删除 <strong className="text-rose-600 dark:text-rose-400">{comparison.sections.removed.length}</strong> 节、内容修订 <strong className="text-blue-600 dark:text-blue-400">{comparison.sections.changed.length}</strong> 节
-                </p>
-              </div>
-            </div>
-            {comparison.sections.changed.length > 0 && (
-              <p className="mt-2 text-[11px] text-slate-400 truncate">
-                发生修订的章节：{comparison.sections.changed.join('、')}
-              </p>
-            )}
-          </div>
-        )}
-
         <div className="space-y-2.5">
-          {(reportsQuery.data || []).length > 0 ? (
-            reportsQuery.data!.map((report) => (
-              <div
-                key={report.artifactId}
-                className={`rounded-xl border p-3.5 sm:p-4 transition-all ${
-                  isBatchMode && selectedReportIds.includes(report.artifactId)
-                    ? 'border-blue-500/50 bg-blue-50/30 dark:bg-blue-950/20'
-                    : 'border-slate-200/80 dark:border-slate-800/80 bg-white/80 dark:bg-slate-850/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {isBatchMode && (
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
-                        checked={selectedReportIds.includes(report.artifactId)}
-                        onChange={() => {
-                          setSelectedReportIds((current) =>
-                            current.includes(report.artifactId)
-                              ? current.filter((id) => id !== report.artifactId)
-                              : [...current, report.artifactId]
-                          )
-                        }}
-                      />
-                    )}
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {editingArtifactId === report.artifactId ? (
-                          <div className="flex items-center gap-1.5 min-w-0">
-                            <input
-                              type="text"
-                              className="h-7 rounded border border-blue-500/60 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[260px] sm:max-w-[380px]"
-                              value={editingTitle}
-                              onChange={(e) => setEditingTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault()
-                                  handleSaveTitle(report.artifactId)
-                                } else if (e.key === 'Escape') {
-                                  setEditingArtifactId(null)
-                                }
-                              }}
-                              autoFocus
-                              disabled={isSubmittingTitle}
-                            />
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50"
-                              onClick={() => handleSaveTitle(report.artifactId)}
-                              disabled={isSubmittingTitle}
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0 text-slate-400 hover:text-slate-600"
-                              onClick={() => setEditingArtifactId(null)}
-                              disabled={isSubmittingTitle}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 group/title min-w-0">
-                            <h4
-                              className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
-                              title="点击在线预览研报正文"
-                              onClick={() => setPreviewReport(report)}
-                            >
-                              {report.title}
-                            </h4>
+          {seriesList.length > 0 ? (
+            seriesList.map((series) => {
+              const activeVersion = selectedVersionBySeries[series.seriesId] ?? series.latestReport.versionNumber
+              const activeReport = series.versions.find((v) => v.versionNumber === activeVersion) || series.latestReport
+              const isViewingLatest = activeReport.versionNumber === series.latestReport.versionNumber
+              const inlineComparison = inlineComparisonBySeries[series.seriesId]
+              const isComparingLoading = loadingComparisonSeriesId === series.seriesId
+              const isDropdownOpen = versionDropdownOpenSeriesId === series.seriesId
+              const isSelectedForBatch = selectedReportIds.includes(activeReport.artifactId)
 
-                            {/* V1, V2 标识紧跟在标题后面 */}
-                            <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-mono font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 leading-none">
-                              v{report.versionNumber}
+              return (
+                <div
+                  key={series.seriesId}
+                  className={`rounded-xl border p-3.5 sm:p-4 transition-all ${
+                    isBatchMode && isSelectedForBatch
+                      ? 'border-blue-500/50 bg-blue-50/20 dark:bg-blue-950/20 shadow-sm'
+                      : 'border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {isBatchMode && (
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-0 cursor-pointer"
+                          checked={isSelectedForBatch}
+                          onChange={() => {
+                            setSelectedReportIds((current) =>
+                              current.includes(activeReport.artifactId)
+                                ? current.filter((id) => id !== activeReport.artifactId)
+                                : [...current, activeReport.artifactId]
+                            )
+                          }}
+                        />
+                      )}
+
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {editingArtifactId === activeReport.artifactId ? (
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <input
+                                type="text"
+                                className="h-7 rounded border border-blue-500/60 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[260px] sm:max-w-[380px]"
+                                value={editingTitle}
+                                onChange={(e) => setEditingTitle(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    handleSaveTitle(activeReport.artifactId)
+                                  } else if (e.key === 'Escape') {
+                                    setEditingArtifactId(null)
+                                  }
+                                }}
+                                autoFocus
+                                disabled={isSubmittingTitle}
+                              />
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50"
+                                onClick={() => handleSaveTitle(activeReport.artifactId)}
+                                disabled={isSubmittingTitle}
+                              >
+                                <Check className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 w-7 p-0 text-slate-400 hover:text-slate-600"
+                                onClick={() => setEditingArtifactId(null)}
+                                disabled={isSubmittingTitle}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 group/title min-w-0">
+                              <h4
+                                className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                                title="点击在线预览研报正文"
+                                onClick={() => setPreviewReport(activeReport)}
+                              >
+                                {activeReport.title}
+                              </h4>
+
+                              {/* 极简版本选择器 */}
+                              {series.versions.length === 1 ? (
+                                <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 leading-none">
+                                  v1
+                                </span>
+                              ) : (
+                                <div className="relative inline-block shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setVersionDropdownOpenSeriesId(isDropdownOpen ? null : series.seriesId)}
+                                    className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors border ${
+                                      isViewingLatest
+                                        ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100/70'
+                                        : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100/70'
+                                    }`}
+                                    title="点击切换查看历史版本快照"
+                                  >
+                                    <span>v{activeReport.versionNumber}{isViewingLatest ? ' (最新)' : ''}</span>
+                                    <ChevronDown className={`h-2.5 w-2.5 opacity-60 transition-transform duration-150 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                                  </button>
+
+                                  {isDropdownOpen && (
+                                    <>
+                                      <div
+                                        className="fixed inset-0 z-30"
+                                        onClick={() => setVersionDropdownOpenSeriesId(null)}
+                                      />
+                                      <div className="absolute left-0 top-full mt-1 z-40 w-52 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-850 p-1 shadow-xl backdrop-blur-md animate-in fade-in-0 zoom-in-95">
+                                        <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 dark:text-slate-400 border-b border-slate-100 dark:border-slate-700/60 uppercase tracking-wider">
+                                          版本快照 ({series.versions.length})
+                                        </div>
+                                        <div className="mt-1 space-y-0.5 max-h-48 overflow-y-auto">
+                                          {series.versions.map((ver) => {
+                                            const isVerLatest = ver.versionNumber === series.latestReport.versionNumber
+                                            const isVerSelected = ver.versionNumber === activeReport.versionNumber
+                                            return (
+                                              <button
+                                                key={ver.artifactId}
+                                                type="button"
+                                                onClick={() => {
+                                                  setSelectedVersionBySeries((prev) => ({ ...prev, [series.seriesId]: ver.versionNumber }))
+                                                  setVersionDropdownOpenSeriesId(null)
+                                                  setInlineComparisonBySeries((prev) => ({ ...prev, [series.seriesId]: null }))
+                                                }}
+                                                className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-left transition-colors ${
+                                                  isVerSelected
+                                                    ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium'
+                                                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-750'
+                                                }`}
+                                              >
+                                                <div className="flex items-center gap-1.5 min-w-0">
+                                                  <span className="font-mono font-semibold">v{ver.versionNumber}</span>
+                                                  {isVerLatest && (
+                                                    <span className="text-[9px] rounded px-1 py-0.2 bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                                                      最新
+                                                    </span>
+                                                  )}
+                                                  <span className="text-[10px] text-slate-400 dark:text-slate-400">· {ver.documentIds.length} 篇</span>
+                                                </div>
+                                                {isVerSelected && <Check className="h-3 w-3 text-blue-600 dark:text-blue-400 shrink-0" />}
+                                              </button>
+                                            )
+                                          })}
+                                        </div>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                className="opacity-0 group-hover/title:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                title="修改报告标题"
+                                onClick={() => {
+                                  setEditingArtifactId(activeReport.artifactId)
+                                  setEditingTitle(activeReport.title)
+                                }}
+                              >
+                                <Edit3 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+
+                          {activeReport.isArchived && (
+                            <span
+                              className="inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/50"
+                              title="原始抓取任务及文档已被清理，报告处于归档快照模式"
+                            >
+                              源数据已归档
                             </span>
+                          )}
+                        </div>
 
-                            <button
-                              type="button"
-                              className="opacity-0 group-hover/title:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                              title="修改报告标题"
-                              onClick={() => {
-                                setEditingArtifactId(report.artifactId)
-                                setEditingTitle(report.title)
-                              }}
-                            >
-                              <Edit3 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        )}
-
-                        {/* 去掉绿色“数据源完整”标签，仅在归档模式时显示细型无压迫提示 */}
-                        {report.isArchived && (
-                          <span
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.25 text-[10px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/70 dark:border-amber-800/50"
-                            title="原始抓取任务及文档已被清理，报告处于归档快照模式"
-                          >
-                            源数据已归档
-                          </span>
-                        )}
+                        <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
+                          <span>固化引用 <strong className="font-semibold text-slate-800 dark:text-slate-200">{activeReport.documentIds.length}</strong> 个文档</span>
+                          <span>·</span>
+                          <span>生成于 {new Date(activeReport.createdAt).toLocaleString()}</span>
+                          {series.versions.length > 1 && (
+                            <>
+                              <span>·</span>
+                              <span className="text-[11px] text-slate-400">累计演进 {series.versions.length} 个版本</span>
+                            </>
+                          )}
+                        </p>
                       </div>
+                    </div>
 
-                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
-                        <span>固化引用 <strong className="font-semibold text-slate-800 dark:text-slate-200">{report.documentIds.length}</strong> 个文档</span>
-                        <span>·</span>
-                        <span>生成于 {new Date(report.createdAt).toLocaleString()}</span>
-                      </p>
+                    {/* 右侧操作按钮 */}
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                      {/* 导出 */}
+                      <ReportDownloadDropdown artifactId={activeReport.artifactId} />
+
+                      {/* 就地对比上一版 */}
+                      {activeReport.previousArtifactId && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className={`h-8 gap-1.5 px-2.5 text-xs transition-colors ${
+                            inlineComparison
+                              ? 'border-blue-300 dark:border-blue-700 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium'
+                              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                          }`}
+                          disabled={isComparingLoading}
+                          onClick={() => toggleInlineComparison(series.seriesId, activeReport.artifactId)}
+                        >
+                          {isComparingLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <GitCompare className="h-3.5 w-3.5" />
+                          )}
+                          <span>{inlineComparison ? '收起对比' : `对比 v${activeReport.versionNumber - 1}`}</span>
+                        </Button>
+                      )}
+
+                      {/* 🔄 智能升级版本（仅最新版展示升级/最新状态） */}
+                      {isViewingLatest ? (
+                        series.latestReport.hasNewData ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 gap-1.5 px-2.5 text-xs border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 bg-blue-50/50 hover:bg-blue-100/60 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 font-medium transition-colors"
+                            disabled={refreshingArtifactIds.includes(series.latestReport.artifactId)}
+                            onClick={() => handleRefreshReport(series.latestReport)}
+                            title="使用原提问词与分析维度，基于本任务多轮累积的全部最新数据重新提炼升级"
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${refreshingArtifactIds.includes(series.latestReport.artifactId) ? 'animate-spin' : ''}`} />
+                            <span>{refreshingArtifactIds.includes(series.latestReport.artifactId) ? '正在升级...' : `升级至 v${series.latestReport.versionNumber + 1}`}</span>
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled
+                            className="h-8 gap-1.5 px-2.5 text-xs border border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 text-slate-400 dark:text-slate-500 cursor-not-allowed font-medium opacity-80"
+                            title="当前知识库暂无新增数据。若想进一步升级研报，请先在对话中发起新一轮补充采集"
+                          >
+                            <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+                            <span>已是最新版本</span>
+                          </Button>
+                        )
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 gap-1 px-2.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 font-medium"
+                          onClick={() => setSelectedVersionBySeries((prev) => ({ ...prev, [series.seriesId]: series.latestReport.versionNumber }))}
+                        >
+                          切回最新版 (v{series.latestReport.versionNumber})
+                        </Button>
+                      )}
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
+                        onClick={() => setReportToDelete(activeReport)}
+                        title="删除此研报"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
 
-                  {/* 右侧操作按钮 */}
-                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                    {/* 导出 */}
-                    <ReportDownloadDropdown artifactId={report.artifactId} />
+                  {/* 就地展开的演进差异面板 (Inline Diff) */}
+                  {inlineComparison && (
+                    <div className="mt-3 rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/40 dark:bg-blue-950/20 p-3 text-xs animate-in fade-in-0 duration-150">
+                      <div className="flex items-center justify-between border-b border-blue-100/80 dark:border-blue-900/30 pb-2">
+                        <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200">
+                          <GitCompare className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                          <span>版本演进差异：</span>
+                          <span className="inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                            v{inlineComparison.from.versionNumber}
+                          </span>
+                          <span className="text-slate-400 text-xs">➔</span>
+                          <span className="inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-mono font-medium bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                            v{inlineComparison.to.versionNumber}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs px-1.5 py-0.5"
+                          onClick={() => setInlineComparisonBySeries((prev) => ({ ...prev, [series.seriesId]: null }))}
+                        >
+                          收起
+                        </button>
+                      </div>
 
-                    {/* 功能辅助按钮 */}
-                    {report.previousArtifactId && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5 px-2.5 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                        onClick={() => compareReport(report.artifactId)}
-                      >
-                        <GitCompare className="h-3.5 w-3.5" />
-                        <span>对比 v{report.versionNumber - 1}</span>
-                      </Button>
-                    )}
-                    {report.workflowId && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 gap-1.5 px-2.5 text-xs border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
-                        disabled={incrementalWorkflowId === report.workflowId}
-                        onClick={() => setConfirmIncrementalReport(report)}
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${incrementalWorkflowId === report.workflowId ? 'animate-spin' : ''}`} />
-                        <span>增量更新</span>
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 w-8 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-                      onClick={() => setReportToDelete(report)}
-                      title="删除此研报"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+                      <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-600 dark:text-slate-300">
+                        <div>
+                          <span className="font-medium text-slate-800 dark:text-slate-200">证据文档变化：</span>
+                          <p className="mt-0.5 text-slate-600 dark:text-slate-400">
+                            新增 <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">{inlineComparison.documents.added.length}</strong> 篇、更新 <strong className="text-amber-600 dark:text-amber-400 font-semibold">{inlineComparison.documents.updated.length}</strong> 篇、移除 <strong className="text-rose-600 dark:text-rose-400 font-semibold">{inlineComparison.documents.removed.length}</strong> 篇、沿用 {inlineComparison.documents.unchanged} 篇
+                          </p>
+                        </div>
+                        <div>
+                          <span className="font-medium text-slate-800 dark:text-slate-200">章节结构变化：</span>
+                          <p className="mt-0.5 text-slate-600 dark:text-slate-400">
+                            新增 <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">{inlineComparison.sections.added.length}</strong> 节、删除 <strong className="text-rose-600 dark:text-rose-400 font-semibold">{inlineComparison.sections.removed.length}</strong> 节、内容修订 <strong className="text-blue-600 dark:text-blue-400 font-semibold">{inlineComparison.sections.changed.length}</strong> 节
+                          </p>
+                        </div>
+                      </div>
+
+                      {inlineComparison.sections.changed.length > 0 && (
+                        <p className="mt-2 text-[11px] text-slate-400 truncate">
+                          发生修订的章节：{inlineComparison.sections.changed.join('、')}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))
+              )
+            })
           ) : (
             <div className="py-12 text-center text-xs text-slate-400 space-y-2">
               <FileText className="h-8 w-8 mx-auto opacity-30 text-slate-500" />
@@ -2295,85 +2470,9 @@ export function ResearchReportsView({
         )}
       </section>
 
-      {/* 增量研究更新二次确认弹窗 */}
-      <Dialog
-        open={!!confirmIncrementalReport}
-        onOpenChange={(open) => {
-          if (!open && !isSubmittingIncremental) {
-            setConfirmIncrementalReport(null)
-          }
-        }}
-      >
-        <DialogContent className="max-w-md border-cyber-border-subtle bg-cyber-bg-secondary/95 p-6 backdrop-blur-xl">
-          <DialogHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-cyber-neon-cyan/25 bg-cyber-neon-cyan/10 text-cyber-neon-cyan shadow-[0_0_16px_rgba(34,211,238,0.15)]">
-                <RefreshCw className="h-5 w-5" />
-              </div>
-              <div className="text-left min-w-0 flex-1">
-                <DialogTitle className="text-base font-semibold text-cyber-text-primary">
-                  发起增量研究更新
-                </DialogTitle>
-                <DialogDescription className="text-xs text-cyber-text-muted mt-0.5">
-                  基于历史基线研报进行差异化递增分析
-                </DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
 
-          <div className="my-2 rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/50 p-3.5 space-y-2.5 text-xs">
-            <div className="flex items-center justify-between text-cyber-text-muted">
-              <span>基线研报：</span>
-              <span className="font-medium text-cyber-text-primary truncate max-w-[220px]" title={confirmIncrementalReport?.title}>
-                {confirmIncrementalReport?.title}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-cyber-text-muted">
-              <span>基线版本：</span>
-              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/25">
-                v{confirmIncrementalReport?.versionNumber}
-              </span>
-            </div>
-            <div className="border-t border-cyber-border-subtle/60 pt-2.5 text-cyber-text-secondary leading-relaxed">
-              系统将以该报告对应任务为基线，仅分析基线完成之后<span className="text-cyber-neon-cyan font-medium">新增的证据文档与关联线索</span>，自动增量生成新版本研究报告。
-            </div>
-          </div>
 
-          <DialogFooter className="gap-2 pt-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-xs border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary"
-              onClick={() => setConfirmIncrementalReport(null)}
-              disabled={isSubmittingIncremental}
-            >
-              取消
-            </Button>
-            <Button
-              size="sm"
-              className="gap-1.5 bg-cyber-neon-cyan text-cyber-bg-primary hover:bg-cyber-neon-cyan/90 font-medium text-xs shadow-[0_0_12px_rgba(34,211,238,0.25)]"
-              disabled={isSubmittingIncremental}
-              onClick={() => {
-                if (confirmIncrementalReport?.workflowId) {
-                  executeIncremental(confirmIncrementalReport.workflowId)
-                }
-              }}
-            >
-              {isSubmittingIncremental ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  <span>正在启动...</span>
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span>立即开始</span>
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
 
       {/* 单个研报删除确认弹窗 */}
       <Dialog open={Boolean(reportToDelete)} onOpenChange={(open) => { if (!open) setReportToDelete(null) }}>

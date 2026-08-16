@@ -72,7 +72,9 @@ export class WorkflowRuntime {
     }
 
     const analysisAction = isBusinessAnalysis ? 'auto_skill_analysis' : 'auto_plan_analysis';
-    const reportName = isBusinessAnalysis ? skill?.name || '业务调研' : '采集结果';
+    const reportName = isBusinessAnalysis
+      ? (skill?.name || '业务调研分析')
+      : (workflow.goal ? `${workflow.goal}分析报告` : '数据调研深度分析报告');
     const existing = agentRepository.getThread(workflow.thread_id)?.messages?.some((message: any) =>
       ['auto_skill_analysis', 'auto_plan_analysis'].includes(message.metadata?.action)
         && message.metadata?.plan_id === workflow.plan_id,
@@ -93,7 +95,9 @@ export class WorkflowRuntime {
         workflowId: workflow.plan_id,
         workflowGoal: workflow.goal,
         reportName,
-        userRequest: `生成本次“${reportName}”的最终分析报告`,
+        userRequest: workflow.goal
+          ? `基于本次围绕“${workflow.goal}”采集的多源数据，提炼并生成专业分析研报`
+          : '基于本次采集的多源数据提炼并生成专业分析研报',
         analysisGoals,
         skillName: skill?.name,
         skillInstructions: isBusinessAnalysis ? skill?.analysisInstructions : undefined,

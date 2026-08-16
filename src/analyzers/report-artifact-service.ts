@@ -3,6 +3,12 @@ import type { Database } from 'better-sqlite3';
 import { getDb } from '../database/connection';
 import { graphService, GraphService } from './graph-service';
 import { formalReportRenderer } from './formal-report-renderer';
+import { parseMarkdown, InlineToken } from './markdown-ast';
+import { analysisService } from './registry';
+import { profileDataset } from './dataset-profiler';
+import { quickReportGenerator } from './quick-report-generator';
+import { agentRepository } from '../server/services/AgentRepository';
+import { skillRegistry } from '../skills/registry';
 
 export interface CreateReportArtifactInput {
   reportId: string;
@@ -12,14 +18,14 @@ export interface CreateReportArtifactInput {
   content: string;
   sources?: Array<Record<string, unknown>>;
   reproducibility?: Record<string, unknown>;
+  seriesId?: string;
+  previousArtifactId?: string;
 }
 
 function parseJson(value: string): any { return JSON.parse(value || '{}'); }
 function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-
-import { parseMarkdown, InlineToken } from './markdown-ast';
 
 function inlinesToHtml(inlines: InlineToken[]): string {
   return inlines.map((token) => {
@@ -132,15 +138,25 @@ export class ReportArtifactService {
       ? this.db.prepare('SELECT * FROM report_artifacts WHERE workflow_id=? ORDER BY created_at DESC LIMIT 1')
         .get(workflow.base_workflow_id) as any
       : null;
-    const previous = baselineArtifact
-      ? this.db.prepare('SELECT * FROM report_artifacts WHERE series_id=? ORDER BY version_number DESC LIMIT 1')
-        .get(baselineArtifact.series_id) as any
-      : null;
-    const seriesId = previous?.series_id || artifactId;
+
+    let previous: any = null;
+    if (input.previousArtifactId) {
+      previous = this.db.prepare('SELECT * FROM report_artifacts WHERE artifact_id=?').get(input.previousArtifactId) as any;
+    } else if (input.seriesId) {
+      previous = this.db.prepare('SELECT * FROM report_artifacts WHERE series_id=? ORDER BY version_number DESC LIMIT 1').get(input.seriesId) as any;
+    } else if (baselineArtifact) {
+      previous = this.db.prepare('SELECT * FROM report_artifacts WHERE series_id=? ORDER BY version_number DESC LIMIT 1').get(baselineArtifact.series_id) as any;
+    }
+
+    const seriesId = input.seriesId || previous?.series_id || artifactId;
     const versionNumber = previous
       ? Number((this.db.prepare('SELECT MAX(version_number) AS version FROM report_artifacts WHERE series_id=?')
         .get(seriesId) as any)?.version || 0) + 1
       : 1;
+
+    const analyzedDocs = analysisService.documents(input.workflowId ? input.workflowId : undefined, input.threadId);
+    const defaultAnalyzedDocIds = analyzedDocs.map((d: any) => d.document_id);
+
     const reproducibility = {
       schemaVersion: 1,
       immutable: true,
@@ -149,6 +165,7 @@ export class ReportArtifactService {
       previousArtifactId: previous?.artifact_id || null,
       documentIds,
       documentVersions,
+      analyzedDocIds: (input.reproducibility as any)?.analyzedDocIds || defaultAnalyzedDocIds,
       graphId: graph.id,
       generatedAt: createdAt,
       ...input.reproducibility,
@@ -162,16 +179,208 @@ export class ReportArtifactService {
     return this.get(artifactId);
   }
 
+  async generateComprehensive(options: {
+    threadId: string;
+    title?: string;
+    userRequest?: string;
+    analysisGoals?: string[];
+  }): Promise<any> {
+    const thread = agentRepository.getThread(options.threadId);
+    if (!thread) throw new Error('指定的调研课题会话不存在');
+
+    const docs = analysisService.documents(undefined, options.threadId);
+    if (!docs || docs.length === 0) {
+      throw new Error('当前课题知识库中暂无可分析的文档，请先在对话中发起数据采集');
+    }
+
+    const datasetProfile = profileDataset(docs);
+    const reportTitle = options.title?.trim() || `${thread.title || '全景调研'} 综合分析报告`;
+    const userRequest = options.userRequest?.trim() || `基于当前课题积累的全部 ${docs.length} 篇文档，生成全景综合分析研报`;
+
+    const result = await quickReportGenerator.generate({
+      threadId: options.threadId,
+      workflowGoal: thread.title || '综合调研分析',
+      reportName: reportTitle,
+      userRequest,
+      analysisGoals: options.analysisGoals || [],
+      datasetProfile,
+    });
+
+    const reportId = crypto.randomUUID();
+    this.db.prepare(`
+      INSERT INTO analysis_reports (
+        report_id, thread_id, workflow_id, analyzer_id, analyzer_version,
+        title, content, metadata_json, created_at
+      ) VALUES (?, ?, NULL, 'quick.report', '1.0.0', ?, ?, ?, ?)
+    `).run(
+      reportId,
+      options.threadId,
+      reportTitle,
+      result.answer,
+      JSON.stringify({
+        datasetProfile,
+        coverage: result.coverage,
+        evidenceSelection: result.evidenceSelection,
+        sources: result.sources,
+      }),
+      new Date().toISOString(),
+    );
+
+    return this.create({
+      reportId,
+      threadId: options.threadId,
+      title: reportTitle,
+      content: result.answer,
+      sources: result.sources,
+      reproducibility: {
+        analyzerId: 'quick.report',
+        analyzerVersion: '1.0.0',
+        coverage: result.coverage,
+        evidenceSelection: result.evidenceSelection,
+        analyzedDocIds: docs.map((d) => d.document_id),
+      },
+    });
+  }
+
+  async refresh(artifactId: string): Promise<any> {
+    const current = this.get(artifactId);
+    if (!current) throw new Error('未找到指定研报');
+
+    const threadId = current.threadId;
+    const workflowId = current.workflowId;
+
+    // 校验 1：必须为该系列的最新版本，防止旧版本分支错乱
+    const maxRow = this.db.prepare('SELECT MAX(version_number) AS max_version FROM report_artifacts WHERE series_id=?').get(current.seriesId) as any;
+    const latestVersionNumber = Number(maxRow?.max_version || current.versionNumber);
+    if (current.versionNumber < latestVersionNumber) {
+      throw new Error(`该课题已有更新的版本 (v${latestVersionNumber})，请在最新版本上进行升级`);
+    }
+
+    // 获取当前任务/会话下所有多轮采集累积的全部文档
+    const docs = analysisService.documents(threadId ? undefined : workflowId, threadId);
+    if (!docs || docs.length === 0) {
+      throw new Error('当前任务知识库中暂无可分析的文档，请先进行数据采集');
+    }
+
+    // 校验 2：检查知识库是否有新数据沉淀（以分析文档基线为准，绝非仅仅比较 LLM 抽取的十来篇证据引用）
+    const reproducibility = current.reproducibility || {};
+    const baselineDocIds = new Set<string>(
+      reproducibility.analyzedDocIds ||
+      (current.workflowId && current.versionNumber === 1
+        ? analysisService.documents(current.workflowId).map((d: any) => d.document_id)
+        : current.documentIds)
+    );
+    const allDocIds = docs.map((d) => d.document_id);
+    const hasNewDocs = allDocIds.some((id) => !baselineDocIds.has(id));
+    if (!hasNewDocs) {
+      throw new Error('当前任务知识库暂无新增数据，该研报已基于全部沉淀数据提炼完成，无需重复升级');
+    }
+
+    const datasetProfile = profileDataset(docs);
+
+    // 提取原研报当轮任务的提问词、分析重点和 Skill 指令，严格保持原提问不变
+    let workflowGoal = current.title;
+    let analysisGoals: string[] = [];
+    let skillName: string | undefined;
+    let skillInstructions: string | undefined;
+
+    if (workflowId) {
+      const workflow = agentRepository.getPlan(workflowId);
+      if (workflow) {
+        workflowGoal = workflow.goal || current.title;
+        analysisGoals = workflow.plan?.analysis || [];
+        const skill = skillRegistry.find(workflow.plan?.skillId);
+        if (skill) {
+          skillName = skill.name;
+          skillInstructions = skill.analysisInstructions;
+        }
+      }
+    }
+
+    // 调用快速分析引擎，传入全量文档和原分析维度进行重新核验
+    const result = await quickReportGenerator.generate({
+      threadId: threadId || undefined,
+      workflowId: workflowId || undefined,
+      workflowGoal,
+      reportName: current.title,
+      userRequest: `使用原定提问目标与分析重点，基于当前任务累积的全部最新多轮数据（共 ${docs.length} 篇文档）重新核验并升级生成最新版本研报`,
+      analysisGoals,
+      skillName,
+      skillInstructions,
+      datasetProfile,
+    });
+
+    const reportId = crypto.randomUUID();
+    this.db.prepare(`
+      INSERT INTO analysis_reports (
+        report_id, thread_id, workflow_id, analyzer_id, analyzer_version,
+        title, content, metadata_json, created_at
+      ) VALUES (?, ?, ?, 'quick.report', '1.0.0', ?, ?, ?, ?)
+    `).run(
+      reportId,
+      threadId || null,
+      workflowId || null,
+      current.title,
+      result.answer,
+      JSON.stringify({
+        datasetProfile,
+        coverage: result.coverage,
+        evidenceSelection: result.evidenceSelection,
+        sources: result.sources,
+      }),
+      new Date().toISOString(),
+    );
+
+    return this.create({
+      reportId,
+      threadId: threadId || undefined,
+      workflowId: workflowId || undefined,
+      seriesId: current.seriesId,
+      previousArtifactId: current.artifactId,
+      title: current.title,
+      content: result.answer,
+      sources: result.sources,
+      reproducibility: {
+        analyzerId: 'quick.report',
+        analyzerVersion: '1.0.0',
+        coverage: result.coverage,
+        evidenceSelection: result.evidenceSelection,
+        analyzedDocIds: allDocIds,
+      },
+    });
+  }
+
   get(artifactId: string): any {
     const row = this.db.prepare('SELECT * FROM report_artifacts WHERE artifact_id=?').get(artifactId) as any;
     if (!row) throw new Error('Report artifact not found');
     const documentIds = parseJson(row.document_ids_json) as string[];
+    const reproducibility = parseJson(row.reproducibility_json);
     let isArchived = false;
     if (documentIds.length) {
       const placeholders = documentIds.map(() => '?').join(',');
       const existingCount = Number((this.db.prepare(`SELECT COUNT(*) AS count FROM documents WHERE document_id IN (${placeholders})`).get(...documentIds) as any)?.count || 0);
       isArchived = existingCount === 0;
     }
+
+    // 计算该系列的最大版本及当前卡片是否为最新版本
+    const maxRow = this.db.prepare('SELECT MAX(version_number) AS max_version FROM report_artifacts WHERE series_id=?').get(row.series_id) as any;
+    const latestVersionNumber = Number(maxRow?.max_version || row.version_number);
+    const isLatestInSeries = Number(row.version_number) >= latestVersionNumber;
+
+    // 计算是否有新增数据可供升级（以全量分析文档基线为准，绝非比较证据引用数）
+    let hasNewData = false;
+    if (isLatestInSeries) {
+      const allDocs = analysisService.documents(row.thread_id ? undefined : row.workflow_id, row.thread_id);
+      const allDocIds = allDocs.map((d: any) => d.document_id);
+      const baselineDocIds = new Set<string>(
+        reproducibility.analyzedDocIds ||
+        (row.workflow_id && Number(row.version_number) === 1
+          ? analysisService.documents(row.workflow_id).map((d: any) => d.document_id)
+          : documentIds)
+      );
+      hasNewData = allDocIds.some((id) => !baselineDocIds.has(id));
+    }
+
     return {
       artifactId: row.artifact_id,
       reportId: row.report_id,
@@ -188,6 +397,9 @@ export class ReportArtifactService {
       reproducibility: parseJson(row.reproducibility_json),
       createdAt: row.created_at,
       isArchived,
+      isLatestInSeries,
+      latestVersionNumber,
+      hasNewData,
     };
   }
 

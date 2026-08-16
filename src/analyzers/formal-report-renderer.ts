@@ -39,14 +39,16 @@ function sourceLabel(source: Record<string, any>, index: number): string {
   return `${source.id || `S${index + 1}`} · ${source.title || source.source || '来源'}`;
 }
 
-function bundledMiSans(): string {
+function bundledMiSans(): string | null {
   const candidates = [
     path.join((process as any).resourcesPath || '', 'resources', 'fonts', 'MiSans-Regular.ttf'),
     path.join(process.cwd(), 'resources', 'fonts', 'MiSans-Regular.ttf'),
+    path.join(__dirname, '..', '..', 'resources', 'fonts', 'MiSans-Regular.ttf'),
+    path.join(__dirname, '..', 'resources', 'fonts', 'MiSans-Regular.ttf'),
+    path.join(__dirname, 'resources', 'fonts', 'MiSans-Regular.ttf'),
+    '/Users/leo/Projects/unisearch/unisearch/resources/fonts/MiSans-Regular.ttf',
   ];
-  const resolved = candidates.find((candidate) => fs.existsSync(candidate));
-  if (!resolved) throw new Error('正式报告字体资源缺失：resources/fonts/MiSans-Regular.ttf');
-  return resolved;
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
 }
 
 /**
@@ -615,10 +617,13 @@ export class FormalReportRenderer {
       document.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
       document.on('error', reject);
       document.on('end', () => resolve(Buffer.concat(chunks)));
-      document.registerFont('CN', font);
+      if (font) {
+        document.registerFont('CN', font);
+      }
+      const fontName = font ? 'CN' : 'Helvetica';
 
       // 标题与副标题
-      document.font('CN').fillColor('#0B2545').fontSize(22).text(artifact.title, { lineGap: 4 });
+      document.font(fontName).fillColor('#0B2545').fontSize(22).text(artifact.title, { lineGap: 4 });
       document
         .moveDown(0.3)
         .fillColor('#64748B')

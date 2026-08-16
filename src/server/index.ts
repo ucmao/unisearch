@@ -822,6 +822,48 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     return { items: reportArtifactService.list(query.thread_id, query.workflow_id) };
   });
 
+  fastify.post('/api/reports/generate', async (request, reply) => {
+    const body = (request.body || {}) as {
+      thread_id: string;
+      title?: string;
+      user_request?: string;
+      analysis_goals?: string[];
+    };
+    if (!body.thread_id) {
+      return reply.status(400).send({ detail: '请提供所属课题 thread_id' });
+    }
+    try {
+      const report = await reportArtifactService.generateComprehensive({
+        threadId: body.thread_id,
+        title: body.title,
+        userRequest: body.user_request,
+        analysisGoals: body.analysis_goals,
+      });
+      return { status: 'ok', report };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
+  fastify.post('/api/reports/:artifact_id/refresh', async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+    const body = (request.body || {}) as {
+      title?: string;
+      user_request?: string;
+      analysis_goals?: string[];
+    };
+    try {
+      const report = await reportArtifactService.refresh(artifact_id, {
+        title: body.title,
+        userRequest: body.user_request,
+        analysisGoals: body.analysis_goals,
+      });
+      return { status: 'ok', report };
+    } catch (error: any) {
+      return reply.status(400).send({ detail: error.message });
+    }
+  });
+
   fastify.get('/api/reports/:artifact_id', async (request, reply) => {
     try {
       return reportArtifactService.get((request.params as { artifact_id: string }).artifact_id);
