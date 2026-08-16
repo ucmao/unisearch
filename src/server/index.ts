@@ -461,7 +461,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const { content, attachment_ids, task_references, mentioned_connectors, mentioned_skills } = request.body as {
       content?: string;
       attachment_ids?: string[];
-      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+      task_references?: Array<{ plan_id: string }>;
       mentioned_connectors?: string[];
       mentioned_skills?: string[];
     };
@@ -484,7 +484,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     const { content, attachment_ids, task_references, mentioned_connectors, mentioned_skills } = request.body as {
       content?: string;
       attachment_ids?: string[];
-      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+      task_references?: Array<{ plan_id: string }>;
       mentioned_connectors?: string[];
       mentioned_skills?: string[];
     };

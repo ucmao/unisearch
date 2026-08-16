@@ -596,11 +596,10 @@ export class AgentRepository {
         if (!rawKey) continue;
 
         if (mutation.action === 'forget') {
-          if (!mutation.explicit) continue;
-          const key = `auto_atom_${normalizedMemoryKey(rawKey)}`;
+          const key = rawKey.startsWith('auto_atom_') ? rawKey : `auto_atom_${normalizedMemoryKey(rawKey)}`;
           this.db.prepare(`UPDATE agent_memories SET status='superseded', updated_at=?
-            WHERE memory_key=? AND memory_key NOT LIKE 'user_manual_%'`)
-            .run(new Date().toISOString(), key);
+            WHERE (memory_key=? OR memory_key=?) AND memory_key NOT LIKE 'user_manual_%'`)
+            .run(new Date().toISOString(), key, rawKey);
           continue;
         }
 
@@ -692,7 +691,7 @@ export class AgentRepository {
       const categoryMatch = categoryHints.has(memory.category);
       const isHighImportance = Number(memory.importance || 0) >= 0.75;
       const score = relevance * 8
-        + (manual ? 2.5 : 0)
+        + (manual ? 3.5 : 0)
         + (globalRule ? 1.0 : 0)
         + (categoryMatch ? 2 : 0)
         + (isHighImportance ? 1.0 : 0)

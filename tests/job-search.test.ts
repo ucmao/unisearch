@@ -103,3 +103,43 @@ test('all job manifests expose location, start page, and a 500 item ceiling', ()
     assert.equal(search.inputFields.find((field) => field.key === 'max_items')?.max, 500);
   }
 });
+
+test('interactive timeouts are set to 120s (120,000ms)', async () => {
+  const { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } = await import('../src/crawler/base/interactiveTimeouts');
+  assert.equal(MANUAL_LOGIN_TIMEOUT_MS, 120_000);
+  assert.equal(MANUAL_VERIFICATION_TIMEOUT_MS, 120_000);
+});
+
+test('classifyJob51PageState and classifyLiepinPageState accurately detect login and verification', async () => {
+  const { classifyJob51PageState } = await import('../src/crawler/platforms/job51');
+  const { classifyLiepinPageState } = await import('../src/crawler/platforms/liepin');
+
+  // 51Job tests
+  assert.equal(
+    classifyJob51PageState({ url: 'https://we.51job.com', title: '搜索', bodyText: '微信扫码登录查看更多职位' }).state,
+    'login_required'
+  );
+  assert.equal(
+    classifyJob51PageState({ url: 'https://we.51job.com', title: '安全验证', bodyText: '向右滑动完成验证' }).state,
+    'verification_required'
+  );
+  assert.equal(
+    classifyJob51PageState({ url: 'https://we.51job.com', title: '职位列表', bodyText: '前端开发工程师', hasJobData: true }).state,
+    'ready'
+  );
+
+  // Liepin tests
+  assert.equal(
+    classifyLiepinPageState({ url: 'https://www.liepin.com', title: '职位', bodyText: '请先登录后查看更多' }).state,
+    'login_required'
+  );
+  assert.equal(
+    classifyLiepinPageState({ url: 'https://www.liepin.com', title: '人机验证', bodyText: '请完成验证' }).state,
+    'verification_required'
+  );
+  assert.equal(
+    classifyLiepinPageState({ url: 'https://www.liepin.com', title: '职位列表', bodyText: '数据标注', hasJobCards: true }).state,
+    'ready'
+  );
+});
+

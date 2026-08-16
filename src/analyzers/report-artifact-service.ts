@@ -4,7 +4,6 @@ import { getDb } from '../database/connection';
 import { graphService, GraphService } from './graph-service';
 import { formalReportRenderer } from './formal-report-renderer';
 import { parseMarkdown, InlineToken } from './markdown-ast';
-import { analysisService } from './registry';
 import { profileDataset } from './dataset-profiler';
 import { quickReportGenerator } from './quick-report-generator';
 import { agentRepository } from '../server/services/AgentRepository';
@@ -112,7 +111,7 @@ function reportSections(content: string): Map<string, string> {
   return sections;
 }
 
-import { AnalysisService, analysisService } from './registry';
+import { AnalysisService } from './registry';
 
 export class ReportArtifactService {
   private readonly analysis: AnalysisService;

@@ -12,7 +12,7 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
-import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
+import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 export type Job51PageState =
@@ -112,6 +112,7 @@ function extractUrlsOrIds(input: string): string[] {
 export class Job51Crawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  private hasDeclinedLogin = false;
 
   public async start(): Promise<void> {
     console.log('[51Job] Connecting 51Job crawler to Electron built-in browser engine...');
@@ -176,6 +177,11 @@ export class Job51Crawler extends AbstractCrawler {
     if (assessment.state === 'ready') return true;
     if (assessment.state === 'empty_result') return false;
 
+    // If user already timed out on login in this run, do not block repeatedly on pagination
+    if (assessment.state === 'login_required' && this.hasDeclinedLogin) {
+      return false;
+    }
+
     let loginNotificationSent = false;
     let verifyNotificationSent = false;
 
@@ -193,7 +199,7 @@ export class Job51Crawler extends AbstractCrawler {
       verifyNotificationSent = true;
     }
 
-    const maxWaitMs = MANUAL_LOGIN_TIMEOUT_MS;
+    const maxWaitMs = assessment.state === 'verification_required' ? MANUAL_VERIFICATION_TIMEOUT_MS : MANUAL_LOGIN_TIMEOUT_MS;
     const startTime = Date.now();
     console.log(`[51Job] Pausing crawler and waiting for user interaction in browser window (up to ${maxWaitMs / 1000}s)...`);
 
@@ -213,6 +219,9 @@ export class Job51Crawler extends AbstractCrawler {
       }
     }
 
+    if (loginNotificationSent) {
+      this.hasDeclinedLogin = true;
+    }
     console.warn(`[51Job] Interactive timeout reached for "${keyword}". Continuing with best-effort parsing.`);
     return false;
   }
@@ -262,10 +271,14 @@ export class Job51Crawler extends AbstractCrawler {
           // Check if intervention is needed before extraction
           let assessment = await this.assessCurrentPageState();
           if (assessment.state === 'verification_required' || assessment.state === 'login_required') {
-            const resolved = await this.checkAndHandleIntervention(keyword);
-            if (resolved) {
-              await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-              await this.humanDelay(this.page, 2);
+            if (assessment.state === 'login_required' && this.hasDeclinedLogin) {
+              console.log(`[51Job] Skipping login wait for page ${pageNum} as login was not completed earlier.`);
+            } else {
+              const resolved = await this.checkAndHandleIntervention(keyword);
+              if (resolved) {
+                await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+                await this.humanDelay(this.page, 2);
+              }
             }
           }
 
@@ -276,7 +289,7 @@ export class Job51Crawler extends AbstractCrawler {
           if ((!extracted || extracted.length === 0) && pageNum === startPage) {
             console.log(`[51Job] 0 items extracted on page ${pageNum}. Performing deep status inspection...`);
             assessment = await this.assessCurrentPageState();
-            if (assessment.state !== 'empty_result') {
+            if (assessment.state !== 'empty_result' && !(assessment.state === 'login_required' && this.hasDeclinedLogin)) {
               const resolved = await this.checkAndHandleIntervention(keyword);
               if (resolved) {
                 await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});

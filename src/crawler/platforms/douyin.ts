@@ -455,7 +455,7 @@ export class DouyinCrawler extends AbstractCrawler {
   }
 
   private async waitForManualVerification(keyword: string): Promise<DouyinSearchCapture | null> {
-    console.warn('[DY] Graphical verification detected. Waiting up to 180 seconds for manual completion...');
+    console.warn(`[DY] Graphical verification detected. Waiting up to ${MANUAL_VERIFICATION_TIMEOUT_MS / 1000} seconds for manual completion...`);
     notifyManualVerificationRequired('douyin', `搜索“${keyword}”需要完成图形验证`);
     const startTime = Date.now();
     let stablePasses = 0;

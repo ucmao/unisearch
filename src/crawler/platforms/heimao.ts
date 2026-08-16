@@ -88,7 +88,7 @@ export class HeimaoCrawler extends AbstractCrawler {
   private async handleLoginOrVerificationIfNeeded(keyword: string): Promise<void> {
     if (!this.page) return;
     if (await this.checkCaptchaOrLogin()) {
-      console.warn('[Heimao] Login or captcha verification detected in built-in browser window. Waiting up to 180s for user completion...');
+      console.warn(`[Heimao] Login or captcha verification detected in built-in browser window. Waiting up to ${MANUAL_VERIFICATION_TIMEOUT_MS / 1000}s for user completion...`);
       notifyManualVerificationRequired('heimao', `黑猫投诉搜索“${keyword}”需要新浪/微博登录或验证，请在内置浏览器窗口中完成操作。`);
 
       const startTime = Date.now();

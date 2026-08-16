@@ -439,6 +439,17 @@ test('automatic atomic memories never overwrite user-owned memories', () => {
       confidence: 1, importance: 1, status: 'active',
     });
     assert.equal(repo.listMemories().find((memory) => memory.memory_id === manual.memory_id)?.content, '用户明确保存的内容');
+
+    repo.applyAutomaticMemoryMutations([{
+      action: 'upsert', memoryKey: 'preference.job_research', category: 'preference',
+      content: '偏好在招聘平台检索岗位薪酬信息', confidence: 0.95, importance: 0.8, explicit: false,
+    }], 'balanced');
+    assert.equal(repo.listAutomaticMemories().some((m) => m.content.includes('岗位薪酬')), true);
+
+    repo.applyAutomaticMemoryMutations([{
+      action: 'forget', memoryKey: 'preference.job_research',
+    }], 'balanced');
+    assert.equal(repo.listAutomaticMemories().some((m) => m.memory_key === 'auto_atom_preference.job_research'), false);
   } finally {
     db.close();
   }

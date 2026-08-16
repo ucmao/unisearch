@@ -411,32 +411,29 @@ export class AgentService {
     this.timer.unref();
   }
 
-  private collectMaterials(thread: any, includePlanId?: string): ConversationMaterials {
+  private async collectMaterials(thread: any, query?: string, includePlanId?: string): Promise<ConversationMaterials> {
     const attachmentIds = new Set<string>();
-    const referenceMap = new Map<string, Set<string>>();
+    const referencedPlanIds = new Set<string>();
     for (const message of thread.messages || []) {
       if (message.role !== 'user') continue;
       for (const attachment of message.metadata?.attachments || []) {
         if (typeof attachment?.attachment_id === 'string') attachmentIds.add(attachment.attachment_id);
       }
       for (const reference of message.metadata?.task_references || []) {
-        if (typeof reference?.plan_id !== 'string') continue;
-        const selected = referenceMap.get(reference.plan_id) || new Set<string>();
-        for (const platform of reference.platforms || []) if (SUPPORTED.includes(platform)) selected.add(platform);
-        referenceMap.set(reference.plan_id, selected);
+        if (typeof reference?.plan_id === 'string') referencedPlanIds.add(reference.plan_id);
       }
     }
     const allPlans = agentRepository.listPlans(thread.thread_id);
     if (includePlanId) {
       const targetPlan = agentRepository.getPlan(includePlanId);
-      if (targetPlan && ['completed', 'partially_completed'].includes(targetPlan.status) && !referenceMap.has(includePlanId)) {
-        referenceMap.set(includePlanId, new Set());
+      if (targetPlan && ['completed', 'partially_completed'].includes(targetPlan.status)) {
+        referencedPlanIds.add(includePlanId);
       }
     }
-    if (referenceMap.size === 0) {
+    if (referencedPlanIds.size === 0) {
       for (const plan of allPlans) {
         if (['completed', 'partially_completed'].includes(plan.status)) {
-          referenceMap.set(plan.plan_id, new Set());
+          referencedPlanIds.add(plan.plan_id);
         }
       }
     }
@@ -457,14 +454,47 @@ export class AgentService {
       if (value) texts.push({ label: `上传文件：${attachment.file_name}`, content: value });
       remainingChars -= value.length;
     }
-    for (const [planId, platforms] of referenceMap) {
-      if (remainingChars <= 0) break;
-      const plan = agentRepository.getPlan(planId);
-      if (!plan || !['completed', 'partially_completed'].includes(plan.status)) continue;
-      const rows = agentRepository.getPlanContents(planId, 60, [...platforms]);
-      const value = JSON.stringify({ goal: plan.goal, selected_platforms: [...platforms], records: rows }).slice(0, remainingChars);
-      texts.push({ label: `采集任务：${plan.goal}`, content: value });
-      remainingChars -= value.length;
+
+    // 现代 RAG 向量 + 关键词混合检索召回逻辑
+    const targetWorkflowIds = [...referencedPlanIds];
+    if (targetWorkflowIds.length > 0 && remainingChars > 0) {
+      const searchQuery = query?.trim() || '';
+      try {
+        const searchResponse = await knowledgeIndex.searchDetailed(searchQuery || '核心内容与事实总结', {
+          workflowIds: targetWorkflowIds,
+          limit: 15,
+        });
+        const items = searchResponse.items || [];
+        if (items.length > 0) {
+          for (const item of items) {
+            if (remainingChars <= 0) break;
+            const chunkText = `【信源平台: ${item.source || '未知'}】${item.title ? ` ${item.title}\n` : '\n'}${item.content}`;
+            const value = chunkText.slice(0, Math.min(remainingChars, 2500));
+            texts.push({ label: `知识库切片: ${item.title || item.source}`, content: value });
+            remainingChars -= value.length;
+          }
+        } else {
+          for (const planId of targetWorkflowIds) {
+            if (remainingChars <= 0) break;
+            const plan = agentRepository.getPlan(planId);
+            if (!plan || !['completed', 'partially_completed'].includes(plan.status)) continue;
+            const rows = agentRepository.getPlanContents(planId, 20);
+            const value = JSON.stringify({ goal: plan.goal, records: rows }).slice(0, remainingChars);
+            texts.push({ label: `采集任务：${plan.goal}`, content: value });
+            remainingChars -= value.length;
+          }
+        }
+      } catch {
+        for (const planId of targetWorkflowIds) {
+          if (remainingChars <= 0) break;
+          const plan = agentRepository.getPlan(planId);
+          if (!plan || !['completed', 'partially_completed'].includes(plan.status)) continue;
+          const rows = agentRepository.getPlanContents(planId, 20);
+          const value = JSON.stringify({ goal: plan.goal, records: rows }).slice(0, remainingChars);
+          texts.push({ label: `采集任务：${plan.goal}`, content: value });
+          remainingChars -= value.length;
+        }
+      }
     }
     return { texts, images: images.slice(0, 5) };
   }
@@ -559,7 +589,7 @@ export class AgentService {
     content: string,
     context: {
       attachment_ids?: string[];
-      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+      task_references?: Array<{ plan_id: string }>;
       mentioned_connectors?: string[];
       mentioned_skills?: string[];
     } = {},
@@ -579,7 +609,7 @@ export class AgentService {
     content: string,
     context: {
       attachment_ids?: string[];
-      task_references?: Array<{ plan_id: string; platforms?: string[] }>;
+      task_references?: Array<{ plan_id: string }>;
       mentioned_connectors?: string[];
       mentioned_skills?: string[];
     } = {},
@@ -595,13 +625,10 @@ export class AgentService {
     const attachmentIds = Array.from(new Set((context.attachment_ids || []).map(String))).slice(0, 5);
     const attachments = agentRepository.getAttachments(threadId, attachmentIds);
     if (attachments.length !== attachmentIds.length) throw new Error('部分附件不存在或不属于当前任务');
-    const taskReferences = (context.task_references || []).slice(0, 3).map((reference) => {
+    const taskReferences = (context.task_references || []).map((reference) => {
       const plan = agentRepository.getPlan(String(reference.plan_id || ''));
       if (!plan || !['completed', 'partially_completed'].includes(plan.status)) throw new Error('引用的采集任务不存在或尚未产生可分析结果');
-      const available = new Set(plan.steps.map((step: any) => step.platform));
-      const platforms = Array.from(new Set((reference.platforms || []).map(String)))
-        .filter((platform) => SUPPORTED.includes(platform) && available.has(platform));
-      return { plan_id: plan.plan_id, goal: plan.goal, platforms };
+      return { plan_id: plan.plan_id, goal: plan.goal };
     });
     const mentionedConnectors = Array.from(new Set((context.mentioned_connectors || []).map(String)))
       .filter((connector) => SUPPORTED.includes(connector));
@@ -811,7 +838,7 @@ export class AgentService {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
         const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
-        const materials = this.collectMaterials(updatedThread);
+        const materials = await this.collectMaterials(updatedThread, content);
         const memories = this.recallMemories(content);
         const reply = (await modelService.converse(messages, { redirectToResearch, materials, memories, onRetry, signal, onDelta })).trim();
         ensureMessageNotAborted(signal);
@@ -998,7 +1025,7 @@ export class AgentService {
       const updatedThread = agentRepository.getThread(threadId);
       const messages = conversationMessages(updatedThread);
       const redirectToResearch = conversationalTurnsSinceReminder(updatedThread.messages) + 1 >= 3;
-      const materials = this.collectMaterials(updatedThread);
+      const materials = await this.collectMaterials(updatedThread, content);
       const memories = this.recallMemories(content);
 
       let reply = decision.reply.trim();
@@ -1211,7 +1238,7 @@ export class AgentService {
       }
 
       const updatedThread = agentRepository.getThread(threadId);
-      const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
+      const referencedMaterials = await this.collectMaterials(updatedThread, content, latest.plan_id);
       if (referencedMaterials.texts.length || referencedMaterials.images.length) {
         try {
           const messages = conversationMessages(updatedThread);
@@ -1313,7 +1340,7 @@ export class AgentService {
     if (!plan.platforms.length) {
       if (latest && ['completed', 'partially_completed'].includes(latest.status)) {
         const updatedThread = agentRepository.getThread(threadId);
-        const referencedMaterials = this.collectMaterials(updatedThread, latest.plan_id);
+        const referencedMaterials = await this.collectMaterials(updatedThread, content, latest.plan_id);
         if (referencedMaterials.texts.length || referencedMaterials.images.length) {
           try {
             const messages = conversationMessages(updatedThread);

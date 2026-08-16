@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   AlertTriangle, ArrowRight, ArrowUpRight, BookOpen, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
-  Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
+  Loader2, MessageSquare, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
 import { agentApi, browserApi, dataApi, type AgentAttachment, type AgentMessage, type AgentPlan, type AgentTaskReference, type AgentThread, type AgentThreadSummary, type AnalysisCoverage } from '@/lib/api'
@@ -961,7 +961,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
   const [taskPickerOpen, setTaskPickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<AgentAttachment[]>([])
-  const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; platforms: string[] }>>([])
+  const [taskReferences, setTaskReferences] = useState<Array<{ plan_id: string; goal: string; content_count?: number }>>([])
   const [threadsCollapsed, setThreadsCollapsed] = useState(() => localStorage.getItem('unisearch-threads-collapsed') === 'true')
 
   const systemLogs = useCrawlerStore((state) => state.logs.system)
@@ -1061,7 +1061,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     shouldStickToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight <= 150
   }, [])
   const send = useMutation({
-    mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string; platforms: string[] }>; message: AgentMessage }) => {
+    mutationFn: async ({ id, content, attachmentIds, references }: { id: string; content: string; attachmentIds: string[]; references: Array<{ plan_id: string }>; message: AgentMessage }) => {
       const controller = new AbortController()
       sendAbortControllersRef.current.set(id, controller)
       const mentionedSkills = extractMentionedSkillIds(content, skillEntities)
@@ -1345,7 +1345,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   })
 
   const create = useMutation({
-    mutationFn: async (_submission: { content: string; references: Array<{ plan_id: string; platforms: string[] }>; taskReferences: Array<{ plan_id: string; goal: string; platforms: string[] }> }) =>
+    mutationFn: async (_submission: { content: string; references: Array<{ plan_id: string }>; taskReferences: Array<{ plan_id: string; goal: string; content_count?: number }> }) =>
       (await agentApi.createThread(undefined, false)).data,
     onSuccess: (thread, submission) => {
       const message: AgentMessage = {
@@ -1659,7 +1659,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       }
     }
 
-    const references = taskReferences.map(({ plan_id, platforms }) => ({ plan_id, platforms }))
+    const references = taskReferences.map(({ plan_id }) => ({ plan_id }))
     if (!selectedId) {
       const selectedTaskReferences = [...taskReferences]
       setInput('')
@@ -1709,11 +1709,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const toggleTaskReference = (task: AgentTaskReference) => {
     setTaskReferences((current) => current.some((item) => item.plan_id === task.plan_id)
       ? current.filter((item) => item.plan_id !== task.plan_id)
-      : [...current, { plan_id: task.plan_id, goal: task.goal, platforms: [] }].slice(0, 3))
-  }
-
-  const setReferencePlatforms = (task: AgentTaskReference, platforms: string[]) => {
-    setTaskReferences((current) => current.map((item) => item.plan_id === task.plan_id ? { ...item, platforms } : item))
+      : [...current, { plan_id: task.plan_id, goal: task.goal, content_count: task.content_count }])
   }
   const activePlan = threadQuery.data?.plan || null
 
@@ -2284,24 +2280,24 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}
+              className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex md:hidden' : 'hidden'}`}
               onClick={() => onOpenResults({ scope: 'all' })}
               title="进入知识库"
               aria-label="进入知识库"
             >
               <BookOpen className="h-4 w-4" />
             </Button>
-            {selectedId && <Button
+            <Button
               size="icon"
               variant="ghost"
-              className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}
+              className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex md:hidden' : 'hidden'}`}
               onClick={openNewTask}
               disabled={create.isPending || createNewTask.isPending}
               title="新建任务"
               aria-label="新建任务"
             >
-              {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <MessageSquarePlus strokeWidth={1.75} className="h-4 w-4" />}
-            </Button>}
+              {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <SquarePen className="h-4 w-4" />}
+            </Button>
             {selectedId && <Button
               size="icon"
               variant="ghost"
@@ -2432,7 +2428,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       <AttachmentDisplayCard
                         key={reference.plan_id}
                         title={reference.goal}
-                        categoryLabel={`引用数据${reference.platforms.length ? ` · ${reference.platforms.map((platform) => platformLabels[platform] || platform).join('/')}` : ''}`}
+                        categoryLabel={`引用任务${typeof reference.content_count === 'number' ? ` · ${reference.content_count} 条数据` : ''}`}
                         type="data"
                         compact
                         onRemove={() => setTaskReferences((current) => current.filter((item) => item.plan_id !== reference.plan_id))}
@@ -3031,29 +3027,151 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         </DialogContent>
       </Dialog>
       <Dialog open={taskPickerOpen} onOpenChange={setTaskPickerOpen}>
-        <DialogContent className="max-w-2xl bg-cyber-bg-panel">
-          <DialogHeader>
-            <DialogTitle>引用采集结果</DialogTitle>
-            <DialogDescription>最多选择 3 个已完成任务。默认引用全部平台，也可以缩小到某个平台。</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
-            {referenceableTasksQuery.isLoading ? <div className="flex justify-center py-10"><Loader2 className="animate-spin text-cyber-neon-cyan" /></div> : null}
-            {!referenceableTasksQuery.isLoading && !referenceableTasksQuery.data?.length ? <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-10 text-center text-xs text-cyber-text-muted">还没有已完成且可引用的采集任务</div> : null}
-            {referenceableTasksQuery.data?.map((task) => {
-              const selected = taskReferences.find((item) => item.plan_id === task.plan_id)
-              return <div key={task.plan_id} className={`rounded-xl border p-3 ${selected ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/5' : 'border-cyber-border-subtle'}`}>
-                <button type="button" onClick={() => toggleTaskReference(task)} className="flex w-full items-start gap-3 text-left">
-                  <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-white' : 'border-cyber-border-default'}`}>{selected ? '✓' : ''}</span>
-                  <span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-cyber-text-primary">{task.goal}</span><span className="mt-1 block text-[10px] text-cyber-text-muted">{task.content_count} 条内容 · {task.platforms.map((platform) => platformLabels[platform] || platform).join('、')}</span></span>
-                </button>
-                {selected ? <div className="mt-3 flex flex-wrap gap-1.5 border-t border-cyber-border-subtle pt-3">
-                  <button type="button" onClick={() => setReferencePlatforms(task, [])} className={`rounded-md border px-2 py-1 text-[10px] ${!selected.platforms.length ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>全部平台</button>
-                  {task.platforms.map((platform) => <button key={platform} type="button" onClick={() => setReferencePlatforms(task, [platform])} className={`rounded-md border px-2 py-1 text-[10px] ${selected.platforms.includes(platform) ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/10 text-cyber-neon-cyan' : 'border-cyber-border-default text-cyber-text-muted'}`}>{platformLabels[platform] || platform}</button>)}
-                </div> : null}
-              </div>
-            })}
-          </div>
-          <DialogFooter><Button onClick={() => setTaskPickerOpen(false)}>完成{taskReferences.length ? `（已选 ${taskReferences.length}）` : ''}</Button></DialogFooter>
+        <DialogContent className="max-w-2xl bg-cyber-bg-panel border border-cyber-border-default/80 shadow-2xl">
+          {(() => {
+            const allTasks = referenceableTasksQuery.data || []
+            const isAllSelected = allTasks.length > 0 && taskReferences.length === allTasks.length
+            const hasSomeSelected = taskReferences.length > 0 && taskReferences.length < allTasks.length
+            const handleToggleSelectAll = () => {
+              if (isAllSelected) {
+                setTaskReferences([])
+              } else {
+                setTaskReferences(allTasks.map((t) => ({ plan_id: t.plan_id, goal: t.goal, content_count: t.content_count })))
+              }
+            }
+
+            return (
+              <>
+                <DialogHeader className="pb-1">
+                  <div className="flex items-center justify-between pr-6">
+                    <DialogTitle className="flex items-center gap-2 text-base font-bold text-cyber-text-primary">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyber-neon-cyan/10 text-cyber-neon-cyan">
+                        <Database className="h-4 w-4" />
+                      </span>
+                      引用采集结果
+                    </DialogTitle>
+                    {allTasks.length > 0 ? (
+                      <span className="rounded-full bg-cyber-bg-tertiary px-2.5 py-0.5 text-[11px] font-mono font-medium text-cyber-text-secondary border border-cyber-border-subtle">
+                        已选 <span className="text-cyber-neon-cyan font-bold">{taskReferences.length}</span> / {allTasks.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  <DialogDescription className="text-xs text-cyber-text-muted mt-1">
+                    选择历史采集任务作为分析信源，系统将通过向量检索自动提取最相关的核心内容。
+                  </DialogDescription>
+                </DialogHeader>
+
+                {allTasks.length > 0 ? (
+                  <div className="flex items-center px-1 py-1 text-xs border-b border-cyber-border-subtle/50 pb-2">
+                    <button
+                      type="button"
+                      onClick={handleToggleSelectAll}
+                      className="group flex items-center gap-2.5 text-xs text-cyber-text-secondary hover:text-cyber-text-primary transition-colors cursor-pointer select-none"
+                    >
+                      <span
+                        className={cn(
+                          'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors text-[10px]',
+                          isAllSelected
+                            ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-white'
+                            : hasSomeSelected
+                            ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-bold'
+                            : 'border-cyber-border-default bg-cyber-bg-secondary/80 group-hover:border-cyber-neon-cyan/60'
+                        )}
+                      >
+                        {isAllSelected ? <Check className="h-3 w-3 stroke-[2.5]" /> : hasSomeSelected ? '−' : null}
+                      </span>
+                      <span className="font-medium text-cyber-text-primary">
+                        全选
+                      </span>
+                      <span className="text-[10px] text-cyber-text-muted font-mono">
+                        (共 {allTasks.length} 项)
+                      </span>
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1.5 scrollbar-thin">
+                  {referenceableTasksQuery.isLoading ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-cyber-text-muted gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-cyber-neon-cyan" />
+                      <span className="text-xs">加载可引用任务...</span>
+                    </div>
+                  ) : null}
+                  {!referenceableTasksQuery.isLoading && !allTasks.length ? (
+                    <div className="rounded-xl border border-dashed border-cyber-border-default px-4 py-12 text-center text-xs text-cyber-text-muted">
+                      <Database className="mx-auto h-8 w-8 opacity-30 mb-2" />
+                      还没有已完成且可引用的采集任务
+                    </div>
+                  ) : null}
+                  {allTasks.map((task) => {
+                    const selected = taskReferences.some((item) => item.plan_id === task.plan_id)
+
+                    return (
+                      <div
+                        key={task.plan_id}
+                        className={cn(
+                          'group relative rounded-xl border p-3 transition-all duration-150',
+                          selected
+                            ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/[0.04] shadow-xs'
+                            : 'border-cyber-border-subtle bg-cyber-bg-panel hover:border-cyber-border-default hover:bg-cyber-bg-surface/40'
+                        )}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleTaskReference(task)}
+                          className="flex w-full items-start gap-2.5 text-left select-none"
+                        >
+                          <span
+                            className={cn(
+                              'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors text-[10px]',
+                              selected
+                                ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-white'
+                                : 'border-cyber-border-default bg-cyber-bg-secondary/80 group-hover:border-cyber-neon-cyan/60'
+                            )}
+                          >
+                            {selected ? <Check className="h-3 w-3 stroke-[2.5]" /> : null}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <Database className="h-3.5 w-3.5 shrink-0 text-cyber-neon-cyan/80" />
+                              <span className="truncate text-xs font-semibold text-cyber-text-primary tracking-tight">
+                                {task.goal}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex items-center gap-2 text-[10px] text-cyber-text-muted">
+                              <span className="font-mono rounded bg-cyber-bg-tertiary px-1.5 py-0.5 text-cyber-text-secondary border border-cyber-border-subtle/60">
+                                {task.content_count} 条内容
+                              </span>
+                              <span className="truncate">
+                                信源：{task.platforms.map((platform) => platformLabels[platform] || platform).join('、')}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+                <DialogFooter className="flex items-center justify-end border-t border-cyber-border-subtle pt-3 mt-1 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTaskPickerOpen(false)}
+                    className="h-8 text-xs text-cyber-text-secondary"
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setTaskPickerOpen(false)}
+                    className="h-8 text-xs bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 px-3.5 font-medium shadow-xs"
+                  >
+                    完成{taskReferences.length ? ` (${taskReferences.length})` : ''}
+                  </Button>
+                </DialogFooter>
+              </>
+            )
+          })()}
         </DialogContent>
       </Dialog>
       {/* 图片全屏预览 — 纯 Portal，完全绕开 Radix Dialog 的 focus-trap 和 overlay 事件拦截 */}

@@ -48,6 +48,7 @@ function ftsQuery(value: string): string {
 export interface KnowledgeSearchOptions {
   limit?: number;
   workflowId?: string;
+  workflowIds?: string[];
   threadId?: string;
   platform?: string;
   kind?: string;
@@ -88,7 +89,22 @@ export interface KnowledgeSearchResponse {
 function scope(options: KnowledgeSearchOptions): { sql: string; params: unknown[] } {
   const filters: string[] = [];
   const params: unknown[] = [];
-  if (options.workflowId) {
+  if (options.workflowIds && options.workflowIds.length > 0) {
+    const validIds = options.workflowIds.filter(Boolean);
+    if (validIds.length > 0) {
+      const placeholders = validIds.map(() => '?').join(',');
+      filters.push(`EXISTS (
+        SELECT 1 FROM document_sources ds
+        JOIN crawl_runs r ON r.run_id=ds.run_id
+        JOIN workflow_runs w ON w.workflow_id=r.workflow_id
+        JOIN documents d ON d.document_id=ds.document_id
+        JOIN document_versions dv ON dv.version_id=ds.document_version_id
+        WHERE ds.document_id=c.document_id AND r.workflow_id IN (${placeholders})
+          AND (w.incremental_since IS NULL OR d.created_at > w.incremental_since OR dv.created_at > w.incremental_since)
+      )`);
+      params.push(...validIds);
+    }
+  } else if (options.workflowId) {
     filters.push(`EXISTS (
       SELECT 1 FROM document_sources ds
       JOIN crawl_runs r ON r.run_id=ds.run_id

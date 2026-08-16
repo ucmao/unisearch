@@ -12,7 +12,7 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { systemHttpClient } from '../base/SystemHttpClient';
 import { reportKeywordSearchCompletion, searchPageBudget } from '../base/connectorHelpers';
-import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
+import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 import { buildJobSearchUrl, jobItemLimit } from './jobSearch';
 
 export type LiepinPageState =
@@ -42,30 +42,31 @@ export function classifyLiepinPageState(input: {
   // 1. Verification / Captcha detection
   if (
     lowerTitle.includes('验证') ||
-    lowerTitle.includes('verification') ||
+    lowerTitle.includes('security') ||
     lowerUrl.includes('security') ||
     lowerUrl.includes('captcha') ||
     bodyText.includes('向右滑动') ||
     bodyText.includes('安全验证') ||
     bodyText.includes('完成验证') ||
     bodyText.includes('人机验证') ||
+    bodyText.includes('nc_1_wrapper') ||
     bodyText.includes('sec-captcha')
   ) {
-    return { state: 'verification_required', reason: '触发人机滑块或安全验证' };
+    return { state: 'verification_required', reason: '触发滑块或安全验证' };
   }
 
   // 2. Login required / Modal blocked detection
   if (
     lowerUrl.includes('passport.liepin.com') ||
     lowerUrl.includes('/login') ||
-    lowerUrl.includes('/register') ||
     hasModal ||
     bodyText.includes('微信扫码登录') ||
     bodyText.includes('手机快捷登录') ||
     bodyText.includes('账号密码登录') ||
+    bodyText.includes('验证码登录') ||
     bodyText.includes('登录查看更多职位') ||
     bodyText.includes('登录后可查看') ||
-    bodyText.includes('请先登录后继续操作')
+    bodyText.includes('请先登录')
   ) {
     return { state: 'login_required', reason: '页面需要登录或弹出登录遮罩' };
   }
@@ -86,12 +87,13 @@ export function classifyLiepinPageState(input: {
 
   // 5. Genuine empty search result
   if (
+    bodyText.includes('抱歉，没有找到') ||
     bodyText.includes('暂无符合条件的职位') ||
     bodyText.includes('没有找到相关职位') ||
     bodyText.includes('暂无相关职位') ||
     bodyText.includes('抱歉，未找到') ||
     bodyText.includes('没有找到符合条件的职位') ||
-    bodyText.includes('换个搜索条件试试')
+    bodyText.includes('换个搜索词试试')
   ) {
     return { state: 'empty_result', reason: '平台搜索结果为空' };
   }
@@ -110,6 +112,7 @@ function extractUrlsOrIds(input: string): string[] {
 export class LiepinCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
+  private hasDeclinedLogin = false;
 
   public async start(): Promise<void> {
     console.log('[Liepin] Connecting Liepin crawler to Electron built-in browser engine...');
@@ -168,6 +171,11 @@ export class LiepinCrawler extends AbstractCrawler {
     if (assessment.state === 'ready') return true;
     if (assessment.state === 'empty_result') return false;
 
+    // If user already timed out on login in this run, do not block repeatedly on pagination
+    if (assessment.state === 'login_required' && this.hasDeclinedLogin) {
+      return false;
+    }
+
     let loginNotificationSent = false;
     let verifyNotificationSent = false;
 
@@ -185,7 +193,7 @@ export class LiepinCrawler extends AbstractCrawler {
       verifyNotificationSent = true;
     }
 
-    const maxWaitMs = MANUAL_LOGIN_TIMEOUT_MS;
+    const maxWaitMs = assessment.state === 'verification_required' ? MANUAL_VERIFICATION_TIMEOUT_MS : MANUAL_LOGIN_TIMEOUT_MS;
     const startTime = Date.now();
     console.log(`[Liepin] Pausing crawler and waiting for user interaction in browser window (up to ${maxWaitMs / 1000}s)...`);
 
@@ -205,6 +213,9 @@ export class LiepinCrawler extends AbstractCrawler {
       }
     }
 
+    if (loginNotificationSent) {
+      this.hasDeclinedLogin = true;
+    }
     console.warn(`[Liepin] Interactive timeout reached for "${keyword}". Continuing with best-effort parsing.`);
     return false;
   }
@@ -250,11 +261,15 @@ export class LiepinCrawler extends AbstractCrawler {
           // Check if intervention is needed before extraction
           let assessment = await this.assessCurrentPageState();
           if (assessment.state === 'verification_required' || assessment.state === 'login_required') {
-            const resolved = await this.checkAndHandleIntervention(keyword);
-            if (resolved) {
-              // Reload search URL after login/verification success to ensure clean render
-              await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-              await this.humanDelay(this.page, 2);
+            if (assessment.state === 'login_required' && this.hasDeclinedLogin) {
+              console.log(`[Liepin] Skipping login wait for page ${pageNum} as login was not completed earlier.`);
+            } else {
+              const resolved = await this.checkAndHandleIntervention(keyword);
+              if (resolved) {
+                // Reload search URL after login/verification success to ensure clean render
+                await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+                await this.humanDelay(this.page, 2);
+              }
             }
           }
 
@@ -265,7 +280,7 @@ export class LiepinCrawler extends AbstractCrawler {
           if ((!extracted || extracted.length === 0) && pageNum === startPage) {
             console.log(`[Liepin] 0 items extracted on page ${pageNum}. Performing deep status inspection...`);
             assessment = await this.assessCurrentPageState();
-            if (assessment.state !== 'empty_result') {
+            if (assessment.state !== 'empty_result' && !(assessment.state === 'login_required' && this.hasDeclinedLogin)) {
               const resolved = await this.checkAndHandleIntervention(keyword);
               if (resolved) {
                 await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});

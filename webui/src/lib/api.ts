@@ -611,14 +611,14 @@ export const agentApi = {
     `/api/agent/threads/${encodeURIComponent(threadId)}/attachments/${encodeURIComponent(attachmentId)}/file`,
   sendMessage: (threadId: string, content: string, context: {
     attachment_ids?: string[]
-    task_references?: Array<{ plan_id: string; platforms?: string[] }>
+    task_references?: Array<{ plan_id: string }>
     mentioned_connectors?: string[]
     mentioned_skills?: string[]
   } = {}, signal?: AbortSignal) =>
     api.post<AgentThread>(`/agent/threads/${encodeURIComponent(threadId)}/messages`, { content, ...context }, { timeout: 180000, signal }),
   sendMessageStream: async (threadId: string, content: string, context: {
     attachment_ids?: string[]
-    task_references?: Array<{ plan_id: string; platforms?: string[] }>
+    task_references?: Array<{ plan_id: string }>
     mentioned_connectors?: string[]
     mentioned_skills?: string[]
   } = {}, onDelta?: (delta: string) => void, signal?: AbortSignal, onStatus?: (status: { phase: 'web_search' | 'reasoning'; message: string; sources?: any[]; retrieval?: string; analysis_coverage?: any; keywords?: string[] }) => void): Promise<{ data: AgentThread }> => {
