@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
-  AlertTriangle, ArrowRight, ArrowUpRight, BookOpen, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileSpreadsheet, FileText, Globe,
+  AlertTriangle, ArrowRight, ArrowUpRight, BookOpen, Bot, Check, CheckCircle2, ChevronRight, Clock3, Copy, Database, Download, FileCode, FileSpreadsheet, FileText, Globe,
   Loader2, MessageSquare, MessageSquarePlus, MoreHorizontal, Paperclip, Pin, PinOff, Play, Plus, RotateCw, Search,
   Sparkles, Square, SquarePen, Trash2, User, X, XCircle, PanelBottom, PanelLeftClose, PanelLeftOpen, PanelRight,
 } from 'lucide-react'
@@ -694,7 +694,7 @@ function PlanMessageContent({
   )
 }
 
-const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
+const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick, latestReport }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
@@ -713,6 +713,7 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
   isLatestAssistant?: boolean
   onPreviewImage?: (url: string) => void
   onCitationClick?: (sourceId: string) => void
+  latestReport?: { artifactId: string; title: string; versionNumber: number } | null
 }) {
   const isUser = message.role === 'user'
   const platformLabels = usePlatformLabels()
@@ -722,6 +723,9 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
     (isTargetPlanMessage || (activePlan && activePlan.plan_id === message.metadata?.plan_id && ['queued', 'running'].includes(activePlan.status))) &&
     isPlanLikeMessage(message)
   )
+  const targetArtifactId = !isUser
+    ? ((message.metadata?.report_artifact_id as string) || (isLatestAssistant && latestReport ? latestReport.artifactId : undefined))
+    : undefined
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
     try {
@@ -840,6 +844,57 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
             hasStreamingAnswer={Boolean(hasStreamingAnswer)}
           />
         ) : null}
+        {!isUser && targetArtifactId ? (
+          <div className="mt-3.5 space-y-2 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 p-3 backdrop-blur-xs animate-in fade-in">
+            <div className="flex items-center justify-between text-[11px] text-cyber-text-muted">
+              <span className="flex items-center gap-1.5 font-semibold text-cyber-text-primary">
+                <FileText className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                <span>研报成果极速导出 (v{(message.metadata?.report_artifact_version as number) || latestReport?.versionNumber || 1})</span>
+              </span>
+              <span className="text-[10px] text-cyber-text-muted font-mono truncate max-w-[180px]" title={latestReport?.title}>
+                {latestReport?.title || '1-Click 离线生成'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              <a
+                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=docx`}
+                download
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-blue-500/60 hover:bg-blue-500/10 hover:text-blue-400 transition-all cursor-pointer shadow-2xs"
+                title="一键导出适用 Word 编排修订的 .docx 文档"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                <span>Word 文档</span>
+              </a>
+              <a
+                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=pdf`}
+                download
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-rose-500/60 hover:bg-rose-500/10 hover:text-rose-400 transition-all cursor-pointer shadow-2xs"
+                title="一键导出适用正式汇报归档的 .pdf 文件"
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-rose-400" />
+                <span>PDF 报告</span>
+              </a>
+              <a
+                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=markdown`}
+                download
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-cyan-500/60 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all cursor-pointer shadow-2xs"
+                title="一键导出带 Obsidian/Notion 知识库引用的 .md 文件"
+              >
+                <FileCode className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
+                <span>Markdown</span>
+              </a>
+              <a
+                href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=html`}
+                download
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/70 px-2.5 py-1.5 text-xs font-medium text-cyber-text-primary hover:border-emerald-500/60 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all cursor-pointer shadow-2xs"
+                title="一键导出可直接在浏览器中打开的离线 HTML 网页"
+              >
+                <FileCode className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                <span>HTML 网页</span>
+              </a>
+            </div>
+          </div>
+        ) : null}
         <div className={`mt-1.5 flex items-center gap-1 ${isUser ? 'justify-end' : 'justify-start'}`}>
           <p className="text-[9px] text-cyber-text-muted">{new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(message.created_at))}</p>
           <div className="flex items-center opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
@@ -847,6 +902,28 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
               {copied ? <Check className="h-3 w-3 text-cyber-neon-green" /> : <Copy className="h-3 w-3" />}
             </button>
             {!isUser ? <>
+              {targetArtifactId ? (
+                <>
+                  <a
+                    href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=docx`}
+                    download
+                    className="flex h-6 items-center gap-1 px-1.5 rounded text-[10.5px] font-medium text-cyber-text-muted transition-colors hover:bg-blue-500/15 hover:text-blue-400"
+                    title="一键导出 Word 文档"
+                  >
+                    <FileSpreadsheet className="h-3 w-3 text-blue-400" />
+                    <span>Word</span>
+                  </a>
+                  <a
+                    href={`/api/reports/${encodeURIComponent(targetArtifactId)}/download?format=pdf`}
+                    download
+                    className="flex h-6 items-center gap-1 px-1.5 rounded text-[10.5px] font-medium text-cyber-text-muted transition-colors hover:bg-rose-500/15 hover:text-rose-400"
+                    title="一键导出 PDF 报告"
+                  >
+                    <FileText className="h-3 w-3 text-rose-400" />
+                    <span>PDF</span>
+                  </a>
+                </>
+              ) : null}
               {isLatestAssistant ? (
                 <button
                   type="button"
@@ -1191,6 +1268,19 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     enabled: Boolean(selectedId),
     refetchInterval: (query) => (isCurrentMessagePending ? false : (query.state.data?.plan && ['queued', 'running'].includes(query.state.data.plan.status) ? 600 : 1500)),
   })
+
+  const threadReportsQuery = useQuery({
+    queryKey: ['research-reports', { thread_id: selectedId }],
+    queryFn: async () => {
+      if (!selectedId) return []
+      const res = await fetch(`/api/reports?thread_id=${encodeURIComponent(selectedId)}`)
+      if (!res.ok) return []
+      const data = await res.json()
+      return (data.items || []) as Array<{ artifactId: string; title: string; versionNumber: number }>
+    },
+    enabled: Boolean(selectedId),
+  })
+  const latestReport = threadReportsQuery.data?.[0]
   const referenceableTasksQuery = useQuery({ queryKey: ['agent-referenceable-tasks'], queryFn: async () => (await agentApi.listReferenceableTasks()).data.items, enabled: taskPickerOpen })
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -2321,6 +2411,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId}
                     onPreviewImage={handlePreviewImage}
                     onCitationClick={handleCitationClick}
+                    latestReport={latestReport}
                   />
                 ))}
                 {isThinking && (
@@ -2899,6 +2990,59 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         </div>
                       ) : null}
                     </div>
+
+                    {/* 研报极速导出工具栏 */}
+                    {latestReport && (
+                      <div className="space-y-2 border-t border-cyber-border-subtle pt-3 animate-in fade-in">
+                        <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                          <span className="flex items-center gap-1.5 font-medium text-cyber-text-primary">
+                            <FileText className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                            <span>研报成果极速导出 (v{latestReport.versionNumber})</span>
+                          </span>
+                          <span className="text-[10px] text-cyber-text-muted truncate max-w-[160px]" title={latestReport.title}>
+                            {latestReport.title}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                          <a
+                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=docx`}
+                            download
+                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-blue-500/50 hover:bg-blue-500/10 hover:text-blue-400 transition-all cursor-pointer"
+                            title="一键导出适用 Word 编排修订的 .docx 文档"
+                          >
+                            <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-blue-400" />
+                            <span>Word 文档</span>
+                          </a>
+                          <a
+                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=pdf`}
+                            download
+                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400 transition-all cursor-pointer"
+                            title="一键导出适用正式汇报归档的 .pdf 文件"
+                          >
+                            <FileText className="h-3.5 w-3.5 shrink-0 text-rose-400" />
+                            <span>PDF 报告</span>
+                          </a>
+                          <a
+                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=markdown`}
+                            download
+                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-cyan-500/50 hover:bg-cyan-500/10 hover:text-cyan-400 transition-all cursor-pointer"
+                            title="一键导出带 Obsidian/Notion 知识库引用的 .md 文件"
+                          >
+                            <FileCode className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
+                            <span>Markdown</span>
+                          </a>
+                          <a
+                            href={`/api/reports/${encodeURIComponent(latestReport.artifactId)}/download?format=html`}
+                            download
+                            className="flex items-center justify-center gap-1.5 rounded-lg border border-cyber-border-subtle bg-cyber-bg-primary/60 px-2 py-1.5 text-[11px] font-medium text-cyber-text-secondary hover:border-emerald-500/50 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all cursor-pointer"
+                            title="一键导出可直接在浏览器中打开的离线 HTML 网页"
+                          >
+                            <FileCode className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                            <span>HTML 网页</span>
+                          </a>
+                        </div>
+                      </div>
+                    )}
 
                     {/* 知识资产与一键导出 (8 平台图标栏) */}
                     <div className="space-y-2 border-t border-cyber-border-subtle pt-3">

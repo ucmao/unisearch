@@ -36,6 +36,7 @@ debug_tools/
 coverage/
 *.log
 temp_image/
+scratch/
 
 # Operating-system files
 .DS_Store
