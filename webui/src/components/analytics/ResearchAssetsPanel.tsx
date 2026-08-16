@@ -54,7 +54,7 @@ const REPORT_FORMAT_OPTIONS = [
   {
     category: '正式文档与汇报',
     items: [
-      { format: 'pdf', label: 'PDF 报告', ext: '.pdf', hint: '排版固定 · 正式归档/汇报', icon: FileText, highlight: true },
+      { format: 'pdf', label: 'PDF 报告', ext: '.pdf', hint: '排版固定 · 正式归档汇报', icon: FileText, highlight: true },
       { format: 'docx', label: 'Word 文档', ext: '.docx', hint: '可二次编辑 · 协同修订', icon: FileSpreadsheet, highlight: false },
       { format: 'html', label: 'HTML 网页', ext: '.html', hint: '单文件离线 · 浏览器即开', icon: FileCode, highlight: false },
     ],
@@ -631,11 +631,10 @@ export function KnowledgeGraphView({
                   key={type}
                   type="button"
                   onClick={() => toggleTypeFilter(type)}
-                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all cursor-pointer ${
-                    isActive
+                  className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all cursor-pointer ${isActive
                       ? 'bg-cyber-bg-primary/80 border border-cyber-border-subtle/80 text-cyber-text-primary shadow-2xs font-medium'
                       : 'opacity-40 hover:opacity-75 text-cyber-text-muted border border-transparent'
-                  }`}
+                    }`}
                   title={`点击${isActive ? '隐藏' : '显示'}${label}类型实体`}
                 >
                   <i className="h-2 w-2 rounded-full shrink-0" style={{ background: nodeColor[type] }} />
@@ -673,11 +672,10 @@ export function KnowledgeGraphView({
           <Button
             size="sm"
             variant="outline"
-            className={`h-7 gap-1.5 px-2.5 text-xs border-cyber-border-subtle transition-colors ${
-              (rulesQuery.data || []).length > 0
+            className={`h-7 gap-1.5 px-2.5 text-xs border-cyber-border-subtle transition-colors ${(rulesQuery.data || []).length > 0
                 ? 'text-cyber-text-primary bg-cyber-bg-secondary/60 hover:bg-cyber-bg-secondary font-medium'
                 : 'text-cyber-text-muted hover:text-cyber-text-primary'
-            }`}
+              }`}
             onClick={() => setIsHistoryModalOpen(true)}
             title="查看与撤销实体合并、连线、移出等历史操作"
           >
@@ -757,11 +755,10 @@ export function KnowledgeGraphView({
 
       {/* 主体画布与详情分栏 */}
       <div
-        className={`grid flex-1 min-h-0 gap-3.5 ${
-          selectedElement
+        className={`grid flex-1 min-h-0 gap-3.5 ${selectedElement
             ? 'overflow-auto lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden'
             : 'grid-cols-1'
-        }`}
+          }`}
       >
         {/* 左侧 / 全屏图谱画布 */}
         <section className="relative flex min-w-0 flex-col overflow-hidden">
@@ -792,16 +789,16 @@ export function KnowledgeGraphView({
                 {(rulesQuery.data || []).length > 0 && (graph?.currentDocumentCount || 0) > 0
                   ? '图谱实体已全部被规则过滤'
                   : (graph?.currentDocumentCount || graph?.documentCount || 0) > 0
-                  ? '图谱关系拓扑待生成'
-                  : '暂无关联采集数据'}
+                    ? '图谱关系拓扑待生成'
+                    : '暂无关联采集数据'}
               </h4>
 
               <p className="mt-2 max-w-md text-xs text-cyber-text-secondary leading-relaxed">
                 {(rulesQuery.data || []).length > 0 && (graph?.currentDocumentCount || 0) > 0
                   ? '历史实体治理操作（移出/合并规则）已过滤当前分析范围内的全部节点，可打开操作历史查看或撤销规则。'
                   : (graph?.currentDocumentCount || graph?.documentCount || 0) > 0
-                  ? `当前分析范围内已就绪 ${graph?.currentDocumentCount || graph?.documentCount} 篇文档，点击下方按钮一键提取实体并构建物理力导向关系网络。`
-                  : '当前任务范围尚未采集到有效证据文档，请先在工作台启动采集或导入数据。'}
+                    ? `当前分析范围内已就绪 ${graph?.currentDocumentCount || graph?.documentCount} 篇文档，点击下方按钮一键提取实体并构建物理力导向关系网络。`
+                    : '当前任务范围尚未采集到有效证据文档，请先在工作台启动采集或导入数据。'}
               </p>
 
               <div className="mt-5 flex items-center gap-2.5">
@@ -865,15 +862,15 @@ export function KnowledgeGraphView({
                     {'label' in selectedElement
                       ? (selectedElement.type === 'platform' ? platformLabel(platformLabels, selectedElement.label) : selectedElement.label)
                       : (() => {
-                          const fromNode = (graph?.nodes || []).find((n) => n.id === selectedElement.from)
-                          const toNode = (graph?.nodes || []).find((n) => n.id === selectedElement.to)
-                          const fromLabel = fromNode ? (fromNode.type === 'platform' ? platformLabel(platformLabels, fromNode.label) : fromNode.label) : ''
-                          const toLabel = toNode ? (toNode.type === 'platform' ? platformLabel(platformLabels, toNode.label) : toNode.label) : ''
-                          if (fromLabel && toLabel) {
-                            return `${fromLabel} ↔ ${toLabel}`
-                          }
-                          return RELATION_LABELS[selectedElement.relation] || selectedElement.relation || '关联关系'
-                        })()}
+                        const fromNode = (graph?.nodes || []).find((n) => n.id === selectedElement.from)
+                        const toNode = (graph?.nodes || []).find((n) => n.id === selectedElement.to)
+                        const fromLabel = fromNode ? (fromNode.type === 'platform' ? platformLabel(platformLabels, fromNode.label) : fromNode.label) : ''
+                        const toLabel = toNode ? (toNode.type === 'platform' ? platformLabel(platformLabels, toNode.label) : toNode.label) : ''
+                        if (fromLabel && toLabel) {
+                          return `${fromLabel} ↔ ${toLabel}`
+                        }
+                        return RELATION_LABELS[selectedElement.relation] || selectedElement.relation || '关联关系'
+                      })()}
                   </h3>
                   {'type' in selectedElement ? (
                     <span
@@ -957,11 +954,10 @@ export function KnowledgeGraphView({
                     <Button
                       size="sm"
                       variant="outline"
-                      className={`h-7 gap-1 px-2 text-xs flex-1 min-w-0 justify-center ${
-                        mergeNodeIds.includes(selectedElement.id)
+                      className={`h-7 gap-1 px-2 text-xs flex-1 min-w-0 justify-center ${mergeNodeIds.includes(selectedElement.id)
                           ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium'
                           : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'
-                      }`}
+                        }`}
                       onClick={() => handleAddToMerge(selectedElement)}
                       title="将此实体加入合并清单，与其他实体多对一合并"
                     >
@@ -976,11 +972,10 @@ export function KnowledgeGraphView({
                       variant="outline"
                       disabled={(selectedElement.weight || 0) <= 1}
                       title={(selectedElement.weight || 0) <= 1 ? '当前实体仅关联 1 篇文档，无法拆分' : '从当前实体中勾选证据拆出新实体'}
-                      className={`h-7 gap-1 px-2 text-xs flex-1 min-w-0 justify-center ${
-                        isSplitMode
+                      className={`h-7 gap-1 px-2 text-xs flex-1 min-w-0 justify-center ${isSplitMode
                           ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-semibold shadow-sm'
                           : 'border-cyber-border-subtle text-cyber-text-muted hover:text-cyber-text-primary'
-                      }`}
+                        }`}
                       onClick={() => {
                         const next = !isSplitMode
                         setIsSplitMode(next)
@@ -1042,11 +1037,10 @@ export function KnowledgeGraphView({
                 evidenceQuery.data!.documents.map((document) => (
                   <div
                     key={document.documentId}
-                    className={`group rounded-lg border p-2.5 transition-colors ${
-                      isSplitMode && splitDocumentIds.includes(document.documentId)
+                    className={`group rounded-lg border p-2.5 transition-colors ${isSplitMode && splitDocumentIds.includes(document.documentId)
                         ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10'
                         : 'border-cyber-border-subtle bg-cyber-bg-primary/50 hover:border-cyber-neon-cyan/40 hover:bg-cyber-bg-primary/80'
-                    }`}
+                      }`}
                   >
                     <div className="flex items-start gap-2.5">
                       {isSplitMode ? (
@@ -1208,7 +1202,7 @@ export function KnowledgeGraphView({
                         {n.label}
                       </span>
                       <span className="text-[10px] text-cyber-text-muted shrink-0">
-                        ({ { subject: '主体', keyword: '关键词', topic: '话题', platform: '平台' }[n.type] || n.type })
+                        ({{ subject: '主体', keyword: '关键词', topic: '话题', platform: '平台' }[n.type] || n.type})
                       </span>
                     </div>
                   ))}
@@ -1344,13 +1338,13 @@ export function KnowledgeGraphView({
                 <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
                   <i className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: nodeColor[connectPair.source.type] || '#94a3b8' }} />
                   <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={connectPair.source.label}>{connectPair.source.label}</span>
-                  <span className="text-[10px] text-cyber-text-muted shrink-0">({ { subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[connectPair.source.type] || connectPair.source.type })</span>
+                  <span className="text-[10px] text-cyber-text-muted shrink-0">({{ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[connectPair.source.type] || connectPair.source.type})</span>
                 </div>
                 <span className="text-cyber-neon-cyan font-bold shrink-0 px-1">↔</span>
                 <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
                   <i className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: nodeColor[connectPair.target.type] || '#94a3b8' }} />
                   <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={connectPair.target.label}>{connectPair.target.label}</span>
-                  <span className="text-[10px] text-cyber-text-muted shrink-0">({ { subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[connectPair.target.type] || connectPair.target.type })</span>
+                  <span className="text-[10px] text-cyber-text-muted shrink-0">({{ subject: '主体', keyword: '关键词', platform: '平台', topic: '话题' }[connectPair.target.type] || connectPair.target.type})</span>
                 </div>
               </div>
 
@@ -1363,11 +1357,10 @@ export function KnowledgeGraphView({
                   {getRelationOptions(connectPair.source.type, connectPair.target.type).map((opt) => (
                     <label
                       key={opt.id}
-                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${
-                        selectedRelation === opt.id && !customRelationName.trim()
+                      className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-colors ${selectedRelation === opt.id && !customRelationName.trim()
                           ? 'border-emerald-500/60 bg-emerald-500/10'
                           : 'border-cyber-border-subtle bg-cyber-bg-primary/40 hover:bg-cyber-bg-primary/70'
-                      }`}
+                        }`}
                       onClick={() => { setSelectedRelation(opt.id); setCustomRelationName('') }}
                     >
                       <input
@@ -1449,7 +1442,7 @@ export function KnowledgeGraphView({
                   <div className="flex items-center gap-1.5 min-w-0 flex-1 justify-end overflow-hidden">
                     <i className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: nodeColor[nodeToIgnore.type] || '#94a3b8' }} />
                     <span className="font-semibold text-cyber-text-primary truncate min-w-0 font-mono text-[11px]" title={nodeToIgnore.label}>{nodeToIgnore.label}</span>
-                    <span className="text-[10px] text-cyber-text-muted shrink-0">({ { subject: '主体', keyword: '关键词', topic: '话题' }[nodeToIgnore.type] || nodeToIgnore.type })</span>
+                    <span className="text-[10px] text-cyber-text-muted shrink-0">({{ subject: '主体', keyword: '关键词', topic: '话题' }[nodeToIgnore.type] || nodeToIgnore.type})</span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
@@ -1561,10 +1554,10 @@ export function KnowledgeGraphView({
                           {rule.operation === 'merge'
                             ? `${rule.sourceLabels.join(' + ')} ➔ ${rule.targetLabel}`
                             : rule.operation === 'ignore'
-                            ? `已移出「${rule.sourceLabels.join(', ')}」`
-                            : rule.operation === 'link'
-                            ? `${rule.sourceLabels.join(' ↔ ')} · 【${RELATION_LABELS[rule.targetLabel] || rule.targetLabel || '通用关联'}】`
-                            : `${rule.documentIds.length} 篇文档 ➔ ${rule.targetLabel}`}
+                              ? `已移出「${rule.sourceLabels.join(', ')}」`
+                              : rule.operation === 'link'
+                                ? `${rule.sourceLabels.join(' ↔ ')} · 【${RELATION_LABELS[rule.targetLabel] || rule.targetLabel || '通用关联'}】`
+                                : `${rule.documentIds.length} 篇文档 ➔ ${rule.targetLabel}`}
                         </p>
                       </div>
 
@@ -1782,6 +1775,7 @@ export function ResearchReportsView({
 
   // 单个与批量删除状态
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
+  const [reportToUpgrade, setReportToUpgrade] = useState<Report | null>(null)
   const [isDeletingReport, setIsDeletingReport] = useState(false)
   const [isBatchMode, setIsBatchMode] = useState(false)
   const [selectedReportIds, setSelectedReportIds] = useState<string[]>([])
@@ -1959,13 +1953,12 @@ export function ResearchReportsView({
           </div>
           {qualityQuery.data && (
             <span
-              className={`rounded-full px-2.5 py-0.5 text-xs font-medium border flex items-center gap-1.5 ${
-                qualityQuery.data.status === 'ready'
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium border flex items-center gap-1.5 ${qualityQuery.data.status === 'ready'
                   ? 'border-slate-200 bg-slate-100 text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
                   : qualityQuery.data.status === 'limited'
-                  ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
-                  : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
-              }`}
+                    ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300'
+                    : 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                }`}
             >
               {qualityQuery.data.status === 'ready' ? (
                 <><CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /><span>质量合格 · 可生成严谨研报</span></>
@@ -2086,11 +2079,10 @@ export function ResearchReportsView({
               return (
                 <div
                   key={series.seriesId}
-                  className={`rounded-xl border p-3.5 sm:p-4 transition-all ${
-                    isBatchMode && isSelectedForBatch
+                  className={`rounded-xl border p-3.5 sm:p-4 transition-all ${isBatchMode && isSelectedForBatch
                       ? 'border-blue-500/50 bg-blue-50/20 dark:bg-blue-950/20 shadow-sm'
                       : 'border-slate-200/80 dark:border-slate-800 bg-white/80 dark:bg-slate-850/80 hover:border-slate-300 dark:hover:border-slate-700 shadow-sm'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap">
                     <div className="flex items-center gap-3 min-w-0">
@@ -2115,7 +2107,7 @@ export function ResearchReportsView({
                             <div className="flex items-center gap-1.5 min-w-0">
                               <input
                                 type="text"
-                                className="h-7 rounded border border-blue-500/60 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-[260px] sm:max-w-[380px]"
+                                className="h-7 rounded border border-blue-500/60 bg-white dark:bg-slate-900 px-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-[320px] sm:w-[480px] md:w-[580px] max-w-full"
                                 value={editingTitle}
                                 onChange={(e) => setEditingTitle(e.target.value)}
                                 onKeyDown={(e) => {
@@ -2158,20 +2150,20 @@ export function ResearchReportsView({
                                 {activeReport.title}
                               </h4>
 
-                              {/* 极简版本选择器（统一中性灰低饱和风格） */}
+                              {/* 极简版本选择器（统一中性灰低饱和风格，精确居中对齐） */}
                               {series.versions.length === 1 ? (
-                                <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 leading-none">
+                                <span className="shrink-0 inline-flex items-center justify-center h-5 rounded px-1.5 text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 leading-none">
                                   v1
                                 </span>
                               ) : (
-                                <div className="relative inline-block shrink-0">
+                                <div className="relative flex items-center shrink-0">
                                   <button
                                     type="button"
                                     onClick={() => setVersionDropdownOpenSeriesId(isDropdownOpen ? null : series.seriesId)}
-                                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-slate-100 leading-none cursor-pointer"
+                                    className="inline-flex items-center justify-center h-5 gap-1 rounded px-1.5 text-[10px] font-mono font-medium transition-colors border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-slate-100 leading-none cursor-pointer"
                                     title="点击切换查看历史版本快照"
                                   >
-                                    <span>v{activeReport.versionNumber}{isViewingLatest ? ' (最新)' : ''}</span>
+                                    <span>v{activeReport.versionNumber}</span>
                                     <ChevronDown className={`h-2.5 w-2.5 opacity-60 transition-transform duration-150 ${isDropdownOpen ? 'rotate-180' : ''}`} />
                                   </button>
 
@@ -2198,11 +2190,10 @@ export function ResearchReportsView({
                                                   setVersionDropdownOpenSeriesId(null)
                                                   setInlineComparisonBySeries((prev) => ({ ...prev, [series.seriesId]: null }))
                                                 }}
-                                                className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-left transition-colors ${
-                                                  isVerSelected
+                                                className={`w-full flex items-center justify-between rounded-lg px-2 py-1.5 text-xs text-left transition-colors ${isVerSelected
                                                     ? 'bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium'
                                                     : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-750'
-                                                }`}
+                                                  }`}
                                               >
                                                 <div className="flex items-center gap-1.5 min-w-0">
                                                   <span className="font-mono font-semibold">v{ver.versionNumber}</span>
@@ -2224,9 +2215,30 @@ export function ResearchReportsView({
                                 </div>
                               )}
 
+                              {/* 纯图标对比按钮（与 v1/v2 选择器及编辑图标精确 h-5 水平对齐） */}
+                              {activeReport.previousArtifactId && (
+                                <button
+                                  type="button"
+                                  disabled={isComparingLoading}
+                                  onClick={() => toggleInlineComparison(series.seriesId, activeReport.artifactId)}
+                                  className={`inline-flex items-center justify-center h-5 w-5 rounded transition-colors shrink-0 ${
+                                    inlineComparison
+                                      ? 'bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-400 border border-blue-200 dark:border-blue-800'
+                                      : 'text-slate-400 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                  }`}
+                                  title={inlineComparison ? '收起版本对比' : `对比 v${activeReport.versionNumber - 1}`}
+                                >
+                                  {isComparingLoading ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <GitCompare className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              )}
+
                               <button
                                 type="button"
-                                className="opacity-0 group-hover/title:opacity-100 transition-opacity p-0.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                                className="opacity-0 group-hover/title:opacity-100 transition-opacity inline-flex items-center justify-center h-5 w-5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0"
                                 title="修改报告标题"
                                 onClick={() => {
                                   setEditingArtifactId(activeReport.artifactId)
@@ -2268,46 +2280,21 @@ export function ResearchReportsView({
                       </div>
                     </div>
 
-                    {/* 右侧操作按钮 */}
+                    {/* 右侧操作按钮：按 [全量升级] -> [导出报告 ∨] -> [删除] 逻辑流向组装 */}
                     <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                      {/* 导出 */}
-                      <ReportDownloadDropdown artifactId={activeReport.artifactId} />
-
-                      {/* 就地对比上一版 */}
-                      {activeReport.previousArtifactId && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className={`h-8 gap-1.5 px-2.5 text-xs transition-colors ${
-                            inlineComparison
-                              ? 'border-blue-300 dark:border-blue-700 bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 font-medium'
-                              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-                          }`}
-                          disabled={isComparingLoading}
-                          onClick={() => toggleInlineComparison(series.seriesId, activeReport.artifactId)}
-                        >
-                          {isComparingLoading ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <GitCompare className="h-3.5 w-3.5" />
-                          )}
-                          <span>{inlineComparison ? '收起对比' : `对比 v${activeReport.versionNumber - 1}`}</span>
-                        </Button>
-                      )}
-
-                      {/* 🔄 智能升级版本（仅最新版展示升级/最新状态） */}
+                      {/* 🔄 全量升级版本（主操作 CTA 按钮，升级前弹窗二次确认防止误触） */}
                       {isViewingLatest ? (
                         (series.latestReport.canUpgrade ?? series.latestReport.hasNewData) ? (
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-8 gap-1.5 px-2.5 text-xs border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 bg-blue-50/50 hover:bg-blue-100/60 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 font-medium transition-colors shadow-xs cursor-pointer"
+                            className="h-8 gap-1.5 px-3 text-xs border-blue-200 dark:border-blue-800/80 bg-blue-50/40 dark:bg-blue-950/30 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50 hover:border-blue-300 dark:hover:border-blue-700 font-medium transition-colors cursor-pointer"
                             disabled={refreshingArtifactIds.includes(series.latestReport.artifactId)}
-                            onClick={() => handleRefreshReport(series.latestReport)}
-                            title={`知识库已累计完成 ${series.latestReport.subtaskCount || 2} 轮采集，点击一键融合全部最新数据重新分析，升级至 v${series.latestReport.versionNumber + 1}`}
+                            onClick={() => setReportToUpgrade(series.latestReport)}
+                            title={`知识库已累计完成 ${series.latestReport.subtaskCount || 2} 轮采集，点击全量升级重新分析数据，升至 v${series.latestReport.versionNumber + 1}`}
                           >
-                            <RefreshCw className={`h-3.5 w-3.5 ${refreshingArtifactIds.includes(series.latestReport.artifactId) ? 'animate-spin' : ''}`} />
-                            <span>{refreshingArtifactIds.includes(series.latestReport.artifactId) ? '正在融合升级...' : '融合全量升级'}</span>
+                            <RefreshCw className={`h-3.5 w-3.5 text-blue-500 dark:text-blue-400 ${refreshingArtifactIds.includes(series.latestReport.artifactId) ? 'animate-spin' : ''}`} />
+                            <span>{refreshingArtifactIds.includes(series.latestReport.artifactId) ? '正在升级...' : '全量升级'}</span>
                           </Button>
                         ) : (
                           <Button
@@ -2336,6 +2323,10 @@ export function ResearchReportsView({
                         </Button>
                       )}
 
+                      {/* 3. 导出（输出类操作） */}
+                      <ReportDownloadDropdown artifactId={activeReport.artifactId} />
+
+                      {/* 4. 删除按钮（最右侧危险操作） */}
                       <Button
                         size="sm"
                         variant="ghost"
@@ -2510,6 +2501,48 @@ export function ResearchReportsView({
         </DialogContent>
       </Dialog>
 
+      {/* 研报全量升级二次确认弹窗 */}
+      <Dialog open={Boolean(reportToUpgrade)} onOpenChange={(open) => { if (!open) setReportToUpgrade(null) }}>
+        <DialogContent className="max-w-sm border-cyber-border-subtle bg-cyber-bg-secondary/95 p-5 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold text-cyber-text-primary flex items-center gap-2">
+              <RefreshCw className="h-4 w-4 text-blue-500" />
+              确认全量升级研报
+            </DialogTitle>
+            <DialogDescription className="text-xs text-cyber-text-muted mt-2 leading-relaxed">
+              确定要将研报《<span className="text-cyber-text-primary font-medium">{reportToUpgrade?.title}</span>》升级至 <strong className="text-blue-500 font-semibold">v{(reportToUpgrade?.versionNumber || 1) + 1}</strong> 吗？系统将自动融合知识库最新的全量采集数据进行二次分析与重新生成。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex gap-2 justify-end">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-cyber-text-muted hover:text-cyber-text-primary"
+              onClick={() => setReportToUpgrade(null)}
+              disabled={refreshingArtifactIds.includes(reportToUpgrade?.artifactId || '')}
+            >
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-xs"
+              onClick={async () => {
+                if (!reportToUpgrade) return
+                const target = reportToUpgrade
+                setReportToUpgrade(null)
+                await handleRefreshReport(target)
+              }}
+              disabled={refreshingArtifactIds.includes(reportToUpgrade?.artifactId || '')}
+            >
+              {refreshingArtifactIds.includes(reportToUpgrade?.artifactId || '') ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : null}
+              确认升级
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* 批量删除研报确认弹窗 */}
       <Dialog open={isBatchConfirmOpen} onOpenChange={setIsBatchConfirmOpen}>
         <DialogContent className="max-w-sm border-cyber-border-subtle bg-cyber-bg-secondary/95 p-5 backdrop-blur-xl">
@@ -2598,11 +2631,10 @@ export function ResearchAssetsPanel({
         <button
           type="button"
           onClick={() => setActiveTab('graph')}
-          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-            activeTab === 'graph'
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${activeTab === 'graph'
               ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-semibold'
               : 'text-cyber-text-muted hover:text-cyber-text-primary'
-          }`}
+            }`}
         >
           <Network className="h-3.5 w-3.5" />
           <span>关联图谱</span>
@@ -2610,11 +2642,10 @@ export function ResearchAssetsPanel({
         <button
           type="button"
           onClick={() => setActiveTab('reports')}
-          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
-            activeTab === 'reports'
+          className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${activeTab === 'reports'
               ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-semibold'
               : 'text-cyber-text-muted hover:text-cyber-text-primary'
-          }`}
+            }`}
         >
           <FileText className="h-3.5 w-3.5" />
           <span>研究报告</span>

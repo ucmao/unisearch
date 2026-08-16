@@ -1,5 +1,8 @@
 /* Local bundled fonts: MiSans (UI Sans: 400, 500, 600, 700) & JetBrains Mono (Code/Data) */
-@import "./styles/misans.css";
+@import "misans/lib/Normal/MiSans-Regular.min.css";
+@import "misans/lib/Normal/MiSans-Medium.min.css";
+@import "misans/lib/Normal/MiSans-Semibold.min.css";
+@import "misans/lib/Normal/MiSans-Bold.min.css";
 
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
@@ -137,11 +140,15 @@
   body {
     background-color: rgb(var(--cyber-bg-primary));
     color: rgb(var(--cyber-text-primary));
-    font-family: MiSans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-family: MiSans, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
     font-size: 15px;
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  select, input, textarea, button, optgroup, option {
+    font-family: inherit;
   }
 
   button, [role="button"] {
