@@ -354,20 +354,6 @@ export class AgentRepository {
     return { message_id: messageId, thread_id: threadId, role, kind, content, metadata, created_at: now };
   }
 
-  upsertDraftMessage(threadId: string, messageId: string, kind: string, content: string, metadata: any = {}) {
-    const now = new Date().toISOString();
-    const existing = this.db.prepare(`SELECT message_id FROM agent_messages WHERE message_id=?`).get(messageId);
-    if (existing) {
-      this.db.prepare(`UPDATE agent_messages SET content=?, metadata_json=? WHERE message_id=?`)
-        .run(content, JSON.stringify(metadata), messageId);
-    } else {
-      this.db.prepare(`INSERT INTO agent_messages (message_id, thread_id, role, kind, content, metadata_json, created_at) VALUES (?, ?, 'assistant', ?, ?, ?, ?)`)
-        .run(messageId, threadId, kind, content, JSON.stringify(metadata), now);
-    }
-    this.touchThread(threadId);
-    return { message_id: messageId, thread_id: threadId, role: 'assistant' as const, kind, content, metadata, created_at: now };
-  }
-
   deleteMessage(messageId: string) {
     this.db.prepare(`DELETE FROM agent_messages WHERE message_id=?`).run(messageId);
   }

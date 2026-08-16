@@ -112,11 +112,17 @@ function reportSections(content: string): Map<string, string> {
   return sections;
 }
 
+import { AnalysisService, analysisService } from './registry';
+
 export class ReportArtifactService {
+  private readonly analysis: AnalysisService;
   constructor(
     private readonly databaseProvider: () => Database = getDb,
     private readonly graphs: Pick<GraphService, 'latest' | 'rebuild'> = graphService,
-  ) {}
+    analysisServiceInstance?: AnalysisService,
+  ) {
+    this.analysis = analysisServiceInstance || new AnalysisService(databaseProvider);
+  }
   private get db(): Database { return this.databaseProvider(); }
 
   create(input: CreateReportArtifactInput): any {
@@ -154,8 +160,9 @@ export class ReportArtifactService {
         .get(seriesId) as any)?.version || 0) + 1
       : 1;
 
-    const analyzedDocs = analysisService.documents(input.workflowId ? input.workflowId : undefined, input.threadId);
+    const analyzedDocs = this.analysis.documents(input.workflowId ? input.workflowId : undefined, input.threadId);
     const defaultAnalyzedDocIds = analyzedDocs.map((d: any) => d.document_id);
+    const currentSubtaskCount = this.getSubtaskCount(input.threadId, input.workflowId);
 
     const reproducibility = {
       schemaVersion: 1,
@@ -166,6 +173,7 @@ export class ReportArtifactService {
       documentIds,
       documentVersions,
       analyzedDocIds: (input.reproducibility as any)?.analyzedDocIds || defaultAnalyzedDocIds,
+      coveredSubtaskCount: Number((input.reproducibility as any)?.coveredSubtaskCount || currentSubtaskCount),
       graphId: graph.id,
       generatedAt: createdAt,
       ...input.reproducibility,
@@ -188,7 +196,7 @@ export class ReportArtifactService {
     const thread = agentRepository.getThread(options.threadId);
     if (!thread) throw new Error('指定的调研课题会话不存在');
 
-    const docs = analysisService.documents(undefined, options.threadId);
+    const docs = this.analysis.documents(undefined, options.threadId);
     if (!docs || docs.length === 0) {
       throw new Error('当前课题知识库中暂无可分析的文档，请先在对话中发起数据采集');
     }
@@ -242,6 +250,26 @@ export class ReportArtifactService {
     });
   }
 
+  getSubtaskCount(threadId?: string, workflowId?: string): number {
+    if (!threadId && !workflowId) return 1;
+    if (threadId) {
+      const row = this.db.prepare(`
+        SELECT COUNT(DISTINCT COALESCE(workflow_id, run_id)) AS count
+        FROM crawl_runs
+        WHERE thread_id = ?
+      `).get(threadId) as any;
+      const count = Number(row?.count || 0);
+      if (count > 0) return count;
+      const wfRow = this.db.prepare(`
+        SELECT COUNT(DISTINCT workflow_id) AS count
+        FROM workflow_runs
+        WHERE thread_id = ?
+      `).get(threadId) as any;
+      return Math.max(1, Number(wfRow?.count || 0));
+    }
+    return 1;
+  }
+
   async refresh(artifactId: string): Promise<any> {
     const current = this.get(artifactId);
     if (!current) throw new Error('未找到指定研报');
@@ -250,30 +278,21 @@ export class ReportArtifactService {
     const workflowId = current.workflowId;
 
     // 校验 1：必须为该系列的最新版本，防止旧版本分支错乱
-    const maxRow = this.db.prepare('SELECT MAX(version_number) AS max_version FROM report_artifacts WHERE series_id=?').get(current.seriesId) as any;
-    const latestVersionNumber = Number(maxRow?.max_version || current.versionNumber);
-    if (current.versionNumber < latestVersionNumber) {
-      throw new Error(`该课题已有更新的版本 (v${latestVersionNumber})，请在最新版本上进行升级`);
+    if (!current.isLatestInSeries) {
+      throw new Error(`该课题已有更新的版本 (v${current.latestVersionNumber})，请在最新版本上进行升级`);
     }
 
-    // 获取当前任务/会话下所有多轮采集累积的全部文档
-    const docs = analysisService.documents(threadId ? undefined : workflowId, threadId);
+    // 校验 2：版本上限取决于子任务轮次数，必须有新增的子任务才能升级
+    const subtaskCount = this.getSubtaskCount(threadId, workflowId);
+    const currentCovered = Number(current.coveredSubtaskCount || current.reproducibility?.coveredSubtaskCount || current.versionNumber || 1);
+    if (subtaskCount <= currentCovered) {
+      throw new Error(`当前主任务仅完成 ${subtaskCount} 轮子任务采集，研报已是最高对应版本 (v${current.versionNumber})。如需升级至 v${current.versionNumber + 1}，请先在对话中发起新一轮补充采集`);
+    }
+
+    // 获取当前任务下所有多轮采集累积的全部文档
+    const docs = this.analysis.documents(threadId ? undefined : workflowId, threadId);
     if (!docs || docs.length === 0) {
       throw new Error('当前任务知识库中暂无可分析的文档，请先进行数据采集');
-    }
-
-    // 校验 2：检查知识库是否有新数据沉淀（以分析文档基线为准，绝非仅仅比较 LLM 抽取的十来篇证据引用）
-    const reproducibility = current.reproducibility || {};
-    const baselineDocIds = new Set<string>(
-      reproducibility.analyzedDocIds ||
-      (current.workflowId && current.versionNumber === 1
-        ? analysisService.documents(current.workflowId).map((d: any) => d.document_id)
-        : current.documentIds)
-    );
-    const allDocIds = docs.map((d) => d.document_id);
-    const hasNewDocs = allDocIds.some((id) => !baselineDocIds.has(id));
-    if (!hasNewDocs) {
-      throw new Error('当前任务知识库暂无新增数据，该研报已基于全部沉淀数据提炼完成，无需重复升级');
     }
 
     const datasetProfile = profileDataset(docs);
@@ -303,7 +322,7 @@ export class ReportArtifactService {
       workflowId: workflowId || undefined,
       workflowGoal,
       reportName: current.title,
-      userRequest: `使用原定提问目标与分析重点，基于当前任务累积的全部最新多轮数据（共 ${docs.length} 篇文档）重新核验并升级生成最新版本研报`,
+      userRequest: `使用原定提问目标与分析重点，基于当前主任务全部 ${subtaskCount} 轮子任务累积的知识库文档（共 ${docs.length} 篇文档）重新核验并升级生成最新版本研报`,
       analysisGoals,
       skillName,
       skillInstructions,
@@ -345,7 +364,8 @@ export class ReportArtifactService {
         analyzerVersion: '1.0.0',
         coverage: result.coverage,
         evidenceSelection: result.evidenceSelection,
-        analyzedDocIds: allDocIds,
+        analyzedDocIds: docs.map((d: any) => d.document_id),
+        coveredSubtaskCount: subtaskCount,
       },
     });
   }
@@ -367,19 +387,11 @@ export class ReportArtifactService {
     const latestVersionNumber = Number(maxRow?.max_version || row.version_number);
     const isLatestInSeries = Number(row.version_number) >= latestVersionNumber;
 
-    // 计算是否有新增数据可供升级（以全量分析文档基线为准，绝非比较证据引用数）
-    let hasNewData = false;
-    if (isLatestInSeries) {
-      const allDocs = analysisService.documents(row.thread_id ? undefined : row.workflow_id, row.thread_id);
-      const allDocIds = allDocs.map((d: any) => d.document_id);
-      const baselineDocIds = new Set<string>(
-        reproducibility.analyzedDocIds ||
-        (row.workflow_id && Number(row.version_number) === 1
-          ? analysisService.documents(row.workflow_id).map((d: any) => d.document_id)
-          : documentIds)
-      );
-      hasNewData = allDocIds.some((id) => !baselineDocIds.has(id));
-    }
+    // 研报覆盖轮次与主任务总轮次
+    const subtaskCount = this.getSubtaskCount(row.thread_id, row.workflow_id);
+    const coveredSubtaskCount = Number(reproducibility.coveredSubtaskCount || row.version_number);
+    const canUpgrade = isLatestInSeries && (coveredSubtaskCount < subtaskCount);
+    const hasNewData = canUpgrade;
 
     return {
       artifactId: row.artifact_id,
@@ -399,6 +411,10 @@ export class ReportArtifactService {
       isArchived,
       isLatestInSeries,
       latestVersionNumber,
+      subtaskCount,
+      coveredSubtaskCount,
+      maxAvailableVersion: subtaskCount,
+      canUpgrade,
       hasNewData,
     };
   }

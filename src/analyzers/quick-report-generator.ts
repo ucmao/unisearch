@@ -2,7 +2,6 @@ import type { DatasetProfile } from './dataset-profiler';
 import { renderDatasetProfile } from './dataset-profiler';
 import { EvidenceSelector, evidenceSelector, type EvidenceSelection, type SelectedEvidence } from '../knowledge/evidence-selector';
 import { modelService } from '../server/services/ModelService';
-import { agentRepository } from '../server/services/AgentRepository';
 import type { QualityGateResult } from './quality-gate-service';
 
 export interface QuickAnalysisCoverage {
@@ -209,114 +208,87 @@ export class QuickReportGenerator {
 
     const initialCoverage = buildQuickAnalysisCoverage(request.datasetProfile, selection.evidence, '', Boolean(request.partial));
     const profile = this.model.getProfile(false);
-    const draftMessageId = request.workflowId ? `draft-report-${request.workflowId}` : undefined;
 
-    let accumulatedText = '';
-    let lastDbUpdateMs = 0;
     let body: string;
 
-    try {
-      if (!profile.apiKeyConfigured) {
-        body = [
-          renderDatasetProfile(request.datasetProfile),
+    if (!profile.apiKeyConfigured) {
+      body = [
+        renderDatasetProfile(request.datasetProfile),
+        '',
+        '## 代表性证据',
+        '',
+        ...(sources.length
+          ? sources.slice(0, 10).map((source) => `- [${source.id}] ${source.title}：${source.excerpt.slice(0, 180)}`)
+          : ['- 知识库中没有检索到代表性证据。']),
+        '',
+        '当前未配置可用的 AI 模型，因此仅展示程序生成的全量统计与代表性证据。',
+      ].join('\n');
+    } else {
+      const materials = {
+        texts: [
+          { label: '全部文档的确定性统计结果', content: JSON.stringify(request.datasetProfile) },
+          ...sources.map((source) => ({
+            label: `[${source.id}] ${source.title}`,
+            content: [
+              source.excerpt,
+              `平台：${source.source}`,
+              `类型：${source.kind}`,
+              `主体：${source.subject.name || source.subject.id || '未知'} (${source.subject.type})`,
+              source.keyword ? `关键词：${source.keyword}` : '',
+              `选择原因：${source.selectionReason}`,
+              `来源：${source.sourceUrl || source.source}`,
+            ].filter(Boolean).join('\n'),
+          })),
+        ],
+        images: [],
+      };
+      let emittedStatus = false;
+      body = (await this.model.converse([{
+        role: 'user',
+        content: [
+          `请生成“${request.reportName}”。`,
+          `原任务：${request.workflowGoal}`,
+          `用户本轮要求：${request.userRequest}`,
+          request.analysisGoals.length
+            ? `分析重点：${request.analysisGoals.join('、')}`
+            : '分析方式：未预设分析维度，请根据实际采集证据动态归纳最有信息量的主题，不要根据行业关键词套用固定模板。',
+          request.skillName ? `业务 Skill：${request.skillName}` : '',
+          request.skillInstructions ? `业务分析规则：${request.skillInstructions}` : '',
+          request.partial ? '任务仍在采集中，只能生成阶段性报告。' : '',
+          request.qualityGate ? `数据质量门禁：${JSON.stringify({ status: request.qualityGate.status, warnings: request.qualityGate.warnings, metrics: request.qualityGate.metrics })}` : '',
           '',
-          '## 代表性证据',
-          '',
-          ...(sources.length
-            ? sources.slice(0, 10).map((source) => `- [${source.id}] ${source.title}：${source.excerpt.slice(0, 180)}`)
-            : ['- 知识库中没有检索到代表性证据。']),
-          '',
-          '当前未配置可用的 AI 模型，因此仅展示程序生成的全量统计与代表性证据。',
-        ].join('\n');
-      } else {
-        const materials = {
-          texts: [
-            { label: '全部文档的确定性统计结果', content: JSON.stringify(request.datasetProfile) },
-            ...sources.map((source) => ({
-              label: `[${source.id}] ${source.title}`,
-              content: [
-                source.excerpt,
-                `平台：${source.source}`,
-                `类型：${source.kind}`,
-                `主体：${source.subject.name || source.subject.id || '未知'} (${source.subject.type})`,
-                source.keyword ? `关键词：${source.keyword}` : '',
-                `选择原因：${source.selectionReason}`,
-                `来源：${source.sourceUrl || source.source}`,
-              ].filter(Boolean).join('\n'),
-            })),
-          ],
-          images: [],
-        };
-        let emittedStatus = false;
-        body = (await this.model.converse([{
-          role: 'user',
-          content: [
-            `请生成“${request.reportName}”。`,
-            `原任务：${request.workflowGoal}`,
-            `用户本轮要求：${request.userRequest}`,
-            request.analysisGoals.length
-              ? `分析重点：${request.analysisGoals.join('、')}`
-              : '分析方式：未预设分析维度，请根据实际采集证据动态归纳最有信息量的主题，不要根据行业关键词套用固定模板。',
-            request.skillName ? `业务 Skill：${request.skillName}` : '',
-            request.skillInstructions ? `业务分析规则：${request.skillInstructions}` : '',
-            request.partial ? '任务仍在采集中，只能生成阶段性报告。' : '',
-            request.qualityGate ? `数据质量门禁：${JSON.stringify({ status: request.qualityGate.status, warnings: request.qualityGate.warnings, metrics: request.qualityGate.metrics })}` : '',
-            '',
-            '写作规则：',
-            '1. 【必须以专业一级大标题开头】：报告的第一行必须是 Markdown 一级大标题（格式如：# 人工智能搜索与产业动态分析报告），严禁缺失标题，严禁使用“采集结果”、“分析报告”、“无标题”等生硬占位词。请根据实际采集的主题、关键词与数据内容拟定具有专业研究深度的大标题。',
-            '2. 样本量、数量、比例、平台和类型分布、时间范围、字段覆盖、缺失率及数值指标，只能使用“全部文档的确定性统计结果”。',
-            '3. 主题、观点、原因、风险、机会和建议只能根据代表性证据归纳，并在关键事实后标注 [S1] 格式来源。引用编号只能使用 [S1] 开始的有效证据编号，严禁把行业代码、数据主键或原始数字（如 100021）当作来源编号标注。',
-            '4. 不得声称逐篇阅读了全部文档，不得根据代表性证据重新估算总体比例，不得补造资料中没有的字段。',
-            '5. 明确区分数据发现、证据不足和建议；不要重复输出数据范围说明，也不要自行添加参考资料列表。',
-            '6. 点赞、收藏、评论等互动量只能表示传播或参与程度，不能据此判定正面口碑、内容质量或事实真伪；没有评论文本时不得概括用户情绪。',
-            '7. 时间字段缺失或覆盖不足时不得声称某主题正在增长、上升或成为趋势；只能描述当前样本中较常见。',
-            '8. 单个创作者、广告或投诉内容中的说法必须明确归因，不能扩写为平台或行业事实。比例和派生指标只能使用确定性统计中直接提供的同口径指标，不得拿均值、中位数或不同样本字段自行相除。',
-            '9. 不得输出乱码替换字符；损坏文本应视为不可用证据。多个引用分别写为 [S1][S2]，不要写引用范围。',
-            '10. 数据质量门禁为 limited 或 insufficient 时，必须在开头明确说明限制；insufficient 时只能输出阶段性发现和补采建议，不得给出稳定的总体判断。',
-          ].filter(Boolean).join('\n'),
-        }], {
-          materials,
-          signal: request.signal,
-          onRetry: request.onRetry,
-          onDelta: (delta) => {
-            if (!emittedStatus) {
-              emittedStatus = true;
-              try {
-                request.onStatus?.({
-                  phase: 'reasoning',
-                  message: '',
-                  sources,
-                  retrieval: selection.retrievalMode,
-                  analysis_coverage: initialCoverage,
-                });
-              } catch {}
-            }
-            accumulatedText += delta;
-            if (request.threadId && draftMessageId) {
-              const now = Date.now();
-              if (now - lastDbUpdateMs > 100) {
-                lastDbUpdateMs = now;
-                try {
-                  agentRepository.upsertDraftMessage(request.threadId, draftMessageId, 'analysis', accumulatedText, {
-                    streaming: true,
-                    plan_id: request.workflowId,
-                    sources,
-                    retrieval: selection.retrievalMode,
-                    analysis_coverage: initialCoverage,
-                  });
-                } catch {}
-              }
-            }
-            request.onDelta?.(delta);
-          },
-        })).trim();
-      }
-    } finally {
-      if (request.threadId && draftMessageId) {
-        try {
-          agentRepository.deleteMessage(draftMessageId);
-        } catch {}
-      }
+          '写作规则：',
+          '1. 【必须以专业一级大标题开头】：报告的第一行必须是 Markdown 一级大标题（格式如：# 人工智能搜索与产业动态分析报告），严禁缺失标题，严禁使用“采集结果”、“分析报告”、“无标题”等生硬占位词。请根据实际采集的主题、关键词与数据内容拟定具有专业研究深度的大标题。',
+          '2. 样本量、数量、比例、平台和类型分布、时间范围、字段覆盖、缺失率及数值指标，只能使用“全部文档的确定性统计结果”。',
+          '3. 主题、观点、原因、风险、机会和建议只能根据代表性证据归纳，并在关键事实后标注 [S1] 格式来源。引用编号只能使用 [S1] 开始的有效证据编号，严禁把行业代码、数据主键或原始数字（如 100021）当作来源编号标注。',
+          '4. 不得声称逐篇阅读了全部文档，不得根据代表性证据重新估算总体比例，不得补造资料中没有的字段。',
+          '5. 明确区分数据发现、证据不足和建议；不要重复输出数据范围说明，也不要自行添加参考资料列表。',
+          '6. 点赞、收藏、评论等互动量只能表示传播或参与程度，不能据此判定正面口碑、内容质量或事实真伪；没有评论文本时不得概括用户情绪。',
+          '7. 时间字段缺失或覆盖不足时不得声称某主题正在增长、上升或成为趋势；只能描述当前样本中较常见。',
+          '8. 单个创作者、广告或投诉内容中的说法必须明确归因，不能扩写为平台或行业事实。比例和派生指标只能使用确定性统计中直接提供的同口径指标，不得拿均值、中位数或不同样本字段自行相除。',
+          '9. 不得输出乱码替换字符；损坏文本应视为不可用证据。多个引用分别写为 [S1][S2]，不要写引用范围。',
+          '10. 数据质量门禁为 limited 或 insufficient 时，必须在开头明确说明限制；insufficient 时只能输出阶段性发现和补采建议，不得给出稳定的总体判断。',
+        ].filter(Boolean).join('\n'),
+      }], {
+        materials,
+        signal: request.signal,
+        onRetry: request.onRetry,
+        onDelta: (delta) => {
+          if (!emittedStatus) {
+            emittedStatus = true;
+            try {
+              request.onStatus?.({
+                phase: 'reasoning',
+                message: '',
+                sources,
+                retrieval: selection.retrievalMode,
+                analysis_coverage: initialCoverage,
+              });
+            } catch {}
+          }
+          request.onDelta?.(delta);
+        },
+      })).trim();
     }
 
     if (selection.retrievalWarnings.length) {

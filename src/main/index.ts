@@ -796,7 +796,7 @@ function createWindow(port: number): void {
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
 
-  mainWindow.webContents.session.on('will-download', async (_event, item) => {
+  mainWindow.webContents.session.on('will-download', (_event, item) => {
     let rawFilename = item.getFilename();
     try {
       rawFilename = decodeURIComponent(rawFilename);
@@ -806,28 +806,24 @@ function createWindow(port: number): void {
     const downloadsDir = app.getPath('downloads');
     const defaultPath = path.join(downloadsDir, cleanFilename);
 
-    try {
-      const { canceled, filePath } = await dialog.showSaveDialog(mainWindow!, {
-        title: '选择保存位置',
-        defaultPath,
-        properties: ['showOverwriteConfirmation'],
-      });
+    item.setSaveDialogOptions({
+      title: '选择保存位置',
+      defaultPath,
+      properties: ['showOverwriteConfirmation'],
+    });
 
-      if (canceled || !filePath) {
-        item.cancel();
-        return;
-      }
-
-      item.setSavePath(filePath);
-      item.once('done', (_downloadEvent, state) => {
-        if (state === 'completed') {
-          shell.showItemInFolder(filePath);
+    item.once('done', (_downloadEvent, state) => {
+      if (state === 'completed') {
+        const savedPath = item.getSavePath();
+        if (savedPath && fs.existsSync(savedPath)) {
+          shell.showItemInFolder(savedPath);
         }
-      });
-    } catch (dialogErr) {
-      console.error('[Download] 显示保存对话框异常:', dialogErr);
-      item.cancel();
-    }
+      } else if (state === 'cancelled') {
+        console.log('[Download] 用户取消了保存');
+      } else {
+        console.error(`[Download] 下载失败: ${state}`);
+      }
+    });
   });
 
   mainWindow.on('close', (event) => {

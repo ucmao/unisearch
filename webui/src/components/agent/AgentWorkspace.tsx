@@ -427,8 +427,7 @@ function ChatCrawlingStatusBanner({
   const contentCount = activePlan.stats?.content_count ?? 0
   const isPostProcessing = activePlan.status === 'running' && totalSteps > 0 && completedSteps === totalSteps
 
-  // 第一段报告正文出现后，由草稿消息接管展示；在此之前保留分析状态
-  // 和中止入口，避免模型首字等待期间界面没有反馈。
+  // 分析阶段保留分析状态和中止入口，待分析报告全部生成完毕后自动切换为最终研报消息
   if (isPostProcessing && hasStreamingAnswer) return null
 
   const isStreamActive = isRunning && !isPostProcessing
@@ -438,7 +437,7 @@ function ChatCrawlingStatusBanner({
       <div className="flex items-center gap-2 py-1">
         <div className="inline-flex items-center gap-1.5 text-cyber-text-secondary">
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>{isPostProcessing ? '正在分析采集结果...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+          <span>{isPostProcessing ? '正在提炼与生成深度分析研报...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
           <span className="text-cyber-border-default">·</span>
           <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
         </div>
@@ -694,7 +693,7 @@ function PlanMessageContent({
   )
 }
 
-const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick, latestReport }: {
+const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, planConfigContent, onStopPlan, stoppingPlan, hasStreamingAnswer, isPlanInitiator, onDeletePair, deletingPair, onRegenerate, regenerating, disabled, isLatestAssistant, onPreviewImage, onCitationClick }: {
   message: AgentMessage
   /** Only used to fall back to the plan's keywords when a message carries none. */
   plan: AgentPlan | null
@@ -713,7 +712,6 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
   isLatestAssistant?: boolean
   onPreviewImage?: (url: string) => void
   onCitationClick?: (sourceId: string) => void
-  latestReport?: { artifactId: string; title: string; versionNumber: number } | null
 }) {
   const isUser = message.role === 'user'
   const platformLabels = usePlatformLabels()
@@ -724,7 +722,7 @@ const MessageBubble = memo(function MessageBubble({ message, plan, activePlan, p
     isPlanLikeMessage(message)
   )
   const targetArtifactId = !isUser
-    ? ((message.metadata?.report_artifact_id as string) || (isLatestAssistant && latestReport ? latestReport.artifactId : undefined))
+    ? (message.metadata?.report_artifact_id as string | undefined)
     : undefined
   const [copied, setCopied] = useState(false)
   const copyMarkdown = async () => {
@@ -1218,18 +1216,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     refetchInterval: (query) => (isCurrentMessagePending ? false : (query.state.data?.plan && ['queued', 'running'].includes(query.state.data.plan.status) ? 600 : 1500)),
   })
 
-  const threadReportsQuery = useQuery({
-    queryKey: ['research-reports', { thread_id: selectedId }],
-    queryFn: async () => {
-      if (!selectedId) return []
-      const res = await fetch(`/api/reports?thread_id=${encodeURIComponent(selectedId)}`)
-      if (!res.ok) return []
-      const data = await res.json()
-      return (data.items || []) as Array<{ artifactId: string; title: string; versionNumber: number }>
-    },
-    enabled: Boolean(selectedId),
-  })
-  const latestReport = threadReportsQuery.data?.[0]
+
   const referenceableTasksQuery = useQuery({ queryKey: ['agent-referenceable-tasks'], queryFn: async () => (await agentApi.listReferenceableTasks()).data.items, enabled: taskPickerOpen })
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -2360,7 +2347,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     isLatestAssistant={message.role === 'assistant' && message.message_id === lastAssistantMessageId}
                     onPreviewImage={handlePreviewImage}
                     onCitationClick={handleCitationClick}
-                    latestReport={latestReport}
                   />
                 ))}
                 {isThinking && (

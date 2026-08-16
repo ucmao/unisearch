@@ -171,6 +171,10 @@ export type Report = {
   isArchived?: boolean
   isLatestInSeries?: boolean
   latestVersionNumber?: number
+  subtaskCount?: number
+  coveredSubtaskCount?: number
+  maxAvailableVersion?: number
+  canUpgrade?: boolean
   hasNewData?: boolean
 }
 export type ReportComparison = { from: { versionNumber: number }; to: { versionNumber: number }; documents: { added: string[]; removed: string[]; updated: string[]; unchanged: number }; citations: { added: string[]; removed: string[] }; sections: { added: string[]; removed: string[]; changed: string[] }; contentChanged: boolean }
@@ -1855,7 +1859,9 @@ export function ResearchReportsView({
         toast.error(result.detail || '升级生成新版研报失败')
         return
       }
-      toast.success(`已基于当前任务全部多轮数据重新核验，升级至 v${result.report?.versionNumber || report.versionNumber + 1}`)
+      const newVer = result.report?.versionNumber || report.versionNumber + 1
+      const totalRounds = result.report?.coveredSubtaskCount || report.subtaskCount || 2
+      toast.success(`已一键融合全部 ${totalRounds} 轮采集数据，成功升级至 v${newVer}（最新版）`)
       await queryClient.invalidateQueries({ queryKey: ['research-reports'] })
     } catch (err: any) {
       toast.error(err.message || '升级研报失败')
@@ -2152,9 +2158,9 @@ export function ResearchReportsView({
                                 {activeReport.title}
                               </h4>
 
-                              {/* 极简版本选择器 */}
+                              {/* 极简版本选择器（统一中性灰低饱和风格） */}
                               {series.versions.length === 1 ? (
-                                <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.25 text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 leading-none">
+                                <span className="shrink-0 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 leading-none">
                                   v1
                                 </span>
                               ) : (
@@ -2162,11 +2168,7 @@ export function ResearchReportsView({
                                   <button
                                     type="button"
                                     onClick={() => setVersionDropdownOpenSeriesId(isDropdownOpen ? null : series.seriesId)}
-                                    className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors border ${
-                                      isViewingLatest
-                                        ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 hover:bg-blue-100/70'
-                                        : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100/70'
-                                    }`}
+                                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors border bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-700 hover:text-slate-800 dark:hover:text-slate-100 leading-none cursor-pointer"
                                     title="点击切换查看历史版本快照"
                                   >
                                     <span>v{activeReport.versionNumber}{isViewingLatest ? ' (最新)' : ''}</span>
@@ -2248,6 +2250,12 @@ export function ResearchReportsView({
 
                         <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 flex-wrap">
                           <span>固化引用 <strong className="font-semibold text-slate-800 dark:text-slate-200">{activeReport.documentIds.length}</strong> 个文档</span>
+                          {activeReport.coveredSubtaskCount && activeReport.coveredSubtaskCount > 1 ? (
+                            <>
+                              <span>·</span>
+                              <span>已融合全部 {activeReport.coveredSubtaskCount} 轮数据</span>
+                            </>
+                          ) : null}
                           <span>·</span>
                           <span>生成于 {new Date(activeReport.createdAt).toLocaleString()}</span>
                           {series.versions.length > 1 && (
@@ -2289,17 +2297,17 @@ export function ResearchReportsView({
 
                       {/* 🔄 智能升级版本（仅最新版展示升级/最新状态） */}
                       {isViewingLatest ? (
-                        series.latestReport.hasNewData ? (
+                        (series.latestReport.canUpgrade ?? series.latestReport.hasNewData) ? (
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-8 gap-1.5 px-2.5 text-xs border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 bg-blue-50/50 hover:bg-blue-100/60 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 font-medium transition-colors"
+                            className="h-8 gap-1.5 px-2.5 text-xs border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 bg-blue-50/50 hover:bg-blue-100/60 dark:bg-blue-950/30 dark:hover:bg-blue-900/40 font-medium transition-colors shadow-xs cursor-pointer"
                             disabled={refreshingArtifactIds.includes(series.latestReport.artifactId)}
                             onClick={() => handleRefreshReport(series.latestReport)}
-                            title="使用原提问词与分析维度，基于本任务多轮累积的全部最新数据重新提炼升级"
+                            title={`知识库已累计完成 ${series.latestReport.subtaskCount || 2} 轮采集，点击一键融合全部最新数据重新分析，升级至 v${series.latestReport.versionNumber + 1}`}
                           >
                             <RefreshCw className={`h-3.5 w-3.5 ${refreshingArtifactIds.includes(series.latestReport.artifactId) ? 'animate-spin' : ''}`} />
-                            <span>{refreshingArtifactIds.includes(series.latestReport.artifactId) ? '正在升级...' : `升级至 v${series.latestReport.versionNumber + 1}`}</span>
+                            <span>{refreshingArtifactIds.includes(series.latestReport.artifactId) ? '正在融合升级...' : '融合全量升级'}</span>
                           </Button>
                         ) : (
                           <Button
@@ -2307,7 +2315,11 @@ export function ResearchReportsView({
                             variant="ghost"
                             disabled
                             className="h-8 gap-1.5 px-2.5 text-xs border border-slate-200/80 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80 text-slate-400 dark:text-slate-500 cursor-not-allowed font-medium opacity-80"
-                            title="当前知识库暂无新增数据。若想进一步升级研报，请先在对话中发起新一轮补充采集"
+                            title={
+                              series.latestReport.coveredSubtaskCount && series.latestReport.coveredSubtaskCount > 1
+                                ? `当前研报已融合知识库全部 ${series.latestReport.coveredSubtaskCount} 轮采集数据 (共 ${activeReport.documentIds.length} 篇文档)。如需再次升级，请先在对话中发起新一轮补充采集`
+                                : "当前知识库暂无新增数据轮次。若想进一步升级研报，请先在对话中发起新一轮补充采集"
+                            }
                           >
                             <Check className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
                             <span>已是最新版本</span>

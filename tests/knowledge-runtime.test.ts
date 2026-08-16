@@ -17,6 +17,7 @@ import { RagService } from '../src/knowledge/rag-service';
 import { profileDataset } from '../src/analyzers/dataset-profiler';
 import { EvidenceSelector, decomposeEvidenceQueries, dynamicEvidenceDocumentLimit } from '../src/knowledge/evidence-selector';
 import { buildQuickAnalysisCoverage, buildQuickReportBoundary, QuickReportGenerator } from '../src/analyzers/quick-report-generator';
+import { ReportArtifactService } from '../src/analyzers/report-artifact-service';
 import { RetrievalService } from '../src/knowledge/retrieval-service';
 
 function database() {
@@ -325,7 +326,7 @@ test('Quick Report Generator separates selection, generation and program-owned r
   assert.match(prompt, /单个创作者、广告或投诉内容中的说法必须明确归因/);
   assert.equal(materials.texts[0].label, '全部文档的确定性统计结果');
   assert.match(materials.texts[0].content, /"documentCount":212/);
-  assert.equal(result.answer, '全量统计显示共有 212 条；代表性岗位显示相关要求 [S1][S2]。');
+  assert.match(result.answer, /全量统计显示共有 212 条；代表性岗位显示相关要求 \[S1\]\[S2\]。/);
   assert.equal(result.coverage.statisticallyAnalyzedDocumentCount, 212);
   assert.equal(result.coverage.qualitativelyAnalyzedDocumentCount, 2);
   assert.equal(result.coverage.citedDocumentCount, 2);
@@ -523,4 +524,91 @@ test('KnowledgeIndex getAdjacentChunks retrieves neighboring chunks by ordinal',
     db.close();
   }
 });
+
+test('Report Artifact upgrade is strictly bounded by subtask count of the main thread', async () => {
+  const db = database();
+  try {
+    const threadId = 'thread-version-test';
+    const subtaskId1 = 'subtask-1';
+    const subtaskId2 = 'subtask-2';
+    const engine = new DocumentEngine(() => db);
+
+    // 1. 建立主任务和第 1 轮子任务
+    db.prepare("INSERT INTO agent_threads (thread_id, title, created_at, updated_at) VALUES (?, '天气调研', datetime('now'), datetime('now'))").run(threadId);
+    db.prepare("INSERT INTO workflow_runs (workflow_id, thread_id, skill_id, skill_version, goal, created_at, updated_at) VALUES (?, ?, 'test.skill', '1.0', '天气调研', datetime('now'), datetime('now'))").run(subtaskId1, threadId);
+    db.prepare("INSERT INTO crawl_runs (run_id, thread_id, workflow_id, platform, status, started_at) VALUES ('run-1', ?, ?, 'baidu', 'completed', datetime('now'))").run(threadId, subtaskId1);
+    
+    // 写入第 1 轮采集的文档
+    const doc1 = await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      engine: 'baidu',
+      content_id: 'w1',
+      title: '福州今日天气',
+      snippet: '福州今日晴天，气温适宜',
+      real_url: 'https://example.com/w1',
+    }), 'run-1');
+
+    db.prepare("INSERT INTO analysis_reports (report_id, thread_id, workflow_id, analyzer_id, analyzer_version, title, content, created_at) VALUES ('analysis-1', ?, ?, 'quick.report', '1.0', '福州天气分析报告', '福州今日晴朗', datetime('now'))").run(threadId, subtaskId1);
+    db.prepare("INSERT INTO graph_snapshots (graph_id, scope_type, scope_id, created_at) VALUES ('graph-1', 'thread', ?, datetime('now'))").run(threadId);
+
+    const service = new ReportArtifactService(() => db, {
+      latest: () => ({ id: 'graph-1' } as any),
+      rebuild: () => ({ id: 'graph-1' } as any),
+    } as any);
+
+    // 生成 V1 报告
+    const r1 = service.create({
+      reportId: 'analysis-1',
+      threadId,
+      workflowId: subtaskId1,
+      title: '福州天气分析报告',
+      content: '福州今日晴朗 [S1]',
+      sources: [{ documentId: doc1.documentId, id: 'S1' }],
+    });
+
+    assert.equal(r1.versionNumber, 1);
+    assert.equal(r1.subtaskCount, 1);
+    assert.equal(r1.canUpgrade, false);
+    assert.equal(r1.hasNewData, false);
+
+    // 只有一个子任务时，尝试升级应该被抛错拦截
+    await assert.rejects(
+      async () => service.refresh(r1.artifactId),
+      /当前主任务仅完成 1 轮子任务采集，研报已是最高对应版本/
+    );
+
+    // 2. 主任务产生第 2 轮子任务采集
+    db.prepare("INSERT INTO workflow_runs (workflow_id, thread_id, skill_id, skill_version, goal, created_at, updated_at) VALUES (?, ?, 'test.skill', '1.0', '补充采集', datetime('now'), datetime('now'))").run(subtaskId2, threadId);
+    db.prepare("INSERT INTO crawl_runs (run_id, thread_id, workflow_id, platform, status, started_at) VALUES ('run-2', ?, ?, 'sogou', 'completed', datetime('now'))").run(threadId, subtaskId2);
+    await engine.ingest(buildRawItem('emitSearchEngineResult', {
+      engine: 'sogou',
+      content_id: 'w2',
+      title: '福州明日天气',
+      snippet: '福州明日多云转阴',
+      real_url: 'https://example.com/w2',
+    }), 'run-2');
+
+    // 重新获取 V1 报告状态
+    const r1Updated = service.get(r1.artifactId);
+    assert.equal(r1Updated.subtaskCount, 2);
+    assert.equal(r1Updated.canUpgrade, true);
+    assert.equal(r1Updated.hasNewData, true);
+
+    // 升级生成 V2 研报
+    const r2 = await service.refresh(r1.artifactId);
+    assert.equal(r2.versionNumber, 2);
+    assert.equal(r2.subtaskCount, 2);
+    assert.equal(r2.coveredSubtaskCount, 2);
+    assert.equal(r2.canUpgrade, false);
+    assert.equal(r2.hasNewData, false);
+
+    // 升级到最新后，再次尝试升级应该被拦截（无需重复点击）
+    await assert.rejects(
+      async () => service.refresh(r2.artifactId),
+      /当前主任务仅完成 2 轮子任务采集，研报已是最高对应版本/
+    );
+  } finally {
+    db.close();
+  }
+});
+
 

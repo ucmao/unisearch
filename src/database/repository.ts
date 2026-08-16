@@ -338,6 +338,26 @@ export class AnalyticsRepository {
     };
   }
 
+  getSubtaskCount(threadId?: string, workflowId?: string): number {
+    if (!threadId && !workflowId) return 1;
+    if (threadId) {
+      const row = this.db.prepare(`
+        SELECT COUNT(DISTINCT COALESCE(workflow_id, run_id)) AS count
+        FROM crawl_runs
+        WHERE thread_id = ?
+      `).get(threadId) as any;
+      const count = Number(row?.count || 0);
+      if (count > 0) return count;
+      const wfRow = this.db.prepare(`
+        SELECT COUNT(DISTINCT workflow_id) AS count
+        FROM workflow_runs
+        WHERE thread_id = ?
+      `).get(threadId) as any;
+      return Math.max(1, Number(wfRow?.count || 0));
+    }
+    return 1;
+  }
+
   storageSummary(): any {
     const count = (table: string) => Number((this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count);
     return {
