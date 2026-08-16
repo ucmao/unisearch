@@ -244,7 +244,7 @@ export class AgentRepository {
 
       let analyticsRunsDeleted: number;
       if (deleteAnalyticsData) {
-        analyticsRunsDeleted = this.db.prepare('DELETE FROM crawl_runs WHERE thread_id=?').run(id).changes;
+        analyticsRunsDeleted = new AnalyticsRepository(() => this.db).deleteThreads([id], true);
       } else {
         analyticsRunsDeleted = Number((this.db.prepare(
           'SELECT COUNT(*) AS count FROM crawl_runs WHERE thread_id=?',

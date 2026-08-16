@@ -494,6 +494,10 @@ export const dataApi = {
     api.post<{ status: string; deleted: number }>('/data/analytics/tasks/batch-delete', { thread_ids: threadIds }),
   deleteAnalyticsRounds: (planIds: string[]) =>
     api.post<{ status: string; deleted: number }>('/data/analytics/rounds/batch-delete', { plan_ids: planIds }),
+  deleteReport: (artifactId: string) =>
+    api.delete<{ status: string; artifact_id: string }>(`/reports/${encodeURIComponent(artifactId)}`),
+  deleteReports: (artifactIds: string[]) =>
+    api.post<{ status: string; deleted: number }>('/reports/batch-delete', { artifact_ids: artifactIds }),
   getStorageSummary: () => api.get<StorageSummary>('/data/storage/summary'),
   getStoragePreview: (params?: { crawl_days?: number; crawl_failed_days?: number; thread_days?: number; max_messages?: number }) =>
     api.get<StoragePreview>('/data/storage/preview', { params }),

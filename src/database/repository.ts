@@ -470,9 +470,16 @@ export class AnalyticsRepository {
     const runIds = ids.map((item) => item.run_id);
     let deleted = 0;
     if (runIds.length) {
-      deleted = this.deleteRuns(runIds);
+      deleted = this.deleteRuns(runIds, true);
     }
     this.db.prepare('DELETE FROM documents WHERE document_id NOT IN (SELECT document_id FROM document_sources)').run();
+    // Clean orphan graph snapshots that have no active scope or reference deleted scopes
+    this.db.prepare(`
+      DELETE FROM graph_snapshots
+      WHERE (scope_type = 'run' AND scope_id NOT IN (SELECT run_id FROM crawl_runs))
+         OR (scope_type = 'thread' AND scope_id NOT IN (SELECT thread_id FROM agent_threads))
+         OR (scope_type = 'workflow' AND scope_id NOT IN (SELECT workflow_id FROM workflow_runs))
+    `).run();
     return deleted;
   }
 
@@ -540,7 +547,7 @@ export class AnalyticsRepository {
     }))();
   }
 
-  private deleteScope(column: 'thread_id' | 'workflow_id', values: string[]): number {
+  private deleteScope(column: 'thread_id' | 'workflow_id', values: string[], withReports: boolean = false): number {
     const ids = [...new Set(values.filter(Boolean))];
     if (!ids.length) return 0;
     const placeholders = ids.map(() => '?').join(',');
@@ -549,13 +556,29 @@ export class AnalyticsRepository {
       WHERE ${column} IN (${placeholders}) AND status='running'
     `).get(...ids) as any).count);
     if (running) throw new Error('请先停止所选任务中正在采集的执行');
-    return this.db.prepare(`DELETE FROM crawl_runs WHERE ${column} IN (${placeholders})`).run(...ids).changes;
+
+    return (this.db.transaction(() => {
+      // Clean graph snapshots associated with deleted scope or global snapshots
+      const scopeType = column === 'thread_id' ? 'thread' : 'workflow';
+      this.db.prepare(`DELETE FROM graph_snapshots WHERE (scope_type=? AND scope_id IN (${placeholders})) OR scope_type='all'`).run(scopeType, ...ids);
+
+      // Clean reports if requested, otherwise detach to NULL to preserve as independent assets
+      if (withReports) {
+        this.db.prepare(`DELETE FROM report_artifacts WHERE ${column} IN (${placeholders})`).run(...ids);
+      } else {
+        this.db.prepare(`UPDATE report_artifacts SET ${column}=NULL WHERE ${column} IN (${placeholders})`).run(...ids);
+      }
+
+      const deleted = this.db.prepare(`DELETE FROM crawl_runs WHERE ${column} IN (${placeholders})`).run(...ids).changes;
+      this.db.prepare('DELETE FROM documents WHERE document_id NOT IN (SELECT document_id FROM document_sources)').run();
+      return deleted;
+    }))();
   }
 
-  deleteThreads(ids: string[]): number { return this.deleteScope('thread_id', ids); }
-  deletePlans(ids: string[]): number { return this.deleteScope('workflow_id', ids); }
+  deleteThreads(ids: string[], withReports: boolean = false): number { return this.deleteScope('thread_id', ids, withReports); }
+  deletePlans(ids: string[], withReports: boolean = false): number { return this.deleteScope('workflow_id', ids, withReports); }
 
-  deleteRuns(runIds: string[]): number {
+  deleteRuns(runIds: string[], withReports: boolean = false): number {
     const ids = [...new Set(runIds.filter(Boolean))];
     if (!ids.length) return 0;
     const all = ids.includes('all');
@@ -567,10 +590,20 @@ export class AnalyticsRepository {
       `).get(...params) as any).count);
       if (running) throw new Error('请先停止所选执行中的采集任务');
     }
-    return this.db.prepare(`DELETE FROM crawl_runs WHERE ${where}`).run(...params).changes;
+    return (this.db.transaction(() => {
+      if (!all) {
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(`DELETE FROM graph_snapshots WHERE (scope_type='run' AND scope_id IN (${placeholders})) OR scope_type='all'`).run(...ids);
+      } else {
+        this.db.prepare('DELETE FROM graph_snapshots').run();
+      }
+      const deleted = this.db.prepare(`DELETE FROM crawl_runs WHERE ${where}`).run(...params).changes;
+      this.db.prepare('DELETE FROM documents WHERE document_id NOT IN (SELECT document_id FROM document_sources)').run();
+      return deleted;
+    }))();
   }
 
-  deleteRun(runId: string): boolean { return this.deleteRuns([runId]) > 0; }
+  deleteRun(runId: string, withReports: boolean = false): boolean { return this.deleteRuns([runId], withReports) > 0; }
 }
 
 export const analyticsRepository = new AnalyticsRepository();

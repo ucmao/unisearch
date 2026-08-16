@@ -165,6 +165,13 @@ export class ReportArtifactService {
   get(artifactId: string): any {
     const row = this.db.prepare('SELECT * FROM report_artifacts WHERE artifact_id=?').get(artifactId) as any;
     if (!row) throw new Error('Report artifact not found');
+    const documentIds = parseJson(row.document_ids_json) as string[];
+    let isArchived = false;
+    if (documentIds.length) {
+      const placeholders = documentIds.map(() => '?').join(',');
+      const existingCount = Number((this.db.prepare(`SELECT COUNT(*) AS count FROM documents WHERE document_id IN (${placeholders})`).get(...documentIds) as any)?.count || 0);
+      isArchived = existingCount === 0;
+    }
     return {
       artifactId: row.artifact_id,
       reportId: row.report_id,
@@ -175,11 +182,12 @@ export class ReportArtifactService {
       workflowId: row.workflow_id,
       title: row.title,
       content: row.content,
-      documentIds: parseJson(row.document_ids_json),
+      documentIds,
       citations: parseJson(row.citations_json),
       graphId: row.graph_id,
       reproducibility: parseJson(row.reproducibility_json),
       createdAt: row.created_at,
+      isArchived,
     };
   }
 
@@ -287,6 +295,20 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #e2e8f0; col
       extension: format,
       filename: `${safeTitle}.${format}`,
     };
+  }
+
+  delete(artifactId: string): boolean {
+    const changes = this.db.prepare('DELETE FROM report_artifacts WHERE artifact_id=?').run(artifactId).changes;
+    this.db.prepare('DELETE FROM analysis_reports WHERE report_id=?').run(artifactId);
+    return changes > 0;
+  }
+
+  deleteBatch(artifactIds: string[]): number {
+    const ids = [...new Set(artifactIds.filter(Boolean))];
+    if (!ids.length) return 0;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db.prepare(`DELETE FROM analysis_reports WHERE report_id IN (${placeholders})`).run(...ids);
+    return this.db.prepare(`DELETE FROM report_artifacts WHERE artifact_id IN (${placeholders})`).run(...ids).changes;
   }
 }
 

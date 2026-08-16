@@ -72,14 +72,6 @@ export const PETS_REGISTRY: PetDefinition[] = [
     description: '戴着冷酷黑超墨镜的蓝色小鸟，神态从容，雷达全开敏锐锁定线索。',
     spritesheetUrl: '/assets/pets/shadebird/spritesheet.webp',
   },
-  {
-    id: 'panda-sticks',
-    name: 'Panda Sticks',
-    displayName: '熊猫烧香',
-    tagline: '手持香烛的呆萌国宝小灵兽',
-    description: '有着酷似墨镜的黑眼圈，手上握着香火，憨态可掬，陪你轻松漫游。',
-    spritesheetUrl: '/assets/pets/panda-sticks/spritesheet.webp',
-  },
 ]
 
 export const DEFAULT_PET_ID = 'unisearch-bot'

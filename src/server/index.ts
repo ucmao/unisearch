@@ -840,6 +840,22 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
   });
 
+  fastify.delete('/api/reports/:artifact_id', async (request, reply) => {
+    const { artifact_id } = request.params as { artifact_id: string };
+    const success = reportArtifactService.delete(artifact_id);
+    if (!success) return reply.status(404).send({ detail: '未找到指定研报文件' });
+    return { status: 'ok', artifact_id };
+  });
+
+  fastify.post('/api/reports/batch-delete', async (request, reply) => {
+    const body = (request.body || {}) as { artifact_ids?: string[] };
+    if (!Array.isArray(body.artifact_ids) || !body.artifact_ids.length) {
+      return reply.status(400).send({ detail: '请选择要删除的研报文件' });
+    }
+    const deleted = reportArtifactService.deleteBatch(body.artifact_ids);
+    return { status: 'ok', deleted };
+  });
+
   fastify.get('/api/search-relevance', async (request) => {
     const { workflow_id } = request.query as { workflow_id?: string };
     return { items: workflow_id ? searchRelevanceService.list(workflow_id) : [] };
@@ -1206,30 +1222,30 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   });
 
   fastify.post('/api/data/analytics/runs/batch-delete', async (request, reply) => {
-    const body = (request.body || {}) as { run_ids?: string[] };
+    const body = (request.body || {}) as { run_ids?: string[]; with_reports?: boolean };
     if (!Array.isArray(body.run_ids) || !body.run_ids.length) return reply.status(400).send({ detail: '请选择要移除的执行记录' });
     try {
-      return { status: 'ok', deleted: analyticsRepository.deleteRuns(body.run_ids) };
+      return { status: 'ok', deleted: analyticsRepository.deleteRuns(body.run_ids, body.with_reports !== false) };
     } catch (err: any) {
       return reply.status(409).send({ detail: err.message });
     }
   });
 
   fastify.post('/api/data/analytics/tasks/batch-delete', async (request, reply) => {
-    const body = (request.body || {}) as { thread_ids?: string[] };
+    const body = (request.body || {}) as { thread_ids?: string[]; with_reports?: boolean };
     if (!Array.isArray(body.thread_ids) || !body.thread_ids.length) return reply.status(400).send({ detail: '请选择要移除的 AI 任务' });
     try {
-      return { status: 'ok', deleted: analyticsRepository.deleteThreads(body.thread_ids) };
+      return { status: 'ok', deleted: analyticsRepository.deleteThreads(body.thread_ids, body.with_reports !== false) };
     } catch (err: any) {
       return reply.status(409).send({ detail: err.message });
     }
   });
 
   fastify.post('/api/data/analytics/rounds/batch-delete', async (request, reply) => {
-    const body = (request.body || {}) as { plan_ids?: string[] };
+    const body = (request.body || {}) as { plan_ids?: string[]; with_reports?: boolean };
     if (!Array.isArray(body.plan_ids) || !body.plan_ids.length) return reply.status(400).send({ detail: '请选择要移除的采集轮次' });
     try {
-      return { status: 'ok', deleted: analyticsRepository.deletePlans(body.plan_ids) };
+      return { status: 'ok', deleted: analyticsRepository.deletePlans(body.plan_ids, body.with_reports !== false) };
     } catch (err: any) {
       return reply.status(409).send({ detail: err.message });
     }
@@ -1237,8 +1253,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.delete('/api/data/analytics/runs/:run_id', async (request, reply) => {
     const params = request.params as { run_id: string };
+    const query = (request.query || {}) as { with_reports?: string };
+    const withReports = query.with_reports !== 'false';
     try {
-      const deleted = analyticsRepository.deleteRun(params.run_id);
+      const deleted = analyticsRepository.deleteRun(params.run_id, withReports);
       if (!deleted) {
         return reply.status(404).send({ detail: 'Task not found' });
       }
@@ -1250,8 +1268,10 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
 
   fastify.delete('/api/data/analytics/tasks/:thread_id', async (request, reply) => {
     const params = request.params as { thread_id: string };
+    const query = (request.query || {}) as { with_reports?: string };
+    const withReports = query.with_reports !== 'false';
     try {
-      const deleted = analyticsRepository.deleteThreads([params.thread_id]);
+      const deleted = analyticsRepository.deleteThreads([params.thread_id], withReports);
       if (!deleted) return reply.status(404).send({ detail: 'Task not found' });
       return { status: 'ok', thread_id: params.thread_id };
     } catch (err: any) {

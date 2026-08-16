@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_PET_ID, getPetById } from '@/lib/pets'
+import { DEFAULT_PET_ID } from '@/lib/pets'
 
 export type Theme = 'light' | 'dark' | 'system'
 export type PetMode = 'dynamic' | 'quiet' | 'off'
@@ -43,11 +43,7 @@ function getStoredPetMode(): PetMode {
 
 function getStoredPetId(): string {
   if (typeof window === 'undefined') return DEFAULT_PET_ID
-  const stored = localStorage.getItem(SELECTED_PET_KEY)
-  if (stored && getPetById(stored).id === stored) {
-    return stored
-  }
-  return DEFAULT_PET_ID
+  return localStorage.getItem(SELECTED_PET_KEY) || DEFAULT_PET_ID
 }
 
 function applyTheme(resolved: 'light' | 'dark') {

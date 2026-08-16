@@ -1182,7 +1182,9 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] })
       await queryClient.invalidateQueries({ queryKey: ['analytics-summary'] })
       await queryClient.invalidateQueries({ queryKey: ['analytics-documents'] })
-      toast.success('已删除所选数据')
+      await queryClient.invalidateQueries({ queryKey: ['research-graph'] })
+      await queryClient.invalidateQueries({ queryKey: ['research-reports'] })
+      toast.success('已删除所选数据及关联关系图谱与研报')
     } catch (error) {
       toast.error(axios.isAxiosError(error) ? error.response?.data?.detail || error.message : '删除失败')
     }

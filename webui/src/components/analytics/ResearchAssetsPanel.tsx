@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { dataApi } from '@/lib/api'
 import {
   Activity,
   AlertTriangle,
@@ -150,7 +151,7 @@ export type Graph = {
   nodes: GraphNode[]
   edges: Edge[]
 }
-export type Report = { artifactId: string; workflowId?: string; title: string; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string }
+export type Report = { artifactId: string; workflowId?: string; title: string; createdAt: string; documentIds: string[]; graphId: string; seriesId: string; versionNumber: number; previousArtifactId?: string; isArchived?: boolean }
 export type ReportComparison = { from: { versionNumber: number }; to: { versionNumber: number }; documents: { added: string[]; removed: string[]; updated: string[]; unchanged: number }; citations: { added: string[]; removed: string[] }; sections: { added: string[]; removed: string[]; changed: string[] }; contentChanged: boolean }
 export type RelevanceAssessment = { assessmentId: string; phase: 'initial' | 'rewrite'; provider: string; query: string; resultCount: number; precisionAt10: number; status: 'good' | 'weak' | 'empty'; rewrittenQuery?: string }
 export type Health = { connectorId: string; state: string; successRate: number; yieldRate: number; fieldCoverage: number; lastErrorMessage?: string }
@@ -267,6 +268,17 @@ export function KnowledgeGraphView({
   })
 
   const graph = graphQuery.data
+
+  const docsSummaryQuery = useQuery({
+    queryKey: ['analytics-summary', scope],
+    queryFn: async () => {
+      const res = await fetch(`/api/data/analytics/summary?${search}`)
+      if (!res.ok) return null
+      return res.json() as Promise<{ total_documents: number } | null>
+    },
+  })
+  const totalDocs = docsSummaryQuery.data?.total_documents
+  const isStale = Boolean(graph && totalDocs !== undefined && totalDocs !== (graph.documentCount || 0))
 
   // 确保当图谱刷新后，如果选中的元素在新的图谱拓扑中不存在，自动清理选中态
   useEffect(() => {
@@ -551,6 +563,26 @@ export function KnowledgeGraphView({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
+      {isStale && (
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-300 backdrop-blur-xs animate-in fade-in">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <span className="truncate">
+              底层数据集已有更新（当前共有 <strong className="text-amber-200">{totalDocs}</strong> 篇文档，现保存快照基于 <strong className="text-amber-200">{graph?.documentCount || 0}</strong> 篇），建议重新构建图谱。
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 shrink-0 gap-1 border-amber-500/50 bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 text-[11px] font-medium"
+            disabled={isRebuilding}
+            onClick={rebuild}
+          >
+            <RefreshCw className={`h-3 w-3 ${isRebuilding ? 'animate-spin' : ''}`} />
+            <span>重新构建图谱</span>
+          </Button>
+        </div>
+      )}
       {/* 顶部操作指引与显性工具栏 */}
       <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/40 px-3.5 py-2.5 backdrop-blur-xs">
         {/* 左侧：统计与图例 */}
@@ -1556,12 +1588,53 @@ export function ResearchReportsView({
 }: {
   scope: { thread_id?: string; workflow_id?: string; run_id?: string }
 }) {
+  const queryClient = useQueryClient()
   const [comparison, setComparison] = useState<ReportComparison | null>(null)
   const [incrementalWorkflowId, setIncrementalWorkflowId] = useState<string | null>(null)
   const [confirmIncrementalReport, setConfirmIncrementalReport] = useState<Report | null>(null)
   const [isSubmittingIncremental, setIsSubmittingIncremental] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
+
+  // 单个与批量删除状态
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
+  const [isDeletingReport, setIsDeletingReport] = useState(false)
+  const [isBatchMode, setIsBatchMode] = useState(false)
+  const [selectedReportIds, setSelectedReportIds] = useState<string[]>([])
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false)
+  const [isBatchConfirmOpen, setIsBatchConfirmOpen] = useState(false)
+
   const search = new URLSearchParams(Object.entries(scope).filter(([, value]) => value) as string[][]).toString()
+
+  const handleDeleteSingleReport = async () => {
+    if (!reportToDelete) return
+    setIsDeletingReport(true)
+    try {
+      await dataApi.deleteReport(reportToDelete.artifactId)
+      await queryClient.invalidateQueries({ queryKey: ['research-reports'] })
+      toast.success(`已成功删除研报《${reportToDelete.title}》`)
+      setReportToDelete(null)
+    } catch (err: any) {
+      toast.error(err.message || '删除研报失败')
+    } finally {
+      setIsDeletingReport(false)
+    }
+  }
+
+  const handleDeleteBatchReports = async () => {
+    if (!selectedReportIds.length) return
+    setIsBatchDeleting(true)
+    try {
+      await dataApi.deleteReports(selectedReportIds)
+      await queryClient.invalidateQueries({ queryKey: ['research-reports'] })
+      toast.success(`已成功删除 ${selectedReportIds.length} 份研报`)
+      setSelectedReportIds([])
+      setIsBatchConfirmOpen(false)
+    } catch (err: any) {
+      toast.error(err.message || '批量删除研报失败')
+    } finally {
+      setIsBatchDeleting(false)
+    }
+  }
 
   const reportsQuery = useQuery({
     queryKey: ['research-reports', scope],
@@ -1692,14 +1765,69 @@ export function ResearchReportsView({
 
       {/* 研报制品列表 */}
       <section className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/35 p-4 flex-1">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-cyber-neon-cyan" />
             <h3 className="text-sm font-semibold text-cyber-text-primary">版本化研究报告</h3>
+            <span className="text-xs text-cyber-text-muted">
+              (已生成 {(reportsQuery.data || []).length} 份版本制品)
+            </span>
           </div>
-          <span className="text-xs text-cyber-text-muted">
-            已生成 {(reportsQuery.data || []).length} 份版本制品
-          </span>
+
+          <div className="flex items-center gap-2">
+            {isBatchMode ? (
+              <div className="flex items-center gap-2 animate-in fade-in">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-cyber-text-muted hover:text-cyber-text-primary"
+                  onClick={() => {
+                    const allIds = (reportsQuery.data || []).map((r) => r.artifactId)
+                    if (selectedReportIds.length === allIds.length) {
+                      setSelectedReportIds([])
+                    } else {
+                      setSelectedReportIds(allIds)
+                    }
+                  }}
+                >
+                  {selectedReportIds.length === (reportsQuery.data || []).length ? '取消全选' : '全选'}
+                </Button>
+                {selectedReportIds.length > 0 && (
+                  <Button
+                    size="sm"
+                    className="h-7 gap-1.5 px-2.5 text-xs bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40"
+                    onClick={() => setIsBatchConfirmOpen(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>批量删除 ({selectedReportIds.length})</span>
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+                  onClick={() => {
+                    setIsBatchMode(false)
+                    setSelectedReportIds([])
+                  }}
+                >
+                  退出批量
+                </Button>
+              </div>
+            ) : (
+              (reportsQuery.data || []).length > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 gap-1.5 px-2.5 text-xs text-cyber-text-muted hover:text-cyber-text-primary border-cyber-border-subtle"
+                  onClick={() => setIsBatchMode(true)}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  <span>批量管理</span>
+                </Button>
+              )
+            )}
+          </div>
         </div>
 
         {/* 报告版本对比结果面板 */}
@@ -1754,21 +1882,58 @@ export function ResearchReportsView({
             reportsQuery.data!.map((report) => (
               <div
                 key={report.artifactId}
-                className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-primary/50 p-4 transition-all hover:border-cyber-border-default"
+                className={`rounded-xl border p-4 transition-all ${
+                  isBatchMode && selectedReportIds.includes(report.artifactId)
+                    ? 'border-cyber-neon-cyan/60 bg-cyber-neon-cyan/10'
+                    : 'border-cyber-border-subtle bg-cyber-bg-primary/50 hover:border-cyber-border-default'
+                }`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h4 className="text-sm font-semibold text-cyber-text-primary truncate">
-                        {report.title}
-                      </h4>
-                      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/25 leading-none">
-                        v{report.versionNumber}
-                      </span>
+                  <div className="flex items-start gap-3 min-w-0">
+                    {isBatchMode && (
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border-cyber-border-subtle text-cyber-neon-cyan focus:ring-0 cursor-pointer"
+                        checked={selectedReportIds.includes(report.artifactId)}
+                        onChange={() => {
+                          setSelectedReportIds((current) =>
+                            current.includes(report.artifactId)
+                              ? current.filter((id) => id !== report.artifactId)
+                              : [...current, report.artifactId]
+                          )
+                        }}
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-semibold text-cyber-text-primary truncate">
+                          {report.title}
+                        </h4>
+                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-mono font-medium tracking-wide bg-cyber-neon-cyan/10 text-cyber-neon-cyan border border-cyber-neon-cyan/25 leading-none">
+                          v{report.versionNumber}
+                        </span>
+                        {report.isArchived ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                            title="原始抓取任务及文档已被清理，报告处于归档快照模式，正文与导出功能完整保存"
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                            源数据已归档
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                            title="底层抓取数据完整，可随时回溯证据链出处"
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                            数据源完整
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 text-xs text-cyber-text-muted">
+                        固化引用 <strong className="text-cyber-text-primary">{report.documentIds.length}</strong> 个证据文档 · 生成于 {new Date(report.createdAt).toLocaleString()}
+                      </p>
                     </div>
-                    <p className="mt-1 text-xs text-cyber-text-muted">
-                      固化引用 <strong className="text-cyber-text-primary">{report.documentIds.length}</strong> 个证据文档 · 生成于 {new Date(report.createdAt).toLocaleString()}
-                    </p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0 flex-wrap">
@@ -1796,6 +1961,15 @@ export function ResearchReportsView({
                         <span>增量研究更新</span>
                       </Button>
                     ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-cyber-text-muted hover:text-rose-400 hover:bg-rose-500/10"
+                      onClick={() => setReportToDelete(report)}
+                      title="删除此研报"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1960,6 +2134,54 @@ export function ResearchReportsView({
                   <span>立即开始</span>
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 单个研报删除确认弹窗 */}
+      <Dialog open={Boolean(reportToDelete)} onOpenChange={(open) => { if (!open) setReportToDelete(null) }}>
+        <DialogContent className="max-w-sm border-cyber-border-subtle bg-cyber-bg-secondary/95 p-5 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold text-cyber-text-primary flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-rose-400" />
+              确认删除研报
+            </DialogTitle>
+            <DialogDescription className="text-xs text-cyber-text-muted mt-2 leading-relaxed">
+              确定要删除研报《<span className="text-cyber-text-primary font-medium">{reportToDelete?.title}</span>》（v{reportToDelete?.versionNumber}）吗？删除后该报告文件无法找回，但不会影响底座抓取的数据源。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex gap-2 justify-end">
+            <Button size="sm" variant="ghost" className="h-8 text-xs text-cyber-text-muted hover:text-cyber-text-primary" onClick={() => setReportToDelete(null)} disabled={isDeletingReport}>
+              取消
+            </Button>
+            <Button size="sm" className="h-8 text-xs bg-rose-500 text-white hover:bg-rose-600 font-medium" onClick={handleDeleteSingleReport} disabled={isDeletingReport}>
+              {isDeletingReport ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 批量删除研报确认弹窗 */}
+      <Dialog open={isBatchConfirmOpen} onOpenChange={setIsBatchConfirmOpen}>
+        <DialogContent className="max-w-sm border-cyber-border-subtle bg-cyber-bg-secondary/95 p-5 backdrop-blur-xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold text-cyber-text-primary flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-rose-400" />
+              确认批量删除研报
+            </DialogTitle>
+            <DialogDescription className="text-xs text-cyber-text-muted mt-2 leading-relaxed">
+              确定要删除选中的 <strong className="text-rose-400">{selectedReportIds.length}</strong> 份研报制品吗？此操作不可逆，但不影响关联的数据抓取记录。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-4 flex gap-2 justify-end">
+            <Button size="sm" variant="ghost" className="h-8 text-xs text-cyber-text-muted hover:text-cyber-text-primary" onClick={() => setIsBatchConfirmOpen(false)} disabled={isBatchDeleting}>
+              取消
+            </Button>
+            <Button size="sm" className="h-8 text-xs bg-rose-500 text-white hover:bg-rose-600 font-medium" onClick={handleDeleteBatchReports} disabled={isBatchDeleting}>
+              {isBatchDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              确认批量删除
             </Button>
           </DialogFooter>
         </DialogContent>
