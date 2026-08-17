@@ -55,7 +55,9 @@
     "appId": "com.unisearch.app",
     "productName": "UniSearch",
     "files": [
-      "dist/**/*",
+      "dist/main/**/*",
+      "dist/crawler/**/*",
+      "dist/processor/**/*",
       "api/webui/**/*",
       "package.json"
     ],
