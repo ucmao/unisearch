@@ -1,41 +1,85 @@
-# 桌面端发布打包
+# 桌面端打包与发布指南
 
-正式安装包必须在目标操作系统构建。两个发布命令都会拒绝在错误的平台运行，并在找不到有效签名时失败。
+UniSearch 打包分为两种场景：**无证书常规打包（适合日常开发、自用与内部分发）** 和 **正式签名发布（适合商业发布与官网分发）**。
 
-## macOS
+---
 
-在安装了 `Developer ID Application` 证书的 macOS 构建机上配置 Apple 公证凭据，然后运行：
+## 💡 场景一：日常开发 / 无证书打包（推荐 90% 场景）
+
+无需购买或配置任何开发者证书与钥匙串，开箱即用，自动生成本地可运行的安装包或免安装压缩包。
+
+### 1. 一键生成默认安装包
+在目标操作系统终端中运行：
 
 ```bash
-npm ci
+npm run electron:build
+```
+- **macOS**：在 Mac 上执行，生成 `dist/UniSearch-1.0.0-mac-arm64.dmg`
+- **Windows**：在 Windows 上执行，生成 `dist/UniSearch-1.0.0-win-x64.exe`（NSIS 安装程序）
+
+---
+
+### 2. 指定打包格式与架构（ZIP 免安装包 / Intel 架构）
+
+如果需要免安装绿色包（ZIP）或指定 CPU 架构，可按如下命令打包：
+
+#### 🪟 Windows 平台
+- **生成 x64 免安装 ZIP 压缩包（解压即用）**：
+  ```bash
+  npm run build:backend && npm run webui:build
+  npx electron-builder --win --x64 zip
+  ```
+
+#### 🍎 macOS 平台
+- **生成 ZIP 绿色免安装包**：
+  ```bash
+  npm run build:backend && npm run webui:build
+  npx electron-builder --mac zip
+  ```
+- **生成 Intel (x64) 架构 DMG**：
+  ```bash
+  npm run build:backend && npm run webui:build
+  npx electron-builder --mac --x64
+  ```
+
+---
+
+## 🔐 场景二：商业正式发布打包（需要代码签名与公证）
+
+用于官网公开下载分发，规避 macOS “无法打开未知开发者应用” 或 Windows SmartScreen 拦截警告。
+
+### 1. macOS 签名与 Apple 官方公证
+需要 Apple 开发者账号的 `Developer ID Application` 证书与 App 专用密码：
+
+```bash
+# 环境变量配置：APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
 npm run electron:build:mac:release
 ```
+> 自动完成 Hardened Runtime 开启、代码签名、Apple 线上公证与票据装订。
 
-该命令生成 arm64 DMG，完成 Hardened Runtime 签名、Apple 公证和票据装订。公证凭据只能通过环境变量或 macOS 钥匙串提供，不得提交到仓库。如以后需要支持 Intel Mac，应在 Intel macOS 构建机上单独生成 x64 包。
+---
 
-## Windows
-
-在配置了 Authenticode 代码签名证书的 64 位 Windows 构建机上运行：
+### 2. Windows 代码签名发布
+需要购买并配置 Authenticode 代码签名证书（`.pfx`）：
 
 ```powershell
-npm ci
+# 环境变量配置：WIN_CSC_LINK (证书路径), WIN_CSC_KEY_PASSWORD (密码)
 npm run electron:build:win:release
 ```
+> 注意：Windows 下需开启系统的「开发人员模式」以确保 `winCodeSign` 符号链接创建成功。
 
-普通 `npm run electron:build` 会关闭 Windows EXE 的资源编辑与签名，以绕过 electron-builder 24.13.3 的 `winCodeSign` 符号链接权限问题。Windows 正式发布命令会显式恢复资源编辑并强制要求签名成功，因此必须先解决构建机的 `winCodeSign` 权限并配置 Authenticode 证书。建议通过 `WIN_CSC_LINK` 和 `WIN_CSC_KEY_PASSWORD` 注入证书，或者使用构建机证书存储和 electron-builder 的证书配置。
+---
 
-## 安装包检查
+## 🧪 安装包校验与冒烟测试 (可选)
 
-先检查安装包内部的 worker、原生模块和只读资源：
+打包完成后，可执行自动化脚本验证原生依赖（如 SQLite / Playwright）与 API 正常启动：
 
 ```bash
+# 1. 静态资源与文件完整性校验
 npm run verify:package -- <解包后的平台目录>
+
+# 2. 自动化全链路冒烟测试
+npm run smoke:package -- <UniSearch.app 或 UniSearch.exe 所在路径>
 ```
 
-再启动解包后的应用执行冒烟检查：
 
-```bash
-npm run smoke:package -- <UniSearch.app、UniSearch.exe 或其父目录>
-```
-
-冒烟检查使用临时用户数据目录，验证应用启动、本地 API、Playwright、worker 文件和 Electron 内置 Chromium，完成后自动退出并删除临时数据。
