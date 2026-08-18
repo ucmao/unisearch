@@ -45,10 +45,17 @@ const activeAgentMessageRequests = new Map<string, AbortController>();
 function runningWorkflowIds(platform?: string): string[] {
   const status = crawlerManager.getStatus(platform);
   const states = platform ? [status] : Object.values(status.platform_states || {});
-  return planIdsForRunningCrawlers(
+  const fromCrawlers = planIdsForRunningCrawlers(
     states as RunningCrawlerState[],
     (runId) => agentRepository.getCrawlRun(runId)?.workflow_id,
   );
+  const planIds = new Set<string>(fromCrawlers);
+  for (const plan of agentRepository.listActivePlans()) {
+    if (!platform || plan.steps?.some((s: any) => s.platform === platform || s.external_ref === platform)) {
+      planIds.add(plan.plan_id);
+    }
+  }
+  return [...planIds];
 }
 
 export interface ServerWindowControls {
@@ -1088,7 +1095,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     // queued platform, so the user's "stop" would silently continue elsewhere.
     // Those runs have to be cancelled at the workflow level instead.
     const workflowIds = runningWorkflowIds(query.platform);
-    for (const workflowId of workflowIds) await workflowRuntime.cancel(workflowId);
+    await Promise.all(workflowIds.map((workflowId) => workflowRuntime.cancel(workflowId)));
     // Ad-hoc crawls started outside a plan still need a direct stop, and
     // cancelling a workflow already stopped its own platforms.
     const stoppedDirectly = await crawlerManager.stop(query.platform);

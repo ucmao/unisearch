@@ -209,11 +209,29 @@ export class WorkflowRuntime {
   async cancel(workflowId: string): Promise<void> {
     const workflow = agentRepository.getPlan(workflowId);
     if (!workflow) return;
-    for (const step of workflow.steps) {
-      if (step.status === 'running') await crawlerManager.stop(step.platform);
-    }
+
+    // 1. Immediately abort active engine step controllers and mark all queued/running steps cancelled in DB
     workflowEngine.cancel(workflowId);
+    // 2. Immediately mark the workflow run as stopped in DB so no concurrent ticks will pick it up
     agentRepository.updatePlanStatus(workflowId, 'stopped');
+
+    // 3. Collect all platforms that belong to this workflow or have active crawler tasks for this workflow
+    const platformsToStop = new Set<string>();
+    for (const step of workflow.steps) {
+      if (step.platform) platformsToStop.add(step.platform);
+    }
+    const status = crawlerManager.getStatus();
+    for (const [platform, state] of Object.entries(status.platform_states || {})) {
+      if ((state as any)?.status === 'running' || (state as any)?.status === 'stopping') {
+        const run = (state as any)?.run_id ? agentRepository.getCrawlRun((state as any).run_id) : null;
+        if (run?.workflow_id === workflowId) {
+          platformsToStop.add(platform);
+        }
+      }
+    }
+
+    // 4. Concurrently stop all relevant crawler processes
+    await Promise.all(Array.from(platformsToStop).map((platform) => crawlerManager.stop(platform)));
   }
 
   async tickAll(): Promise<WorkflowTickResult[]> {
@@ -234,6 +252,9 @@ export class WorkflowRuntime {
   private async tickOne(workflow: any): Promise<any> {
     this.reconcileConnectorSteps(workflow);
     const refreshed = agentRepository.getPlan(workflow.plan_id);
+    if (!refreshed || !['queued', 'running'].includes(refreshed.status) || refreshed.cancel_requested) {
+      return workflowEngine.get(workflow.plan_id) || refreshed;
+    }
     await this.startReadyConnectors(refreshed);
     return workflowEngine.tick(workflow.plan_id);
   }
@@ -258,9 +279,12 @@ export class WorkflowRuntime {
   }
 
   private async startReadyConnectors(workflow: any): Promise<void> {
+    if (!workflow || !['queued', 'running'].includes(workflow.status) || workflow.cancel_requested) return;
     for (const step of workflow.steps.filter((candidate: any) => candidate.status === 'queued')) {
       if (!agentRepository.isStepReady(workflow.plan_id, step.step_key)) continue;
       if (!crawlerManager.hasCapacity()) break;
+      const currentWorkflow = agentRepository.getPlan(workflow.plan_id);
+      if (!currentWorkflow || !['queued', 'running'].includes(currentWorkflow.status) || currentWorkflow.cancel_requested) return;
       const platformState = crawlerManager.getStatus(step.platform);
       if (platformState.status === 'running' || platformState.status === 'stopping') continue;
       const plan = workflow.plan as ResearchPlan;
@@ -358,6 +382,11 @@ export class WorkflowRuntime {
           task_title: workflow.goal,
         });
         if (started) {
+          const currentWorkflowAfterStart = agentRepository.getPlan(workflow.plan_id);
+          if (!currentWorkflowAfterStart || !['queued', 'running'].includes(currentWorkflowAfterStart.status) || currentWorkflowAfterStart.cancel_requested) {
+            await crawlerManager.stop(step.platform);
+            return;
+          }
           if (checkpoint) agentRepository.markStepResumed(step.step_id);
           const state = crawlerManager.getStatus(step.platform);
           agentRepository.updateStep(step.step_id, 'running', state.run_id, null);

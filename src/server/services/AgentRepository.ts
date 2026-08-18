@@ -944,6 +944,12 @@ export class AgentRepository {
   }
 
   isStepReady(workflowId: string, stepKey: string): boolean {
+    const run = this.db.prepare(`
+      SELECT status, cancel_requested FROM workflow_runs WHERE workflow_id=?
+    `).get(workflowId) as any;
+    if (!run || !['queued', 'running'].includes(run.status) || Boolean(run.cancel_requested)) {
+      return false;
+    }
     const steps = this.db.prepare(`
       SELECT step_key, status, depends_on_json, dependency_policy
       FROM workflow_steps WHERE workflow_id=?

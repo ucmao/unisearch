@@ -265,6 +265,96 @@ test('finishing a run records connector health and collection quality', async ()
   } finally { db.close(); }
 });
 
+test('health state buffers sporadic failures and degrades only after 3 consecutive failures', async () => {
+  const { db, now } = await fixture();
+  try {
+    const repository = new AnalyticsRepository(() => db);
+    const service = new ConnectorHealthService(() => db);
+
+    // 1st run: success -> healthy
+    repository.finishRun('run-1', 'completed', 0, []);
+    let health = service.get('xhs');
+    assert.equal(health.state, 'healthy');
+    assert.equal(health.consecutiveFailures, 0);
+
+    // 2nd run: failed -> consecutiveFailures=1, but buffered in healthy state
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-2','thread-1','workflow-1','测试2','测试2','xhs','search','咖啡','running',?,?)`)
+      .run(now, '{}');
+    repository.finishRun('run-2', 'failed', 1, [], 'network timeout');
+    health = service.get('xhs');
+    assert.equal(health.consecutiveFailures, 1);
+    assert.equal(health.state, 'healthy'); // Buffered! Not degraded
+
+    // 3rd run: user stopped -> should NOT increase consecutive failures or degrade
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-3','thread-1','workflow-1','测试3','测试3','xhs','search','咖啡','running',?,?)`)
+      .run(now, '{}');
+    repository.finishRun('run-3', 'stopped', 0, []);
+    health = service.get('xhs');
+    assert.equal(health.consecutiveFailures, 1); // Not changed
+    assert.equal(health.state, 'healthy');
+
+    // 4th run: 2nd actual failure -> consecutiveFailures=2, still buffered
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-4','thread-1','workflow-1','测试4','测试4','xhs','search','咖啡','running',?,?)`)
+      .run(now, '{}');
+    repository.finishRun('run-4', 'failed', 1, [], 'network timeout');
+    health = service.get('xhs');
+    assert.equal(health.consecutiveFailures, 2);
+    assert.equal(health.state, 'healthy'); // Still buffered
+
+    // 5th run: 3rd actual failure -> consecutiveFailures=3, turns degraded
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-5','thread-1','workflow-1','测试5','测试5','xhs','search','咖啡','running',?,?)`)
+      .run(now, '{}');
+    repository.finishRun('run-5', 'failed', 1, [], 'network timeout');
+    health = service.get('xhs');
+    assert.equal(health.consecutiveFailures, 3);
+    assert.equal(health.state, 'degraded'); // Reached 3 failures threshold
+
+    // 6th run: success with ingested item -> recovers to healthy immediately
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-6','thread-1','workflow-1','测试6','测试6','xhs','search','咖啡','running',?,?)`)
+      .run(now, '{}');
+    await new DocumentEngine(() => db).ingest(buildRawItem('emitXhsNote', {
+      note_id: 'note-3', title: '咖啡评测3', desc: '正文', note_url: 'https://example.com/note-3',
+      nickname: '作者3', user_id: 'c-3', tags: ['咖啡'], keyword: '咖啡',
+    }), 'run-6');
+    repository.finishRun('run-6', 'completed', 0, []);
+    health = service.get('xhs');
+    assert.equal(health.consecutiveFailures, 0);
+    assert.equal(health.state, 'healthy'); // Recovered!
+  } finally { db.close(); }
+});
+
+test('critical auth errors immediately set state to blocked without buffering', async () => {
+  const { db, now } = await fixture();
+  try {
+    const repository = new AnalyticsRepository(() => db);
+    const service = new ConnectorHealthService(() => db);
+
+    // Initial success
+    repository.finishRun('run-1', 'completed', 0, []);
+    assert.equal(service.get('xhs').state, 'healthy');
+
+    // Auth required error
+    db.prepare(`INSERT INTO crawl_runs
+      (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
+      VALUES ('run-auth','thread-1','workflow-1','测试','测试','xhs','search','咖啡','running',?,?)`)
+      .run(now, '{}');
+    repository.finishRun('run-auth', 'failed', 1, [], '小红书明确显示当前会话未登录，请在采集浏览器中完成登录');
+    const health = service.get('xhs');
+    assert.equal(health.state, 'blocked');
+    assert.equal(health.lastErrorCode, 'AUTH_REQUIRED');
+  } finally { db.close(); }
+});
+
 test('quality gate selects only traceable deficient documents for enrichment and persists the decision', async () => {
   const { db } = await fixture();
   try {

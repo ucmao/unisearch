@@ -71,6 +71,7 @@ export class CrawlerTask {
   private firstItemAt: number | null = null;
   public shouldLoop: boolean;
   private loopTimeout: NodeJS.Timeout | null = null;
+  private stoppingPromise: Promise<void> | null = null;
 
   constructor(platform: string, config: CrawlerStartRequest) {
     this.platform = platform;
@@ -429,6 +430,14 @@ export class CrawlerTask {
   }
 
   public async stop(manager: CrawlerManager): Promise<void> {
+    if (this.stoppingPromise) return this.stoppingPromise;
+    this.stoppingPromise = this.doStop(manager).finally(() => {
+      this.stoppingPromise = null;
+    });
+    return this.stoppingPromise;
+  }
+
+  private async doStop(manager: CrawlerManager): Promise<void> {
     this.shouldLoop = false;
     this.status = 'stopping';
 

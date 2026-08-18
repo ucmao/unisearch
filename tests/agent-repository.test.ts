@@ -416,3 +416,27 @@ test('assistant messages automatically persist the active whole-run trace', asyn
     db.close();
   }
 });
+
+test('isStepReady returns false when the parent workflow is cancelled or stopped', () => {
+  const { db, repository: repo } = repository();
+  try {
+    const thread = repo.createThread('取消就绪测试');
+    const created = repo.createPlan(thread.thread_id, plan({ platforms: ['xhs', 'zhihu'] }));
+    repo.updatePlanStatus(created.plan_id, 'running');
+
+    // Steps should be ready when running
+    assert.equal(repo.isStepReady(created.plan_id, 'collect:xhs'), true);
+
+    // When stopped, steps should not be ready
+    repo.updatePlanStatus(created.plan_id, 'stopped');
+    assert.equal(repo.isStepReady(created.plan_id, 'collect:xhs'), false);
+
+    // When cancel_requested is set, steps should not be ready
+    repo.updatePlanStatus(created.plan_id, 'running');
+    db.prepare('UPDATE workflow_runs SET cancel_requested=1 WHERE workflow_id=?').run(created.plan_id);
+    assert.equal(repo.isStepReady(created.plan_id, 'collect:xhs'), false);
+  } finally {
+    db.close();
+  }
+});
+

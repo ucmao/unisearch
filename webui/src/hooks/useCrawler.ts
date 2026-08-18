@@ -44,12 +44,20 @@ export function useStartCrawler() {
 export function useStopCrawler() {
   const queryClient = useQueryClient()
   const setStatus = useCrawlerStore((state) => state.setStatus)
+  const setBulkStatus = useCrawlerStore((state) => state.setBulkStatus)
 
   return useMutation({
     mutationFn: (platform?: string) => crawlerApi.stop(platform),
     onMutate: (platform) => {
       if (platform) {
         setStatus(platform, 'stopping')
+      } else {
+        const statuses = useCrawlerStore.getState().statuses
+        const next: Record<string, 'idle' | 'running' | 'stopping'> = {}
+        for (const [p, s] of Object.entries(statuses)) {
+          if (s === 'running') next[p] = 'stopping'
+        }
+        if (Object.keys(next).length > 0) setBulkStatus(next)
       }
     },
     onSuccess: ({ data }, platform) => {
