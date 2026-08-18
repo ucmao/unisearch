@@ -393,14 +393,16 @@ export function mapRawItemToCanonicalDocument(item: RawItem, runId?: string): Ca
   const attributes = definedRecord(effectiveDefinition.attributeAliases, payload);
   const markdown = canonicalMarkdown(item, effectiveDefinition);
   const title = String(item.hints.title || compactText(markdown, 80) || '').trim();
+  const keyword = cleanKeyword(firstString(payload, ['source_keyword', 'keyword', 'question']));
   const canonicalKey = item.kind === 'comment' || (item.source === 'github_repositories' && item.sourceItemId)
     ? `${item.source}:${item.kind}:${item.sourceItemId || item.id}`
+    : effectiveDefinition.family === 'ai_qa' || item.kind === 'ai_answer'
+    ? `${item.source}:ai_answer:${keyword || item.hints.title || item.sourceItemId || item.id}`
     : item.sourceUrl || `${item.source}:${item.kind}:${item.sourceItemId || item.id}`;
   const documentId = hash(canonicalKey);
   const originalPlatform = item.source === 'media_parser'
     ? firstString(payload, ['platform', 'source_platform'])
     : undefined;
-  const keyword = cleanKeyword(firstString(payload, ['source_keyword', 'keyword', 'question']));
   const coverUrl = item.hints.coverUrl?.trim() || undefined;
   // Keep the explicitly identified cover first and preserve its semantic role.
   // Some custom RawItem producers only populate coverUrl, while the built-in

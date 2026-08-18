@@ -114,18 +114,56 @@ function requestedKeywordCount(text: string): number | null {
   return Number.isInteger(count) && count > 0 && count <= 12 ? count : null;
 }
 
-function splitExplicitKeywords(value: string, sourceText: string): string[] {
-  const normalized = value.trim().replace(/^(?:是|为)\s*/, '');
-  const separated = normalized.split(/[、,，和与]/).map((item) => item.trim()).filter(Boolean);
-  if (separated.length > 1) return separated.slice(0, 12);
+export function cleanKeywordItem(item: string): string {
+  const cleaned = item
+    .trim()
+    .replace(/^(?:是|为)\s*/, '')
+    .replace(/^[\d一二三四五六七八九十]+[\.、\s)）\]】]\s*/, '')
+    .replace(/^[\(\（\[\【][\d一二三四五六七八九十]+[\)\）\]\】]\s*/, '')
+    .replace(/^[-*•·▪—+]\s*/, '')
+    .replace(/^[、“"']+|[”"']+$/g, '')
+    .replace(/[，。；;！？!?,]+$/, '')
+    .trim();
+
+  // Pure digits or single Chinese numbers left over from list parsing are not valid keywords
+  if (/^[\d一二三四五六七八九十]{1,2}$/.test(cleaned)) {
+    return '';
+  }
+  return cleaned;
+}
+
+export function splitExplicitKeywords(value: string, sourceText: string): string[] {
+  let normalized = value.trim().replace(/^(?:是|为)\s*/, '');
+  if (!normalized) return [];
+
+  // Check if normalized contains numbered or bulleted list items (e.g. 1. a 2. b or - a\n- b)
+  const numberedSplit = normalized
+    .split(/(?:\s+|^|\n)[\(（]?(?:\d+|[一二三四五六七八九十]+)[\)）\.、]\s*|(?:\s+|^|\n)[-*•·▪—+]\s*/)
+    .map(cleanKeywordItem)
+    .filter((k) => k.length > 0 && k.length <= 60);
+  if (numberedSplit.length > 1) {
+    return Array.from(new Set(numberedSplit)).slice(0, 12);
+  }
+
+  // Strip leading list item numbering if present on a single item line
+  normalized = cleanKeywordItem(normalized);
+  if (!normalized) return [];
+
+  // Split on common Chinese/English list separators & newlines
+  const separated = normalized
+    .split(/[、,，和与\n]/)
+    .map(cleanKeywordItem)
+    .filter((k) => k.length > 0 && k.length <= 60);
+  if (separated.length > 1) return Array.from(new Set(separated)).slice(0, 12);
 
   // Spaces are ambiguous because a keyword itself may contain spaces (for example
   // "MiniMax M3"). Only treat them as separators when the user also gives an
   // exact count and the token count agrees with it.
   const requestedCount = requestedKeywordCount(sourceText);
-  const spaceSeparated = normalized.split(/\s+/).map((item) => item.trim()).filter(Boolean);
-  if (requestedCount && spaceSeparated.length === requestedCount) return spaceSeparated.slice(0, 12);
-  return separated.slice(0, 12);
+  const spaceSeparated = normalized.split(/\s+/).map(cleanKeywordItem).filter((k) => k.length > 0 && k.length <= 60);
+  if (requestedCount && spaceSeparated.length === requestedCount) return Array.from(new Set(spaceSeparated)).slice(0, 12);
+
+  return [normalized.slice(0, 40)];
 }
 
 function cleanResearchSubject(text: string): string {
@@ -181,12 +219,48 @@ export function isAdditivePlatformRequest(text: string): boolean {
  * unlike the broader fallback subject inferred from a natural-language request.
  */
 export function inferExplicitResearchKeywords(text: string): string[] {
-  const quoted = Array.from(text.matchAll(/[“"']([^”"']{1,30})[”"']/g)).map((match) => match[1].trim());
+  const quoted = Array.from(text.matchAll(/[“"']([^”"']{1,30})[”"']/g))
+    .map((match) => cleanKeywordItem(match[1]))
+    .filter(Boolean);
   if (quoted.length) return Array.from(new Set(quoted)).slice(0, 12);
 
-  const explicit = text.match(/关键词\s*(?:(?:改成|改为|换成|更换为|替换为)\s*|[:：]\s*|\s+)([^，。；;\n]{1,80})/);
-  if (explicit?.[1]) {
-    return splitExplicitKeywords(explicit[1], text);
+  // Match keyword intro header like "搜索以下全部关键词：\n1. xxx\n2. yyy" or "关键词：xxx、yyy"
+  const explicitBlock = text.match(/(?:(?:(?:以下|下列|如下)?(?:全部|所有)?关键词|(?:改成|改为|换成|更换为|替换为)\s*关键词)\s*(?:(?:改成|改为|换成|更换为|替换为)\s*|[:：]\s*|\s+))([\s\S]+)/i);
+  if (explicitBlock?.[1]) {
+    const rawBlock = explicitBlock[1].trim();
+    // If multi-line
+    const lines = rawBlock.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (lines.length > 1) {
+      const results: string[] = [];
+      for (const line of lines) {
+        // Stop if user starts an instruction/analysis/platform section
+        if (/^(?:并在|在|请在|然后|并且|分析|总结|导出|要求|采集|搜索)\s*(?:小红书|抖音|快手|B站|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|头条|DeepSeek|Kimi|豆包|千问|元宝|文心|各平台|全网|平台|内容|数据)/i.test(line)) {
+          break;
+        }
+        const subItems = splitExplicitKeywords(line, text);
+        for (const item of subItems) {
+          if (item && !results.includes(item)) {
+            results.push(item);
+          }
+        }
+      }
+      if (results.length > 0) return results.slice(0, 12);
+    }
+
+    // Single-line block (or first line)
+    const singleLineMatch = rawBlock.match(/^([^，。；;\n]{1,80})/);
+    const lineToParse = singleLineMatch ? singleLineMatch[1] : lines[0] || rawBlock;
+    const extracted = splitExplicitKeywords(lineToParse, text);
+    if (extracted.length > 0) return extracted;
+  }
+
+  // Also check for direct numbered lists in text e.g. "在小红书搜索：1. sap培训 2. sap培训哪家好 3. 科莱特sap培训"
+  const numberedSplit = text
+    .split(/(?:\s+|^|\n)[\(（]?(?:\d+|[一二三四五六七八九十]+)[\)）\.、]\s*|(?:\s+|^|\n)[-*•·▪—+]\s*/)
+    .map(cleanKeywordItem)
+    .filter((k) => k.length >= 2 && k.length <= 40 && !/^(?:在|从|请|帮我|采集|搜索|调研|分析|导出)/.test(k));
+  if (numberedSplit.length > 1 && /(?:采集|抓取|搜索|调研|查|找)/.test(text)) {
+    return Array.from(new Set(numberedSplit)).slice(0, 12);
   }
 
   // Recruitment requests commonly separate the actual search phrase from the
@@ -195,7 +269,7 @@ export function inferExplicitResearchKeywords(text: string): string[] {
   // cannot leak into the crawler keyword.
   const explicitJobTitle = text.match(/(?:岗位|职位)(?:名称)?\s*(?:是|为|[:：])\s*([^，。；;！？?\n]{2,60})/i);
   if (explicitJobTitle?.[1]) {
-    const jobTitle = explicitJobTitle[1].trim().replace(/^(?:一个|一份)\s*/, '').replace(/\s*(?:岗位|职位)$/, '').trim();
+    const jobTitle = cleanKeywordItem(explicitJobTitle[1].replace(/^(?:一个|一份)\s*/, '').replace(/\s*(?:岗位|职位)$/, ''));
     const isQuestionPhrase = /^(?:什么|啥|怎么|如何|哪|做(?:什么|啥)|干(?:什么|啥|嘛)|(?:什么|啥)意思|谁|多少)/i.test(jobTitle)
       || /(?:什么意思|干什么|做什么|干嘛|怎么样|如何)/i.test(jobTitle);
     if (jobTitle.length >= 2 && !isQuestionPhrase) return [jobTitle.slice(0, 40)];

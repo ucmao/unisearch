@@ -249,3 +249,37 @@ test('keyword sanitizer strips URLs, 指定作品 and author prefixes from keywo
   assert.equal(docFromRealKeyword.keyword, 'AI训练师');
 });
 
+test('ai_answer documents have distinct document IDs for distinct keywords on all AI platforms', () => {
+  const platforms = [
+    { emitter: 'emitDeepSeekResult', url: 'https://chat.deepseek.com/' },
+    { emitter: 'emitDoubaoResult', url: 'https://www.doubao.com/chat/' },
+    { emitter: 'emitQwenResult', url: 'https://tongyi.aliyun.com/qianwen/' },
+    { emitter: 'emitKimiResult', url: 'https://kimi.moonshot.cn/' },
+    { emitter: 'emitYuanbaoResult', url: 'https://yuanbao.tencent.com/' },
+    { emitter: 'emitWenxinResult', url: 'https://wenxin.baidu.com/' },
+    { emitter: 'emitNamiResult', url: 'https://www.n.cn/' },
+  ];
+
+  for (const { emitter, url } of platforms) {
+    const doc1 = mapRawItemToCanonicalDocument(buildRawItem(emitter, {
+      question: 'sap培训',
+      answer: '回答1',
+      url,
+    }));
+
+    const doc2 = mapRawItemToCanonicalDocument(buildRawItem(emitter, {
+      question: 'sap培训哪家好',
+      answer: '回答2',
+      url,
+    }));
+
+    assert.notEqual(doc1.documentId, doc2.documentId, `Platform ${emitter} should have distinct documentIds`);
+    assert.equal(doc1.keyword, 'sap培训');
+    assert.equal(doc2.keyword, 'sap培训哪家好');
+    assert.equal(doc1.kind, 'ai_answer');
+    assert.equal(doc2.kind, 'ai_answer');
+  }
+});
+
+
+

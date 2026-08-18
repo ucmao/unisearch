@@ -1041,6 +1041,27 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const composerInputRef = useRef<HTMLTextAreaElement>(null)
   const composerBackdropRef = useRef<HTMLDivElement>(null)
   const shouldStickToBottomRef = useRef(true)
+
+  useEffect(() => {
+    const textarea = composerInputRef.current
+    if (!textarea) return
+
+    const adjustHeight = () => {
+      textarea.style.height = 'auto'
+      const scrollHeight = textarea.scrollHeight
+      const minHeight = 36
+      const maxHeight = 180
+      const nextHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight)
+      textarea.style.height = `${nextHeight}px`
+      if (composerBackdropRef.current) {
+        composerBackdropRef.current.scrollTop = textarea.scrollTop
+      }
+    }
+
+    adjustHeight()
+    window.addEventListener('resize', adjustHeight)
+    return () => window.removeEventListener('resize', adjustHeight)
+  }, [input])
   const scrollMessagesToBottom = useCallback((behavior: ScrollBehavior = 'auto', force = false) => {
     if (!force && !shouldStickToBottomRef.current) return
     window.requestAnimationFrame(() => {
@@ -2371,7 +2392,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
             <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
               <div className="mx-auto max-w-3xl">
                 <div
-                  className="agent-composer relative rounded-3xl border border-cyber-border-default bg-cyber-bg-panel transition-colors"
+                  className="agent-composer relative flex flex-col rounded-3xl border border-cyber-border-default bg-cyber-bg-panel p-2.5 sm:p-3 transition-colors"
                   onDragEnter={handleDragEnter}
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
@@ -2384,7 +2405,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       <p className="text-[11px] text-cyber-text-muted">支持图片 (PNG/JPG/WebP/GIF) 与文本/表格 (TXT/MD/CSV/JSON/XLSX，≤ 8MB)</p>
                     </div>
                   ) : null}
-                  {attachments.length || taskReferences.length ? <div className="flex flex-wrap items-center gap-2 px-3 pt-3 max-h-36 overflow-y-auto">
+                  {attachments.length || taskReferences.length ? <div className="flex flex-wrap items-center gap-2 px-1 pt-0.5 pb-2 max-h-36 overflow-y-auto">
                     {attachments.map((attachment) => {
                       const isImage = attachment.kind === 'image' || attachment.mime_type?.startsWith('image/')
                       const imgUrl = attachment.preview_url || (selectedId ? agentApi.getAttachmentFileUrl(selectedId, attachment.attachment_id) : '')
@@ -2454,7 +2475,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     <div
                       ref={composerBackdropRef}
                       aria-hidden="true"
-                      className="pointer-events-none absolute inset-0 min-h-[60px] w-full overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans text-cyber-text-primary"
+                      className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] px-2.5 py-1 text-sm leading-6 font-sans text-cyber-text-primary select-none"
                     >
                       {renderMentionText(input)}
                       {input.endsWith('\n') ? '\u200b' : null}
@@ -2483,71 +2504,74 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       onFocus={() => setIsComposerFocused(true)}
                       onBlur={() => setIsComposerFocused(false)}
                       placeholder={isPlanRunning ? '采集在后台进行中，你可以继续提问…' : !selectedId ? '输入问题，或使用 @ 呼出 Skill、/ 呼出快捷指令…' : activePlan?.status === 'awaiting_confirmation' ? '自然地告诉我是否开始，或继续修改平台、关键词和采集范围…' : activePlan && ['completed', 'partially_completed'].includes(activePlan.status) ? '继续提问，例如：分析负面评价的主要原因…' : '使用 @ 选择 Skill，或使用 / 呼出快捷指令…'}
-                      className="min-h-[60px] w-full resize-none bg-transparent px-3.5 py-2.5 pb-11 pr-14 text-sm leading-6 font-sans whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan"
+                      className="w-full resize-none bg-transparent px-2.5 py-1 text-sm leading-6 font-sans whitespace-pre-wrap break-words [overflow-wrap:anywhere] outline-none placeholder:text-cyber-text-muted text-transparent caret-cyber-neon-cyan overflow-y-auto scrollbar-thin"
+                      rows={1}
                       spellCheck={false}
                     />
                   </div>
-                  <div ref={addMenuRef} className="absolute bottom-2.5 left-3">
-                    <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || isCurrentMessagePending} title="添加内容">
-                      {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus className="h-4.5 w-4.5" />}
-                    </Button>
-                    {addMenuOpen ? <div className="absolute bottom-11 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
-                      <button type="button" onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
-                        <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">图片、文本、CSV、XLSX</span></span>
-                      </button>
-                      <button type="button" onClick={() => { setAddMenuOpen(false); setTaskPickerOpen(true) }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
-                        <Database className="h-4 w-4" /><span><span className="block font-medium">引用采集结果</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">选择已有任务或平台</span></span>
-                      </button>
-                    </div> : null}
-                    <input ref={fileInputRef} type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.tsv,.xlsx" onChange={(event) => {
-                      if (event.target.files && event.target.files.length > 0) {
-                        handleFilesToUpload(event.target.files)
-                      }
-                      event.target.value = ''
-                    }} />
+                  <div className="flex items-center justify-between pt-1 px-1">
+                    <div ref={addMenuRef} className="relative flex items-center">
+                      <Button size="icon" variant="ghost" className="h-8 w-8 rounded-full text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-tertiary transition-colors" onClick={() => setAddMenuOpen((open) => !open)} disabled={upload.isPending || isCurrentMessagePending} title="添加内容">
+                        {upload.isPending ? <Loader2 className="animate-spin" /> : <Plus className="h-4.5 w-4.5" />}
+                      </Button>
+                      {addMenuOpen ? <div className="absolute bottom-10 left-0 z-30 w-56 overflow-hidden rounded-xl border border-cyber-border-default bg-cyber-bg-panel p-1.5 shadow-xl">
+                        <button type="button" onClick={() => { setAddMenuOpen(false); fileInputRef.current?.click() }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
+                          <Paperclip className="h-4 w-4" /><span><span className="block font-medium">上传文件</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">图片、文本、CSV、XLSX</span></span>
+                        </button>
+                        <button type="button" onClick={() => { setAddMenuOpen(false); setTaskPickerOpen(true) }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-xs text-cyber-text-secondary hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-slate-100 transition-colors">
+                          <Database className="h-4 w-4" /><span><span className="block font-medium">引用采集结果</span><span className="mt-0.5 block text-[10px] text-cyber-text-muted">选择已有任务或平台</span></span>
+                        </button>
+                      </div> : null}
+                      <input ref={fileInputRef} type="file" className="hidden" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.markdown,.csv,.json,.log,.tsv,.xlsx" onChange={(event) => {
+                        if (event.target.files && event.target.files.length > 0) {
+                          handleFilesToUpload(event.target.files)
+                        }
+                        event.target.value = ''
+                      }} />
+                    </div>
+                    {(() => {
+                      // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
+                      // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
+                      const mode = resolveComposerMode({
+                        messagePending: isCurrentMessagePending,
+                        planRunning: isPlanRunning,
+                        hasInput: Boolean(input.trim()),
+                      })
+                      const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
+                      const busy = mode === 'stop-message' ? isCurrentMessageStopping : mode === 'stop-plan' ? isCurrentPlanStopping : create.isPending
+                      const isDisabled = mode === 'send' && (!input.trim() || create.isPending || isCurrentMessageStopping)
+
+                      const isStopMode = mode === 'stop-message' || mode === 'stop-plan'
+                      const buttonStyles = isStopMode
+                        ? 'bg-slate-200/90 hover:bg-slate-300 dark:bg-slate-700/80 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
+                        : !isDisabled
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                          : 'bg-slate-200/70 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 cursor-not-allowed'
+
+                      return (
+                        <button
+                          type="button"
+                          className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-150 focus:outline-none ${buttonStyles}`}
+                          onClick={() => {
+                            if (mode === 'stop-message') stopGenerating()
+                            else if (mode === 'stop-plan') { if (activePlan) stopPlan.mutate(activePlan.plan_id) }
+                            else submit()
+                          }}
+                          disabled={isDisabled || busy}
+                          aria-label={label}
+                          title={label}
+                        >
+                          {busy ? (
+                            <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                          ) : isStopMode ? (
+                            <Square className="h-3.5 w-3.5 fill-rose-500 text-rose-500 rounded-[1px]" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4 stroke-[1.5]" />
+                          )}
+                        </button>
+                      )
+                    })()}
                   </div>
-                  {(() => {
-                    // 三态：生成中 → 停止生成；采集中 → 中止采集；其余 → 发送
-                    // 输入框有内容时仍然优先发送，采集期间照样可以继续追问
-                    const mode = resolveComposerMode({
-                      messagePending: isCurrentMessagePending,
-                      planRunning: isPlanRunning,
-                      hasInput: Boolean(input.trim()),
-                    })
-                    const label = mode === 'stop-message' ? '停止生成' : mode === 'stop-plan' ? '中止采集' : '发送'
-                    const busy = mode === 'stop-message' ? isCurrentMessageStopping : mode === 'stop-plan' ? isCurrentPlanStopping : create.isPending
-                    const isDisabled = mode === 'send' && (!input.trim() || create.isPending || isCurrentMessageStopping)
-
-                    const isStopMode = mode === 'stop-message' || mode === 'stop-plan'
-                    const buttonStyles = isStopMode
-                      ? 'bg-slate-200/90 hover:bg-slate-300 dark:bg-slate-700/80 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200'
-                      : !isDisabled
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                        : 'bg-slate-200/70 dark:bg-slate-800/60 text-slate-400 dark:text-slate-500 cursor-not-allowed'
-
-                    return (
-                      <button
-                        type="button"
-                        className={`absolute bottom-2.5 right-3 flex h-9 w-9 items-center justify-center rounded-full transition-all duration-150 focus:outline-none ${buttonStyles}`}
-                        onClick={() => {
-                          if (mode === 'stop-message') stopGenerating()
-                          else if (mode === 'stop-plan') { if (activePlan) stopPlan.mutate(activePlan.plan_id) }
-                          else submit()
-                        }}
-                        disabled={isDisabled || busy}
-                        aria-label={label}
-                        title={label}
-                      >
-                        {busy ? (
-                          <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
-                        ) : isStopMode ? (
-                          <Square className="h-3.5 w-3.5 fill-rose-500 text-rose-500 rounded-[1px]" />
-                        ) : (
-                          <ArrowRight className="h-4 w-4 stroke-[1.5]" />
-                        )}
-                      </button>
-                    )
-                  })()}
                 </div>
               </div>
             </div>

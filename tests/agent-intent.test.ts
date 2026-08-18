@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractWebUrls, hasResearchSubject, inferResearchKeywords, inferResearchPlatforms, isDirectWebReadRequest, isSimpleConversation, localIntentDecision } from '../src/server/services/AgentIntent';
+import { cleanKeywordItem, extractWebUrls, hasResearchSubject, inferExplicitResearchKeywords, inferResearchKeywords, inferResearchPlatforms, isDirectWebReadRequest, isSimpleConversation, localIntentDecision } from '../src/server/services/AgentIntent';
+import { normalizePlan } from '../src/server/services/AgentService';
 
 test('explicit personal and team context routes directly to conversation', () => {
   assert.equal(isSimpleConversation('我是科莱特三组的组长，组员有 diana和vin'), true);
@@ -601,4 +602,76 @@ test('explicit slash commands route deterministically to system actions', () => 
   assert.equal(skillCrawl.action, 'create_plan');
   assert.deepEqual(inferResearchKeywords('/crawl @新媒体内容调研 扫地机器人'), ['扫地机器人']);
 });
+
+test('multi-line and numbered keyword lists are extracted and sanitized correctly', () => {
+  const userInput = `请你在 DeepSeek、豆包、文心一言、千问、元宝上搜索以下全部关键词：
+1. sap培训
+2. sap培训哪家好
+3. 科莱特sap培训
+4. Sap培训机构
+5. SAP培训推荐
+6. 科莱特招聘`;
+
+  const keywords = inferExplicitResearchKeywords(userInput);
+  assert.deepEqual(keywords, [
+    'sap培训',
+    'sap培训哪家好',
+    '科莱特sap培训',
+    'Sap培训机构',
+    'SAP培训推荐',
+    '科莱特招聘',
+  ]);
+
+  const plan = normalizePlan({
+    platforms: ['deepseek', 'doubao', 'wenxin', 'qwen', 'yuanbao'],
+  }, userInput);
+  assert.deepEqual(plan.keywords, [
+    'sap培训',
+    'sap培训哪家好',
+    '科莱特sap培训',
+    'Sap培训机构',
+    'SAP培训推荐',
+    '科莱特招聘',
+  ]);
+  assert.deepEqual(plan.platforms, ['deepseek', 'doubao', 'qwen', 'yuanbao', 'wenxin']);
+});
+
+test('chinese numbered lists, markdown bullets, and single-line numbered keywords are extracted correctly', () => {
+  // Chinese numbering
+  const chineseList = `搜索关键词：
+1、实施顾问
+2、ABAP开发
+3、SAP项目经理`;
+  assert.deepEqual(inferExplicitResearchKeywords(chineseList), [
+    '实施顾问',
+    'ABAP开发',
+    'SAP项目经理',
+  ]);
+
+  // Markdown bullets
+  const bulletList = `以下关键词：
+- 前端工程化
+* React服务端渲染
+• Node微服务架构`;
+  assert.deepEqual(inferExplicitResearchKeywords(bulletList), [
+    '前端工程化',
+    'React服务端渲染',
+    'Node微服务架构',
+  ]);
+
+  // Single line with numbers
+  const singleLineNumbered = `在小红书搜索关键词：1. 人工智能 2. 大语言模型 3. Agent开发`;
+  assert.deepEqual(inferExplicitResearchKeywords(singleLineNumbered), [
+    '人工智能',
+    '大语言模型',
+    'Agent开发',
+  ]);
+
+  // Keyword item cleaning preserves digits in subject
+  assert.equal(cleanKeywordItem('1. 3D打印机推荐'), '3D打印机推荐');
+  assert.equal(cleanKeywordItem('2、Web3.0开发者'), 'Web3.0开发者');
+  assert.equal(cleanKeywordItem('(3) 2026校招'), '2026校招');
+  assert.equal(cleanKeywordItem('- SAP培训，'), 'SAP培训');
+});
+
 

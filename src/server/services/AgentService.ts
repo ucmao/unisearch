@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { crawlerManager } from './CrawlerManager';
 import { agentRepository, type ContentEnrichmentOptions, type QueryExpansionConfig, type ResearchPlan } from './AgentRepository';
-import { extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferExplicitResearchKeywords, inferQueryExpansionMode, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
+import { cleanKeywordItem, extractWebUrls, hasExplicitCollectionDepth, inferCollectionDepth, inferExcludedPlatforms, inferExplicitResearchKeywords, inferQueryExpansionMode, inferResearchKeywords, inferResearchPlatforms, isAdditivePlatformRequest, isExclusivePlatformRequest, isSimpleConversation, localIntentDecision, type AgentDecision } from './AgentIntent';
 import { modelService, type ConversationMaterials, type ConversationMemory } from './ModelService';
 import { connectorLabels, getConnectorManifest, listConnectorManifests } from '../../connectors/registry';
 import { DEPTH_LABELS, describeDepthForCapabilities, type DepthLevel } from '../../connectors/depth';
@@ -199,7 +199,7 @@ export function normalizePlan(
   const isExclusive = isExclusivePlatformRequest(platformIntentText);
   const isAdditive = isAdditivePlatformRequest(platformIntentText);
   const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
-    .map((value: any) => String(value).trim()).filter(Boolean);
+    .map((value: any) => cleanKeywordItem(String(value))).filter(Boolean);
   const explicitUserKeywords = inferExplicitResearchKeywords(platformIntentText);
 
   const runtimeSettings = agentRepository.getRuntimeSettings();
@@ -223,9 +223,11 @@ export function normalizePlan(
           if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|BOSS\s*直聘|zhipin\.com).*(?:采集|搜索)/i.test(keyword)) {
             return inferResearchKeywords(keyword);
           }
-          return [keyword];
-        }))).slice(0, 12) as string[];
+          return [cleanKeywordItem(keyword)];
+        }))).filter(Boolean).slice(0, 12) as string[];
   }
+
+  keywords = keywords.map(cleanKeywordItem).filter(Boolean);
 
   if (!keywords.length && fallbackPlan?.keywords?.length) {
     keywords = fallbackPlan.keywords;
@@ -1494,12 +1496,24 @@ export class AgentService {
     }
 
     const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
-    const healthLines = (plan.healthPolicy?.decisions || [])
-      .filter((item) => item.action !== 'use')
-      .map((item) => item.action === 'replace'
-        ? `${LABELS[item.connectorId] || item.connectorId} → ${LABELS[item.replacementId || ''] || item.replacementId}：${item.reason}`
-        : `${LABELS[item.connectorId] || item.connectorId}：${item.reason}`);
-    const healthLine = healthLines.length ? `\n连接器状态：${healthLines.join('；')}` : '';
+    const nonNormalHealth = (plan.healthPolicy?.decisions || []).filter((item) => item.action !== 'use');
+    const healthGroups = new Map<string, { connectors: string[]; description: string }>();
+    for (const item of nonNormalHealth) {
+      const connLabel = LABELS[item.connectorId] || item.connectorId;
+      const key = item.action === 'replace'
+        ? `replace:${item.replacementId}:${item.reason}`
+        : `warn:${item.reason}`;
+      const desc = item.action === 'replace'
+        ? `${LABELS[item.replacementId || ''] || item.replacementId}（${item.reason}）`
+        : item.reason;
+      if (!healthGroups.has(key)) {
+        healthGroups.set(key, { connectors: [connLabel], description: desc });
+      } else {
+        healthGroups.get(key)!.connectors.push(connLabel);
+      }
+    }
+    const healthParts = Array.from(healthGroups.values()).map((g) => `${g.connectors.join('、')}：${g.description}`);
+    const healthLine = healthParts.length ? `\n连接器状态：${healthParts.join('；')}` : '';
     if (autoStart) this.executePlan(created.plan_id);
     const shouldAutoAnalyze = Boolean(
       plan.autoAnalyze || plan.analysis.length || planSkill?.execution.autoAnalyzeOnCompletion,

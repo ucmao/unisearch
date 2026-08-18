@@ -34,6 +34,13 @@ const OUTPUTS: Record<string, OutputDefinition> = {
   emitKimiResult: { source: 'kimi', kind: 'ai_answer' },
   emitDoubaoResult: { source: 'doubao', kind: 'ai_answer' },
   emitQwenResult: { source: 'qwen', kind: 'ai_answer' },
+  emitYuanbaoResult: { source: 'yuanbao', kind: 'ai_answer' },
+  emitWenxinResult: { source: 'wenxin', kind: 'ai_answer' },
+  emitNamiResult: { source: 'nami', kind: 'ai_answer' },
+  emitAiWebQaResult: {
+    source: (payload) => payload.platform || 'ai_web_qa',
+    kind: 'ai_answer',
+  },
   emitZhaopinResult: { source: 'zhaopin', kind: 'job' },
   emitJob51Result: { source: 'job51', kind: 'job' },
   emitLiepinResult: { source: 'liepin', kind: 'job' },
@@ -203,8 +210,11 @@ class ConnectorOutput {
   emitDoubaoResult = (item: Payload) => this.emit('emitDoubaoResult', item);
   emitQwenResult = (item: Payload) => this.emit('emitQwenResult', item);
   emitAiWebQaResult = (platform: AiWebQaPlatform, item: Payload) => {
-    return this.emit('emitSearchEngineResult', item, platform);
+    return this.emit('emitAiWebQaResult', item, platform);
   };
+  emitYuanbaoResult = (item: Payload) => this.emit('emitYuanbaoResult', item);
+  emitWenxinResult = (item: Payload) => this.emit('emitWenxinResult', item);
+  emitNamiResult = (item: Payload) => this.emit('emitNamiResult', item);
   emitZhaopinResult = (item: Payload) => this.emit('emitZhaopinResult', item);
   emitJob51Result = (item: Payload) => this.emit('emitJob51Result', item);
   emitLiepinResult = (item: Payload) => this.emit('emitLiepinResult', item);
