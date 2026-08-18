@@ -293,9 +293,11 @@ export function normalizePlan(
   const requiresAuth = selectedPlatforms.some((pid) => getConnectorManifest(pid)?.auth.required);
   const loginType = requiresAuth ? 'qrcode' : 'none';
   const suppliedGoals = Array.isArray(input?.analysis) ? input.analysis : [];
+  const keywordCleanSet = new Set(keywords.map(cleanKeywordItem));
+  const distinctExplicitAnalysis = explicitAnalysis.filter((item) => !keywordCleanSet.has(cleanKeywordItem(item)));
   const analysis = skill?.category === 'business' && skill.defaults
-    ? normalizeAnalysisGoals([...skill.defaults.analysis, ...explicitAnalysis, ...suppliedGoals], goal)
-    : normalizeAnalysisGoals([...explicitAnalysis, ...suppliedGoals], goal);
+    ? normalizeAnalysisGoals([...skill.defaults.analysis, ...distinctExplicitAnalysis, ...suppliedGoals], goal)
+    : normalizeAnalysisGoals([...distinctExplicitAnalysis, ...suppliedGoals], goal);
   // Generic Agent collection always produces an automatic evidence-led report.
   // Deterministic tools keep their explicit "collect only" contract unless the
   // user supplied an analysis goal; business Skills always use their template.

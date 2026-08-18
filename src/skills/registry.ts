@@ -51,8 +51,8 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'web-search-research',
   version: '1.0.0',
-  name: '网页聚合搜索',
-  description: '聚合百度、必应、360、搜狗、头条、神马和中国搜索，支持多关键词、快速/标准/深度采集与可选网页正文读取，默认不分析结果。',
+  name: '网页搜索',
+  description: '聚合百度、必应、360、搜狗、头条、神马和中国搜索，支持正文读取与批量采集',
   category: 'tool',
   icon: 'search',
   mentionable: true,
@@ -90,52 +90,187 @@ skillRegistry.register({
 });
 
 skillRegistry.register({
-  id: 'creator-profile-collection',
+  id: 'social-search-research',
   version: '1.0.0',
-  name: '创作者主页采集',
-  description: '按平台主页链接或账号标识采集七个社交媒体平台的创作者公开作品；主页链接可识别平台，裸 ID 必须同时说明平台。',
+  name: '社媒搜索',
+  description: '聚合小红书、抖音、快手、B站、微博、贴吧和知乎的公开作品与讨论',
   category: 'tool',
-  icon: 'users',
+  icon: 'message-circle',
   mentionable: true,
   inputs: [
-    { key: 'platforms', required: true, description: '至少选择或说明一个平台；提供可识别域名的主页链接时可自动判断。' },
-    { key: 'targets', required: true, description: '创作者主页链接或平台账号标识；多个目标逐行填写，裸 ID 必须与平台对应。' },
-    { key: 'maxItems', required: false, description: '每个主页最多采集的公开作品数；0 表示持续翻页到平台返回末页。' },
-    { key: 'collectComments', required: false, description: '是否同时采集作品下当前可见的评论与回复。' },
+    { key: 'keywords', required: true, description: '一个或多个搜索关键词' },
+    { key: 'collectionDepth', required: false, description: '快速、标准或深度采集' },
+    { key: 'collectComments', required: false, description: '是否同时采集评论' },
   ],
-  targetGuidance: CREATOR_TARGET_GUIDANCE,
   workflow: {
-    connectorCapabilities: ['creator_profile'],
+    connectorCapabilities: ['keyword_search', 'content_detail', 'comments'],
     itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
     analyzers: ['knowledge.index', 'dataset.profile'],
     exporters: ['csv', 'markdown', 'json', 'obsidian', 'ima'],
     outputs: ['documents'],
   },
   defaults: {
-    // 不默认勾选七个平台。链接域名或用户明确选择的平台才是执行范围，
-    // 避免把一个平台的裸 ID/主页链接广播给其他六个平台。
-    platforms: [],
-    capability: 'creator_profile',
+    platforms: ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'],
+    capability: 'keyword_search',
     collectionDepth: 'quick',
     analysis: [],
     outputs: ['csv'],
   },
   execution: {
-    autoStartWhenExplicitlyInvoked: false,
+    autoStartWhenExplicitlyInvoked: true,
     autoAnalyzeOnCompletion: false,
   },
   limitations: [
-    '七个平台均依赖各自登录态，只采集当前账号可见的公开内容。',
-    '不同平台的裸 ID 可能重名或格式相似；未说明平台时不能可靠自动分配。',
-    '平台页面、接口或风控调整后，链接解析与翻页能力可能需要升级 Connector。',
+    '各平台均依赖各自登录态，只采集当前账号可见的公开内容。',
+  ],
+});
+
+skillRegistry.register({
+  id: 'ai-qa-research',
+  version: '1.0.0',
+  name: 'AI搜索',
+  description: '聚合DeepSeek、Kimi、豆包、千问、元宝、纳米AI和文心一言的问答结果',
+  category: 'tool',
+  icon: 'brain',
+  mentionable: true,
+  inputs: [
+    { key: 'keywords', required: true, description: '提问或查询主题' },
+    { key: 'collectionDepth', required: false, description: '快速或标准采集' },
+  ],
+  workflow: {
+    connectorCapabilities: ['keyword_search', 'content_detail'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['csv', 'markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['csv'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: true,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    'AI 回答只代表特定提问时间点下的模型生成结果。',
+  ],
+});
+
+skillRegistry.register({
+  id: 'job-search-research',
+  version: '1.0.0',
+  name: '岗位搜索',
+  description: '聚合智联招聘、前程无忧、猎聘和BOSS直聘的公开职位数据',
+  category: 'tool',
+  icon: 'briefcase',
+  mentionable: true,
+  inputs: [
+    { key: 'keywords', required: true, description: '岗位名称或搜索关键词' },
+    { key: 'cities', required: false, description: '目标城市' },
+    { key: 'collectionDepth', required: false, description: '采集深度' },
+  ],
+  workflow: {
+    connectorCapabilities: ['keyword_search', 'content_detail'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['csv', 'markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: ['zhaopin', 'job51', 'liepin', 'boss'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['csv'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: true,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    '公开招聘薪资仅供市场参考；BOSS直聘需获得授权。',
+  ],
+});
+
+skillRegistry.register({
+  id: 'academic-search-research',
+  version: '1.0.0',
+  name: '学术搜索',
+  description: '检索arXiv学术论文库，获取文献摘要、作者与发布信息',
+  category: 'tool',
+  icon: 'book-open',
+  mentionable: true,
+  inputs: [
+    { key: 'keywords', required: true, description: '论文主题、关键词或学者姓名' },
+    { key: 'collectionDepth', required: false, description: '采集深度' },
+  ],
+  workflow: {
+    connectorCapabilities: ['keyword_search', 'content_detail'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: ['arxiv'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['markdown'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: true,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    '仅检索 arXiv 公开学术论文库。',
+  ],
+});
+
+skillRegistry.register({
+  id: 'code-search-research',
+  version: '1.0.0',
+  name: '代码搜索',
+  description: '检索GitHub开源仓库、热门项目、Star趋势与行业热点',
+  category: 'tool',
+  icon: 'terminal',
+  mentionable: true,
+  inputs: [
+    { key: 'keywords', required: true, description: '仓库名、技术关键词或热点主题' },
+    { key: 'collectionDepth', required: false, description: '采集深度' },
+  ],
+  workflow: {
+    connectorCapabilities: ['keyword_search', 'content_detail'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: ['github_repositories', 'aihot'],
+    capability: 'keyword_search',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['markdown'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: true,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    '检索公开可访问的 GitHub 仓库与开源热榜。',
   ],
 });
 
 skillRegistry.register({
   id: 'web-media-parser',
   version: '1.0.0',
-  name: '全网综合解析',
-  description: '批量解析多平台作品链接、分享短链或分享文案，提取无水印视频、原图、音频与元数据；多目标按每秒最多一次请求循环处理。',
+  name: '全网解析',
+  description: '批量解析多平台作品链接，提取无水印视频、原图与元数据',
   category: 'tool',
   icon: 'link',
   mentionable: true,
@@ -167,6 +302,45 @@ skillRegistry.register({
   ],
 });
 
+skillRegistry.register({
+  id: 'creator-profile-collection',
+  version: '1.0.0',
+  name: '创作者主页采集',
+  description: '按平台主页链接或账号标识采集社交媒体平台的创作者公开作品。',
+  category: 'tool',
+  icon: 'users',
+  mentionable: false,
+  inputs: [
+    { key: 'platforms', required: true, description: '至少选择或说明一个平台；提供可识别域名的主页链接时可自动判断。' },
+    { key: 'targets', required: true, description: '创作者主页链接或平台账号标识；多个目标逐行填写，裸 ID 必须与平台对应。' },
+    { key: 'maxItems', required: false, description: '每个主页最多采集的公开作品数；0 表示持续翻页到平台返回末页。' },
+    { key: 'collectComments', required: false, description: '是否同时采集作品下当前可见的评论与回复。' },
+  ],
+  targetGuidance: CREATOR_TARGET_GUIDANCE,
+  workflow: {
+    connectorCapabilities: ['creator_profile'],
+    itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
+    analyzers: ['knowledge.index', 'dataset.profile'],
+    exporters: ['csv', 'markdown', 'json', 'obsidian', 'ima'],
+    outputs: ['documents'],
+  },
+  defaults: {
+    platforms: [],
+    capability: 'creator_profile',
+    collectionDepth: 'quick',
+    analysis: [],
+    outputs: ['csv'],
+  },
+  execution: {
+    autoStartWhenExplicitlyInvoked: false,
+    autoAnalyzeOnCompletion: false,
+  },
+  limitations: [
+    '各平台均依赖各自登录态，只采集当前账号可见的公开内容。',
+    '平台页面、接口或风控调整后，链接解析与翻页能力可能需要升级 Connector。',
+  ],
+});
+
 const BUSINESS_WORKFLOW = {
   connectorCapabilities: ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'],
   itemProcessors: ['metadata.normalize', 'document.clean_markdown'],
@@ -176,39 +350,10 @@ const BUSINESS_WORKFLOW = {
 };
 
 skillRegistry.register({
-  id: 'sales-course-intelligence',
-  version: '1.0.0',
-  name: '销售课程竞争情报',
-  description: '针对教育培训业务采集公开竞品内容，分析课程、价格证据、营销钩子、客户顾虑并生成销售应答参考。',
-  category: 'business',
-  icon: 'briefcase-business',
-  mentionable: true,
-  inputs: [
-    { key: 'subject', required: true, description: '课程线、我方品牌、竞品或赛道关键词' },
-    { key: 'cities', required: false, description: '目标城市' },
-    { key: 'focus', required: false, description: '价格、转行、学习难度或就业等重点场景' },
-  ],
-  workflow: BUSINESS_WORKFLOW,
-  defaults: {
-    platforms: ['xhs', 'douyin', 'zhihu', 'baidu', 'bing'],
-    capability: 'keyword_search',
-    collectionDepth: 'quick',
-    analysis: ['课程与价格证据', '教学方式与服务', '营销钩子', '客户顾虑', '竞品差异与销售应答建议'],
-    outputs: ['csv'],
-  },
-  execution: {
-    autoStartWhenExplicitlyInvoked: true,
-    autoAnalyzeOnCompletion: true,
-  },
-  analysisInstructions: '按销售课程竞争情报口径分析。区分 SAP 与 AIGC 赛道；价格、周期、校区和服务承诺必须有来源，冲突信息并列展示。提取营销钩子与客户顾虑，并把销售建议标记为建议。不得把未采集到写成不存在，不得把宣传案例写成普遍就业结果。',
-  limitations: ['不查询内部成交数据。', '不承诺就业、收入或竞品未公开信息。', '不自动联系客户或写入 CRM。'],
-});
-
-skillRegistry.register({
   id: 'marketing-content-research',
   version: '1.0.0',
   name: '新媒体内容调研',
-  description: '采集小红书、抖音、哔哩哔哩的公开作品和评论，用于对标账号、关键词赛道、互动表现及用户诉求分析。',
+  description: '采集社媒公开作品和评论，分析主题、爆款表达、互动与用户诉求',
   category: 'business',
   icon: 'chart-no-axes-combined',
   mentionable: true,
@@ -236,8 +381,8 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'brand-geo-risk-monitor',
   version: '1.0.0',
-  name: '品牌GEO与风险监测',
-  description: '对比品牌在多个 AI 问答平台中的呈现，识别负面主题与待核验风险。',
+  name: '品牌GEO监测',
+  description: '对比品牌在多个 AI 平台中的呈现，识别负面主题与待核验风险',
   category: 'business',
   icon: 'shield-alert',
   mentionable: true,
@@ -265,8 +410,8 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'hr-salary-benchmark',
   version: '1.0.0',
-  name: '招聘岗位薪酬调研',
-  description: '基于智联招聘等公开岗位数据分析薪资、城市、经验、学历和岗位要求，为招聘定价提供可追溯参考。',
+  name: '招聘薪酬调研',
+  description: '基于公开岗位数据分析薪资分布、城市差异、学历经验与定价参考',
   category: 'business',
   icon: 'badge-chinese-yuan',
   mentionable: true,

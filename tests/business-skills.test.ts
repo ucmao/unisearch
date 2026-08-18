@@ -37,7 +37,7 @@ test('generic collection auto-analyzes without inventing visible goals', () => {
 test('creator profile Skill documents an executable target contract for all seven social platforms', () => {
   const skill = skillRegistry.get('creator-profile-collection');
 
-  assert.equal(skill.mentionable, true);
+  assert.equal(skill.mentionable, false);
   assert.equal(skill.category, 'tool');
   assert.equal(skill.defaults?.capability, 'creator_profile');
   assert.deepEqual(skill.defaults?.platforms, []);
@@ -48,23 +48,40 @@ test('creator profile Skill documents an executable target contract for all seve
   assert.ok(skill.targetGuidance.every((item) => item.accepted.length && item.examples.length));
 });
 
-test('input catalog exposes four business skills and three deterministic tools', () => {
+test('input catalog exposes three business skills and seven deterministic tools', () => {
   const mentionable = skillRegistry.list().filter((skill) => skill.mentionable);
   assert.deepEqual(
     mentionable.filter((skill) => skill.category === 'business').map((skill) => skill.id),
-    ['sales-course-intelligence', 'marketing-content-research', 'brand-geo-risk-monitor', 'hr-salary-benchmark'],
+    ['marketing-content-research', 'brand-geo-risk-monitor', 'hr-salary-benchmark'],
   );
   assert.deepEqual(
     mentionable.filter((skill) => skill.category === 'tool').map((skill) => skill.id),
-    ['web-search-research', 'creator-profile-collection', 'web-media-parser'],
+    [
+      'web-search-research',
+      'social-search-research',
+      'ai-qa-research',
+      'job-search-research',
+      'academic-search-research',
+      'code-search-research',
+      'web-media-parser',
+    ],
   );
 
   const search = skillRegistry.get('web-search-research');
+  assert.equal(search.name, '网页搜索');
   assert.deepEqual(search.defaults?.platforms, ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
   assert.deepEqual(search.defaults?.analysis, []);
   assert.equal(search.execution.autoAnalyzeOnCompletion, false);
 
+  const social = skillRegistry.get('social-search-research');
+  assert.equal(social.name, '社媒搜索');
+  assert.deepEqual(social.defaults?.platforms, ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu']);
+
+  const ai = skillRegistry.get('ai-qa-research');
+  assert.equal(ai.name, 'AI搜索');
+
   const parser = skillRegistry.get('web-media-parser');
+  assert.equal(parser.name, '全网解析');
   assert.deepEqual(parser.defaults?.platforms, ['media_parser']);
   assert.equal(parser.defaults?.capability, 'url_resolve');
   assert.deepEqual(parser.defaults?.analysis, []);
@@ -75,7 +92,7 @@ test('tool defaults choose their deterministic connector capability', () => {
   const parser = skillRegistry.get('web-media-parser');
   const parserPlan = normalizePlan(
     { goal: '批量解析链接', targets: ['https://example.com/a', 'https://example.com/b'] },
-    '@全网综合解析 https://example.com/a https://example.com/b',
+    '@全网解析 https://example.com/a https://example.com/b',
     undefined,
     false,
     parser,
@@ -92,7 +109,7 @@ test('tool defaults choose their deterministic connector capability', () => {
       targets: ['https://www.douyin.com/video/7668613077083983144'],
       capability: 'url_resolve',
     },
-    '@全网综合解析 https://www.douyin.com/video/7668613077083983144',
+    '@全网解析 https://www.douyin.com/video/7668613077083983144',
     undefined,
     false,
     parser,
@@ -103,7 +120,7 @@ test('tool defaults choose their deterministic connector capability', () => {
   const search = skillRegistry.get('web-search-research');
   const searchPlan = normalizePlan(
     { goal: '搜索', keywords: ['Agent', 'RAG'] },
-    '@网页聚合搜索 Agent RAG',
+    '@网页搜索 Agent RAG',
     undefined,
     false,
     search,
@@ -113,6 +130,22 @@ test('tool defaults choose their deterministic connector capability', () => {
   assert.deepEqual(searchPlan.keywords, ['Agent', 'RAG']);
   assert.deepEqual(searchPlan.analysis, []);
   assert.equal(searchPlan.autoAnalyze, false);
+
+  const aiTool = skillRegistry.get('ai-qa-research');
+  const aiPlan = normalizePlan(
+    { goal: 'AI 搜索' },
+    '@AI搜索\n1. FDE工程师是什么？\n2. FDE工程师要怎么学？\n3. FDE工程师岗位的薪资怎么样？',
+    undefined,
+    false,
+    aiTool,
+  );
+  assert.deepEqual(aiPlan.keywords, [
+    'FDE工程师是什么',
+    'FDE工程师要怎么学',
+    'FDE工程师岗位的薪资怎么样',
+  ]);
+  assert.deepEqual(aiPlan.analysis, []);
+  assert.equal(aiPlan.autoAnalyze, false);
 });
 
 test('media parser extracts multiple links without splitting share copy into words', () => {
@@ -124,20 +157,20 @@ test('media parser extracts multiple links without splitting share copy into wor
 });
 
 test('an explicitly mentioned Connector overrides a Skill default platform set', () => {
-  const skill = skillRegistry.get('sales-course-intelligence');
+  const skill = skillRegistry.get('marketing-content-research');
   const plan = normalizePlan({
-    goal: 'SAP FICO 竞品调研',
+    goal: '新能源车调研',
     platforms: [],
-    keywords: ['SAP FICO'],
+    keywords: ['新能源车'],
     capability: 'keyword_search',
-  }, '@销售课程竞争情报 SAP FICO', undefined, false, skill, ['zhihu']);
+  }, '@新媒体内容调研 新能源车', undefined, false, skill, ['zhihu']);
 
   assert.deepEqual(plan.platforms, ['zhihu']);
-  assert.equal(plan.skillId, 'sales-course-intelligence');
+  assert.equal(plan.skillId, 'marketing-content-research');
 });
 
 test('business Skills only auto-start when the user explicitly invokes them', () => {
-  const skill = skillRegistry.get('sales-course-intelligence');
+  const skill = skillRegistry.get('marketing-content-research');
   assert.equal(shouldAutoStartSkill(skill, true), true);
   assert.equal(shouldAutoStartSkill(skill, false), false);
   assert.equal(shouldAutoStartSkill(skillRegistry.get('multi-source-research'), true), false);
@@ -176,7 +209,7 @@ test('only explicitly deferred collection waits for confirmation', () => {
   assert.equal(shouldAutoStartPlan(publicPlan, '先给我看一下采集计划'), false);
   assert.equal(shouldAutoStartPlan(publicPlan, '不要自动运行'), false);
   assert.equal(shouldAutoStartPlan(authenticatedPlan, '在小红书搜索 AI Agent'), true);
-  assert.equal(shouldAutoStartPlan(authenticatedPlan, '@销售课程竞争情报 先看计划', skillRegistry.get('sales-course-intelligence'), true), false);
+  assert.equal(shouldAutoStartPlan(authenticatedPlan, '@新媒体内容调研 先看计划', skillRegistry.get('marketing-content-research'), true), false);
   assert.equal(shouldAutoStartPlan({
     ...publicPlan,
     connectorOptions: { github_repositories: { max_items: 100 } },

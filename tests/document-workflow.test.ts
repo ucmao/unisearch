@@ -222,7 +222,6 @@ test('Skill registry validates and exposes the built-in research Skill', () => {
 
   const businessSkills = skillRegistry.list().filter((item) => item.category === 'business' && item.mentionable);
   assert.deepEqual(businessSkills.map((item) => item.id), [
-    'sales-course-intelligence',
     'marketing-content-research',
     'brand-geo-risk-monitor',
     'hr-salary-benchmark',

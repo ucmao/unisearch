@@ -44,38 +44,60 @@ export class DoubaoCrawler extends AbstractCrawler {
     return null;
   }
 
-  private async isLoggedIn(): Promise<boolean> {
+  private async checkLoginState(): Promise<boolean> {
     if (!this.page) return false;
     if (/login|passport/.test(this.page.url())) return false;
-    const hasInput = await this.findInputSelector();
-    const hasLoginModal = await this.page.isVisible(
-      'button:has-text("登录"), a:has-text("登录"), [class*="login-btn"], [class*="login-button"], [class*="login-modal"], [class*="passport-modal"], div:has-text("手机号登录")',
+
+    // 严谨检测真实的登录遮罩/弹窗容器，避免误命中页面普通推广文案（如“登录即可免费使用”）
+    const hasBlockingLoginModal = await this.page.isVisible(
+      '[class*="login-modal"], [class*="passport-modal"], [class*="auth-modal"], div[role="dialog"] [class*="login"], div[role="dialog"]:has-text("手机号登录"), div[role="dialog"]:has-text("扫码登录"), iframe[src*="passport"]',
     ).catch(() => false);
-    if (hasInput && !hasLoginModal) return true;
-    return !hasLoginModal && Boolean(hasInput);
+    if (hasBlockingLoginModal) return false;
+
+    // 检查已登录特征：头像或用户信息
+    const hasAvatar = await this.page.isVisible(
+      '[class*="avatar"], img[alt*="头像"], [class*="user-profile"], [class*="user-info"], [class*="user-avatar"], [data-testid*="user-avatar"]',
+    ).catch(() => false);
+
+    const hasInput = await this.findInputSelector();
+    return Boolean(hasInput || hasAvatar);
   }
 
   private async handleLogin(): Promise<void> {
     if (!this.page || !this.browserContext) return;
-    if (await this.isLoggedIn()) {
-      notifyLoginSuccess('doubao');
-      return;
+    console.log('[DOUBAO] Checking Doubao page readiness and login status...');
+
+    // 豆包为 Modern.js / React 纯客户端单页应用（CSR），首次加载需缓冲等待组件 Hydration
+    const readyDeadline = Date.now() + 8000;
+    while (Date.now() < readyDeadline) {
+      if (await this.checkLoginState()) {
+        console.log('[DOUBAO] Login state verified.');
+        notifyLoginSuccess('doubao');
+        return;
+      }
+      await sleep(600);
     }
 
-    notifyLoginRequired('doubao', '请在内置豆包窗口右上角完成登录；登录成功后任务会自动继续。');
-    console.log('[DOUBAO] Waiting for manual login in crawler window...');
-    await this.page.click('button:has-text("登录"), a:has-text("登录"), [class*="login-btn"], [class*="login-button"]')
-      .catch(() => {});
+    // 8秒后若仍未就绪或出现明确登录弹窗，才向系统和前端发送需要登录的提示
+    console.log('[DOUBAO] Doubao login required or page not ready. Waiting for manual login in crawler window...');
+    notifyLoginRequired('doubao', '请在内置豆包窗口完成登录；登录成功后任务会自动继续。');
+
     const deadline = Date.now() + MANUAL_LOGIN_TIMEOUT_MS;
+    let lastLogTs = 0;
     while (Date.now() < deadline) {
-      if (await this.isLoggedIn()) {
+      if (await this.checkLoginState()) {
         console.log('[DOUBAO] Login verified successfully!');
         notifyLoginSuccess('doubao');
         return;
       }
+      if (Date.now() - lastLogTs > 10000) {
+        const remainingSec = Math.round((deadline - Date.now()) / 1000);
+        console.log(`[DOUBAO] Waiting for user to complete login in crawler window... (${remainingSec}s remaining)`);
+        lastLogTs = Date.now();
+      }
       await sleep(1500);
     }
-    throw new Error('豆包尚未登录。请在内置浏览器右上角完成登录后重新执行任务。');
+    throw new Error('豆包尚未登录。请在内置浏览器中完成登录后重新执行任务。');
   }
 
   public async search(): Promise<void> {

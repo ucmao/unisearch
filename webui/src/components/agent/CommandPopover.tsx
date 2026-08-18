@@ -28,6 +28,17 @@ const ENTITY_ICONS: Record<string, any> = {
   // Slash Commands
   crawl: Search,
   report: FileText,
+  // Skills & Tools
+  'web-search-research': Globe,
+  'social-search-research': MessageCircle,
+  'ai-qa-research': Brain,
+  'job-search-research': Briefcase,
+  'academic-search-research': BookOpen,
+  'code-search-research': Terminal,
+  'web-media-parser': Link2,
+  'marketing-content-research': Sparkles,
+  'brand-geo-risk-monitor': ShieldAlert,
+  'hr-salary-benchmark': Briefcase,
   // Platforms & Connectors
   xhs: BookOpen,
   douyin: Music,

@@ -21,15 +21,18 @@ export function usePlatformLabels(): Record<string, string> {
 }
 
 const SKILL_ORDER: Record<string, number> = {
-  // 基础工具（高频通用置前）
+  // 采集与执行工具（Tool · 纯采集清洗，置前）
   'web-search-research': 10,
-  'web-media-parser': 20,
-  'creator-profile-collection': 30,
-  // 深度业务技能
-  'marketing-content-research': 40,
-  'sales-course-intelligence': 50,
-  'brand-geo-risk-monitor': 60,
-  'hr-salary-benchmark': 70,
+  'social-search-research': 20,
+  'ai-qa-research': 30,
+  'job-search-research': 40,
+  'academic-search-research': 50,
+  'code-search-research': 60,
+  'web-media-parser': 70,
+  // 深度业务研报技能（Business · 采集后自动出研报）
+  'marketing-content-research': 80,
+  'brand-geo-risk-monitor': 90,
+  'hr-salary-benchmark': 100,
 }
 
 /** @ 菜单用的可调用业务技能与执行工具。 */

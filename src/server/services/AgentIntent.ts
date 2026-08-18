@@ -118,8 +118,8 @@ export function cleanKeywordItem(item: string): string {
   const cleaned = item
     .trim()
     .replace(/^(?:是|为)\s*/, '')
-    .replace(/^[\d一二三四五六七八九十]+[\.、\s)）\]】]\s*/, '')
-    .replace(/^[\(\（\[\【][\d一二三四五六七八九十]+[\)\）\]\】]\s*/, '')
+    .replace(/^[\d一二三四五六七八九十]+[.、\s)）\]】]\s*/, '')
+    .replace(/^[((（[【][\d一二三四五六七八九十]+[)）\]】]\s*/, '')
     .replace(/^[-*•·▪—+]\s*/, '')
     .replace(/^[、“"']+|[”"']+$/g, '')
     .replace(/[，。；;！？!?,]+$/, '')
@@ -138,7 +138,7 @@ export function splitExplicitKeywords(value: string, sourceText: string): string
 
   // Check if normalized contains numbered or bulleted list items (e.g. 1. a 2. b or - a\n- b)
   const numberedSplit = normalized
-    .split(/(?:\s+|^|\n)[\(（]?(?:\d+|[一二三四五六七八九十]+)[\)）\.、]\s*|(?:\s+|^|\n)[-*•·▪—+]\s*/)
+    .split(/(?:\s+|^|\n)[(（]?(?:\d+|[一二三四五六七八九十]+)[)）.、]\s*|(?:\s+|^|\n)[-*•·▪—+]\s*/)
     .map(cleanKeywordItem)
     .filter((k) => k.length > 0 && k.length <= 60);
   if (numberedSplit.length > 1) {
@@ -254,13 +254,19 @@ export function inferExplicitResearchKeywords(text: string): string[] {
     if (extracted.length > 0) return extracted;
   }
 
-  // Also check for direct numbered lists in text e.g. "在小红书搜索：1. sap培训 2. sap培训哪家好 3. 科莱特sap培训"
-  const numberedSplit = text
-    .split(/(?:\s+|^|\n)[\(（]?(?:\d+|[一二三四五六七八九十]+)[\)）\.、]\s*|(?:\s+|^|\n)[-*•·▪—+]\s*/)
-    .map(cleanKeywordItem)
-    .filter((k) => k.length >= 2 && k.length <= 40 && !/^(?:在|从|请|帮我|采集|搜索|调研|分析|导出)/.test(k));
-  if (numberedSplit.length > 1 && /(?:采集|抓取|搜索|调研|查|找)/.test(text)) {
-    return Array.from(new Set(numberedSplit)).slice(0, 12);
+  // If the list is preceded by an explicit analysis/deliverable preamble (e.g. "然后告诉我：\n1. ...\n2. ..."),
+  // that list represents analysis goals, not search keywords.
+  const hasAnalysisPreamble = /(?:(?:并|然后|顺便|接着)?(?:告诉|回答|解答|说明|想知道|需要了解)(?:我|一下)?|分析(?:重点|目标|维度|要求|以下)?|关注(?:重点)?)\s*[:：]/i.test(text);
+
+  if (!hasAnalysisPreamble) {
+    // Also check for direct numbered or bulleted lists in text e.g. "在小红书搜索：1. sap培训 2. sap培训哪家好" or "@AI搜索\n1. FDE工程师是什么？\n2. FDE工程师要怎么学？"
+    const numberedSplit = text
+      .split(/(?:\s+|^|\n)[(（]?(?:\d+|[一二三四五六七八九十]+)[)）.、]\s*|(?:\s+|^|\n)[-*•·▪—+]\s*/)
+      .map(cleanKeywordItem)
+      .filter((k) => k.length >= 2 && k.length <= 60 && !/^(?:在|从|请|帮我|采集|搜索|调研|分析|导出|关注|要求)/.test(k));
+    if (numberedSplit.length > 1) {
+      return Array.from(new Set(numberedSplit)).slice(0, 12);
+    }
   }
 
   // Recruitment requests commonly separate the actual search phrase from the
@@ -503,9 +509,9 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
       + `- \`/stop\`：中止当前后台正在运行的采集任务\n`
       + `- \`/clear\`：清空输入并开启新任务\n`
       + `- \`/help\`：查看本帮助说明\n\n`
-      + `**业务技能与数据源 (@ Mention)**：输入 \`@\` 呼出专属业务技能或具体采集平台\n`
-      + `- \`@销售课程竞争情报\` / \`@新媒体内容调研\` / \`@招聘岗位薪酬调研\` / \`@品牌GEO与风险监测\`\n`
-      + `- \`@小红书\` / \`@抖音\` / \`@微博\` / \`@知乎\` / \`@网页聚合搜索\` 等`;
+      + `**业务技能与执行工具 (@ Mention)**：输入 \`@\` 呼出专属业务技能或聚合采集工具\n`
+      + `- 工具：\`@网页搜索\` / \`@社媒搜索\` / \`@AI搜索\` / \`@岗位搜索\` / \`@学术搜索\` / \`@代码搜索\` / \`@全网解析\`\n`
+      + `- 技能：\`@新媒体内容调研\` / \`@品牌GEO监测\` / \`@招聘薪酬调研\``;
     return { action: 'chat', reply: helpText };
   }
 
