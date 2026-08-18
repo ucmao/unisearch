@@ -138,7 +138,7 @@ flowchart TB
 
 - **💡 竞品情报分析** (`sales-course-intelligence`)：聚合社交与搜索信源，分析竞品定价、营销钩子与痛点对策。
 - **📈 新媒体爆款调研** (`marketing-content-research`)：跨平台拆解热门选题，提炼高赞表达方式与评论关注点。
-- **🛡️ 品牌 GEO 风险监测** (`brand-geo-risk-monitor`)：评估品牌在 7 大 LLM 中的可见性与一致性，联动黑猫投诉预警风险。
+- **🛡️ 品牌 GEO 风险监测** (`brand-geo-risk-monitor`)：评估品牌在 7 大 LLM 中的可见性与一致性，识别负面风险线索。
 - **💼 招聘薪酬 Benchmark** (`hr-salary-benchmark`)：测算行业薪水水位与城市差异，解析 JD 技能要求。
 
 👉 更多自定义技能开发请参阅 [**业务技能 Manifest 规范文档**](docs/business-skills/)。

@@ -7,8 +7,8 @@ test('crawler manager uses a bounded application-wide concurrency limit', () => 
 
   assert.equal(manager.getMaxConcurrentTasks(), 3);
   assert.equal(manager.setMaxConcurrentTasks(5), 5);
-  assert.equal(manager.setMaxConcurrentTasks(8), 8);
-  assert.equal(manager.setMaxConcurrentTasks(10), 8);
+  assert.equal(manager.setMaxConcurrentTasks(8), 5);
+  assert.equal(manager.setMaxConcurrentTasks(10), 5);
   assert.equal(manager.setMaxConcurrentTasks(0), 1);
   assert.equal(manager.getActiveTaskCount(), 0);
   assert.equal(manager.hasCapacity(), true);

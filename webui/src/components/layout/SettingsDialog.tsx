@@ -834,7 +834,49 @@ export function SettingsDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {[1, 2, 3, 4, 5, 6, 7, 8].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
+                          {[1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                      <div>
+                        <div className="text-sm font-medium text-cyber-text-primary">连接器故障容灾策略</div>
+                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">当所选连接器不可用或异常时，控制是否改用同类健康连接器。</div>
+                      </div>
+                      <Select
+                        value={runtimeSettingsQuery.data.connectorFailoverPolicy || 'smart'}
+                        onValueChange={(value) => saveRuntimeSettings.mutate({ connectorFailoverPolicy: value as any })}
+                        disabled={saveRuntimeSettings.isPending}
+                      >
+                        <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="连接器故障容灾策略">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="smart" className="text-xs">智能模式（推荐）</SelectItem>
+                          <SelectItem value="never" className="text-xs">从不自动替换</SelectItem>
+                          <SelectItem value="always" className="text-xs">总是自动替代</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
+                      <div>
+                        <div className="text-sm font-medium text-cyber-text-primary">搜索关键词拓展策略</div>
+                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">控制 AI 规划采集任务时的关键词智能改写与扩词行为。</div>
+                      </div>
+                      <Select
+                        value={runtimeSettingsQuery.data.keywordExpansionPolicy || 'smart'}
+                        onValueChange={(value) => saveRuntimeSettings.mutate({ keywordExpansionPolicy: value as any })}
+                        disabled={saveRuntimeSettings.isPending}
+                      >
+                        <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="搜索关键词拓展策略">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="smart" className="text-xs">智能模式（推荐）</SelectItem>
+                          <SelectItem value="strict" className="text-xs">严格使用原词</SelectItem>
+                          <SelectItem value="always" className="text-xs">总是 AI 拓展</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

@@ -27,8 +27,16 @@ export class DoubaoCrawler extends AbstractCrawler {
   private async findInputSelector(): Promise<string | null> {
     if (!this.page) return null;
     const selectors = [
-      'textarea[placeholder*="豆包"]', 'textarea[placeholder*="输入"]', 'textarea[placeholder*="发送"]',
-      'textarea', 'div[contenteditable="true"]', 'div[role="textbox"]', '[contenteditable="true"]',
+      'textarea[placeholder*="豆包"]',
+      'textarea[placeholder*="消息"]',
+      'textarea[placeholder*="输入"]',
+      'textarea[placeholder*="发送"]',
+      'textarea[placeholder*="问"]',
+      'textarea',
+      '[class*="chat-input"] [contenteditable="true"]',
+      'div[contenteditable="true"]',
+      'div[role="textbox"]',
+      '[contenteditable="true"]',
     ];
     for (const selector of selectors) {
       if (await this.page.isVisible(selector).catch(() => false)) return selector;
@@ -39,12 +47,12 @@ export class DoubaoCrawler extends AbstractCrawler {
   private async isLoggedIn(): Promise<boolean> {
     if (!this.page) return false;
     if (/login|passport/.test(this.page.url())) return false;
-    // 豆包允许先渲染可用的会话输入框，再异步刷新顶栏账号态；此时顶栏旧的“登录”
-    // 不能作为阻断条件，否则会白等两分钟。真正无法提交时由提交后的页面状态报错。
-    if (await this.findInputSelector()) return true;
-    const hasLoginButton = await this.page.isVisible('button:has-text("登录"), a:has-text("登录"), [class*="login-btn"], [class*="login-button"]')
-      .catch(() => false);
-    return !hasLoginButton;
+    const hasInput = await this.findInputSelector();
+    const hasLoginModal = await this.page.isVisible(
+      'button:has-text("登录"), a:has-text("登录"), [class*="login-btn"], [class*="login-button"], [class*="login-modal"], [class*="passport-modal"], div:has-text("手机号登录")',
+    ).catch(() => false);
+    if (hasInput && !hasLoginModal) return true;
+    return !hasLoginModal && Boolean(hasInput);
   }
 
   private async handleLogin(): Promise<void> {
@@ -95,6 +103,8 @@ export class DoubaoCrawler extends AbstractCrawler {
     while (Date.now() < deadline && !(input = await this.findInputSelector())) await sleep(1500);
     if (!input) throw new Error(`Doubao chat input box not found. Please log in to ${DOUBAO_URL} in the crawler window.`);
 
+    const initialText = await this.getLatestResponseText();
+
     await this.page.click(input).catch(() => {});
     await this.page.keyboard.press('ControlOrMeta+A').catch(() => {});
     await this.page.keyboard.press('Backspace').catch(() => {});
@@ -126,7 +136,7 @@ export class DoubaoCrawler extends AbstractCrawler {
     if (stillPresent) {
       throw new Error('豆包没有接受本次提问。请确认已登录，或检查页面是否出现验证码后重试。');
     }
-    await this.waitForResponse();
+    await this.waitForResponse(initialText);
     const result = await this.collectResult();
     if (!result.answer) throw new Error('豆包已结束生成，但页面中未找到可导出的回答正文。');
     await connectorOutput.emitDoubaoResult({ question, title: question, answer: result.answer, reasoning_content: result.reasoning,
@@ -163,20 +173,24 @@ export class DoubaoCrawler extends AbstractCrawler {
     }).catch(() => '');
   }
 
-  private async waitForResponse(): Promise<void> {
+  private async waitForResponse(initialText = ''): Promise<void> {
     if (!this.page) return;
     const deadline = Date.now() + 120000;
-    let previous = '', stableCount = 0;
+    let previous = initialText, stableCount = 0;
+    let hasChangedFromInitial = false;
     while (Date.now() < deadline) {
       await sleep(1500);
       const generating = await this.page.isVisible('button:has-text("停止"), [class*="stop-button"], [class*="stop"]')
         .catch(() => false);
       const text = await this.getLatestResponseText();
-      if (!generating && text && text === previous && ++stableCount >= 2) return;
+      if (text && text !== initialText) {
+        hasChangedFromInitial = true;
+      }
+      if (!generating && text && (hasChangedFromInitial || !initialText) && text === previous && ++stableCount >= 2) return;
       stableCount = text === previous ? stableCount : 0;
       previous = text;
     }
-    if (!previous) throw new Error('等待 120 秒后仍未检测到豆包回答正文。');
+    if (!previous || previous === initialText) throw new Error('等待 120 秒后仍未检测到豆包回答正文。');
   }
 
   private async collectResult(): Promise<{ answer: string; reasoning: string; citations: Array<{ title: string; url: string }>; url: string }> {

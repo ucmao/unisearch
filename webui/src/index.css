@@ -1,8 +1,4 @@
-/* Local bundled fonts: MiSans (UI Sans: 400, 500, 600, 700) & JetBrains Mono (Code/Data) */
-@import "misans/lib/Normal/MiSans-Regular.min.css";
-@import "misans/lib/Normal/MiSans-Medium.min.css";
-@import "misans/lib/Normal/MiSans-Semibold.min.css";
-@import "misans/lib/Normal/MiSans-Bold.min.css";
+@import "./styles/misans.css";
 
 @import "@fontsource/jetbrains-mono/400.css";
 @import "@fontsource/jetbrains-mono/500.css";
@@ -135,6 +131,8 @@
 
   * {
     border-color: rgb(var(--cyber-border-default));
+    font-synthesis: none;
+    -webkit-font-synthesis: none;
   }
 
   body {
@@ -145,6 +143,13 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-synthesis: none;
+    -webkit-font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  strong, b {
+    font-weight: 600;
   }
 
   select, input, textarea, button, optgroup, option {

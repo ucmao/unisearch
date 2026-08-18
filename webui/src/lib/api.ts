@@ -412,6 +412,8 @@ export interface MemorySettings {
 
 export interface RuntimeSettings {
   maxConcurrentCrawlers: number
+  connectorFailoverPolicy: 'smart' | 'never' | 'always'
+  keywordExpansionPolicy: 'smart' | 'strict' | 'always'
 }
 
 export interface RetrievalProfile {

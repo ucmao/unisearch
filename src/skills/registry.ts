@@ -237,7 +237,7 @@ skillRegistry.register({
   id: 'brand-geo-risk-monitor',
   version: '1.0.0',
   name: '品牌GEO与风险监测',
-  description: '对比品牌在多个 AI 问答平台中的呈现，并结合黑猫投诉公开信息识别负面主题与待核验风险。',
+  description: '对比品牌在多个 AI 问答平台中的呈现，识别负面主题与待核验风险。',
   category: 'business',
   icon: 'shield-alert',
   mentionable: true,
@@ -248,18 +248,18 @@ skillRegistry.register({
   ],
   workflow: BUSINESS_WORKFLOW,
   defaults: {
-    platforms: ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'heimao'],
+    platforms: ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin'],
     capability: 'keyword_search',
     collectionDepth: 'quick',
-    analysis: ['品牌可见性与回答一致性', '信息准确性线索', '负面主题与风险等级', '引用来源', '公开投诉动态'],
+    analysis: ['品牌可见性与回答一致性', '信息准确性线索', '负面主题与风险等级', '引用来源'],
     outputs: ['csv'],
   },
   execution: {
     autoStartWhenExplicitlyInvoked: true,
     autoAnalyzeOnCompletion: true,
   },
-  analysisInstructions: '按品牌 GEO 与投诉风险口径分析。AI 回答和投诉单分别统计并说明样本量；AI 回答只代表特定时间和提问下的结果。风险评级必须给出理由和来源，只作为内部优先级，不构成事实或法律定性。投诉指控使用“用户称”“投诉内容显示”等审慎表述，未核验事实必须标记待核验。',
-  limitations: ['当前仅有黑猫投诉专用 Connector。', '不承诺 12315、监管或劳动部门直连。', '不自动对外回应、联系投诉人或执行处置。'],
+  analysisInstructions: '按品牌 GEO 与风险监测口径分析。AI 回答统计并说明样本量；AI 回答只代表特定时间和提问下的结果。风险评级必须给出理由和来源，只作为内部优先级，不构成事实或法律定性。',
+  limitations: ['不承诺 12315、监管或劳动部门直连。', '不自动对外回应、联系投诉人或执行处置。'],
 });
 
 skillRegistry.register({

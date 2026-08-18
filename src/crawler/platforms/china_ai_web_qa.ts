@@ -53,13 +53,19 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     ownDomains: ['yuanbao.tencent.com', 'tencent.com'],
     inputSelectors: [
       'textarea[placeholder*="问元宝"]',
-      'textarea[placeholder*="输入问题"]',
+      'textarea[placeholder*="输入"]',
       '[class*="input-editor"][contenteditable="true"]',
+      '[class*="chat-input"]',
+      '[class*="agent-chat__input"] [contenteditable="true"]',
       ...COMMON_INPUT_SELECTORS,
     ],
     answerSelectors: [
       '[class*="agent-chat__conv--ai"] [class*="markdown"]',
+      '[class*="agent-chat__conv--ai"]',
       '[class*="hyc-content-text"]',
+      '[class*="yt-markdown"]',
+      '[class*="chat-item--ai"]',
+      '[class*="message-item--ai"]',
       ...COMMON_ANSWER_SELECTORS,
     ],
   },
@@ -184,6 +190,8 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     while (Date.now() < deadline && !(input = await this.findInputSelector())) await sleep(1500);
     if (!input) throw new Error(`未找到${this.platform.name}输入框。`);
 
+    const initialText = await this.latestResponse();
+
     await this.page.click(input).catch(() => {});
     await this.page.keyboard.press('ControlOrMeta+A').catch(() => {});
     await this.page.keyboard.press('Backspace').catch(() => {});
@@ -199,6 +207,11 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
       'button:has-text("发送")',
       '[class*="send-button"]',
       '[class*="send-btn"]',
+      '[class*="send_btn"]',
+      '[class*="sendBtn"]',
+      '[class*="send-icon"]',
+      '[class*="sendIcon"]',
+      '[class*="agent-chat__input"] button',
     ];
     for (const selector of sendSelectors) {
       if (!await this.page.isVisible(selector).catch(() => false)) continue;
@@ -210,7 +223,18 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     }
     if (!submitted) await this.page.keyboard.press('Enter').catch(() => {});
 
-    await this.waitForResponse();
+    await sleep(800);
+    const stillPresent = await this.page.evaluate((prompt) => {
+      const el = document.querySelector('textarea, div[contenteditable="true"], div[role="textbox"]') as HTMLElement | null;
+      return (el?.innerText || (el as HTMLTextAreaElement | null)?.value || '').includes(prompt);
+    }, question).catch(() => false);
+
+    if (stillPresent) {
+      await this.page.keyboard.press('Enter').catch(() => {});
+      await sleep(1000);
+    }
+
+    await this.waitForResponse(initialText);
     const result = await this.collectResult();
     if (!result.answer) throw new Error(`${this.platform.name}已结束生成，但页面中未找到回答正文。`);
     await connectorOutput.emitAiWebQaResult(this.platform.id, {
@@ -238,22 +262,29 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     }, this.platform.answerSelectors).catch(() => '');
   }
 
-  private async waitForResponse(): Promise<void> {
+  private async waitForResponse(initialText = ''): Promise<void> {
     if (!this.page) return;
     const deadline = Date.now() + 120000;
-    let previous = '';
+    let previous = initialText;
     let stableCount = 0;
+    let hasChangedFromInitial = false;
+
     while (Date.now() < deadline) {
       await sleep(1500);
       const generating = await this.page.isVisible(
         'button:has-text("停止"), button:has-text("Stop"), [class*="stop-button"], [class*="generating"]',
       ).catch(() => false);
       const text = await this.latestResponse();
-      if (!generating && text && text === previous && ++stableCount >= 2) return;
+
+      if (text && text !== initialText) {
+        hasChangedFromInitial = true;
+      }
+
+      if (!generating && text && (hasChangedFromInitial || !initialText) && text === previous && ++stableCount >= 2) return;
       stableCount = text === previous ? stableCount : 0;
       previous = text;
     }
-    if (!previous) throw new Error(`等待 120 秒后仍未检测到${this.platform.name}回答正文。`);
+    if (!previous || previous === initialText) throw new Error(`等待 120 秒后仍未检测到${this.platform.name}回答正文。`);
   }
 
   private async collectResult(): Promise<{

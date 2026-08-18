@@ -286,12 +286,20 @@ test('health policy replaces implicit broken connectors but requires confirmatio
     insert.run('xhs', 'broken', 3, 0, now);
     insert.run('douyin', 'healthy', 3, 1, now);
     const service = new ConnectorHealthService(() => db);
-    const implicit = service.evaluatePlan(['xhs'], [], 'keyword_search');
+    const implicit = service.evaluatePlan(['xhs'], [], 'keyword_search', 'smart');
     assert.deepEqual(implicit.selectedPlatforms, ['douyin']);
     assert.equal(implicit.decisions[0].action, 'replace');
-    const explicit = service.evaluatePlan(['xhs'], ['xhs'], 'keyword_search');
+    const explicit = service.evaluatePlan(['xhs'], ['xhs'], 'keyword_search', 'smart');
     assert.deepEqual(explicit.selectedPlatforms, ['xhs']);
     assert.equal(explicit.requiresConfirmation, true);
+
+    const neverFailover = service.evaluatePlan(['xhs'], [], 'keyword_search', 'never');
+    assert.deepEqual(neverFailover.selectedPlatforms, ['xhs']);
+    assert.equal(neverFailover.requiresConfirmation, true);
+
+    const alwaysFailover = service.evaluatePlan(['xhs'], ['xhs'], 'keyword_search', 'always');
+    assert.deepEqual(alwaysFailover.selectedPlatforms, ['douyin']);
+    assert.equal(alwaysFailover.decisions[0].action, 'replace');
   } finally { db.close(); }
 });
 

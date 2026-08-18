@@ -92,7 +92,12 @@ export class ConnectorHealthService {
     return (this.db.prepare('SELECT * FROM connector_health ORDER BY state, connector_id').all() as any[]).map((row) => this.parse(row));
   }
 
-  evaluatePlan(platforms: string[], explicitPlatforms: string[], capability = 'keyword_search'): ConnectorPlanPolicy {
+  evaluatePlan(
+    platforms: string[],
+    explicitPlatforms: string[],
+    capability = 'keyword_search',
+    failoverPolicy: 'smart' | 'never' | 'always' = 'smart',
+  ): ConnectorPlanPolicy {
     const explicit = new Set(explicitPlatforms);
     const health = new Map(this.list().map((item) => [item.connectorId, item]));
     const selected: string[] = [];
@@ -111,31 +116,38 @@ export class ConnectorHealthService {
         });
         continue;
       }
-      if (explicit.has(connectorId)) {
-        selected.push(connectorId);
-        requiresConfirmation = true;
-        decisions.push({
-          connectorId, action: 'require_confirmation', state,
-          reason: state === 'blocked' ? '当前连接器需要重新登录或完成人工验证' : '近期错误疑似由页面结构变化导致',
-        });
-        continue;
+
+      // Check whether auto-failover is allowed for this connector
+      const allowAutoReplace = failoverPolicy === 'always' || (failoverPolicy === 'smart' && !explicit.has(connectorId));
+
+      if (allowAutoReplace) {
+        const manifest = getConnectorManifest(connectorId);
+        const replacement = listConnectorManifests()
+          .filter((candidate) => candidate.id !== connectorId
+            && candidate.category === manifest?.category
+            && candidate.capabilities.some((item) => item.id === capability)
+            && health.get(candidate.id)?.state === 'healthy'
+            && !selected.includes(candidate.id))
+          .sort((left, right) => Number(health.get(right.id)?.successRate || 0) - Number(health.get(left.id)?.successRate || 0))[0];
+        if (replacement) {
+          selected.push(replacement.id);
+          decisions.push({ connectorId, action: 'replace', state, replacementId: replacement.id, reason: `自动改用近期运行正常的同类连接器 ${replacement.name}` });
+          continue;
+        }
       }
-      const manifest = getConnectorManifest(connectorId);
-      const replacement = listConnectorManifests()
-        .filter((candidate) => candidate.id !== connectorId
-          && candidate.category === manifest?.category
-          && candidate.capabilities.some((item) => item.id === capability)
-          && health.get(candidate.id)?.state === 'healthy'
-          && !selected.includes(candidate.id))
-        .sort((left, right) => Number(health.get(right.id)?.successRate || 0) - Number(health.get(left.id)?.successRate || 0))[0];
-      if (replacement) {
-        selected.push(replacement.id);
-        decisions.push({ connectorId, action: 'replace', state, replacementId: replacement.id, reason: `自动改用近期运行正常的同类连接器 ${replacement.name}` });
-      } else {
-        selected.push(connectorId);
-        requiresConfirmation = true;
-        decisions.push({ connectorId, action: 'require_confirmation', state, reason: '没有健康的同类连接器可替代，需要确认后尝试' });
-      }
+
+      // Fallback or explicit lock requires user confirmation
+      selected.push(connectorId);
+      requiresConfirmation = true;
+      const lockReason = explicit.has(connectorId)
+        ? (state === 'blocked' ? '用户显式选定的连接器需要重新登录或完成验证' : '用户显式选定的连接器近期疑似异常，保留选定等待手动确认')
+        : (state === 'blocked' ? '当前连接器需要重新登录或完成人工验证' : '近期错误疑似由页面结构变化导致');
+      decisions.push({
+        connectorId,
+        action: 'require_confirmation',
+        state,
+        reason: lockReason,
+      });
     }
     return { originalPlatforms: [...platforms], selectedPlatforms: [...new Set(selected)], requiresConfirmation, decisions };
   }

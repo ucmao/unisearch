@@ -458,11 +458,12 @@ test('automatic atomic memories never overwrite user-owned memories', () => {
 test('runtime settings persist and clamp the global crawler limit', () => {
   const { db, repository: repo } = repository();
   try {
-    assert.deepEqual(repo.getRuntimeSettings(), { maxConcurrentCrawlers: 3 });
-    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 5 }), { maxConcurrentCrawlers: 5 });
-    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 8 }), { maxConcurrentCrawlers: 8 });
-    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 99 }), { maxConcurrentCrawlers: 8 });
-    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 0 }), { maxConcurrentCrawlers: 1 });
+    const defaultSettings = { maxConcurrentCrawlers: 3, connectorFailoverPolicy: 'smart', keywordExpansionPolicy: 'smart' };
+    assert.deepEqual(repo.getRuntimeSettings(), defaultSettings);
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 5 }), { ...defaultSettings, maxConcurrentCrawlers: 5 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 8 }), { ...defaultSettings, maxConcurrentCrawlers: 5 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 99 }), { ...defaultSettings, maxConcurrentCrawlers: 5 });
+    assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 0 }), { ...defaultSettings, maxConcurrentCrawlers: 1 });
   } finally {
     db.close();
   }

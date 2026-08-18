@@ -477,7 +477,7 @@ export class CrawlerManager extends EventEmitter {
   public setMaxConcurrentTasks(value: number): number {
     const parsed = Number(value);
     const normalized = Number.isFinite(parsed) ? Math.round(parsed) : 3;
-    this.maxConcurrentTasks = Math.max(1, Math.min(8, normalized));
+    this.maxConcurrentTasks = Math.max(1, Math.min(5, normalized));
     return this.maxConcurrentTasks;
   }
 

@@ -80,8 +80,13 @@ export interface MemorySettings {
   recallLimit: number;
 }
 
+export type ConnectorFailoverPolicy = 'smart' | 'never' | 'always';
+export type KeywordExpansionPolicy = 'smart' | 'strict' | 'always';
+
 export interface RuntimeSettings {
   maxConcurrentCrawlers: number;
+  connectorFailoverPolicy: ConnectorFailoverPolicy;
+  keywordExpansionPolicy: KeywordExpansionPolicy;
 }
 
 export interface AgentMemoryRecord {
@@ -464,8 +469,16 @@ export class AgentRepository {
 
   getRuntimeSettings(): RuntimeSettings {
     const row = this.db.prepare('SELECT * FROM agent_runtime_settings WHERE id=1').get() as any;
+    const validFailover = ['smart', 'never', 'always'].includes(row?.connector_failover_policy)
+      ? row.connector_failover_policy
+      : 'smart';
+    const validExpansion = ['smart', 'strict', 'always'].includes(row?.keyword_expansion_policy)
+      ? row.keyword_expansion_policy
+      : 'smart';
     return {
-      maxConcurrentCrawlers: Math.max(1, Math.min(8, Number(row?.max_concurrent_crawlers) || 3)),
+      maxConcurrentCrawlers: Math.max(1, Math.min(5, Number(row?.max_concurrent_crawlers) || 3)),
+      connectorFailoverPolicy: validFailover as ConnectorFailoverPolicy,
+      keywordExpansionPolicy: validExpansion as KeywordExpansionPolicy,
     };
   }
 
@@ -473,9 +486,16 @@ export class AgentRepository {
     const current = this.getRuntimeSettings();
     const parsed = Number(input.maxConcurrentCrawlers ?? current.maxConcurrentCrawlers);
     const normalized = Number.isFinite(parsed) ? Math.round(parsed) : current.maxConcurrentCrawlers;
-    const maxConcurrentCrawlers = Math.max(1, Math.min(8, normalized));
-    this.db.prepare('UPDATE agent_runtime_settings SET max_concurrent_crawlers=?, updated_at=? WHERE id=1')
-      .run(maxConcurrentCrawlers, new Date().toISOString());
+    const maxConcurrentCrawlers = Math.max(1, Math.min(5, normalized));
+    const connectorFailoverPolicy = ['smart', 'never', 'always'].includes(String(input.connectorFailoverPolicy))
+      ? input.connectorFailoverPolicy!
+      : current.connectorFailoverPolicy;
+    const keywordExpansionPolicy = ['smart', 'strict', 'always'].includes(String(input.keywordExpansionPolicy))
+      ? input.keywordExpansionPolicy!
+      : current.keywordExpansionPolicy;
+
+    this.db.prepare('UPDATE agent_runtime_settings SET max_concurrent_crawlers=?, connector_failover_policy=?, keyword_expansion_policy=?, updated_at=? WHERE id=1')
+      .run(maxConcurrentCrawlers, connectorFailoverPolicy, keywordExpansionPolicy, new Date().toISOString());
     return this.getRuntimeSettings();
   }
 

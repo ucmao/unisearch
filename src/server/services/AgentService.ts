@@ -140,9 +140,24 @@ export function shouldAutoStartPlan(
   return true;
 }
 
-function applyConnectorHealthPolicy(plan: ResearchPlan, userText: string, mentionedConnectors: string[]): ResearchPlan {
-  const explicitPlatforms = Array.from(new Set([...mentionedConnectors, ...inferResearchPlatforms(userText)]));
-  const healthPolicy = connectorHealthService.evaluatePlan(plan.platforms, explicitPlatforms, plan.capability || 'keyword_search');
+function applyConnectorHealthPolicy(
+  plan: ResearchPlan,
+  userText: string,
+  mentionedConnectors: string[],
+  skill: SkillDefinition | null = null,
+): ResearchPlan {
+  const explicitPlatforms = Array.from(new Set([
+    ...mentionedConnectors,
+    ...(skill?.platforms || []),
+    ...inferResearchPlatforms(userText),
+  ]));
+  const runtimeSettings = agentRepository.getRuntimeSettings();
+  const healthPolicy = connectorHealthService.evaluatePlan(
+    plan.platforms,
+    explicitPlatforms,
+    plan.capability || 'keyword_search',
+    runtimeSettings.connectorFailoverPolicy,
+  );
   return { ...plan, platforms: healthPolicy.selectedPlatforms, healthPolicy };
 }
 
@@ -186,17 +201,31 @@ export function normalizePlan(
   const rawKeywords = (Array.isArray(input?.keywords) ? input.keywords : [])
     .map((value: any) => String(value).trim()).filter(Boolean);
   const explicitUserKeywords = inferExplicitResearchKeywords(platformIntentText);
-  let keywords = explicitUserKeywords.length
-    ? explicitUserKeywords
-    : Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
-    // Models occasionally echo the merged clarification scaffold into a keyword,
-    // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
-    // through the deterministic subject extractor.
-    if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|BOSS\s*直聘|zhipin\.com).*(?:采集|搜索)/i.test(keyword)) {
-      return inferResearchKeywords(keyword);
-    }
-    return [keyword];
-  }))).slice(0, 12) as string[];
+
+  const runtimeSettings = agentRepository.getRuntimeSettings();
+  const hasExplicitSkillKeywords = (skill?.defaults?.keywords?.length ?? 0) > 0;
+  const isExplicitMode = explicitUserKeywords.length > 0 || hasExplicitSkillKeywords || /[“"']/.test(userText);
+  const shouldLockKeywords = runtimeSettings.keywordExpansionPolicy === 'strict'
+    || (runtimeSettings.keywordExpansionPolicy === 'smart' && isExplicitMode);
+
+  let keywords: string[];
+  if (shouldLockKeywords) {
+    keywords = explicitUserKeywords.length
+      ? explicitUserKeywords
+      : (hasExplicitSkillKeywords ? skill!.defaults!.keywords : (rawKeywords.length ? [rawKeywords[0]] : []));
+  } else {
+    keywords = explicitUserKeywords.length
+      ? explicitUserKeywords
+      : Array.from(new Set(rawKeywords.flatMap((keyword: string) => {
+          // Models occasionally echo the merged clarification scaffold into a keyword,
+          // e.g. "采集抖音 用户补充：codex学习". Re-run only command-like values
+          // through the deterministic subject extractor.
+          if (/用户补充|^(?:请|帮我|采集|收集|抓取|搜索|调研)|(?:小红书|抖音|快手|哔哩哔哩|微博|贴吧|知乎|百度|必应|360|搜狗|BOSS\s*直聘|zhipin\.com).*(?:采集|搜索)/i.test(keyword)) {
+            return inferResearchKeywords(keyword);
+          }
+          return [keyword];
+        }))).slice(0, 12) as string[];
+  }
 
   if (!keywords.length && fallbackPlan?.keywords?.length) {
     keywords = fallbackPlan.keywords;
@@ -1070,6 +1099,7 @@ export class AgentService {
               normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors),
               planningText,
               activeMentionedConnectors,
+              activeSkill,
             );
             if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0) || allowsEmptyKeywords(plan))) {
               const created = agentRepository.createPlan(threadId, plan);
@@ -1336,7 +1366,7 @@ export class AgentService {
       agentRepository.addMessage(threadId, 'assistant', 'text', reply, { action: 'chat' });
       return agentRepository.getThread(threadId);
     }
-    plan = applyConnectorHealthPolicy(plan, planningText, activeMentionedConnectors);
+    plan = applyConnectorHealthPolicy(plan, planningText, activeMentionedConnectors, activeSkill);
     if (!plan.platforms.length) {
       if (latest && ['completed', 'partially_completed'].includes(latest.status)) {
         const updatedThread = agentRepository.getThread(threadId);

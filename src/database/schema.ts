@@ -60,6 +60,8 @@ export function initSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS agent_runtime_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       max_concurrent_crawlers INTEGER NOT NULL DEFAULT 3,
+      connector_failover_policy TEXT NOT NULL DEFAULT 'smart',
+      keyword_expansion_policy TEXT NOT NULL DEFAULT 'smart',
       updated_at TEXT NOT NULL
     );
     INSERT OR IGNORE INTO agent_runtime_settings
@@ -566,6 +568,13 @@ export function initSchema(db: Database): void {
       FOREIGN KEY(workflow_id) REFERENCES workflow_runs(workflow_id) ON DELETE CASCADE
     );
   `);
+
+  try {
+    db.exec(`ALTER TABLE agent_runtime_settings ADD COLUMN connector_failover_policy TEXT NOT NULL DEFAULT 'smart'`);
+  } catch {}
+  try {
+    db.exec(`ALTER TABLE agent_runtime_settings ADD COLUMN keyword_expansion_policy TEXT NOT NULL DEFAULT 'smart'`);
+  } catch {}
 
     // Migrate graph_entity_rules if check constraint doesn't allow 'ignore' and 'link'
     const ruleTable = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='graph_entity_rules'").get() as { sql?: string } | undefined;
