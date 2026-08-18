@@ -203,7 +203,7 @@ skillRegistry.register({
   description: '检索arXiv学术论文库，获取文献摘要、作者与发布信息',
   category: 'tool',
   icon: 'book-open',
-  mentionable: true,
+  mentionable: false,
   inputs: [
     { key: 'keywords', required: true, description: '论文主题、关键词或学者姓名' },
     { key: 'collectionDepth', required: false, description: '采集深度' },
@@ -235,12 +235,12 @@ skillRegistry.register({
   id: 'code-search-research',
   version: '1.0.0',
   name: '代码搜索',
-  description: '检索GitHub开源仓库、热门项目、Star趋势与行业热点',
+  description: '检索GitHub开源仓库、热门项目与Star趋势',
   category: 'tool',
   icon: 'terminal',
-  mentionable: true,
+  mentionable: false,
   inputs: [
-    { key: 'keywords', required: true, description: '仓库名、技术关键词或热点主题' },
+    { key: 'keywords', required: true, description: '仓库名、技术关键词或项目主题' },
     { key: 'collectionDepth', required: false, description: '采集深度' },
   ],
   workflow: {
@@ -251,7 +251,7 @@ skillRegistry.register({
     outputs: ['documents'],
   },
   defaults: {
-    platforms: ['github_repositories', 'aihot'],
+    platforms: ['github_repositories'],
     capability: 'keyword_search',
     collectionDepth: 'quick',
     analysis: [],
@@ -262,7 +262,7 @@ skillRegistry.register({
     autoAnalyzeOnCompletion: false,
   },
   limitations: [
-    '检索公开可访问的 GitHub 仓库与开源热榜。',
+    '检索公开可访问的 GitHub 仓库。',
   ],
 });
 

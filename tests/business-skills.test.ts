@@ -48,7 +48,7 @@ test('creator profile Skill documents an executable target contract for all seve
   assert.ok(skill.targetGuidance.every((item) => item.accepted.length && item.examples.length));
 });
 
-test('input catalog exposes three business skills and seven deterministic tools', () => {
+test('input catalog exposes three business skills and five deterministic tools', () => {
   const mentionable = skillRegistry.list().filter((skill) => skill.mentionable);
   assert.deepEqual(
     mentionable.filter((skill) => skill.category === 'business').map((skill) => skill.id),
@@ -61,8 +61,6 @@ test('input catalog exposes three business skills and seven deterministic tools'
       'social-search-research',
       'ai-qa-research',
       'job-search-research',
-      'academic-search-research',
-      'code-search-research',
       'web-media-parser',
     ],
   );
@@ -86,6 +84,14 @@ test('input catalog exposes three business skills and seven deterministic tools'
   assert.equal(parser.defaults?.capability, 'url_resolve');
   assert.deepEqual(parser.defaults?.analysis, []);
   assert.equal(parser.execution.autoAnalyzeOnCompletion, false);
+
+  const academic = skillRegistry.get('academic-search-research');
+  assert.equal(academic.mentionable, false);
+  assert.deepEqual(academic.defaults?.platforms, ['arxiv']);
+
+  const code = skillRegistry.get('code-search-research');
+  assert.equal(code.mentionable, false);
+  assert.deepEqual(code.defaults?.platforms, ['github_repositories']);
 });
 
 test('tool defaults choose their deterministic connector capability', () => {

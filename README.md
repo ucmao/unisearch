@@ -17,13 +17,12 @@
 <a href="#️-系统架构">系统架构</a> •
 <a href="#-核心特性">核心特性</a> •
 <a href="#-32-采集信源矩阵">采集信源矩阵</a> •
-<a href="#-预置业务技能">预置业务技能</a> •
+<a href="#-内置技能体系">内置技能体系</a> •
 <a href="#-快速开始">快速开始</a> •
 <a href="#-多平台打包与发布">打包与发布</a> •
 <a href="#-项目目录结构">项目目录结构</a> •
 <a href="#-联系作者与交流">联系作者</a>
 </p>
-
 
 UniSearch 是一款专为研究员、分析师与数据探索者打造的 **AI 驱动跨平台多信源公开内容采集与深度调研桌面工作台**。
 
@@ -51,7 +50,7 @@ flowchart TB
     subgraph Server_Layer["⚡ 本地服务层 (Fastify + WebSocket)"]
         API["Fastify REST API & WS 事件流"]
         Agent["Agent 智能体 (自然语言解析 / 意图识别 / 任务规划)"]
-        SkillReg["Skill Registry (业务技能注册表)"]
+        SkillReg["Skill Registry (业务与工具技能注册表)"]
         WorkflowEng["Workflow 调度引擎 (增量执行 / 断点续采)"]
     end
 
@@ -110,6 +109,7 @@ flowchart TB
 ## ✨ 核心特性
 
 - **🤖 AI 自主拆解与增量调度**：输入调研课题，AI 自动拆解意图、匹配连接器、拓宽关键词并规划深度；支持断点续采与增量去重。
+- **🧩 13+ 场景化业务与采集技能**：支持直接自然语言触发、输入框键入 `@` 呼出快捷技能菜单，或使用 `/` 斜杠指令。
 - **🧠 本地混合 RAG & 逐句证据溯源**：融合 SQLite FTS5 全文检索与本地向量检索，所有研报结论与提取数据均精准标注原始出处段落与链接。
 - **🕸️ 实体治理与知识图谱**：自动抽取公司、品牌、人物及竞品实体，支持实体一键归并、多义拆分与拓扑演化展现。
 - **📊 多维数据透视与多格式导出**：按平台、时间、作者及互动指标多维筛选过滤，支持导出 Excel、Word、PDF、Markdown、JSON、CSV 等。
@@ -132,16 +132,15 @@ flowchart TB
 
 ---
 
-## 🎯 预置业务技能
+## 🎯 内置技能体系
 
-支持用斜杠指令 (`/`) 一键调度预置高阶业务技能（Business Skills）：
+UniSearch 内置 **13 个场景化专业技能**，支持自然语言直接驱动，或在输入框键入 `@` 快速呼出：
 
-- **💡 竞品情报分析** (`sales-course-intelligence`)：聚合社交与搜索信源，分析竞品定价、营销钩子与痛点对策。
-- **📈 新媒体爆款调研** (`marketing-content-research`)：跨平台拆解热门选题，提炼高赞表达方式与评论关注点。
-- **🛡️ 品牌 GEO 风险监测** (`brand-geo-risk-monitor`)：评估品牌在 7 大 LLM 中的可见性与一致性，识别负面风险线索。
-- **💼 招聘薪酬 Benchmark** (`hr-salary-benchmark`)：测算行业薪水水位与城市差异，解析 JD 技能要求。
+- 💼 **业务研报技能**：新媒体内容深度调研、品牌 GEO 呈现与风险监测、招聘与行业薪酬测算
+- 🛠️ **多源采集技能**：网页/社媒/AI问答/招聘垂直搜索、学术与代码检索、创作者主页精准采集
+- ⚙️ **工具与工作流**：全网 30+ 平台无水印音视频解析、多源数据标准化归一、音视频转知识库
 
-👉 更多自定义技能开发请参阅 [**业务技能 Manifest 规范文档**](docs/business-skills/)。
+👉 完整技能清单、调用参数与执行链路请参阅 [**技能体系全景矩阵**](docs/skills-matrix.md) 与 [**业务技能 Manifest 规范文档**](docs/business-skills/)。
 
 
 ---
@@ -209,9 +208,12 @@ unisearch/
 ├── api/                   # 本地 WebUI 静态托管目录
 ├── build/                 # 应用图标 (icns / ico / png) 与构建资源
 ├── data/                  # 本地运行时 SQLite 数据库与缓存
-├── docs/                  # 详细架构设计与业务技能规范文档
-│   ├── architecture/      # 架构设计文档
-│   └── business-skills/   # 核心业务技能设计规范
+├── docs/                  # 详细架构设计、连接器矩阵与技能体系规范文档
+│   ├── architecture/      # 架构设计与演进文档
+│   ├── business-skills/   # 核心业务场景技能设计规范
+│   ├── connectors-matrix.md # 32+ 平台连接器全景矩阵
+│   ├── skills-matrix.md   # 13+ 场景化技能体系全景矩阵
+│   └── release-packaging.md # 桌面端打包与发布指南
 ├── resources/             # 打包外置依赖与静态资源
 ├── scripts/               # 发布校验、环境检测与冒烟测试脚本
 ├── src/                   # 后端主进程与核心服务源码 (TypeScript)
@@ -227,7 +229,7 @@ unisearch/
 │   ├── processor/         # Processor Worker 子进程数据处理流水线
 │   ├── server/            # Fastify HTTP 服务、REST API 与 WebSocket 推送
 │   ├── services/          # Agent 服务、工作流调度、认证与资产管理
-│   ├── skills/            # 业务技能注册表与执行编排
+│   ├── skills/            # 业务与工具技能注册表、执行编排与 Prompt 规范
 │   ├── tools/             # AI Agent 可调用的底层工具集
 │   └── workflow/          # 工作流引擎、DAG 调度器与增量执行状态机
 ├── tests/                 # 单元测试与 Agent 评估测试
@@ -257,7 +259,6 @@ unisearch/
 - **QQ**：`294323976`
 - **邮箱**：[leoucmao@gmail.com](mailto:leoucmao@gmail.com)
 - **Bug 报告与需求建议**：欢迎在 GitHub 提交 [Issues](https://github.com/ucmao/unisearch/issues)
-- **官方网站**：[UniSearch Official Website](https://github.com/ucmao/unisearch)
 
 ---
 

@@ -68,7 +68,7 @@ test('dashboard removal rejects running selections and clear-all preserves them'
   }
 });
 
-test('full storage cleanup removes derived research assets', async () => {
+test('full knowledge base cleanup preserves research assets and cleanupReports removes them', async () => {
   const { db, repository: repo } = repository();
   try {
     await insertRun(db, 'run-assets', 'thread-assets', 'workflow-assets');
@@ -104,19 +104,34 @@ test('full storage cleanup removes derived research assets', async () => {
       VALUES ('relevance-assets', 'workflow-assets', 'initial', 'test', 'query', 'good', ?)`)
       .run(now);
 
+    // Storage summary should report all categories
+    const summary = repo.storageSummary();
+    assert.equal(summary.analytics_runs, 1);
+    assert.equal(summary.report_records, 1);
+    assert.equal(summary.artifact_records, 1);
+    assert.equal(summary.graph_snapshots, 1);
+    assert.equal(summary.graph_nodes, 1);
+
+    // Knowledge base cleanup clears crawls, docs, graphs, but preserves independent reports
     assert.equal(repo.cleanupHistory('all'), 1);
     for (const table of [
       'documents',
       'graph_snapshots',
       'graph_nodes',
       'graph_entity_rules',
-      'analysis_reports',
-      'report_artifacts',
       'quality_gate_runs',
-      'search_relevance_assessments',
     ]) {
       assert.equal((db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count, 0, table);
     }
+    // Reports and artifacts are preserved
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM analysis_reports').get() as any).count, 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM report_artifacts').get() as any).count, 1);
+
+    // Dedicated report cleanup removes reports and artifacts
+    assert.equal(repo.cleanupReports('all'), 1);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM analysis_reports').get() as any).count, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM report_artifacts').get() as any).count, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM search_relevance_assessments').get() as any).count, 0);
   } finally {
     db.close();
   }

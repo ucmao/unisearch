@@ -1,6 +1,7 @@
+import fs from 'fs';
 import crypto from 'crypto';
 import type { Database } from 'better-sqlite3';
-import { getDb } from './connection';
+import { getDb, getDatabasePath } from './connection';
 import { platformLabel } from '../connectors/registry';
 import { canonicalDocumentSchema, type CanonicalDocument } from '../core/documents/canonical';
 import { ConnectorHealthService } from '../connectors/health-service';
@@ -359,28 +360,66 @@ export class AnalyticsRepository {
   }
 
   storageSummary(): any {
-    const count = (table: string) => Number((this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any).count);
+    const count = (table: string) => {
+      try {
+        return Number((this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as any)?.count || 0);
+      } catch {
+        return 0;
+      }
+    };
+
+    let databaseSizeBytes = 0;
+    try {
+      const dbPath = getDatabasePath();
+      if (fs.existsSync(dbPath)) {
+        databaseSizeBytes = fs.statSync(dbPath).size;
+      }
+    } catch {
+      databaseSizeBytes = 0;
+    }
+
     return {
-      analytics_runs: count('crawl_runs'),
-      analytics_records: count('documents'),
-      log_records: count('crawl_run_logs'),
-      raw_records: count('document_sources'),
+      database_size_bytes: databaseSizeBytes,
+      // 1. 会话分类
       thread_records: count('agent_threads'),
       message_records: count('agent_messages'),
+      // 2. 知识底座分类
+      analytics_runs: count('crawl_runs'),
+      analytics_records: count('documents'),
+      raw_records: count('document_sources'),
+      chunk_records: count('document_chunks'),
+      embedding_records: count('document_chunk_embeddings'),
+      graph_snapshots: count('graph_snapshots'),
+      graph_nodes: count('graph_nodes'),
+      graph_edges: count('graph_edges'),
+      log_records: count('crawl_run_logs'),
+      // 3. 研报资产分类
+      report_records: count('analysis_reports'),
+      artifact_records: count('report_artifacts'),
+      assessment_records: count('search_relevance_assessments'),
     };
   }
 
-  previewCleanup(params: { crawl_days?: number; crawl_failed_days?: number; thread_days?: number; max_messages?: number } = {}): {
+  previewCleanup(params: {
+    crawl_days?: number;
+    crawl_failed_days?: number;
+    thread_days?: number;
+    max_messages?: number;
+    report_days?: number;
+  } = {}): {
     crawl_failed_empty: number;
     crawl_older_days: number;
     crawl_all: number;
     thread_empty_short: number;
     thread_older_days: number;
     thread_all: number;
+    report_older_days: number;
+    report_all: number;
   } {
     const crawlDays = Math.max(1, Math.min(3650, Number(params.crawl_days || 30)));
     const crawlFailedDays = Number(params.crawl_failed_days || 0);
     const threadDays = Math.max(1, Math.min(3650, Number(params.thread_days || 30)));
+    const reportDays = Math.max(1, Math.min(3650, Number(params.report_days || 30)));
 
     const noCollectedData = `NOT EXISTS (
       SELECT 1
@@ -438,6 +477,14 @@ export class AnalyticsRepository {
       ${notBusyThread}
     `).get() as any)?.count || 0);
 
+    const reportOlderDays = Number((this.db.prepare(
+      `SELECT COUNT(*) AS count FROM report_artifacts WHERE created_at < datetime('now', '-${reportDays} days')`
+    ).get() as any)?.count || 0);
+
+    const reportAll = Number((this.db.prepare(
+      'SELECT COUNT(*) AS count FROM report_artifacts'
+    ).get() as any)?.count || 0);
+
     return {
       crawl_failed_empty: crawlFailedEmpty,
       crawl_older_days: crawlOlderDays,
@@ -445,6 +492,8 @@ export class AnalyticsRepository {
       thread_empty_short: threadEmptyShort,
       thread_older_days: threadOlderDays,
       thread_all: threadAll,
+      report_older_days: reportOlderDays,
+      report_all: reportAll,
     };
   }
 
@@ -457,16 +506,16 @@ export class AnalyticsRepository {
         ).get() as any).count);
         if (activeCrawls || activeWorkflows) throw new Error('请先停止正在运行或等待中的任务');
 
-        // Research assets are derived from the collected documents, but graph
-        // snapshots and entity rules deliberately have no foreign keys to those
-        // documents. Clear them explicitly so an old snapshot cannot survive a
-        // full storage cleanup and appear in the knowledge base afterwards.
-        this.db.prepare('DELETE FROM report_artifacts').run();
-        this.db.prepare('DELETE FROM analysis_reports').run();
+        // Research assets (reports & artifacts) are independent high-value outputs.
+        // Decouple them from thread/workflow/graph to avoid foreign-key constraint violations
+        // while preserving the user's research reports.
+        this.db.prepare('UPDATE report_artifacts SET thread_id=NULL, workflow_id=NULL, graph_id=NULL').run();
+        this.db.prepare('UPDATE analysis_reports SET thread_id=NULL, workflow_id=NULL').run();
+
+        // Clear knowledge base graph snapshots, entity rules, and quality checks
         this.db.prepare('DELETE FROM graph_entity_rules').run();
         this.db.prepare('DELETE FROM graph_snapshots').run();
         this.db.prepare('DELETE FROM quality_gate_runs').run();
-        this.db.prepare('DELETE FROM search_relevance_assessments').run();
 
         const deletedRuns = this.db.prepare("DELETE FROM crawl_runs WHERE status!='running'").run().changes;
         this.db.prepare('DELETE FROM document_sources').run();
@@ -490,17 +539,95 @@ export class AnalyticsRepository {
     const runIds = ids.map((item) => item.run_id);
     let deleted = 0;
     if (runIds.length) {
-      deleted = this.deleteRuns(runIds, true);
+      deleted = this.deleteRuns(runIds, false);
     }
     this.db.prepare('DELETE FROM documents WHERE document_id NOT IN (SELECT document_id FROM document_sources)').run();
-    // Clean orphan graph snapshots that have no active scope or reference deleted scopes
+    // Clean orphan graph snapshots and entity rules that reference deleted runs
     this.db.prepare(`
       DELETE FROM graph_snapshots
       WHERE (scope_type = 'run' AND scope_id NOT IN (SELECT run_id FROM crawl_runs))
          OR (scope_type = 'thread' AND scope_id NOT IN (SELECT thread_id FROM agent_threads))
          OR (scope_type = 'workflow' AND scope_id NOT IN (SELECT workflow_id FROM workflow_runs))
     `).run();
+    this.db.prepare(`
+      DELETE FROM graph_entity_rules
+      WHERE (scope_type = 'run' AND scope_id NOT IN (SELECT run_id FROM crawl_runs))
+         OR (scope_type = 'thread' AND scope_id NOT IN (SELECT thread_id FROM agent_threads))
+         OR (scope_type = 'workflow' AND scope_id NOT IN (SELECT workflow_id FROM workflow_runs))
+    `).run();
     return deleted;
+  }
+
+  cleanupReports(mode: 'older_than_days' | 'all', options?: { days?: number }): number {
+    return (this.db.transaction(() => {
+      let artifactWhere = '1=1';
+      let reportWhere = '1=1';
+      if (mode === 'older_than_days') {
+        const days = Math.max(1, Math.min(3650, Number(options?.days || 30)));
+        artifactWhere = `created_at < datetime('now', '-${days} days')`;
+        reportWhere = `created_at < datetime('now', '-${days} days')`;
+      }
+
+      // Collect target artifact report IDs
+      const artifacts = this.db.prepare(`SELECT artifact_id, report_id FROM report_artifacts WHERE ${artifactWhere}`).all() as Array<{ artifact_id: string; report_id: string }>;
+      const artifactIds = artifacts.map((a) => a.artifact_id);
+      const reportIds = [...new Set(artifacts.map((a) => a.report_id).filter(Boolean))];
+
+      let deletedArtifacts = 0;
+      if (artifactIds.length) {
+        const placeholders = artifactIds.map(() => '?').join(',');
+        deletedArtifacts = this.db.prepare(`DELETE FROM report_artifacts WHERE artifact_id IN (${placeholders})`).run(...artifactIds).changes;
+      } else if (mode === 'all') {
+        deletedArtifacts = this.db.prepare('DELETE FROM report_artifacts').run().changes;
+      }
+
+      // Delete corresponding analysis reports
+      if (reportIds.length) {
+        const reportPlaceholders = reportIds.map(() => '?').join(',');
+        this.db.prepare(`DELETE FROM analysis_reports WHERE report_id IN (${reportPlaceholders})`).run(...reportIds);
+      } else if (mode === 'all') {
+        this.db.prepare('DELETE FROM analysis_reports').run();
+      } else if (mode === 'older_than_days') {
+        this.db.prepare(`DELETE FROM analysis_reports WHERE ${reportWhere}`).run();
+      }
+
+      // Clean assessments and quality gates
+      if (mode === 'all') {
+        this.db.prepare('DELETE FROM search_relevance_assessments').run();
+        this.db.prepare('DELETE FROM quality_gate_runs').run();
+      } else {
+        this.db.prepare(`DELETE FROM search_relevance_assessments WHERE created_at < datetime('now', '-${Math.max(1, Number(options?.days || 30))} days')`).run();
+      }
+
+      return deletedArtifacts;
+    }))();
+  }
+
+  vacuumDatabase(): { before_bytes: number; after_bytes: number; freed_bytes: number } {
+    let beforeBytes = 0;
+    try {
+      const dbPath = getDatabasePath();
+      if (fs.existsSync(dbPath)) beforeBytes = fs.statSync(dbPath).size;
+    } catch {
+      beforeBytes = 0;
+    }
+
+    // Execute VACUUM
+    this.db.exec('VACUUM');
+
+    let afterBytes = 0;
+    try {
+      const dbPath = getDatabasePath();
+      if (fs.existsSync(dbPath)) afterBytes = fs.statSync(dbPath).size;
+    } catch {
+      afterBytes = beforeBytes;
+    }
+
+    return {
+      before_bytes: beforeBytes,
+      after_bytes: afterBytes,
+      freed_bytes: Math.max(0, beforeBytes - afterBytes),
+    };
   }
 
   cleanupThreads(

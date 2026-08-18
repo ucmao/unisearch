@@ -1244,19 +1244,23 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       crawl_failed_days?: string | number;
       thread_days?: string | number;
       max_messages?: string | number;
+      report_days?: string | number;
     };
     return analyticsRepository.previewCleanup({
       crawl_days: query.crawl_days !== undefined ? Number(query.crawl_days) : undefined,
       crawl_failed_days: query.crawl_failed_days !== undefined ? Number(query.crawl_failed_days) : undefined,
       thread_days: query.thread_days !== undefined ? Number(query.thread_days) : undefined,
       max_messages: query.max_messages !== undefined ? Number(query.max_messages) : undefined,
+      report_days: query.report_days !== undefined ? Number(query.report_days) : undefined,
     });
   });
 
   fastify.post('/api/data/storage/cleanup', async (request, reply) => {
     const { mode, days } = (request.body || {}) as { mode?: 'failed_empty' | 'older_than_30_days' | 'all'; days?: number };
     if (!mode || !['failed_empty', 'older_than_30_days', 'all'].includes(mode)) return reply.status(400).send({ detail: '不支持的清理范围' });
-    return { status: 'ok', deleted: analyticsRepository.cleanupHistory(mode, { days }) };
+    const deleted = analyticsRepository.cleanupHistory(mode, { days });
+    const vacuumResult = analyticsRepository.vacuumDatabase();
+    return { status: 'ok', deleted, freed_bytes: vacuumResult.freed_bytes };
   });
 
   fastify.post('/api/data/storage/cleanup-threads', async (request, reply) => {
@@ -1269,12 +1273,39 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     if (!mode || !['empty_short', 'older_than_30_days_no_crawl', 'all_threads'].includes(mode)) {
       return reply.status(400).send({ detail: '不支持的会话清理范围' });
     }
+    const deleted = analyticsRepository.cleanupThreads(mode, {
+      days,
+      maxMessages: max_messages ?? maxMessages,
+    });
+    const vacuumResult = analyticsRepository.vacuumDatabase();
     return {
       status: 'ok',
-      deleted: analyticsRepository.cleanupThreads(mode, {
-        days,
-        maxMessages: max_messages ?? maxMessages,
-      }),
+      deleted,
+      freed_bytes: vacuumResult.freed_bytes,
+    };
+  });
+
+  fastify.post('/api/data/storage/cleanup-reports', async (request, reply) => {
+    const { mode, days } = (request.body || {}) as {
+      mode?: 'older_than_days' | 'all';
+      days?: number;
+    };
+    if (!mode || !['older_than_days', 'all'].includes(mode)) {
+      return reply.status(400).send({ detail: '不支持的研报清理范围' });
+    }
+    const deleted = analyticsRepository.cleanupReports(mode, { days });
+    const vacuumResult = analyticsRepository.vacuumDatabase();
+    return {
+      status: 'ok',
+      deleted,
+      freed_bytes: vacuumResult.freed_bytes,
+    };
+  });
+
+  fastify.post('/api/data/storage/vacuum', async () => {
+    return {
+      status: 'ok',
+      ...analyticsRepository.vacuumDatabase(),
     };
   });
 

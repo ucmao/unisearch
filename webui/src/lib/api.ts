@@ -204,12 +204,24 @@ export interface AnalyticsTasksResponse {
 }
 
 export interface StorageSummary {
-  analytics_runs: number
-  analytics_records: number
-  log_records: number
-  raw_records: number
+  database_size_bytes?: number
+  // 会话
   thread_records: number
   message_records: number
+  // 知识底座
+  analytics_runs: number
+  analytics_records: number
+  raw_records: number
+  chunk_records?: number
+  embedding_records?: number
+  graph_snapshots?: number
+  graph_nodes?: number
+  graph_edges?: number
+  log_records: number
+  // 研报资产
+  report_records?: number
+  artifact_records?: number
+  assessment_records?: number
 }
 
 export interface StoragePreview {
@@ -219,6 +231,8 @@ export interface StoragePreview {
   thread_empty_short: number
   thread_older_days: number
   thread_all: number
+  report_older_days?: number
+  report_all?: number
 }
 
 /** 由后端从 CONNECTOR_MANIFESTS 下发；平台名称在前端不再有第二份拷贝。 */
@@ -491,15 +505,22 @@ export const dataApi = {
   deleteReports: (artifactIds: string[]) =>
     api.post<{ status: string; deleted: number }>('/reports/batch-delete', { artifact_ids: artifactIds }),
   getStorageSummary: () => api.get<StorageSummary>('/data/storage/summary'),
-  getStoragePreview: (params?: { crawl_days?: number; crawl_failed_days?: number; thread_days?: number; max_messages?: number }) =>
+  getStoragePreview: (params?: { crawl_days?: number; crawl_failed_days?: number; thread_days?: number; max_messages?: number; report_days?: number }) =>
     api.get<StoragePreview>('/data/storage/preview', { params }),
   cleanupStorage: (mode: 'failed_empty' | 'older_than_30_days' | 'all', params?: { days?: number }) =>
-    api.post<{ status: string; deleted: number }>('/data/storage/cleanup', { mode, ...params }),
+    api.post<{ status: string; deleted: number; freed_bytes?: number }>('/data/storage/cleanup', { mode, ...params }),
   cleanupThreads: (
     mode: 'empty_short' | 'older_than_30_days_no_crawl' | 'all_threads',
     params?: { maxMessages?: number; days?: number },
   ) =>
-    api.post<{ status: string; deleted: number }>('/data/storage/cleanup-threads', { mode, ...params }),
+    api.post<{ status: string; deleted: number; freed_bytes?: number }>('/data/storage/cleanup-threads', { mode, ...params }),
+  cleanupReports: (
+    mode: 'older_than_days' | 'all',
+    params?: { days?: number },
+  ) =>
+    api.post<{ status: string; deleted: number; freed_bytes?: number }>('/data/storage/cleanup-reports', { mode, ...params }),
+  vacuumStorage: () =>
+    api.post<{ status: string; before_bytes: number; after_bytes: number; freed_bytes: number }>('/data/storage/vacuum'),
   getAnalyticsExportUrl: (params: {
     run_id?: string
     workflow_id?: string
