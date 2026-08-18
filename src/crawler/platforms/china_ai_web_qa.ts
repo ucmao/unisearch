@@ -10,20 +10,22 @@ import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
-type PlatformId = 'yuanbao' | 'nami' | 'wenxin';
+export type PlatformId = 'yuanbao' | 'nami' | 'wenxin';
 
-interface AiWebQaPlatform {
+export interface AiWebQaPlatform {
   id: PlatformId;
   name: string;
   url: string;
   ownDomains: string[];
   inputSelectors: string[];
+  newChatSelectors?: string[];
+  messageContainerSelectors: string[];
   answerSelectors: string[];
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const COMMON_INPUT_SELECTORS = [
+export const COMMON_INPUT_SELECTORS = [
   'textarea[placeholder*="输入"]',
   'textarea[placeholder*="提问"]',
   'textarea[placeholder*="问"]',
@@ -33,19 +35,85 @@ const COMMON_INPUT_SELECTORS = [
   '[contenteditable="true"]',
 ];
 
-const COMMON_ANSWER_SELECTORS = [
+export const COMMON_MESSAGE_CONTAINER_SELECTORS = [
+  '[class*="agent-chat__conv--ai"]',
+  '[class*="agent-chat__item--ai"]',
+  '[class*="agent-dialogue__item--ai"]',
+  '[class*="chat-item--ai"]',
+  '[class*="message-item--ai"]',
+  '[class*="answer-item"]',
+  '[class*="chat-message--ai"]',
+  '[data-role="assistant"]',
+  '[data-message-role="assistant"]',
+];
+
+export const COMMON_ANSWER_SELECTORS = [
+  '[class*="agent-chat__conv-content"]',
+  '[class*="agent-chat__conv-text"]',
+  '[class*="hyc-component-text"]',
+  '[class*="hyc-content-text"]',
+  '[class*="yt-markdown"]',
+  '[class*="answer-content"]',
+  '[class*="result-content"]',
   '.markdown-body',
   '.markdown',
   '[class*="markdown"]',
   '[class*="message-content"]',
   '[class*="chat-message"]',
-  '[class*="answer-content"]',
   '[class*="answer"]',
   '[data-message-id]',
   'div[role="article"]',
 ];
 
-const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
+export const NON_ANSWER_EXCLUDE_SELECTORS = [
+  '[class*="inspiration"]',
+  '[class*="prompt-card"]',
+  '[class*="prompt-box"]',
+  '[class*="prompt-item"]',
+  '[class*="prompt-list"]',
+  '[class*="sample-card"]',
+  '[class*="sample"]',
+  '[class*="example"]',
+  '[class*="recommend"]',
+  '[class*="suggest"]',
+  '[class*="followup"]',
+  '[class*="related-question"]',
+  '[class*="guide-item"]',
+  '[class*="plugin"]',
+  '[class*="gallery"]',
+  '[class*="sidebar"]',
+  '[class*="history"]',
+  '[class*="toolbar"]',
+  '[class*="action"]',
+  '[class*="feedback"]',
+  '[class*="agent-chat__conv--user"]',
+  '[class*="agent-chat__item--user"]',
+  '[class*="agent-dialogue__item--user"]',
+  '[class*="chat-item--user"]',
+  '[class*="user-message"]',
+  '[data-role="user"]',
+  'aside',
+  'nav',
+  'header',
+  'footer',
+  '[contenteditable="true"]',
+  'form',
+  'textarea',
+  'input',
+];
+
+export function isLikelyPromptTemplateOrPlaceholder(text: string, question?: string): boolean {
+  if (!text) return true;
+  const trimmed = text.trim();
+  if (trimmed.length < 15) return true;
+  if (question && trimmed.replace(/\s+/g, '') === question.replace(/\s+/g, '')) return true;
+  // Detect Midjourney / SD style prompt cards mistakenly grabbed as answers
+  const isImagePrompt = /--(?:ar|v|style|stylize|iw|cw)\s+\d+/i.test(trimmed)
+    || (trimmed.length < 200 && /(?:cyberpunk|neon lights|8k|masterpiece|highly detailed|photorealistic|cinematic lighting)/i.test(trimmed) && !trimmed.includes('：') && !trimmed.includes(':'));
+  return isImagePrompt;
+}
+
+export const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
   yuanbao: {
     id: 'yuanbao',
     name: '腾讯元宝',
@@ -54,18 +122,46 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     inputSelectors: [
       'textarea[placeholder*="问元宝"]',
       'textarea[placeholder*="输入"]',
+      'textarea[placeholder*="有问"]',
       '[class*="input-editor"][contenteditable="true"]',
       '[class*="chat-input"]',
       '[class*="agent-chat__input"] [contenteditable="true"]',
       ...COMMON_INPUT_SELECTORS,
     ],
-    answerSelectors: [
-      '[class*="agent-chat__conv--ai"] [class*="markdown"]',
+    newChatSelectors: [
+      '[data-desc="new-chat"]',
+      '.yb-common-nav__trigger[data-desc="new-chat"]',
+      '[class*="icon-yb-ic_newchat"]',
+      '.icon-yb-ic_newchat_20',
+      'button:has-text("新建对话")',
+      'button:has-text("新对话")',
+      'a:has-text("新建对话")',
+      'a:has-text("新对话")',
+      '[class*="new-chat"]',
+      '[class*="add-chat"]',
+      '[class*="create-chat"]',
+      '[aria-label*="新建对话"]',
+      '[aria-label*="新对话"]',
+      '[data-testid*="new-chat"]',
+    ],
+    messageContainerSelectors: [
       '[class*="agent-chat__conv--ai"]',
-      '[class*="hyc-content-text"]',
-      '[class*="yt-markdown"]',
+      '[class*="agent-chat__item--ai"]',
+      '[class*="agent-dialogue__item--ai"]',
       '[class*="chat-item--ai"]',
       '[class*="message-item--ai"]',
+      '[data-role="assistant"]',
+    ],
+    answerSelectors: [
+      '[class*="agent-chat__conv-content"]',
+      '[class*="agent-chat__conv-text"]',
+      '[class*="hyc-component-text"]',
+      '[class*="hyc-content-text"]',
+      '[class*="yt-markdown"]',
+      '[class*="markdown-body"]',
+      '[class*="markdown"]',
+      '.markdown-body',
+      '.markdown',
       ...COMMON_ANSWER_SELECTORS,
     ],
   },
@@ -79,6 +175,19 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
       'textarea[placeholder*="搜索"]',
       '[class*="editor"][contenteditable="true"]',
       ...COMMON_INPUT_SELECTORS,
+    ],
+    newChatSelectors: [
+      '[data-desc="new-chat"]',
+      'button:has-text("新对话")',
+      'button:has-text("新建对话")',
+      '[class*="new-chat"]',
+      '[aria-label*="新对话"]',
+    ],
+    messageContainerSelectors: [
+      '[class*="answer-item"]',
+      '[class*="chat-item--ai"]',
+      '[class*="result-content"]',
+      '[data-role="assistant"]',
     ],
     answerSelectors: [
       '[class*="answer-item"] [class*="markdown"]',
@@ -97,6 +206,19 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
       '[class*="chat-input"][contenteditable="true"]',
       ...COMMON_INPUT_SELECTORS,
     ],
+    newChatSelectors: [
+      '[data-desc="new-chat"]',
+      'button:has-text("新建对话")',
+      'button:has-text("新对话")',
+      '[class*="new-chat"]',
+      '[aria-label*="新建对话"]',
+    ],
+    messageContainerSelectors: [
+      '[class*="chat-message--ai"]',
+      '[class*="chat-item--ai"]',
+      '[class*="chat-message"]',
+      '[data-role="assistant"]',
+    ],
     answerSelectors: [
       '[class*="chat-message"] [class*="markdown"]',
       '[class*="answer-content"]',
@@ -105,7 +227,7 @@ const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
   },
 };
 
-class ConfigurableAiWebQaCrawler extends AbstractCrawler {
+export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
   public page: Page | null = null;
 
@@ -165,6 +287,28 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     throw new Error(`${this.platform.name}尚未登录。请完成登录后重新执行任务。`);
   }
 
+  private async startNewConversation(): Promise<void> {
+    if (!this.page) return;
+    const tag = this.platform.id.toUpperCase();
+    try {
+      if (this.platform.newChatSelectors) {
+        for (const selector of this.platform.newChatSelectors) {
+          if (await this.page.isVisible(selector).catch(() => false)) {
+            console.log(`[${tag}] Starting fresh conversation via selector: ${selector}`);
+            await this.page.click(selector).catch(() => {});
+            await sleep(2000);
+            return;
+          }
+        }
+      }
+      console.log(`[${tag}] Resetting conversation by navigating to ${this.platform.url}`);
+      await this.page.goto(this.platform.url, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+      await sleep(2000);
+    } catch (err: any) {
+      console.warn(`[${tag}] Failed to reset conversation: ${err.message}`);
+    }
+  }
+
   public async search(): Promise<void> {
     const questions = (activeConfig.KEYWORDS || '').split(',').map((value) => value.trim()).filter(Boolean);
     const maxItems = activeConfig.CRAWLER_MAX_NOTES_COUNT || 1;
@@ -172,6 +316,9 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     for (const [index, question] of questions.slice(0, maxItems).entries()) {
       console.log(`[${this.platform.id.toUpperCase()}] [${index + 1}/${questions.length}] Processing prompt: "${question}"...`);
       try {
+        if (index > 0) {
+          await this.startNewConversation();
+        }
         await this.askQuestion(question);
         successful++;
       } catch (error: any) {
@@ -190,7 +337,7 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     while (Date.now() < deadline && !(input = await this.findInputSelector())) await sleep(1500);
     if (!input) throw new Error(`未找到${this.platform.name}输入框。`);
 
-    const initialText = await this.latestResponse();
+    const initialText = await this.latestResponse(question);
 
     await this.page.click(input).catch(() => {});
     await this.page.keyboard.press('ControlOrMeta+A').catch(() => {});
@@ -234,9 +381,11 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
       await sleep(1000);
     }
 
-    await this.waitForResponse(initialText);
-    const result = await this.collectResult();
-    if (!result.answer) throw new Error(`${this.platform.name}已结束生成，但页面中未找到回答正文。`);
+    await this.waitForResponse(question, initialText);
+    const result = await this.collectResult(question);
+    if (!result.answer || isLikelyPromptTemplateOrPlaceholder(result.answer, question)) {
+      throw new Error(`${this.platform.name}已结束生成，但页面中未找到有效回答正文。`);
+    }
     await connectorOutput.emitAiWebQaResult(this.platform.id, {
       question,
       title: question,
@@ -249,65 +398,189 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     });
   }
 
-  private async latestResponse(): Promise<string> {
+  private async latestResponse(question?: string): Promise<string> {
     if (!this.page) return '';
-    return this.page.evaluate((selectors) => {
-      for (const selector of selectors) {
-        const nodes = Array.from(document.querySelectorAll(selector))
-          .filter((node) => !node.closest('[class*="suggest"], [contenteditable="true"]'));
-        const text = (nodes[nodes.length - 1] as HTMLElement | undefined)?.innerText?.trim();
-        if (text) return text;
+    return this.page.evaluate(({ containerSelectors, answerSelectors, excludeSelectors, prompt }) => {
+      const excludeSelectorStr = excludeSelectors.join(', ');
+      const isExcluded = (node: Element) => {
+        return Boolean(
+          node.closest(excludeSelectorStr)
+          || node.closest('[class*="user"], [data-role="user"], [class*="agent-chat__conv--user"], [class*="chat-item--user"], [class*="user-message"]')
+        );
+      };
+
+      const cleanNodeText = (element: Element): string => {
+        const clone = element.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll('button, [role="button"], [class*="chip"], [class*="action"], [class*="tool"], [class*="prompt"], [class*="suggest"], [class*="recommend"], [class*="feedback"], [class*="related"], [class*="followup"]').forEach((el) => el.remove());
+        return clone.innerText?.trim() || '';
+      };
+
+      const normalizedPrompt = (prompt || '').replace(/\s+/g, '');
+
+      // 1. Prioritize genuine AI message containers
+      for (const cSelector of containerSelectors) {
+        const containers = Array.from(document.querySelectorAll(cSelector)).filter((c) => !isExcluded(c));
+        if (containers.length > 0) {
+          const lastContainer = containers[containers.length - 1] as HTMLElement;
+          const candidates: Array<{ text: string; len: number }> = [];
+
+          for (const aSelector of answerSelectors) {
+            const innerNodes = Array.from(lastContainer.querySelectorAll(aSelector)).filter((n) => !isExcluded(n));
+            for (const node of innerNodes) {
+              const text = cleanNodeText(node);
+              if (text.length >= 10 && text.replace(/\s+/g, '') !== normalizedPrompt) {
+                candidates.push({ text, len: text.length });
+              }
+            }
+          }
+
+          if (candidates.length > 0) {
+            candidates.sort((a, b) => b.len - a.len);
+            return candidates[0].text;
+          }
+
+          const containerText = cleanNodeText(lastContainer);
+          if (containerText.length >= 10 && containerText.replace(/\s+/g, '') !== normalizedPrompt) {
+            return containerText;
+          }
+        }
       }
+
+      // 2. Global fallback only if strictly not inside user containers
+      const globalCandidates: Array<{ text: string; len: number }> = [];
+      for (const selector of answerSelectors) {
+        const nodes = Array.from(document.querySelectorAll(selector)).filter((node) => !isExcluded(node));
+        for (const node of nodes) {
+          const text = cleanNodeText(node);
+          if (text.length >= 30 && text.replace(/\s+/g, '') !== normalizedPrompt) {
+            globalCandidates.push({ text, len: text.length });
+          }
+        }
+      }
+      if (globalCandidates.length > 0) {
+        globalCandidates.sort((a, b) => b.len - a.len);
+        return globalCandidates[0].text;
+      }
+
       return '';
-    }, this.platform.answerSelectors).catch(() => '');
+    }, {
+      containerSelectors: this.platform.messageContainerSelectors,
+      answerSelectors: this.platform.answerSelectors,
+      excludeSelectors: NON_ANSWER_EXCLUDE_SELECTORS,
+      prompt: question || '',
+    }).catch(() => '');
   }
 
-  private async waitForResponse(initialText = ''): Promise<void> {
+  private async waitForResponse(question: string, initialText = ''): Promise<void> {
     if (!this.page) return;
     const deadline = Date.now() + 120000;
     let previous = initialText;
     let stableCount = 0;
     let hasChangedFromInitial = false;
+    const normalizedPrompt = question.replace(/\s+/g, '');
 
     while (Date.now() < deadline) {
       await sleep(1500);
       const generating = await this.page.isVisible(
-        'button:has-text("停止"), button:has-text("Stop"), [class*="stop-button"], [class*="generating"]',
+        'button:has-text("停止"), button:has-text("Stop"), [class*="stop-button"], [class*="generating"], [class*="typing"], [class*="loading"]',
       ).catch(() => false);
-      const text = await this.latestResponse();
+      const text = await this.latestResponse(question);
 
-      if (text && text !== initialText) {
+      if (text && text !== initialText && text.replace(/\s+/g, '') !== normalizedPrompt) {
         hasChangedFromInitial = true;
       }
 
-      if (!generating && text && (hasChangedFromInitial || !initialText) && text === previous && ++stableCount >= 2) return;
+      if (!generating && hasChangedFromInitial && text && text === previous && ++stableCount >= 2) return;
       stableCount = text === previous ? stableCount : 0;
       previous = text;
     }
-    if (!previous || previous === initialText) throw new Error(`等待 120 秒后仍未检测到${this.platform.name}回答正文。`);
+    if (!previous || previous === initialText || previous.replace(/\s+/g, '') === normalizedPrompt) {
+      throw new Error(`等待 120 秒后仍未检测到${this.platform.name}回答正文。`);
+    }
   }
 
-  private async collectResult(): Promise<{
+  private async collectResult(question?: string): Promise<{
     answer: string;
     reasoning: string;
     citations: Array<{ title: string; url: string }>;
     url: string;
   }> {
     if (!this.page) return { answer: '', reasoning: '', citations: [], url: this.platform.url };
-    return this.page.evaluate(({ selectors, ownDomains }) => {
+    return this.page.evaluate(({ containerSelectors, answerSelectors, excludeSelectors, ownDomains, prompt }) => {
+      const excludeSelectorStr = excludeSelectors.join(', ');
+      const isExcluded = (node: Element) => {
+        return Boolean(
+          node.closest(excludeSelectorStr)
+          || node.closest('[class*="user"], [data-role="user"], [class*="agent-chat__conv--user"], [class*="chat-item--user"], [class*="user-message"]')
+        );
+      };
+
+      const cleanNodeText = (element: Element): string => {
+        const clone = element.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll('button, [role="button"], [class*="chip"], [class*="action"], [class*="tool"], [class*="prompt"], [class*="suggest"], [class*="recommend"], [class*="feedback"], [class*="related"], [class*="followup"]').forEach((el) => el.remove());
+        return clone.innerText?.trim() || '';
+      };
+
+      const normalizedPrompt = (prompt || '').replace(/\s+/g, '');
       let target: Element | undefined;
-      for (const selector of selectors) {
-        const candidates = Array.from(document.querySelectorAll(selector))
-          .filter((node) => !node.closest('[class*="suggest"], [contenteditable="true"]'))
-          .map((node) => ({ node, text: (node as HTMLElement).innerText?.trim() || '' }))
-          .filter((item) => item.text.length >= 10);
-        if (candidates.length) {
-          target = candidates[candidates.length - 1].node;
-          break;
+      let selectedText = '';
+
+      // 1. Prioritize genuine AI message containers
+      for (const cSelector of containerSelectors) {
+        const containers = Array.from(document.querySelectorAll(cSelector)).filter((c) => !isExcluded(c));
+        if (containers.length > 0) {
+          const lastContainer = containers[containers.length - 1] as HTMLElement;
+          const candidates: Array<{ node: HTMLElement; text: string; len: number }> = [];
+
+          for (const aSelector of answerSelectors) {
+            const innerNodes = Array.from(lastContainer.querySelectorAll(aSelector)).filter((n) => !isExcluded(n)) as HTMLElement[];
+            for (const node of innerNodes) {
+              const text = cleanNodeText(node);
+              if (text.length >= 10 && text.replace(/\s+/g, '') !== normalizedPrompt) {
+                candidates.push({ node, text, len: text.length });
+              }
+            }
+          }
+
+          if (candidates.length > 0) {
+            candidates.sort((a, b) => b.len - a.len);
+            target = candidates[0].node;
+            selectedText = candidates[0].text;
+            break;
+          }
+
+          const containerText = cleanNodeText(lastContainer);
+          if (containerText.length >= 10 && containerText.replace(/\s+/g, '') !== normalizedPrompt) {
+            target = lastContainer;
+            selectedText = containerText;
+            break;
+          }
         }
       }
+
+      // 2. Global fallback if container was not matched
+      if (!selectedText) {
+        const globalCandidates: Array<{ node: HTMLElement; text: string; len: number }> = [];
+        for (const selector of answerSelectors) {
+          const nodes = Array.from(document.querySelectorAll(selector)).filter((node) => !isExcluded(node)) as HTMLElement[];
+          for (const node of nodes) {
+            const text = cleanNodeText(node);
+            if (text.length >= 30 && text.replace(/\s+/g, '') !== normalizedPrompt) {
+              globalCandidates.push({ node, text, len: text.length });
+            }
+          }
+        }
+        if (globalCandidates.length > 0) {
+          globalCandidates.sort((a, b) => b.len - a.len);
+          target = globalCandidates[0].node;
+          selectedText = globalCandidates[0].text;
+        }
+      }
+
       const reasoning = Array.from(document.querySelectorAll('[class*="thought"], [class*="reasoning"], details'))
+        .filter((node) => !isExcluded(node))
         .map((node) => (node as HTMLElement).innerText?.trim() || '').filter(Boolean).join('\n\n');
+
       const citations = Array.from((target || document).querySelectorAll('a[href]')).map((node) => ({
         title: (node as HTMLElement).innerText.trim() || (node as HTMLAnchorElement).href,
         url: (node as HTMLAnchorElement).href,
@@ -319,13 +592,20 @@ class ConfigurableAiWebQaCrawler extends AbstractCrawler {
           return false;
         }
       });
+
       return {
-        answer: (target as HTMLElement | undefined)?.innerText?.trim() || '',
+        answer: selectedText,
         reasoning,
         citations,
         url: window.location.href,
       };
-    }, { selectors: this.platform.answerSelectors, ownDomains: this.platform.ownDomains });
+    }, {
+      containerSelectors: this.platform.messageContainerSelectors,
+      answerSelectors: this.platform.answerSelectors,
+      excludeSelectors: NON_ANSWER_EXCLUDE_SELECTORS,
+      ownDomains: this.platform.ownDomains,
+      prompt: question || '',
+    });
   }
 }
 
