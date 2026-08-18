@@ -379,7 +379,7 @@ export function SettingsDialog({
     onError: (error) => toast.error(getError(error)),
   })
   const createMemory = useMutation({
-    mutationFn: (input: { content: string; category: AgentMemory['category'] }) => agentApi.createMemory(input),
+    mutationFn: (input: { content: string; category?: AgentMemory['category'] }) => agentApi.createMemory(input),
     onSuccess: () => {
       setNewMemoryContent('')
       setIsAddingMemory(false)
@@ -389,23 +389,28 @@ export function SettingsDialog({
     onError: (error) => toast.error(getError(error)),
   })
   const updateMemory = useMutation({
-    mutationFn: ({ memoryId, patch }: { memoryId: string; patch: { content?: string; status?: AgentMemory['status'] } }) => agentApi.updateMemory(memoryId, patch),
+    mutationFn: ({ memoryId, patch }: { memoryId: string; patch: { content?: string } }) => agentApi.updateMemory(memoryId, patch),
     onSuccess: () => {
       setEditMemoryId(null)
       queryClient.invalidateQueries({ queryKey: ['agent-memories'] })
+      toast.success('已更新记忆')
     },
     onError: (error) => toast.error(getError(error)),
   })
   const deleteMemory = useMutation({
     mutationFn: (memoryId: string) => agentApi.deleteMemory(memoryId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-memories'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agent-memories'] })
+      toast.success('已删除记忆')
+    },
     onError: (error) => toast.error(getError(error)),
   })
   const clearMemories = useMutation({
     mutationFn: () => agentApi.clearMemories(),
-    onSuccess: ({ data }) => {
-      queryClient.setQueryData(['agent-memories'], [])
-      toast.success(`已清除 ${data.deleted} 条记忆`)
+    onSuccess: () => {
+      queryClient.setQueryData(['agent-memories'], { data: { items: [] } })
+      queryClient.invalidateQueries({ queryKey: ['agent-memories'] })
+      toast.success('已重置所有记忆')
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -1328,7 +1333,7 @@ export function SettingsDialog({
                           size="sm"
                           variant="outline"
                           className="h-8 gap-1.5 border-cyber-neon-cyan/30 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10"
-                          onClick={() => { setIsAddingMemory(true); setNewMemoryContent(''); setNewMemoryCategory('rule') }}
+                          onClick={() => { setIsAddingMemory(true); setNewMemoryContent(''); setNewMemoryCategory('preference') }}
                         >
                           <Plus className="h-3.5 w-3.5" />
                           新建记忆
@@ -1337,7 +1342,7 @@ export function SettingsDialog({
 
                       {isAddingMemory ? (
                         <div className="mb-3 rounded-xl border border-cyber-neon-cyan/40 bg-cyber-bg-secondary/60 p-3">
-                          <p className="mb-1.5 text-xs font-medium text-cyber-neon-cyan">添加一条明确、长期有效的记忆：</p>
+                          <p className="mb-1.5 text-xs font-medium text-cyber-neon-cyan">添加一条长期记忆：</p>
                           <div className="flex gap-2">
                             <Select value={newMemoryCategory} onValueChange={(value: AgentMemory['category']) => setNewMemoryCategory(value)}>
                               <SelectTrigger className="h-8 w-24 shrink-0 text-xs"><SelectValue /></SelectTrigger>
@@ -1350,7 +1355,15 @@ export function SettingsDialog({
                             </Select>
                             <Input
                               autoFocus
-                              placeholder="例如：爬虫数据导出 CSV 时默认使用 UTF-8 编码"
+                              placeholder={
+                                newMemoryCategory === 'identity'
+                                  ? '例如：我是教育行业产品运营负责人'
+                                  : newMemoryCategory === 'preference'
+                                    ? '例如：调研时优先参考小红书和B站'
+                                    : newMemoryCategory === 'context'
+                                      ? '例如：最近正在做教育行业竞品调研'
+                                      : '例如：回答尽量简短，输出结构清晰'
+                              }
                               value={newMemoryContent}
                               onChange={(e) => setNewMemoryContent(e.target.value)}
                               onKeyDown={(e) => {
@@ -1390,10 +1403,10 @@ export function SettingsDialog({
                             <div className="flex items-start gap-3">
                               <div className="min-w-0 flex-1">
                                 <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                                  <span className={memory.memory_key.startsWith('user_manual_')
+                                  <span className={memory.source === 'manual'
                                     ? 'rounded border border-cyber-neon-cyan/20 bg-cyber-neon-cyan/10 px-2 py-0.5 text-[10px] font-medium text-cyber-neon-cyan'
                                     : 'rounded bg-cyber-bg-tertiary px-2 py-0.5 text-[10px] font-medium text-cyber-text-secondary'}>
-                                    {memory.memory_key.startsWith('user_manual_') ? '手动固定' : memory.status === 'candidate' ? '待确认' : '自动提取'}
+                                    {memory.source === 'manual' ? '手动固定' : '自动提取'}
                                   </span>
                                   {memory.category ? (
                                     <span className="rounded bg-cyber-bg-secondary px-2 py-0.5 text-[10px] font-medium text-cyber-text-muted">
@@ -1408,8 +1421,6 @@ export function SettingsDialog({
                                 )}
                                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
                                   <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>
-                                  {!memory.memory_key.startsWith('user_manual_') && memory.evidence_count > 1 ? <span>· {memory.evidence_count} 次依据</span> : null}
-                                  {memory.status === 'candidate' ? <span>· 尚未用于对话</span> : null}
                                 </div>
                               </div>
                               <div className="flex shrink-0 items-center gap-1">

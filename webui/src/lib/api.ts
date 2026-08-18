@@ -405,9 +405,6 @@ export interface ModelProfiles {
 export interface MemorySettings {
   enabled: boolean
   autoCapture: boolean
-  autoRecall: boolean
-  captureMode: 'conservative' | 'balanced'
-  recallLimit: number
 }
 
 export interface RuntimeSettings {
@@ -429,19 +426,10 @@ export interface RetrievalProfile {
 export interface AgentMemory {
   memory_id: string
   category: 'identity' | 'preference' | 'context' | 'rule'
-  memory_key: string
+  source: 'automatic' | 'manual'
   content: string
-  confidence: number
-  importance: number
-  status: 'active' | 'candidate' | 'superseded'
-  source_thread_id?: string | null
-  source_message_id?: string | null
   created_at: string
   updated_at: string
-  last_used_at?: string | null
-  evidence_count: number
-  source_message_ids_json: string
-  last_confirmed_at?: string | null
 }
 
 // API functions
@@ -735,7 +723,7 @@ export const agentApi = {
   listMemories: () => api.get<{ items: AgentMemory[] }>('/agent/memories'),
   createMemory: (input: { content: string; category?: AgentMemory['category'] }) =>
     api.post<AgentMemory>('/agent/memories', input),
-  updateMemory: (memoryId: string, input: { content?: string; status?: AgentMemory['status'] }) =>
+  updateMemory: (memoryId: string, input: { content?: string }) =>
     api.patch<AgentMemory>(`/agent/memories/${encodeURIComponent(memoryId)}`, input),
   deleteMemory: (memoryId: string) => api.delete(`/agent/memories/${encodeURIComponent(memoryId)}`),
   clearMemories: () => api.delete<{ deleted: number }>('/agent/memories'),

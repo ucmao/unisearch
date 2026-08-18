@@ -340,116 +340,45 @@ test('deleting a task always cascades workflows and Documents, and rejects activ
   }
 });
 
-test('memory settings and permanent memories are stored locally', () => {
+test('dual-track memory supports manual multi-items and automatic category slots', () => {
   const { db, repository: repo } = repository();
   try {
     assert.deepEqual(repo.getMemorySettings(), {
       enabled: true,
       autoCapture: true,
-      autoRecall: true,
-      captureMode: 'balanced',
-      recallLimit: 8,
     });
-    assert.equal(repo.updateMemorySettings({ captureMode: 'conservative', recallLimit: 5 }).captureMode, 'conservative');
+    assert.equal(repo.updateMemorySettings({ enabled: false }).enabled, false);
+    assert.equal(repo.updateMemorySettings({ enabled: true, autoCapture: false }).autoCapture, false);
 
-    const thread = repo.createThread('记忆来源');
-    const source = repo.addMessage(thread.thread_id, 'user', 'text', '请记住我叫小青青');
-    const created = repo.upsertMemory({
-      category: 'identity', memoryKey: 'preferred_name', content: '用户希望被称为小青青',
-      confidence: 0.98, importance: 0.9, status: 'active',
-      sourceThreadId: thread.thread_id, sourceMessageId: source.message_id,
-    });
-    repo.upsertMemory({
-      category: 'identity', memoryKey: 'preferred_name', content: '用户希望被称为青青',
-      confidence: 0.99, importance: 0.8, status: 'active',
-      sourceThreadId: thread.thread_id, sourceMessageId: source.message_id,
-    });
+    // Manual memories can be created in arbitrary quantity
+    const r1 = repo.upsertMemory({ category: 'rule', content: '规则1：导出默认 UTF-8', source: 'manual' });
+    const r2 = repo.upsertMemory({ category: 'rule', content: '规则2：每次为三组加油', source: 'manual' });
+    assert.notEqual(r1.memory_id, r2.memory_id);
+    assert.equal(repo.listMemories().length, 2);
 
-    assert.equal(repo.listMemories().length, 1);
-    assert.equal(repo.listMemories()[0].content, '用户希望被称为青青');
-    assert.equal(repo.retrieveMemories('我是谁？', 5)[0].memory_id, created.memory_id);
+    // Automatic memories overwrite by category
+    const autoId1 = repo.upsertMemory({ category: 'identity', content: '用户叫 Leo', source: 'automatic' });
+    const autoId2 = repo.upsertMemory({ category: 'identity', content: '用户叫 Leo，是科莱特三组组长', source: 'automatic' });
+    assert.equal(autoId1.memory_id, autoId2.memory_id);
+    assert.equal(repo.listMemories().length, 3);
+    assert.equal(repo.listMemories().find((m) => m.category === 'identity')?.content, '用户叫 Leo，是科莱特三组组长');
+
+    // Dual-track retrieval
+    assert.equal(repo.retrieveMemories().length, 3);
+
+    // Update manual memory
+    repo.updateMemory(r1.memory_id, { content: '规则1：导出必须是 UTF-8 编码' });
+    assert.equal(repo.listMemories().find((m) => m.memory_id === r1.memory_id)?.content, '规则1：导出必须是 UTF-8 编码');
+
+    // Delete single memory
+    repo.deleteMemory(r2.memory_id);
+    assert.equal(repo.listMemories().length, 2);
 
     initSchema(db);
-    assert.equal(repo.listMemories().length, 1, 'reinitializing the schema must preserve memories');
+    assert.equal(repo.listMemories().length, 2, 'reinitializing the schema must preserve memories');
 
-    repo.deleteThread(thread.thread_id);
-    assert.equal(repo.listMemories().length, 1, 'deleting a conversation must not delete permanent memory');
-    assert.equal(repo.listMemories()[0].source_thread_id, null);
-  } finally {
-    db.close();
-  }
-});
-
-test('manual memories are independent and recalled before automatic memories', () => {
-  const { db, repository: repo } = repository();
-  try {
-    repo.upsertMemory({
-      category: 'context', memoryKey: 'automatic_context', content: '自动提取的背景',
-      confidence: 0.9, importance: 0.9, status: 'active',
-    });
-    const first = repo.upsertMemory({
-      category: 'rule', memoryKey: 'user_manual_first', content: '第一条用户记忆',
-      confidence: 1, importance: 1, status: 'active',
-    });
-    const second = repo.upsertMemory({
-      category: 'rule', memoryKey: 'user_manual_second', content: '第二条用户记忆',
-      confidence: 1, importance: 1, status: 'active',
-    });
-
-    assert.notEqual(first.memory_id, second.memory_id);
-    assert.equal(repo.listMemories().length, 3);
-    assert.deepEqual(
-      repo.retrieveMemories('', 2).map((memory) => memory.content).sort(),
-      ['第一条用户记忆', '第二条用户记忆'].sort(),
-    );
-  } finally {
-    db.close();
-  }
-});
-
-test('automatic atomic memories never overwrite user-owned memories', () => {
-  const { db, repository: repo } = repository();
-  try {
-    const manual = repo.upsertMemory({
-      category: 'rule', memoryKey: 'user_manual_protected', content: '用户明确保存的内容',
-      confidence: 1, importance: 1, status: 'active',
-    });
-    repo.applyAutomaticMemoryMutations([{
-      action: 'upsert', memoryKey: 'identity.occupation', category: 'identity',
-      content: '用户是产品经理', confidence: 0.98, importance: 0.8, explicit: true,
-    }], 'balanced');
-
-    assert.deepEqual(repo.listAutomaticMemories().map((memory) => memory.memory_key), [
-      'auto_atom_identity.occupation',
-    ]);
-    assert.equal(repo.listMemories().find((memory) => memory.memory_id === manual.memory_id)?.content, '用户明确保存的内容');
-
-    const automatic = repo.listAutomaticMemories()[0];
-    const userEdited = repo.updateMemory(automatic.memory_id, { content: '用户修正后的内容' });
-    assert.match(userEdited?.memory_key || '', /^user_manual_/);
-
-    repo.applyAutomaticMemoryMutations([{
-      action: 'upsert', memoryKey: 'identity.occupation', category: 'identity',
-      content: '用户从事产品工作', confidence: 0.98, importance: 0.8, explicit: true,
-    }], 'balanced');
-    assert.equal(repo.listMemories().find((memory) => memory.memory_id === automatic.memory_id)?.content, '用户修正后的内容');
-
-    repo.upsertMemory({
-      category: 'rule', memoryKey: manual.memory_key, content: '系统尝试覆盖用户内容',
-      confidence: 1, importance: 1, status: 'active',
-    });
-    assert.equal(repo.listMemories().find((memory) => memory.memory_id === manual.memory_id)?.content, '用户明确保存的内容');
-
-    repo.applyAutomaticMemoryMutations([{
-      action: 'upsert', memoryKey: 'preference.job_research', category: 'preference',
-      content: '偏好在招聘平台检索岗位薪酬信息', confidence: 0.95, importance: 0.8, explicit: false,
-    }], 'balanced');
-    assert.equal(repo.listAutomaticMemories().some((m) => m.content.includes('岗位薪酬')), true);
-
-    repo.applyAutomaticMemoryMutations([{
-      action: 'forget', memoryKey: 'preference.job_research',
-    }], 'balanced');
-    assert.equal(repo.listAutomaticMemories().some((m) => m.memory_key === 'auto_atom_preference.job_research'), false);
+    repo.clearMemories();
+    assert.equal(repo.listMemories().length, 0);
   } finally {
     db.close();
   }
@@ -483,100 +412,6 @@ test('assistant messages automatically persist the active whole-run trace', asyn
     assert.equal(message.metadata.agent_run.route.action, 'chat');
     assert.equal(message.metadata.agent_run.metrics.model_calls, 1);
     assert.equal(message.metadata.agent_run.stop_reason, 'chat');
-  } finally {
-    db.close();
-  }
-});
-
-test('candidate and disabled memories are not recalled', () => {
-  const { db, repository: repo } = repository();
-  try {
-    const candidate = repo.upsertMemory({
-      category: 'preference', memoryKey: 'response_style', content: '用户可能喜欢简洁回答',
-      confidence: 0.7, importance: 0.6, status: 'candidate',
-    });
-    assert.deepEqual(repo.retrieveMemories('回答风格'), []);
-
-    repo.updateMemory(candidate.memory_id, { status: 'active' });
-    assert.equal(repo.retrieveMemories('回答风格').length, 1);
-
-    repo.updateMemorySettings({ enabled: false });
-    assert.deepEqual(repo.retrieveMemories('回答风格'), []);
-  } finally {
-    db.close();
-  }
-});
-
-test('automatic atomic memories merge evidence and promote candidates', () => {
-  const { db, repository: repo } = repository();
-  try {
-    repo.applyAutomaticMemoryMutations([{
-      action: 'upsert', memoryKey: 'preference.response_style', category: 'preference',
-      content: '用户偏好简洁回答', confidence: 0.75, importance: 0.8,
-      evidenceMessageIds: ['message-1'],
-    }], 'conservative');
-
-    assert.deepEqual(repo.retrieveMemories('回答风格'), []);
-    const candidate = repo.listMemories().find((memory) => memory.memory_key === 'auto_atom_preference.response_style');
-    assert.equal(candidate?.status, 'candidate');
-
-    repo.applyAutomaticMemoryMutations([{
-      action: 'upsert', memoryKey: 'preference.response_style', category: 'preference',
-      content: '用户偏好简洁回答', confidence: 0.95, importance: 0.8,
-      evidenceMessageIds: ['message-2'],
-    }], 'conservative');
-
-    const promoted = repo.listMemories().find((memory) => memory.memory_key === 'auto_atom_preference.response_style');
-    assert.equal(promoted?.status, 'active');
-    assert.equal(promoted?.evidence_count, 2);
-    assert.deepEqual(JSON.parse(promoted?.source_message_ids_json || '[]'), ['message-1', 'message-2']);
-    assert.equal(repo.retrieveMemories('回答风格')[0]?.memory_id, promoted?.memory_id);
-  } finally {
-    db.close();
-  }
-});
-
-test('memory recall ranks query-relevant atoms ahead of unrelated history', () => {
-  const { db, repository: repo } = repository();
-  try {
-    repo.upsertMemory({
-      category: 'identity', memoryKey: 'auto_atom_identity.preferred_name', content: '用户希望被称为小青青',
-      confidence: 0.98, importance: 0.9, status: 'active',
-    });
-    repo.upsertMemory({
-      category: 'context', memoryKey: 'auto_atom_context.research', content: '用户长期进行跨平台研究',
-      confidence: 0.95, importance: 0.8, status: 'active',
-    });
-    repo.upsertMemory({
-      category: 'preference', memoryKey: 'auto_atom_preference.response_style', content: '用户偏好简洁回答',
-      confidence: 0.95, importance: 0.8, status: 'active',
-    });
-
-    assert.equal(repo.retrieveMemories('我应该怎么称呼自己？', 1)[0]?.category, 'identity');
-    assert.equal(repo.retrieveMemories('请按我的回答风格来', 1)[0]?.category, 'preference');
-  } finally {
-    db.close();
-  }
-});
-
-test('balanced mode activates sensible inferences above threshold immediately without explicit syntax', () => {
-  const { db, repository: repo } = repository();
-  try {
-    repo.applyAutomaticMemoryMutations([{
-      action: 'upsert', memoryKey: 'preference.preferred_platforms', category: 'preference',
-      content: '用户偏好使用 36kr 和知乎作为核心调研信源', confidence: 0.85, importance: 0.8,
-      evidenceMessageIds: ['msg-1'],
-    }], 'balanced');
-
-    const automatic = repo.listAutomaticMemories();
-    assert.equal(automatic.length, 1);
-    assert.equal(automatic[0].status, 'active');
-    assert.equal(automatic[0].content, '用户偏好使用 36kr 和知乎作为核心调研信源');
-
-    // General queries can recall high importance preferences
-    const recalled = repo.retrieveMemories('帮我调研 AIGC 动态');
-    assert.ok(recalled.length >= 1);
-    assert.equal(recalled[0].memory_key, 'auto_atom_preference.preferred_platforms');
   } finally {
     db.close();
   }

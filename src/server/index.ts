@@ -4,7 +4,6 @@ import fastifyWebsocket from '@fastify/websocket';
 import cors from '@fastify/cors';
 import path from 'path';
 import fs from 'fs';
-import crypto from 'crypto';
 import { crawlerManager } from './services/CrawlerManager';
 import { analyticsRepository } from '../database/repository';
 import { agentRepository } from './services/AgentRepository';
@@ -1014,14 +1013,9 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
       const category = ['identity', 'preference', 'context', 'rule'].includes(body?.category)
         ? body.category
         : 'rule';
-      const memoryKey = `user_manual_${crypto.randomUUID().replace(/-/g, '')}`;
       const memory = agentRepository.upsertMemory({
         category,
-        memoryKey,
         content,
-        confidence: 1.0,
-        importance: 1.0,
-        status: 'active',
       });
       return memory;
     } catch (error: any) {

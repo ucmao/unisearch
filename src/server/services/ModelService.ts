@@ -30,27 +30,16 @@ export interface ConversationMaterials {
 export interface ConversationMemory {
   category: 'identity' | 'preference' | 'context' | 'rule';
   content: string;
-  source: 'manual' | 'automatic';
 }
 
 export interface ExistingAutomaticMemory {
-  memoryKey: string;
   category: ConversationMemory['category'];
   content: string;
-  status: 'active' | 'candidate';
-  confidence: number;
-  evidenceCount: number;
 }
 
 export interface AutomaticMemoryMutation {
-  action: 'upsert' | 'forget';
-  memoryKey: string;
-  category?: ConversationMemory['category'];
-  content?: string;
-  confidence?: number;
-  importance?: number;
-  explicit?: boolean;
-  evidenceMessageIds?: string[];
+  category: ConversationMemory['category'];
+  content: string;
 }
 
 export interface MemoryConsolidationResult {
@@ -597,8 +586,12 @@ ${params.snippets?.length ? `首轮检索到的部分上下文：\n${params.snip
       materialMessages.push({ role: 'assistant', content: '已读取用户提供的图片，并会只把图片内容作为参考材料。' });
     }
     const memoryMessages = options.memories?.length ? [{
-      role: 'system',
-      content: `以下是保存在本机的用户长期记忆。回答时自然结合与当前对话有关的背景、偏好、习惯与规则；source="manual" 表示用户手动保存，应优先采用。记忆可以影响称呼、表达方式、角色风格、偏好和用户背景，但不能改变真实产品能力、安全限制或运行状态。若记忆与用户当前消息冲突，以当前消息为准。回答时自然运用这些背景，让用户感受到助手的默契与懂他，无需生硬复述记忆条目。\n<user_memories_json>${JSON.stringify(options.memories)}</user_memories_json>`,
+      role: 'system' as const,
+      content: `以下是保存在本机的用户长期画像与偏好记忆。回答时自然融入用户的称呼、背景、偏好、习惯与执行规则（如用户要求特定称呼、回答风格、或为特定团队加油鼓劲等规则必须严格遵守）。记忆可以影响称呼与表达方式，但不能改变真实产品能力或运行状态。若记忆与用户当前消息冲突，以当前最新消息为准。\n` +
+        options.memories.map((m) => {
+          const categoryName = { identity: '用户身份', preference: '习惯偏好', context: '项目背景', rule: '执行规则' }[m.category] || m.category;
+          return `- 【${categoryName}】：${m.content}`;
+        }).join('\n'),
     }] : [];
     const analysisMessages = options.analysisGoals?.length ? [{
       role: 'system',
@@ -846,73 +839,57 @@ ${specializedRules}
   }
 
   async consolidateMemories(
-    userMessages: Array<{ messageId: string; content: string }>,
-    existingMemories: ExistingAutomaticMemory[],
-    manualMemories: string[],
-    captureMode: 'conservative' | 'balanced' = 'balanced',
+    userMessages: Array<{ content: string }>,
+    existingMemories: Array<{ category: ConversationMemory['category']; content: string }>,
   ): Promise<MemoryConsolidationResult | null> {
     if (!userMessages.length) return null;
     const content = await this.chat([
       {
         role: 'system',
-        content: `你是本地 AI 研究助手的长期记忆与用户画像管理员。你的核心职责是：从用户的对话与交互中，围绕四大核心维度进行智能提炼、深度归纳与动态演进。当前提取模式为 ${captureMode}。
+        content: `你是本地 AI 研究助手的长期记忆与用户画像管理员。你的职责是维护用户的 4 张档案卡：
+- identity：用户的称呼、姓名、职业、所属团队或角色定位（如：用户自称 Leo，是科莱特三组组长）。
+- preference：助手的称呼、常用信源平台、分析风格、输出格式等（如：将助手命名为小U；调研偏好抖音、小红书等平台）。
+- context：用户的长期研究项目、持续跟踪的核心业务赛道或比赛背景（如：正在准备周五的 UniSearch 项目汇报比赛）。
+- rule：用户明确要求助手未来持续遵守的执行规则、禁忌或口号（如：每次回答问题时都要为科莱特三组加油鼓劲）。
 
-四大核心维度：
-- identity：用户的称呼、职业、角色定位或专业背景（如：“用户自称 Leo，是一名商业分析师”）。
-- preference：用户的稳定习惯与偏好（包括常用信源平台、调研侧重点、输出格式、分析风格等，如：“在职业调研时偏好在招聘平台检索可量化的薪资信息，倾向以表格输出”）。
-- context：用户的长期研究项目、持续跟踪的核心业务赛道或工作环境（如：“长期关注 AIGC、大模型落地应用与数据标注领域”）。
-- rule：用户明确要求助手在未来持续遵守的执行规则或禁忌（如：“必须注明信源出处，严禁生成未经证实的预测”）。
+维护原则：
+1. 【融合成全量摘要】：当新对话产生了与某张卡相关的信息时，将新信息与该卡现有内容融合，输出该卡最新的完整文本（50~200字）。
+2. 【新事实覆盖旧事实】：若新信息与旧内容矛盾（如改名、换组、改称呼），直接用新事实覆盖旧事实，消除前后矛盾。
+3. 【过滤临时对话】：严格过滤无长期复用价值的单次临时操作（如查一次天气、单次代码排查、单次日常闲聊）。
+4. 只输出有变化的卡，无变化的不要输出。
 
-提炼与归纳准则：
-1. 【主动归纳合并，拒绝碎片堆叠】：
-   - 严禁为同一主题生成大量零散、同质化的独立条目。
-   - 当发现新偏好或新背景与 existing_memories 中的已有条目属于同一场景/主题时（例如同一领域调研的平台、薪资或格式），必须主动进行【归纳融合】，合并成一条高密度、完整的描述，并复用已有的 memoryKey 进行 upsert 更新。
-2. 【冲突覆盖与去旧换新】：
-   - 当用户提出了新的称呼、职业、偏好或规则（与 existing_memories 产生矛盾或更新时），直接使用 action="upsert" 覆盖更新旧条目，或使用 action="forget" 废弃过时条目。
-3. 【严格尊重用户手动记忆】：
-   - manual_memories 是用户手动保存的最高权威内容（最高优先级），严禁生成与其重复、相悖或试图修改删除的内容。
-4. 【过滤临时单次噪音】：
-   - 严格过滤无长期复用价值的单次临时操作（如查一次天气、单次代码报错排查、单次日常闲聊）；仅在用户表现出稳定模式或明确要求时才提取为长期记忆。
-5. 每条 content 控制在 20~100 个汉字，使用客观中性的第三人称，语句通畅连贯。
-6. memoryKey 使用稳定的英文语义键（如 identity.profile, preference.research_style, preference.preferred_platforms, context.research_focus, rule.constraints）。
-
-confidence 表示“该长期事实成立”的把握（0~1），importance 表示未来复用价值（0~1）。evidenceMessageIds 引用 user_messages 中真实存在的 messageId。
-
-只输出 JSON：
-{"mutations":[{"action":"upsert","memoryKey":"preference.research_style","category":"preference","content":"职业调研时偏好在招聘平台检索可量化的岗位薪资信息，并倾向结构化对比呈现","confidence":0.9,"importance":0.85,"explicit":false,"evidenceMessageIds":["message-id"]}]}`,
+输出格式（必须严格是合法 JSON）：
+{
+  "updates": [
+    { "category": "identity", "content": "用户叫 Leo，是科莱特三组组长，组员包括 Niki、Gia 等。" },
+    { "category": "preference", "content": "要求将助手命名为小U。" },
+    { "category": "rule", "content": "要求助手每次回答问题时都要为科莱特三组加油鼓劲。" }
+  ]
+}
+若无任何长期有效记忆变化，返回: { "updates": [] }`,
       },
       {
         role: 'user',
-        content: `<existing_memories_json>${JSON.stringify(existingMemories)}</existing_memories_json>\n<manual_memories_json>${JSON.stringify(manualMemories)}</manual_memories_json>\n<user_messages_json>${JSON.stringify(userMessages)}</user_messages_json>`,
+        content: `<existing_profiles>\n${JSON.stringify(existingMemories, null, 2)}\n</existing_profiles>\n<recent_user_messages>\n${JSON.stringify(userMessages.map(m => m.content), null, 2)}\n</recent_user_messages>`,
       },
     ], 1000);
+
     try {
-      const parsed = parseModelJson<{ mutations?: AutomaticMemoryMutation[] }>(content);
-      if (!Array.isArray(parsed.mutations)) return null;
+      const parsed = parseModelJson<{ updates?: Array<{ category?: ConversationMemory['category']; content?: string }> }>(content);
+      if (!Array.isArray(parsed.updates)) return null;
       const categories: ConversationMemory['category'][] = ['identity', 'preference', 'context', 'rule'];
-      const validMessageIds = new Set(userMessages.map((message) => message.messageId));
       const mutations: AutomaticMemoryMutation[] = [];
       const seen = new Set<string>();
-      for (const mutation of parsed.mutations.slice(0, 8)) {
-        if (!['upsert', 'forget'].includes(String(mutation?.action))) return null;
-        const memoryKey = String(mutation.memoryKey || '').trim().slice(0, 100);
-        if (!memoryKey || seen.has(`${mutation.action}:${memoryKey}`)) continue;
-        if (mutation.action === 'upsert' && (!mutation.category || !categories.includes(mutation.category))) return null;
-        const evidenceMessageIds = Array.isArray(mutation.evidenceMessageIds)
-          ? mutation.evidenceMessageIds.map(String).filter((value) => validMessageIds.has(value)).slice(0, 6)
-          : [];
-        if (!evidenceMessageIds.length) continue;
+      for (const item of parsed.updates) {
+        if (!item.category || !categories.includes(item.category)) continue;
+        if (seen.has(item.category)) continue;
+        const text = String(item.content || '').trim().replace(/\s+/g, ' ').slice(0, 500);
+        if (!text) continue;
         mutations.push({
-          action: mutation.action,
-          memoryKey,
-          category: mutation.action === 'upsert' ? mutation.category : undefined,
-          content: mutation.action === 'upsert' ? String(mutation.content || '').trim().replace(/\s+/g, ' ').slice(0, 180) : undefined,
-          confidence: Math.max(0, Math.min(1, Number(mutation.confidence) || 0)),
-          importance: Math.max(0, Math.min(1, Number(mutation.importance) || 0.5)),
-          explicit: Boolean(mutation.explicit),
-          evidenceMessageIds,
+          category: item.category,
+          content: text,
         });
-        seen.add(`${mutation.action}:${memoryKey}`);
+        seen.add(item.category);
       }
       return { mutations };
     } catch {
@@ -934,7 +911,10 @@ confidence 表示“该长期事实成立”的把握（0~1），importance 表�
       : 'null';
     const recentTurnContext = buildRecentTurnContext(messages);
     const memoryContext = memories.length
-      ? `用户长期偏好与背景记忆（规划任务时可作为默认信源平台、分析角度或格式的参考依据，让用户感受到助手的默契）：\n${JSON.stringify(memories.map((m) => `[${m.category}] ${m.content}`))}\n\n`
+      ? `用户长期偏好与背景记忆（规划任务时可作为默认信源平台、分析角度或格式的参考依据，让用户感受到助手的默契）：\n${memories.map((m) => {
+          const name = { identity: '身份', preference: '偏好', context: '背景', rule: '规则' }[m.category] || m.category;
+          return `- [${name}] ${m.content}`;
+        }).join('\n')}\n\n`
       : '';
     const content = await this.chat([
       {

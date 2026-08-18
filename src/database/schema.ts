@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3';
 
-export const DATABASE_SCHEMA_VERSION = 16;
+export const DATABASE_SCHEMA_VERSION = 17;
 
 function dropExistingSchema(db: Database): void {
   db.pragma('foreign_keys = OFF');
@@ -48,14 +48,11 @@ export function initSchema(db: Database): void {
       id INTEGER PRIMARY KEY CHECK (id = 1),
       enabled INTEGER NOT NULL DEFAULT 1,
       auto_capture INTEGER NOT NULL DEFAULT 1,
-      auto_recall INTEGER NOT NULL DEFAULT 1,
-      capture_mode TEXT NOT NULL DEFAULT 'balanced',
-      recall_limit INTEGER NOT NULL DEFAULT 8,
       updated_at TEXT NOT NULL
     );
     INSERT OR IGNORE INTO agent_memory_settings
-      (id, enabled, auto_capture, auto_recall, capture_mode, recall_limit, updated_at)
-    VALUES (1, 1, 1, 1, 'balanced', 8, datetime('now'));
+      (id, enabled, auto_capture, updated_at)
+    VALUES (1, 1, 1, datetime('now'));
 
     CREATE TABLE IF NOT EXISTS agent_runtime_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -70,25 +67,16 @@ export function initSchema(db: Database): void {
 
     CREATE TABLE IF NOT EXISTS agent_memories (
       memory_id TEXT PRIMARY KEY,
-      category TEXT NOT NULL DEFAULT 'context',
-      memory_key TEXT NOT NULL UNIQUE,
+      category TEXT NOT NULL CHECK (category IN ('identity', 'preference', 'context', 'rule')),
+      source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('automatic', 'manual')),
       content TEXT NOT NULL,
-      confidence REAL NOT NULL DEFAULT 1,
-      importance REAL NOT NULL DEFAULT 0.5,
-      status TEXT NOT NULL DEFAULT 'active',
-      source_thread_id TEXT,
-      source_message_id TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      last_used_at TEXT,
-      evidence_count INTEGER NOT NULL DEFAULT 1,
-      source_message_ids_json TEXT NOT NULL DEFAULT '[]',
-      last_confirmed_at TEXT,
-      FOREIGN KEY(source_thread_id) REFERENCES agent_threads(thread_id) ON DELETE SET NULL,
-      FOREIGN KEY(source_message_id) REFERENCES agent_messages(message_id) ON DELETE SET NULL
+      updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_agent_memories_status
-      ON agent_memories(status, importance DESC, updated_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_memories_auto_category
+      ON agent_memories(category) WHERE source = 'automatic';
+    CREATE INDEX IF NOT EXISTS idx_agent_memories_source
+      ON agent_memories(source, updated_at DESC);
 
     CREATE TABLE IF NOT EXISTS agent_attachments (
       attachment_id TEXT PRIMARY KEY,
@@ -600,6 +588,46 @@ export function initSchema(db: Database): void {
         `);
       })();
     }
+
+    // Reset legacy agent_memories / agent_memory_settings if present
+    try {
+      const memoryColumns = (db.pragma('table_info(agent_memories)') as any[]).map((c: any) => c.name);
+      if (!memoryColumns.includes('source') || memoryColumns.includes('memory_key') || memoryColumns.includes('confidence')) {
+        db.exec('DROP TABLE IF EXISTS agent_memories;');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS agent_memories (
+            memory_id TEXT PRIMARY KEY,
+            category TEXT NOT NULL CHECK (category IN ('identity', 'preference', 'context', 'rule')),
+            source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('automatic', 'manual')),
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_memories_auto_category
+            ON agent_memories(category) WHERE source = 'automatic';
+          CREATE INDEX IF NOT EXISTS idx_agent_memories_source
+            ON agent_memories(source, updated_at DESC);
+        `);
+      }
+    } catch {}
+
+    try {
+      const settingColumns = (db.pragma('table_info(agent_memory_settings)') as any[]).map((c: any) => c.name);
+      if (settingColumns.includes('capture_mode') || settingColumns.includes('auto_recall')) {
+        db.exec('DROP TABLE IF EXISTS agent_memory_settings;');
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS agent_memory_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 1,
+            auto_capture INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+          );
+          INSERT OR IGNORE INTO agent_memory_settings
+            (id, enabled, auto_capture, updated_at)
+          VALUES (1, 1, 1, datetime('now'));
+        `);
+      }
+    } catch {}
 
     db.pragma(`user_version = ${DATABASE_SCHEMA_VERSION}`);
   }

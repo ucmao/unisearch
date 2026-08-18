@@ -261,21 +261,20 @@ test('model conversation always receives active memories as user context', async
     };
 
     await service.converse([{ role: 'user', content: '普通问题' }], {
-      memories: [{ category: 'rule', content: '用户保存的长期偏好', source: 'manual' }],
+      memories: [{ category: 'rule', content: '每次回答都要为科莱特三组加油' }],
     });
 
     const memoryPrompt = String(capturedMessages.find((message) =>
-      message.role === 'system' && String(message.content).includes('<user_memories_json>'),
+      message.role === 'system' && String(message.content).includes('用户长期画像与偏好记忆'),
     )?.content || '');
-    assert.match(memoryPrompt, /用户手动保存，应优先采用/);
-    assert.match(memoryPrompt, /用户保存的长期偏好/);
-    assert.match(memoryPrompt, /"source":"manual"/);
+    assert.match(memoryPrompt, /每次回答都要为科莱特三组加油/);
+    assert.match(memoryPrompt, /执行规则/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('automatic memory consolidation returns validated atomic mutations only', async () => {
+test('automatic memory consolidation returns validated profile mutations only', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'unisearch-model-consolidation-'));
   const configPath = path.join(directory, 'model-profile.json');
 
@@ -284,35 +283,29 @@ test('automatic memory consolidation returns validated atomic mutations only', a
     let capturedInput = '';
     (service as any).chat = async (messages: Array<{ role: string; content: unknown }>) => {
       capturedInput = String(messages.at(-1)?.content || '');
-      return JSON.stringify({ mutations: [
+      return JSON.stringify({ updates: [
         {
-          action: 'upsert', memoryKey: 'identity.occupation', category: 'identity',
-          content: '用户是产品经理', confidence: 0.98, importance: 0.8,
-          explicit: false, evidenceMessageIds: ['message-1'],
+          category: 'identity',
+          content: '用户叫 Leo，是产品经理',
         },
       ] });
     };
 
     const result = await service.consolidateMemories(
-      [{ messageId: 'message-1', content: '我现在负责产品工作' }],
-      [{
-        memoryKey: 'auto_atom_identity.industry', category: 'identity', content: '用户从事互联网行业',
-        status: 'active', confidence: 0.9, evidenceCount: 1,
-      }],
-      ['请使用简体中文'],
+      [{ content: '我现在负责产品工作' }],
+      [{ category: 'identity', content: '用户从事互联网行业' }],
     );
 
     assert.equal(result?.mutations.length, 1);
-    assert.equal(result?.mutations[0].memoryKey, 'identity.occupation');
-    assert.equal(result?.mutations[0].content, '用户是产品经理');
-    assert.match(capturedInput, /existing_memories_json/);
-    assert.match(capturedInput, /manual_memories_json/);
+    assert.equal(result?.mutations[0].category, 'identity');
+    assert.equal(result?.mutations[0].content, '用户叫 Leo，是产品经理');
+    assert.match(capturedInput, /existing_profiles/);
+    assert.match(capturedInput, /recent_user_messages/);
 
-    (service as any).chat = async () => JSON.stringify({ mutations: [{
-      action: 'upsert', memoryKey: 'preference.style', category: 'unknown', content: '无效分类',
-      evidenceMessageIds: ['2'],
+    (service as any).chat = async () => JSON.stringify({ updates: [{
+      category: 'unknown', content: '无效分类',
     }] });
-    assert.equal(await service.consolidateMemories([{ messageId: '2', content: '测试' }], [], []), null);
+    assert.deepEqual(await service.consolidateMemories([{ content: '测试' }], []), { mutations: [] });
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

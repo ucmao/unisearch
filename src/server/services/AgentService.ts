@@ -528,11 +528,10 @@ export class AgentService {
     return { texts, images: images.slice(0, 5) };
   }
 
-  private recallMemories(query: string): ConversationMemory[] {
-    return agentRepository.retrieveMemories(query).map((memory) => ({
+  private recallMemories(_query = ''): ConversationMemory[] {
+    return agentRepository.retrieveMemories().map((memory) => ({
       category: memory.category,
       content: memory.content,
-      source: memory.memory_key.startsWith('user_manual_') ? 'manual' : 'automatic',
     }));
   }
 
@@ -558,33 +557,30 @@ export class AgentService {
         .slice(-4);
       const recent = recentUserMessages.length
         ? recentUserMessages.map((m: any) => ({
-            messageId: String(m.message_id),
             content: String(m.content).trim().slice(0, 1200),
           }))
-        : [{ messageId: sourceMessageId, content: trimmed.slice(0, 1200) }];
+        : [{ content: trimmed.slice(0, 1200) }];
 
       const allMemories = agentRepository.listMemories();
       const existingMemories = allMemories
-        .filter((memory) => !memory.memory_key.startsWith('user_manual_'))
+        .filter((memory) => Boolean(memory.content?.trim()))
         .map((memory) => ({
-          memoryKey: memory.memory_key,
           category: memory.category,
           content: memory.content,
-          status: memory.status === 'candidate' ? 'candidate' as const : 'active' as const,
-          confidence: memory.confidence,
-          evidenceCount: memory.evidence_count || 1,
         }));
-      const manualMemories = allMemories
-        .filter((memory) => memory.memory_key.startsWith('user_manual_'))
-        .map((memory) => memory.content);
-      const result = await modelService.consolidateMemories(recent, existingMemories, manualMemories, settings.captureMode);
-      if (!result) return;
 
-      agentRepository.applyAutomaticMemoryMutations(
-        result.mutations,
-        settings.captureMode,
-        threadId,
-      );
+      const result = await modelService.consolidateMemories(recent, existingMemories);
+      if (result && Array.isArray(result.mutations)) {
+        for (const mutation of result.mutations) {
+          if (mutation.category && mutation.content?.trim()) {
+            agentRepository.upsertMemory({
+              category: mutation.category,
+              content: mutation.content.trim(),
+              source: 'automatic',
+            });
+          }
+        }
+      }
       this.processedMemoryMessageIds.add(sourceMessageId);
     }).catch((error) => console.warn('[MemoryCapture]', error.message || error));
   }
