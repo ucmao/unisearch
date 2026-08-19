@@ -20,6 +20,7 @@ browser_data/
 data/
 database/*.db
 downloads/
+resources/models/
 
 # Local configuration and tooling
 .env

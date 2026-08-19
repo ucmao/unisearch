@@ -2,8 +2,9 @@ import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
 import { getDatabasePath } from '../database/connection';
+import { localEmbedder, LOCAL_EMBEDDING_MODEL } from './local-embedder';
 
-export type RetrievalProvider = 'siliconflow' | 'custom';
+export type RetrievalProvider = 'local' | 'siliconflow' | 'custom';
 
 export interface RetrievalProfile {
   provider: RetrievalProvider;
@@ -16,16 +17,22 @@ export interface RetrievalProfile {
 }
 
 interface StoredRetrievalProfile extends Omit<RetrievalProfile, 'apiKeyConfigured'> {
-  version: 3;
+  version: 4;
 }
 
 const DEFAULT_PROFILE: StoredRetrievalProfile = {
-  version: 3,
-  provider: 'siliconflow',
+  version: 4,
+  provider: 'local',
+  baseUrl: '',
+  embeddingModel: LOCAL_EMBEDDING_MODEL,
+  rerankerModel: '',
+  timeoutMs: 60000,
+};
+
+const SILICONFLOW_DEFAULTS = {
   baseUrl: 'https://api.siliconflow.cn/v1',
   embeddingModel: 'BAAI/bge-m3',
   rerankerModel: 'BAAI/bge-reranker-v2-m3',
-  timeoutMs: 60000,
 };
 
 function normalizedBaseUrl(value: string): string {
@@ -63,15 +70,29 @@ export class RetrievalService {
 
   private readStored(): StoredRetrievalProfile {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<StoredRetrievalProfile>;
-      if (parsed.version !== 3) return { ...DEFAULT_PROFILE };
+      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<StoredRetrievalProfile & { version: number }>;
+      if (parsed.version === 3) {
+        // Upgrade from version 3
+        const provider: RetrievalProvider = parsed.provider === 'custom' ? 'custom' : parsed.provider === 'siliconflow' ? 'siliconflow' : 'local';
+        return {
+          version: 4,
+          provider,
+          baseUrl: normalizedBaseUrl(String(parsed.baseUrl || (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.baseUrl : ''))),
+          embeddingModel: String(parsed.embeddingModel || (provider === 'local' ? LOCAL_EMBEDDING_MODEL : SILICONFLOW_DEFAULTS.embeddingModel)).trim(),
+          apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : undefined,
+          rerankerModel: typeof parsed.rerankerModel === 'string' ? parsed.rerankerModel.trim() : (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.rerankerModel : ''),
+          timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
+        };
+      }
+      if (parsed.version !== 4) return { ...DEFAULT_PROFILE };
+      const provider: RetrievalProvider = parsed.provider === 'custom' ? 'custom' : parsed.provider === 'siliconflow' ? 'siliconflow' : 'local';
       return {
-        version: 3,
-        provider: parsed.provider === 'custom' ? 'custom' : 'siliconflow',
-        baseUrl: normalizedBaseUrl(String(parsed.baseUrl || DEFAULT_PROFILE.baseUrl)),
-        embeddingModel: String(parsed.embeddingModel || DEFAULT_PROFILE.embeddingModel).trim(),
+        version: 4,
+        provider,
+        baseUrl: normalizedBaseUrl(String(parsed.baseUrl || (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.baseUrl : ''))),
+        embeddingModel: String(parsed.embeddingModel || (provider === 'local' ? LOCAL_EMBEDDING_MODEL : SILICONFLOW_DEFAULTS.embeddingModel)).trim(),
         apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : undefined,
-        rerankerModel: typeof parsed.rerankerModel === 'string' ? parsed.rerankerModel.trim() : DEFAULT_PROFILE.rerankerModel,
+        rerankerModel: typeof parsed.rerankerModel === 'string' ? parsed.rerankerModel.trim() : (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.rerankerModel : ''),
         timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
       };
     } catch {
@@ -81,11 +102,12 @@ export class RetrievalService {
 
   getProfile(includeSecret = false): RetrievalProfile {
     const stored = this.readStored();
+    const isLocal = stored.provider === 'local';
     return {
       provider: stored.provider,
-      baseUrl: stored.baseUrl,
+      baseUrl: isLocal ? '' : stored.baseUrl,
       ...(includeSecret ? { apiKey: stored.apiKey || '' } : {}),
-      apiKeyConfigured: Boolean(stored.apiKey),
+      apiKeyConfigured: isLocal ? true : Boolean(stored.apiKey),
       embeddingModel: stored.embeddingModel,
       rerankerModel: stored.rerankerModel,
       timeoutMs: stored.timeoutMs,
@@ -94,21 +116,21 @@ export class RetrievalService {
 
   saveProfile(input: Partial<RetrievalProfile> & { clearApiKey?: boolean }): RetrievalProfile {
     const previous = this.readStored();
-    const provider = input.provider === 'custom' ? 'custom' : input.provider === 'siliconflow' ? 'siliconflow' : previous.provider;
+    const provider: RetrievalProvider = input.provider === 'local' ? 'local' : input.provider === 'custom' ? 'custom' : input.provider === 'siliconflow' ? 'siliconflow' : previous.provider;
     const inputApiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
 
     const next: StoredRetrievalProfile = {
-      version: 3,
+      version: 4,
       provider,
-      baseUrl: normalizedBaseUrl(input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl)),
-      embeddingModel: String(input.embeddingModel === undefined ? previous.embeddingModel : input.embeddingModel).trim(),
-      apiKey: input.clearApiKey ? undefined : inputApiKey || previous.apiKey,
+      baseUrl: provider === 'local' ? '' : normalizedBaseUrl(input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl)),
+      embeddingModel: String(input.embeddingModel === undefined ? (provider === 'local' ? LOCAL_EMBEDDING_MODEL : previous.embeddingModel) : input.embeddingModel).trim() || (provider === 'local' ? LOCAL_EMBEDDING_MODEL : ''),
+      apiKey: input.clearApiKey ? undefined : (inputApiKey || (provider === 'local' ? undefined : previous.apiKey)),
       rerankerModel: String(input.rerankerModel === undefined ? previous.rerankerModel : input.rerankerModel).trim(),
       timeoutMs: Math.max(5000, Math.min(180000, Number(input.timeoutMs) || previous.timeoutMs)),
     };
 
-    if (!next.baseUrl || !next.embeddingModel) {
-      throw new Error('API 地址和向量模型名称不能为空');
+    if (provider !== 'local' && (!next.baseUrl || !next.embeddingModel)) {
+      throw new Error('云端服务 API 地址和向量模型名称不能为空');
     }
 
     fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
@@ -119,6 +141,11 @@ export class RetrievalService {
   async embed(texts: string[]): Promise<number[][]> {
     if (!texts.length) return [];
     const profile = this.getProfile(true);
+
+    if (profile.provider === 'local') {
+      return await localEmbedder.embed(texts);
+    }
+
     if (!profile.apiKey) {
       throw new Error('尚未配置知识检索 API Key');
     }
@@ -155,6 +182,9 @@ export class RetrievalService {
     if (!profile.rerankerModel || !documents.length) {
       return documents.map((_, index) => ({ index, score: 0 })).slice(0, topN);
     }
+    if (profile.provider === 'local') {
+      return documents.map((_, index) => ({ index, score: 0 })).slice(0, topN);
+    }
     if (!profile.apiKey) throw new Error('尚未配置知识检索 API Key');
     try {
       const response = await axios.post(endpoint(profile.baseUrl, 'rerank'), {
@@ -182,6 +212,16 @@ export class RetrievalService {
 
   async testConnection(): Promise<{ success: true; message: string; latency_ms: number; dimensions: number; reranker_tested: boolean }> {
     const profile = this.getProfile(false);
+    if (profile.provider === 'local') {
+      const localRes = await localEmbedder.test();
+      return {
+        success: true,
+        message: localRes.message,
+        latency_ms: localRes.latency_ms,
+        dimensions: localRes.dimensions,
+        reranker_tested: false,
+      };
+    }
     if (!profile.apiKeyConfigured) {
       throw new Error('尚未配置 API Key，请先填写 Key 后再测试连接');
     }

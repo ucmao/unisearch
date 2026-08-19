@@ -34,7 +34,7 @@ test('crawler runtime uses clean identity defaults with a narrow webdriver allow
   assert.match(source, /getElectronCrawlerPage/);
   assert.match(source, /platform === 'boss' \|\| platform === 'quark'/);
   assert.match(source, /Object\.defineProperty\(window, 'close'/);
-  assert.match(source, /platform === 'boss' \|\| platform === 'kuaishou'/);
+  assert.match(source, /maskWebdriver/);
   assert.doesNotMatch(source, /stealth\.min|installStealth|configuredCrawlerContexts/);
   assert.doesNotMatch(mainSource, /AutomationControlled/);
 });

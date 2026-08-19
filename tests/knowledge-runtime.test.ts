@@ -53,7 +53,7 @@ test('knowledge index chunks Documents and supports hybrid retrieval', async () 
     assert.equal(results[0].metadata.assets[0].role, 'thumbnail');
     assert.equal(results[0].metadata.totalChunks, 1);
     assert.equal(typeof results[0].metadata.characterStart, 'number');
-    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM document_chunk_embeddings').get() as any).count, 0);
+    assert.equal((db.prepare('SELECT COUNT(*) AS count FROM document_chunk_embeddings').get() as any).count, 1);
   } finally {
     db.close();
   }
@@ -103,15 +103,16 @@ test('remote embeddings are cached as binary vectors and optional reranking is a
   }
 });
 
-test('retrieval profile supports unified single-provider configuration and optional reranker without switches', () => {
+test('retrieval profile supports local provider by default and custom provider configuration', () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'unisearch-retrieval-'));
   const configPath = path.join(directory, 'retrieval-profile.json');
   try {
     const service = new RetrievalService(configPath);
     const initial = service.getProfile(false);
-    assert.equal(initial.apiKeyConfigured, false);
-    assert.equal(initial.embeddingModel, 'BAAI/bge-m3');
-    assert.equal(initial.rerankerModel, 'BAAI/bge-reranker-v2-m3');
+    assert.equal(initial.provider, 'local');
+    assert.equal(initial.apiKeyConfigured, true);
+    assert.equal(initial.embeddingModel, 'BAAI/bge-small-zh-v1.5');
+    assert.equal(initial.rerankerModel, '');
 
     const saved = service.saveProfile({
       provider: 'custom',
@@ -120,6 +121,7 @@ test('retrieval profile supports unified single-provider configuration and optio
       apiKey: 'retrieval-secret',
       rerankerModel: 'reranker-v1',
     });
+    assert.equal(saved.provider, 'custom');
     assert.equal(saved.baseUrl, 'https://vectors.example/v1');
     assert.equal(saved.apiKeyConfigured, true);
     assert.equal(saved.embeddingModel, 'embedding-v1');
@@ -128,7 +130,7 @@ test('retrieval profile supports unified single-provider configuration and optio
 
     // 清除 Key
     assert.equal(service.saveProfile({ clearApiKey: true }).apiKeyConfigured, false);
-    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 3);
+    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 4);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

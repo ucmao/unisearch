@@ -22,6 +22,8 @@ export default defineConfig({
     'better-sqlite3',
     'playwright',
     'playwright-core',
+    '@xenova/transformers',
+    'onnxruntime-node',
     'fsevents',
     'electron',
   ],

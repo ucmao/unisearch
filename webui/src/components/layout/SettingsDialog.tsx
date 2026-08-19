@@ -52,6 +52,11 @@ const MODEL_PROVIDER_DEFAULTS = {
 } satisfies Record<ModelProfile['provider'], { baseUrl: string; model: string }>
 
 const RETRIEVAL_PROVIDER_DEFAULTS = {
+  local: {
+    baseUrl: '',
+    embeddingModel: 'BAAI/bge-small-zh-v1.5',
+    rerankerModel: '',
+  },
   siliconflow: {
     baseUrl: 'https://api.siliconflow.cn/v1',
     embeddingModel: 'BAAI/bge-m3',
@@ -761,91 +766,111 @@ export function SettingsDialog({
                   <div className="mt-7 space-y-5">
                     <div>
                       <p className="mb-2 text-xs font-medium text-cyber-text-secondary">服务提供商</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(['siliconflow', 'custom'] as const).map((provider) => (
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {(['local', 'siliconflow', 'custom'] as const).map((provider) => (
                           <button
                             key={provider}
                             type="button"
                             onClick={() => applyRetrievalProvider(provider)}
                             className={`rounded-lg border px-3 py-2.5 text-xs transition-colors ${retrievalForm.provider === provider ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold' : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'}`}
                           >
-                            {provider === 'siliconflow' ? '硅基流动' : '自定义兼容接口'}
+                            {provider === 'local' ? '内置本地模型 (推荐)' : provider === 'siliconflow' ? '硅基流动' : '自定义兼容接口'}
                           </button>
                         ))}
                       </div>
                     </div>
 
-                    <label className="block space-y-1.5">
-                      <span className="text-xs text-cyber-text-secondary">API Base URL</span>
-                      <Input
-                        value={retrievalForm.baseUrl || ''}
-                        onChange={(event) => setRetrievalForm({ ...retrievalForm, baseUrl: event.target.value })}
-                        placeholder="https://api.siliconflow.cn/v1"
-                      />
-                    </label>
-
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-xs text-cyber-text-secondary">
-                        <label htmlFor="retrieval-embedding-model">向量模型 (Embedding)</label>
-                        <FieldHelp content="用于本地已采集知识库的毫秒级语义向量检索与召回。" />
+                    {retrievalForm.provider === 'local' ? (
+                      <div className="space-y-3 rounded-xl border border-cyber-neon-cyan/30 bg-cyber-neon-cyan/5 p-4 text-xs">
+                        <div className="flex items-center gap-2 font-semibold text-cyber-neon-cyan">
+                          <Sparkles className="h-4 w-4 shrink-0" />
+                          <span>内置轻量向量引擎（开箱即用）</span>
+                        </div>
+                        <p className="text-cyber-text-secondary leading-relaxed">
+                          采用内置 <span className="font-mono font-medium text-cyber-text-primary">BAAI/bge-small-zh-v1.5 (INT8 量化版)</span>，生成 512 维稠密向量。
+                        </p>
+                        <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2 text-[11px] text-cyber-text-muted">
+                          <div>• 零配置免填 API Key，完全免费</div>
+                          <div>• 100% 本地离线运行，隐私全保护</div>
+                          <div>• CPU 毫秒级极速向量化与余弦匹配</div>
+                          <div>• 自动融合 BM25 词法实现高质量混合检索</div>
+                        </div>
                       </div>
-                      <Input
-                        id="retrieval-embedding-model"
-                        value={retrievalForm.embeddingModel || ''}
-                        onChange={(event) => setRetrievalForm({ ...retrievalForm, embeddingModel: event.target.value })}
-                        placeholder="BAAI/bge-m3"
-                      />
-                    </div>
+                    ) : (
+                      <>
+                        <label className="block space-y-1.5">
+                          <span className="text-xs text-cyber-text-secondary">API Base URL</span>
+                          <Input
+                            value={retrievalForm.baseUrl || ''}
+                            onChange={(event) => setRetrievalForm({ ...retrievalForm, baseUrl: event.target.value })}
+                            placeholder="https://api.siliconflow.cn/v1"
+                          />
+                        </label>
 
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5 text-xs text-cyber-text-secondary">
-                        <label htmlFor="retrieval-reranker-model">重排模型 (Reranker，选填)</label>
-                        <FieldHelp content="选填。配置后将在深度研究中智能精排候选网页并优先抓取高价值正文，同时提升知识库检索准确度。" />
-                      </div>
-                      <Input
-                        id="retrieval-reranker-model"
-                        value={retrievalForm.rerankerModel || ''}
-                        onChange={(event) => setRetrievalForm({ ...retrievalForm, rerankerModel: event.target.value })}
-                        placeholder="BAAI/bge-reranker-v2-m3（选填，留空则使用基础规则排序）"
-                      />
-                    </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-xs text-cyber-text-secondary">
+                            <label htmlFor="retrieval-embedding-model">向量模型 (Embedding)</label>
+                            <FieldHelp content="用于本地已采集知识库的毫秒级语义向量检索与召回。" />
+                          </div>
+                          <Input
+                            id="retrieval-embedding-model"
+                            value={retrievalForm.embeddingModel || ''}
+                            onChange={(event) => setRetrievalForm({ ...retrievalForm, embeddingModel: event.target.value })}
+                            placeholder="BAAI/bge-m3"
+                          />
+                        </div>
 
-                    <label className="block space-y-1.5">
-                      <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
-                        <span>API Key</span>
-                        {retrievalForm.apiKeyConfigured || retrievalForm.apiKey ? (
-                          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-500">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                            已配置
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5 text-xs text-cyber-text-secondary">
+                            <label htmlFor="retrieval-reranker-model">重排模型 (Reranker，选填)</label>
+                            <FieldHelp content="选填。配置后将在深度研究中智能精排候选网页并优先抓取高价值正文，同时提升知识库检索准确度。" />
+                          </div>
+                          <Input
+                            id="retrieval-reranker-model"
+                            value={retrievalForm.rerankerModel || ''}
+                            onChange={(event) => setRetrievalForm({ ...retrievalForm, rerankerModel: event.target.value })}
+                            placeholder="BAAI/bge-reranker-v2-m3（选填，留空则使用基础规则排序）"
+                          />
+                        </div>
+
+                        <label className="block space-y-1.5">
+                          <span className="flex items-center justify-between text-xs text-cyber-text-secondary">
+                            <span>API Key</span>
+                            {retrievalForm.apiKeyConfigured || retrievalForm.apiKey ? (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-500">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                已配置
+                              </span>
+                            ) : null}
                           </span>
-                        ) : null}
-                      </span>
-                      <div className="relative flex items-center">
-                        <Input
-                          type={showApiKey ? 'text' : 'password'}
-                          value={retrievalForm.apiKey || ''}
-                          onChange={(event) => setRetrievalForm({ ...retrievalForm, apiKey: event.target.value, clearApiKey: event.target.value === '' })}
-                          placeholder={retrievalForm.apiKeyConfigured ? '••••••••••••••••（输入新 Key 可覆盖）' : '填写 API Key'}
-                          className={retrievalForm.apiKey ? 'pr-9' : ''}
-                        />
-                        {retrievalForm.apiKey ? (
-                          <button
-                            type="button"
-                            title={showApiKey ? '隐藏 Key' : '显示 Key'}
-                            onClick={() => setShowApiKey(!showApiKey)}
-                            className="absolute right-2.5 rounded-md p-1 text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
-                          >
-                            {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                          </button>
-                        ) : null}
-                      </div>
-                    </label>
+                          <div className="relative flex items-center">
+                            <Input
+                              type={showApiKey ? 'text' : 'password'}
+                              value={retrievalForm.apiKey || ''}
+                              onChange={(event) => setRetrievalForm({ ...retrievalForm, apiKey: event.target.value, clearApiKey: event.target.value === '' })}
+                              placeholder={retrievalForm.apiKeyConfigured ? '••••••••••••••••（输入新 Key 可覆盖）' : '填写 API Key'}
+                              className={retrievalForm.apiKey ? 'pr-9' : ''}
+                            />
+                            {retrievalForm.apiKey ? (
+                              <button
+                                type="button"
+                                title={showApiKey ? '隐藏 Key' : '显示 Key'}
+                                onClick={() => setShowApiKey(!showApiKey)}
+                                className="absolute right-2.5 rounded-md p-1 text-cyber-text-muted transition-colors hover:bg-cyber-bg-tertiary hover:text-cyber-text-primary"
+                              >
+                                {showApiKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                              </button>
+                            ) : null}
+                          </div>
+                        </label>
+                      </>
+                    )}
 
                     <DialogFooter className="gap-2 border-t border-cyber-border-subtle pt-5 sm:space-x-0">
                       <Button
                         variant="outline"
                         onClick={() => {
-                          if (!retrievalForm.apiKeyConfigured && !retrievalForm.apiKey) {
+                          if (retrievalForm.provider !== 'local' && !retrievalForm.apiKeyConfigured && !retrievalForm.apiKey) {
                             toast.error('请先填写 API Key 后再测试连接')
                             return
                           }

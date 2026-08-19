@@ -427,8 +427,10 @@ export interface RuntimeSettings {
   keywordExpansionPolicy: 'smart' | 'strict' | 'always'
 }
 
+export type RetrievalProvider = 'local' | 'siliconflow' | 'custom'
+
 export interface RetrievalProfile {
-  provider: 'siliconflow' | 'custom'
+  provider: RetrievalProvider
   baseUrl: string
   apiKey?: string
   apiKeyConfigured: boolean
