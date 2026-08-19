@@ -412,12 +412,14 @@ export class CrawlerTask {
             );
           }
           this.status = 'idle';
-          manager.emit('crawler_finished', {
-            platform: this.platform,
-            status: runStatus,
-            itemCount,
-            durationSeconds,
-            error: runStatus === 'failed' || runStatus === 'partial' ? errorMessage : null,
+          setImmediate(() => {
+            manager.emit('crawler_finished', {
+              platform: this.platform,
+              status: runStatus,
+              itemCount,
+              durationSeconds,
+              error: runStatus === 'failed' || runStatus === 'partial' ? errorMessage : null,
+            });
           });
         }
       });

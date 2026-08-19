@@ -80,7 +80,6 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   crawlerManager.on('crawler_finished', (data: any) => windowControls.releaseCrawlerWindow?.(data.platform, data.status, data));
   crawlerManager.on('crawler_finished', () => {
     void agentService.tick();
-    try { knowledgeIndex.rebuild(); } catch {}
   });
 
   // Error Handler

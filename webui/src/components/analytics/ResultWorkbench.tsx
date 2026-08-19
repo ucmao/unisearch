@@ -339,9 +339,13 @@ const metricLabels: Record<string, string> = {
 }
 
 const PLATFORM_CONFIGS: Record<string, { label: string; shortLabel?: string; bg: string; text: string; border: string }> = {
+  // 通用与工具类
   media_parser: { label: '无水印解析', shortLabel: '解析', bg: 'bg-indigo-500/10 dark:bg-indigo-400/15', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/20' },
   universal: { label: '通用采集', shortLabel: '通用', bg: 'bg-sky-500/10 dark:bg-sky-400/15', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20' },
   web: { label: '网页采集', shortLabel: '网页', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
+  web_reader: { label: '网页正文', shortLabel: '正文', bg: 'bg-slate-500/10 dark:bg-slate-400/15', text: 'text-slate-600 dark:text-slate-400', border: 'border-slate-500/20' },
+
+  // 通用搜索引擎
   baidu: { label: '百度', shortLabel: '度', bg: 'bg-blue-500/10 dark:bg-blue-400/15', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
   bing: { label: '必应', shortLabel: '应', bg: 'bg-teal-500/10 dark:bg-teal-400/15', text: 'text-teal-600 dark:text-teal-400', border: 'border-teal-500/20' },
   so360: { label: '360搜索', shortLabel: '360', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
@@ -349,8 +353,14 @@ const PLATFORM_CONFIGS: Record<string, { label: string; shortLabel?: string; bg:
   toutiao: { label: '头条搜索', shortLabel: '头条', bg: 'bg-red-500/10 dark:bg-red-400/15', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/20' },
   quark: { label: '神马搜索', shortLabel: '神马', bg: 'bg-amber-600/10 dark:bg-amber-400/15', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-500/20' },
   chinaso: { label: '中国搜索', shortLabel: '国搜', bg: 'bg-red-700/10 dark:bg-red-500/15', text: 'text-red-800 dark:text-red-300', border: 'border-red-600/20' },
+
+  // 学术、资讯与代码
   arxiv: { label: 'arXiv', shortLabel: 'arXiv', bg: 'bg-rose-700/10 dark:bg-rose-500/15', text: 'text-rose-800 dark:text-rose-300', border: 'border-rose-700/20' },
   github_repositories: { label: 'GitHub 仓库', shortLabel: 'GH', bg: 'bg-slate-700/10 dark:bg-slate-300/15', text: 'text-slate-800 dark:text-slate-200', border: 'border-slate-600/20' },
+  aihot: { label: 'AI HOT', shortLabel: 'HOT', bg: 'bg-orange-500/10 dark:bg-orange-400/15', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' },
+  kr36: { label: '36氪', shortLabel: '36氪', bg: 'bg-sky-600/10 dark:bg-sky-400/15', text: 'text-sky-700 dark:text-sky-300', border: 'border-sky-500/20' },
+
+  // 社交与社区平台
   xhs: { label: '小红书', shortLabel: '小红书', bg: 'bg-rose-500/10 dark:bg-rose-400/15', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-500/20' },
   douyin: { label: '抖音', shortLabel: '抖音', bg: 'bg-slate-800/10 dark:bg-slate-200/15', text: 'text-slate-700 dark:text-slate-200', border: 'border-slate-400/20' },
   kuaishou: { label: '快手', shortLabel: '快手', bg: 'bg-amber-500/10 dark:bg-amber-400/15', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20' },
@@ -358,14 +368,22 @@ const PLATFORM_CONFIGS: Record<string, { label: string; shortLabel?: string; bg:
   weibo: { label: '微博', shortLabel: '微博', bg: 'bg-yellow-500/10 dark:bg-yellow-400/15', text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/20' },
   tieba: { label: '贴吧', shortLabel: '贴吧', bg: 'bg-indigo-500/10 dark:bg-indigo-400/15', text: 'text-indigo-600 dark:text-indigo-400', border: 'border-indigo-500/20' },
   zhihu: { label: '知乎', shortLabel: '知乎', bg: 'bg-sky-500/10 dark:bg-sky-400/15', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20' },
+
+  // 招聘与维权平台
   boss: { label: 'BOSS直聘', shortLabel: 'BOSS', bg: 'bg-cyan-600/10 dark:bg-cyan-400/15', text: 'text-cyan-700 dark:text-cyan-300', border: 'border-cyan-600/20' },
   zhaopin: { label: '智联招聘', shortLabel: '智联', bg: 'bg-cyan-500/10 dark:bg-cyan-400/15', text: 'text-cyan-600 dark:text-cyan-400', border: 'border-cyan-500/20' },
   job51: { label: '前程无忧', shortLabel: '前程', bg: 'bg-orange-500/10 dark:bg-orange-400/15', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' },
   liepin: { label: '猎聘网', shortLabel: '猎聘', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
   heimao: { label: '黑猫投诉', shortLabel: '黑猫', bg: 'bg-red-600/10 dark:bg-red-500/15', text: 'text-red-700 dark:text-red-400', border: 'border-red-600/20' },
+
+  // AI 搜索问答平台（简约低调大厂美学，低饱和品牌色）
   deepseek: { label: 'DeepSeek', shortLabel: 'DS', bg: 'bg-purple-500/10 dark:bg-purple-400/15', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/20' },
   kimi: { label: 'Kimi', shortLabel: 'Kimi', bg: 'bg-sky-500/10 dark:bg-sky-400/15', text: 'text-sky-600 dark:text-sky-400', border: 'border-sky-500/20' },
   doubao: { label: '豆包', shortLabel: '豆包', bg: 'bg-blue-600/10 dark:bg-blue-400/15', text: 'text-blue-700 dark:text-blue-400', border: 'border-blue-600/20' },
+  qwen: { label: '通义千问', shortLabel: '千问', bg: 'bg-violet-500/10 dark:bg-violet-400/15', text: 'text-violet-600 dark:text-violet-400', border: 'border-violet-500/20' },
+  yuanbao: { label: '腾讯元宝', shortLabel: '元宝', bg: 'bg-emerald-500/10 dark:bg-emerald-400/15', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20' },
+  nami: { label: '纳米AI', shortLabel: '纳米', bg: 'bg-teal-500/10 dark:bg-teal-400/15', text: 'text-teal-600 dark:text-teal-400', border: 'border-teal-500/20' },
+  wenxin: { label: '文心一言', shortLabel: '文心', bg: 'bg-amber-500/10 dark:bg-amber-400/15', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20' },
 }
 
 function renderPlatformBadge(platformKey: string, fallbackLabel?: string, compact = false) {

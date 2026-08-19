@@ -202,14 +202,26 @@ const crawlerTabMetrics = new Map<string, CrawlerRunMetrics>();
 
 function closeCrawlerTab(platform: string): void {
   const view = crawlerViews.get(platform);
+  const wasActive = activeCrawlerPlatform === platform;
+
+  if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+    if (crawlerHubWindow.getBrowserView() === view || wasActive) {
+      crawlerHubWindow.setBrowserView(null);
+    }
+  }
+
   if (view) {
     crawlerViews.delete(platform);
-    if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
+    if (!view.webContents.isDestroyed()) {
+      try {
+        view.webContents.close({ waitForBeforeUnload: false });
+      } catch {}
+    }
   }
   crawlerTabStates.delete(platform);
   crawlerTabMetrics.delete(platform);
 
-  if (activeCrawlerPlatform === platform) {
+  if (wasActive) {
     const remaining = Array.from(crawlerTabStates.keys());
     const next = remaining.find((p) => crawlerViews.has(p)) || remaining[0];
     if (next) {
@@ -404,10 +416,16 @@ function crawlerHubHtml(): string {
   </body></html>`;
 }
 
+let refreshTabsTimer: NodeJS.Timeout | null = null;
 function refreshCrawlerHubTabs(): void {
   if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return;
-  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(crawlerHubHtml())}`;
-  void crawlerHubWindow.loadURL(dataUrl);
+  if (refreshTabsTimer) clearTimeout(refreshTabsTimer);
+  refreshTabsTimer = setTimeout(() => {
+    refreshTabsTimer = null;
+    if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return;
+    const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(crawlerHubHtml())}`;
+    void crawlerHubWindow.loadURL(dataUrl).catch(() => {});
+  }, 50);
 }
 
 function layoutActiveCrawlerView(): void {
@@ -570,12 +588,21 @@ export function releaseCrawlerWindow(platform: string, _status = 'completed', _m
 
   const wasActive = activeCrawlerPlatform === platform;
   crawlerViews.delete(platform);
-  if (!view.webContents.isDestroyed()) view.webContents.close({ waitForBeforeUnload: false });
 
-  if (wasActive) {
-    if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+  // CRITICAL: Always detach from crawlerHubWindow FIRST before closing webContents
+  if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+    if (crawlerHubWindow.getBrowserView() === view || wasActive) {
       crawlerHubWindow.setBrowserView(null);
     }
+  }
+
+  if (!view.webContents.isDestroyed()) {
+    try {
+      view.webContents.close({ waitForBeforeUnload: false });
+    } catch {}
+  }
+
+  if (wasActive) {
     const nextRunning = Array.from(crawlerViews.keys())[0];
     if (nextRunning) {
       activateCrawlerView(nextRunning);
