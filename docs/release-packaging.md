@@ -27,7 +27,7 @@ npm run electron:build
 - **生成 x64 免安装 ZIP 压缩包（解压即用）**：
   ```bash
   npm run build:backend && npm run webui:build
-  npx electron-builder --win --x64 zip
+  npx electron-builder --win zip --x64
   ```
 
 #### 🍎 macOS 平台

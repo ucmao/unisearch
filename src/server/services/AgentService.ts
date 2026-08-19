@@ -106,16 +106,32 @@ function normalizeContentEnrichment(
   };
 }
 
-function skillPlanningContext(skill: SkillDefinition | null): string {
-  if (!skill) return '';
+function skillPlanningContext(skill: SkillDefinition | null, mentionedSkills: SkillDefinition[] = []): string {
+  const allSkills = mentionedSkills.length ? mentionedSkills : (skill ? [skill] : []);
+  if (!allSkills.length) return '';
+  if (allSkills.length === 1) {
+    const s = allSkills[0];
+    return JSON.stringify({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      requiredInputs: s.inputs.filter((input) => input.required),
+      targetGuidance: s.targetGuidance,
+      defaults: s.defaults,
+      limitations: s.limitations,
+    });
+  }
   return JSON.stringify({
-    id: skill.id,
-    name: skill.name,
-    description: skill.description,
-    requiredInputs: skill.inputs.filter((input) => input.required),
-    targetGuidance: skill.targetGuidance,
-    defaults: skill.defaults,
-    limitations: skill.limitations,
+    mode: 'composite_skills',
+    skills: allSkills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      category: s.category,
+      description: s.description,
+      defaults: s.defaults,
+      requiredInputs: s.inputs.filter((input) => input.required),
+    })),
+    combinedPlatforms: Array.from(new Set(allSkills.flatMap((s) => s.defaults?.platforms || []))),
   });
 }
 
@@ -133,9 +149,11 @@ export function shouldAutoStartPlan(
   userText: string,
   skill: SkillDefinition | null = null,
   explicitlyInvokedSkill = false,
+  mentionedSkills: SkillDefinition[] = [],
 ): boolean {
   if (plan.healthPolicy?.requiresConfirmation) return false;
   if (/(?:先别|不要|暂不|先不)(?:自动)?(?:开始|执行|运行|采集|搜索)|(?:先|只)(?:给我)?看(?:一下)?(?:采集)?计划|等待确认|确认后再/i.test(userText)) return false;
+  if (mentionedSkills.some((s) => shouldAutoStartSkill(s, explicitlyInvokedSkill))) return true;
   if (shouldAutoStartSkill(skill, explicitlyInvokedSkill)) return true;
   return true;
 }
@@ -145,10 +163,12 @@ function applyConnectorHealthPolicy(
   userText: string,
   mentionedConnectors: string[],
   skill: SkillDefinition | null = null,
+  mentionedSkills: SkillDefinition[] = [],
 ): ResearchPlan {
+  const allSkills = mentionedSkills.length ? mentionedSkills : (skill ? [skill] : []);
   const explicitPlatforms = Array.from(new Set([
     ...mentionedConnectors,
-    ...(skill?.platforms || []),
+    ...allSkills.flatMap((s) => s.defaults?.platforms || []),
     ...inferResearchPlatforms(userText),
   ]));
   const runtimeSettings = agentRepository.getRuntimeSettings();
@@ -168,13 +188,16 @@ export function normalizePlan(
   preserveFallbackDepth = false,
   skill: SkillDefinition | null = null,
   mentionedConnectors: string[] = [],
+  mentionedSkills: SkillDefinition[] = [],
 ): ResearchPlan {
-  // A structured @ selection is already carried in `skill`. Do not interpret
+  // A structured @ selection is already carried in `skills`. Do not interpret
   // words inside its display name as free-form platform instructions (for
   // example, the “全网” in “@全网综合解析” used to expand to every connector).
-  const platformIntentText = skill
-    ? userText.replace(new RegExp(`@?${skill.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), ' ')
-    : userText;
+  const allSkills = mentionedSkills.length ? mentionedSkills : (skill ? [skill] : []);
+  let platformIntentText = userText;
+  for (const s of allSkills) {
+    platformIntentText = platformIntentText.replace(new RegExp(`@?${s.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), ' ');
+  }
   const platformAliases: Record<string, string> = {
     小红书: 'xhs', 抖音: 'douyin', 快手: 'kuaishou', B站: 'bili', 哔哩哔哩: 'bili', 微博: 'weibo', 百度贴吧: 'tieba', 贴吧: 'tieba', 知乎: 'zhihu',
     dy: 'douyin', ks: 'kuaishou', wb: 'weibo',
@@ -203,7 +226,7 @@ export function normalizePlan(
   const explicitUserKeywords = inferExplicitResearchKeywords(platformIntentText);
 
   const runtimeSettings = agentRepository.getRuntimeSettings();
-  const hasExplicitSkillKeywords = (skill?.defaults?.keywords?.length ?? 0) > 0;
+  const hasExplicitSkillKeywords = allSkills.some((s) => (s.defaults?.keywords?.length ?? 0) > 0);
   const isExplicitMode = explicitUserKeywords.length > 0 || hasExplicitSkillKeywords || /[“"']/.test(userText);
   const shouldLockKeywords = runtimeSettings.keywordExpansionPolicy === 'strict'
     || (runtimeSettings.keywordExpansionPolicy === 'smart' && isExplicitMode);
@@ -212,7 +235,7 @@ export function normalizePlan(
   if (shouldLockKeywords) {
     keywords = explicitUserKeywords.length
       ? explicitUserKeywords
-      : (hasExplicitSkillKeywords ? skill!.defaults!.keywords : (rawKeywords.length ? [rawKeywords[0]] : []));
+      : (hasExplicitSkillKeywords ? (allSkills.find((s) => s.defaults?.keywords?.length)?.defaults?.keywords || []) : (rawKeywords.length ? [rawKeywords[0]] : []));
   } else {
     keywords = explicitUserKeywords.length
       ? explicitUserKeywords
@@ -229,8 +252,10 @@ export function normalizePlan(
 
   keywords = keywords.map(cleanKeywordItem).filter(Boolean);
 
-  if (!keywords.length && fallbackPlan?.keywords?.length) {
-    keywords = fallbackPlan.keywords;
+  if (!keywords.length) {
+    keywords = fallbackPlan?.keywords?.length
+      ? fallbackPlan.keywords
+      : inferResearchKeywords(platformIntentText);
   }
   const capabilityIds = ['keyword_search', 'content_detail', 'creator_profile', 'comments', 'url_resolve'];
   const inferredCapability = /解析.*(?:链接|URL)|短链|真实链接/i.test(userText)
@@ -242,7 +267,7 @@ export function normalizePlan(
         : /(?:详情|指定作品|指定内容)|https?:\/\//i.test(userText)
           ? 'content_detail'
           : 'keyword_search';
-  const requestedCapability = input?.capability ?? skill?.defaults?.capability;
+  const requestedCapability = input?.capability ?? (allSkills.length === 1 ? skill?.defaults?.capability : undefined);
   const capability = capabilityIds.includes(String(requestedCapability)) ? requestedCapability : inferredCapability;
   const inputTargets = Array.isArray(input?.targets) ? input.targets : [];
   const textTargets = Array.from(userText.matchAll(/https?:\/\/[^\s，。；;]+/g)).map((match) => match[0]);
@@ -264,23 +289,25 @@ export function normalizePlan(
       : 'quick';
 
   const explicitlyMentionedPlatforms = Array.from(new Set(mentionedConnectors.filter((platform) => SUPPORTED.includes(platform))));
+  const allSkillDefaultPlatforms = Array.from(new Set(
+    allSkills.flatMap((s) => s.defaults?.platforms || [])
+  )).filter((p) => SUPPORTED.includes(p));
 
   let basePlatforms: string[];
   if (explicitlyMentionedPlatforms.length > 0) {
     basePlatforms = explicitlyMentionedPlatforms;
   } else if (isExclusive) {
     basePlatforms = inferredPlatforms.length ? inferredPlatforms : platforms;
-  } else if (skill?.defaults?.platforms?.length) {
-    const defaultPlatforms = skill.defaults.platforms.filter((p) => SUPPORTED.includes(p));
+  } else if (allSkillDefaultPlatforms.length > 0) {
     // URL resolver tools own the target URL. Its origin (for example a Douyin
     // link) describes what media_parser should parse, not an additional social
     // connector that should crawl the same URL a second time.
-    if (defaultPlatforms.includes('media_parser')) {
-      basePlatforms = defaultPlatforms;
+    if (allSkillDefaultPlatforms.includes('media_parser')) {
+      basePlatforms = allSkillDefaultPlatforms;
     } else if (inferredPlatforms.length > 0) {
-      basePlatforms = Array.from(new Set([...defaultPlatforms, ...inferredPlatforms]));
+      basePlatforms = Array.from(new Set([...allSkillDefaultPlatforms, ...inferredPlatforms]));
     } else {
-      basePlatforms = defaultPlatforms;
+      basePlatforms = allSkillDefaultPlatforms;
     }
   } else if (isAdditive && fallbackPlan?.platforms?.length) {
     const extraPlatforms = inferredPlatforms.length ? inferredPlatforms : platforms;
@@ -295,14 +322,19 @@ export function normalizePlan(
   const suppliedGoals = Array.isArray(input?.analysis) ? input.analysis : [];
   const keywordCleanSet = new Set(keywords.map(cleanKeywordItem));
   const distinctExplicitAnalysis = explicitAnalysis.filter((item) => !keywordCleanSet.has(cleanKeywordItem(item)));
-  const analysis = skill?.category === 'business' && skill.defaults
-    ? normalizeAnalysisGoals([...skill.defaults.analysis, ...distinctExplicitAnalysis, ...suppliedGoals], goal)
+  const businessSkill = allSkills.find((s) => s.category === 'business');
+  const allSkillAnalysisDefaults = allSkills.flatMap((s) => s.defaults?.analysis || []);
+  const analysis = businessSkill && businessSkill.defaults
+    ? normalizeAnalysisGoals([...businessSkill.defaults.analysis, ...distinctExplicitAnalysis, ...suppliedGoals], goal)
+    : allSkillAnalysisDefaults.length > 0
+    ? normalizeAnalysisGoals([...allSkillAnalysisDefaults, ...distinctExplicitAnalysis, ...suppliedGoals], goal)
     : normalizeAnalysisGoals([...distinctExplicitAnalysis, ...suppliedGoals], goal);
+
   // Generic Agent collection always produces an automatic evidence-led report.
   // Deterministic tools keep their explicit "collect only" contract unless the
   // user supplied an analysis goal; business Skills always use their template.
-  const autoAnalyze = skill?.category === 'business'
-    || (!skill || skill.id === 'multi-source-research')
+  const autoAnalyze = businessSkill !== undefined
+    || (!skill || skill.id === 'multi-source-research' || allSkills.length > 1)
     || analysis.length > 0;
 
   const connectorOptions = input?.connectorOptions && typeof input.connectorOptions === 'object'
@@ -362,8 +394,17 @@ export function normalizePlan(
     preserveOriginal: input?.queryExpansion?.preserveOriginal !== false,
   };
 
+  const resolvedSkillId = allSkills.length > 1
+    ? (allSkills.find((s) => s.category === 'business')?.id || 'multi-source-research')
+    : skill?.id || fallbackPlan?.skillId || 'multi-source-research';
+  const outputs = (allSkills.length === 1 && skill?.defaults?.outputs?.length)
+    ? skill.defaults.outputs
+    : Array.isArray(input?.outputs) && input.outputs.length
+      ? input.outputs.map(String).slice(0, 5)
+      : ['csv'];
+
   return {
-    skillId: skill?.id || fallbackPlan?.skillId || 'multi-source-research',
+    skillId: resolvedSkillId,
     goal,
     platforms: selectedPlatforms,
     keywords,
@@ -374,15 +415,13 @@ export function normalizePlan(
     queryExpansion,
     collectionDepth: hasExplicitCollectionDepth(userText) || preserveFallbackDepth
       ? collectionDepth
-      : skill?.defaults?.collectionDepth || collectionDepth,
+      : (allSkills.length === 1 ? skill?.defaults?.collectionDepth : undefined) || collectionDepth,
     loginType,
     headless: Boolean(input?.headless),
     analysis,
     analysisSource,
     autoAnalyze,
-    outputs: skill?.defaults?.outputs?.length
-      ? skill.defaults.outputs
-      : Array.isArray(input?.outputs) ? input.outputs.map(String).slice(0, 5) : ['csv'],
+    outputs,
   };
 }
 
@@ -662,9 +701,10 @@ export class AgentService {
     const mentionedConnectors = Array.from(new Set((context.mentioned_connectors || []).map(String)))
       .filter((connector) => SUPPORTED.includes(connector));
     const mentionedSkillIds = Array.from(new Set((context.mentioned_skills || []).map(String)));
-    if (mentionedSkillIds.length > 1) throw new Error('每次只能调用一个技能或工具');
-    const explicitlySelectedSkill = skillRegistry.find(mentionedSkillIds[0]);
-    if (mentionedSkillIds.length && (!explicitlySelectedSkill || !explicitlySelectedSkill.mentionable)) {
+    const explicitlySelectedSkills = mentionedSkillIds
+      .map((id) => skillRegistry.find(id))
+      .filter((s): s is SkillDefinition => Boolean(s && s.mentionable));
+    if (mentionedSkillIds.length && explicitlySelectedSkills.length === 0) {
       throw new Error('选择的技能或工具不存在或不能直接调用');
     }
     const messageMetadata = {
@@ -674,7 +714,7 @@ export class AgentService {
       })),
       task_references: taskReferences,
       mentioned_connectors: mentionedConnectors,
-      mentioned_skills: explicitlySelectedSkill ? [explicitlySelectedSkill.id] : [],
+      mentioned_skills: explicitlySelectedSkills.map((s) => s.id),
     };
     if (!options.skipAddUserMessage) {
       agentRepository.addMessage(threadId, 'user', 'text', content, messageMetadata);
@@ -694,14 +734,19 @@ export class AgentService {
     const previousUserMessage = awaitingClarification
       ? lastUserMessage
       : null;
-    const inheritedSkillId = awaitingClarification
-      ? String(lastUserMessage?.metadata?.mentioned_skills?.[0] || '')
-      : '';
-    const activeSkill = explicitlySelectedSkill
-      || skillRegistry.find(inheritedSkillId)
+    const inheritedSkillIds = awaitingClarification && Array.isArray(lastUserMessage?.metadata?.mentioned_skills)
+      ? lastUserMessage.metadata.mentioned_skills.map(String)
+      : [];
+    const inheritedSkills = inheritedSkillIds
+      .map((id) => skillRegistry.find(id))
+      .filter((s): s is SkillDefinition => Boolean(s && s.mentionable));
+    const activeMentionedSkills = explicitlySelectedSkills.length ? explicitlySelectedSkills : inheritedSkills;
+    const primaryBusinessSkill = activeMentionedSkills.find((s) => s.category === 'business');
+    const activeSkill = primaryBusinessSkill
+      || activeMentionedSkills[0]
       || (latest?.status === 'awaiting_confirmation' ? skillRegistry.find(latest?.plan?.skillId) : null)
       || null;
-    const explicitlyInvokedSkill = Boolean(explicitlySelectedSkill || inheritedSkillId);
+    const explicitlyInvokedSkill = activeMentionedSkills.length > 0;
     const inheritedConnectors = awaitingClarification && Array.isArray(lastUserMessage?.metadata?.mentioned_connectors)
       ? lastUserMessage.metadata.mentioned_connectors.map(String)
       : [];
@@ -715,7 +760,7 @@ export class AgentService {
       hasPreviousPlanKeywords: Boolean(latest?.plan?.keywords?.length),
       hasCollectedData: agentRepository.getThreadContents(threadId, 1).length > 0,
       mentionedConnectors: activeMentionedConnectors,
-      mentionedSkills: explicitlySelectedSkill || inheritedSkillId ? [activeSkill?.id || ''].filter(Boolean) : [],
+      mentionedSkills: activeMentionedSkills.map((s) => s.id),
     });
     runTrace.recordRoute(localDecision.action, 'local');
 
@@ -898,7 +943,7 @@ export class AgentService {
           latest ? { status: latest.status, plan: latest.plan } : null,
           onRetry,
           signal,
-          skillPlanningContext(activeSkill),
+          skillPlanningContext(activeSkill, activeMentionedSkills),
           memories,
         );
         runTrace.recordRoute(decision.action, 'model');
@@ -914,7 +959,7 @@ export class AgentService {
           // query is a misroute, not a legitimate alternative reading. Without
           // this, the model can silently discard an otherwise-complete
           // collection request and answer as if no plan exists.
-          const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
+          const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill, activeMentionedSkills));
           ensureMessageNotAborted(signal);
           decision = { action: 'create_plan', reply: '', plan: generated };
         } else if (localDecision.action === 'create_plan' && decision.action === 'revise_plan' && latest && !['awaiting_confirmation', 'queued', 'running'].includes(latest.status)) {
@@ -946,7 +991,7 @@ export class AgentService {
         ensureMessageNotAborted(signal);
         if (localDecision.action === 'create_plan') {
           try {
-            const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
+            const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill, activeMentionedSkills));
             ensureMessageNotAborted(signal);
             decision = { action: 'create_plan', reply: '', plan: generated };
           } catch (planError: any) {
@@ -1093,13 +1138,14 @@ export class AgentService {
           try {
             const updatedThread = agentRepository.getThread(threadId);
             const messages = conversationMessages(updatedThread);
-            const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
+            const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill, activeMentionedSkills));
             ensureMessageNotAborted(signal);
             const plan = applyConnectorHealthPolicy(
-              normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors),
+              normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors, activeMentionedSkills),
               planningText,
               activeMentionedConnectors,
               activeSkill,
+              activeMentionedSkills,
             );
             if (plan.platforms.length > 0 && (plan.keywords.length > 0 || (plan.targets && plan.targets.length > 0) || allowsEmptyKeywords(plan))) {
               const created = agentRepository.createPlan(threadId, plan);
@@ -1334,16 +1380,16 @@ export class AgentService {
         };
       }
       const candidate = mergePlan(latest.plan, patch);
-      plan = normalizePlan(candidate, planningText, latest?.plan, true, activeSkill, activeMentionedConnectors);
+      plan = normalizePlan(candidate, planningText, latest?.plan, true, activeSkill, activeMentionedConnectors, activeMentionedSkills);
     } else if (decision.action === 'create_plan') {
-      if (decision.plan) plan = normalizePlan(decision.plan, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
+      if (decision.plan) plan = normalizePlan(decision.plan, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors, activeMentionedSkills);
       else {
         const updatedThread = agentRepository.getThread(threadId);
         const messages = conversationMessages(updatedThread);
         try {
-          const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill));
+          const generated = await modelService.createPlan(messages, planningText, onRetry, signal, skillPlanningContext(activeSkill, activeMentionedSkills));
           ensureMessageNotAborted(signal);
-          plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
+          plan = normalizePlan(generated, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors, activeMentionedSkills);
         }
         catch {
           ensureMessageNotAborted(signal);
@@ -1351,7 +1397,7 @@ export class AgentService {
           plan = normalizePlan({
             platforms: inferResearchPlatforms(planningText),
             keywords: fallbackKeywords,
-          }, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors);
+          }, planningText, latest?.plan, false, activeSkill, activeMentionedConnectors, activeMentionedSkills);
         }
       }
     } else {
@@ -1366,7 +1412,7 @@ export class AgentService {
       agentRepository.addMessage(threadId, 'assistant', 'text', reply, { action: 'chat' });
       return agentRepository.getThread(threadId);
     }
-    plan = applyConnectorHealthPolicy(plan, planningText, activeMentionedConnectors, activeSkill);
+    plan = applyConnectorHealthPolicy(plan, planningText, activeMentionedConnectors, activeSkill, activeMentionedSkills);
     if (!plan.platforms.length) {
       if (latest && ['completed', 'partially_completed'].includes(latest.status)) {
         const updatedThread = agentRepository.getThread(threadId);
@@ -1420,7 +1466,7 @@ export class AgentService {
       : agentRepository.createPlan(threadId, plan);
     const planSkill = skillRegistry.find(plan.skillId);
     const platformNames = plan.platforms.map((p) => LABELS[p]).join('、');
-    const autoStart = shouldAutoStartPlan(plan, planningText, planSkill, explicitlyInvokedSkill);
+    const autoStart = shouldAutoStartPlan(plan, planningText, planSkill, explicitlyInvokedSkill, activeMentionedSkills);
     const lead = autoStart
       ? planSkill?.category === 'business'
         ? '已按该 Skill 的方案创建任务并开始采集。'
@@ -1497,7 +1543,9 @@ export class AgentService {
       if (parts.length) diffLine = `\n（相比上一轮，${parts.join('，')}；如果不需要可以直接告诉我去掉）`;
     }
 
-    const skillLine = planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
+    const skillLine = activeMentionedSkills.length > 1
+      ? `\n组合技能/工具：${activeMentionedSkills.map((s) => s.name).join('、')}`
+      : planSkill?.category === 'business' ? `\nSkill：${planSkill.name}` : '';
     const nonNormalHealth = (plan.healthPolicy?.decisions || []).filter((item) => item.action !== 'use');
     const healthGroups = new Map<string, { connectors: string[]; description: string }>();
     for (const item of nonNormalHealth) {

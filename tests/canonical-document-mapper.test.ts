@@ -58,6 +58,21 @@ test('social mapper normalizes aliases without manufacturing missing metrics', (
   assert.equal(document.provenance.runId, 'run-xhs');
 });
 
+test('social mapper identifies cover role when cover_url is provided in payload', () => {
+  const item = buildRawItem('emitXhsNote', {
+    note_id: 'xhs-cover-1',
+    title: '封面测试笔记',
+    desc: '正文',
+    nickname: '作者',
+    cover_url: 'https://example.com/cover.jpg',
+    image_list: 'https://example.com/cover.jpg,https://example.com/img2.jpg',
+  });
+  const document = mapRawItemToCanonicalDocument(item);
+  assert.equal(document.assets.length, 2);
+  assert.equal(document.assets[0].role, 'cover');
+  assert.equal(document.assets[0].url, 'https://example.com/cover.jpg');
+});
+
 test('Bilibili mapper preserves platform-specific metrics', () => {
   const document = mapRawItemToCanonicalDocument(buildRawItem('emitBilibiliVideo', {
     video_id: 'BV-fixture', title: '视频', desc: '视频正文', nickname: 'UP主',

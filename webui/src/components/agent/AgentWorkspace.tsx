@@ -2020,8 +2020,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       )}
       <aside
         className={`shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-panel md:bg-cyber-bg-secondary/70 ${threadsCollapsed
-            ? 'hidden'
-            : 'fixed inset-y-0 left-0 z-50 flex shadow-2xl md:relative md:z-auto md:shadow-none'
+          ? 'hidden'
+          : 'fixed inset-y-0 left-0 z-50 flex shadow-2xl md:relative md:z-auto md:shadow-none'
           }`}
         style={{ width: leftSidebarWidth }}
       >
@@ -2106,10 +2106,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                     }}
                     title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
                     className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-all ${selectedId === thread.thread_id
-                        ? 'bg-cyber-neon-cyan/10 font-semibold text-cyber-text-primary border border-cyber-neon-cyan/30 shadow-sm'
-                        : threadMenuId === thread.thread_id
-                          ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary font-medium'
-                          : 'font-medium text-cyber-text-primary/70 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
+                      ? 'bg-cyber-neon-cyan/10 font-semibold text-cyber-text-primary border border-cyber-neon-cyan/30 shadow-sm'
+                      : threadMenuId === thread.thread_id
+                        ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary font-medium'
+                        : 'font-medium text-cyber-text-primary/70 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
                       }`}
                   >
                     {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}
@@ -2265,8 +2265,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
       <section className="flex min-w-0 flex-1 flex-col">
         <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 ${threadsCollapsed ? 'app-drag' : 'md:app-drag'} ${isMacPlatform()
-            ? (threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6')
-            : (threadsCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4 sm:md:pl-6')
+          ? (threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6')
+          : (threadsCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4 sm:md:pl-6')
           }`}>
           <div className="flex items-center gap-1.5 min-w-0">
             <div className={`items-center gap-1.5 app-no-drag ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}>
@@ -2732,8 +2732,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           type="button"
                           onClick={() => setSidebarSelectedRound('all')}
                           className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${sidebarSelectedRound === 'all'
-                              ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
-                              : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
+                            ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
+                            : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
                             }`}
                         >
                           <span>全部</span>
@@ -2751,8 +2751,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                               type="button"
                               onClick={() => setSidebarSelectedRound(roundNum)}
                               className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${isSelected
-                                  ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
-                                  : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
+                                ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
+                                : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
                                 }`}
                             >
                               {isPlanRunning ? (
@@ -2803,30 +2803,30 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       disabled={sessionTotalItems <= 0}
                       aria-label={sessionTotalItems > 0 ? `查看已采集的 ${roundItemCount} 条数据` : undefined}
                       className={`w-full rounded-xl border p-3.5 text-left shadow-sm transition-all ${displayedPlan && isRunning
-                          ? 'border-cyber-neon-cyan/40 bg-cyber-bg-panel/90 shadow-xs'
-                          : sessionTotalItems > 0
-                            ? 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70'
-                            : 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-default'
+                        ? 'border-cyber-neon-cyan/40 bg-cyber-bg-panel/90 shadow-xs'
+                        : sessionTotalItems > 0
+                          ? 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70'
+                          : 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-default'
                         }`}
                     >
-                      <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
-                        <span className="font-semibold uppercase tracking-wider">
+                      <div className="flex items-center justify-between gap-1.5 text-[10px] text-cyber-text-muted min-w-0">
+                        <span className="font-semibold uppercase tracking-wider truncate min-w-0 shrink">
                           {sidebarSelectedRound === 'all' ? '全会话已采集' : `第 ${sidebarSelectedRound} 轮已采集`}
                         </span>
                         {displayedPlan && isRunning ? (
-                          <span className="flex items-center gap-1 font-semibold text-cyber-neon-cyan text-[10px]">
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                            <span>
+                          <span className="flex items-center gap-1 font-semibold text-cyber-neon-cyan text-[10px] shrink-0 whitespace-nowrap">
+                            <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                            <span className="whitespace-nowrap">
                               {displayedPlan.status === 'queued'
                                 ? '排队中'
                                 : activeConnectorsCompleted
-                                  ? '正在分析采集结果'
+                                  ? '正在分析'
                                   : '采集中'}
                             </span>
-                            <PlanElapsedTime plan={displayedPlan} className="ml-1 font-mono text-cyber-text-secondary" />
+                            <PlanElapsedTime plan={displayedPlan} className="ml-1 font-mono text-cyber-text-secondary whitespace-nowrap shrink-0" />
                           </span>
                         ) : (
-                          <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted" />
+                          <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted shrink-0" />
                         )}
                       </div>
                       <div className="mt-2 flex items-baseline gap-2">
@@ -2844,8 +2844,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
                     <div>
                       <div className="flex items-center justify-between text-[10px] text-cyber-text-muted mb-1.5">
-                        <span>{sidebarSelectedRound === 'all' ? '全会话数据分布与状态' : `第 ${sidebarSelectedRound} 轮平台分布与状态`}</span>
-                        {roundItemCount > 0 ? <span>已接入平台</span> : null}
+                        <span>{sidebarSelectedRound === 'all' ? '全会话平台分布' : `第 ${sidebarSelectedRound} 轮平台分布`}</span>
+                        {roundItemCount > 0 ? <span>采集数量</span> : null}
                       </div>
                       <div className="divide-y divide-cyber-border-subtle/60">
                         {platformSummaryList.length > 0 ? (

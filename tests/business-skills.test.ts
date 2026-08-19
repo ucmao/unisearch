@@ -233,3 +233,55 @@ test('plain chat cannot impersonate a persisted collection plan', () => {
   assert.equal(looksLikeSimulatedPlanReply('可以采集 GitHub 的公开仓库信息。'), false);
   assert.equal(looksLikeSimulatedPlanReply('记住了。如果你之后想制定调研计划，也可以告诉我。'), false);
 });
+
+test('multiple @ tool mentions merge default platforms and resolve clean keywords', () => {
+  const aiTool = skillRegistry.get('ai-qa-research');
+  const webTool = skillRegistry.get('web-search-research');
+  const jobTool = skillRegistry.get('job-search-research');
+
+  const plan = normalizePlan(
+    { goal: 'FDE 工程师综合调研' },
+    '@AI搜索 @网页搜索 @岗位搜索 FDE 工程师',
+    undefined,
+    false,
+    null,
+    [],
+    [aiTool, webTool, jobTool],
+  );
+
+  // Platform union of 7 AI + 7 Web + 4 Job platforms = 18 platforms
+  const expectedPlatforms = [
+    'deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin',
+    'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso',
+    'zhaopin', 'job51', 'liepin', 'boss',
+  ];
+  assert.deepEqual(plan.platforms.sort(), expectedPlatforms.sort());
+  assert.deepEqual(plan.keywords, ['FDE 工程师']);
+  assert.equal(plan.skillId, 'multi-source-research');
+  assert.equal(plan.autoAnalyze, true);
+  assert.equal(shouldAutoStartPlan(plan, '@AI搜索 @网页搜索 @岗位搜索 FDE 工程师', null, true, [aiTool, webTool, jobTool]), true);
+});
+
+test('mixing business skill and tool mentions retains business analysis while unioning platforms', () => {
+  const bizSkill = skillRegistry.get('marketing-content-research');
+  const webTool = skillRegistry.get('web-search-research');
+
+  const plan = normalizePlan(
+    { goal: '新能源汽车舆情调研' },
+    '@新媒体内容调研 @网页搜索 新能源汽车',
+    undefined,
+    false,
+    bizSkill,
+    [],
+    [bizSkill, webTool],
+  );
+
+  // xhs, douyin from bizSkill + baidu, bing, so360, sogou, toutiao, quark, chinaso from webTool
+  const expectedPlatforms = ['xhs', 'douyin', 'baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso'];
+  assert.deepEqual(plan.platforms.sort(), expectedPlatforms.sort());
+  assert.deepEqual(plan.keywords, ['新能源汽车']);
+  assert.equal(plan.skillId, 'marketing-content-research');
+  assert.ok(plan.analysis.includes('内容主题与表达方式'));
+  assert.equal(plan.autoAnalyze, true);
+});
+

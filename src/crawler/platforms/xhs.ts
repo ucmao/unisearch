@@ -429,8 +429,9 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
             const imageUrls = (card.image_list || item.image_list || [])
               .map((image: any) => image.url || image.url_default || image.info_list?.[0]?.url || '')
               .filter(Boolean);
-            if (imageUrls.length === 0 && card.cover) {
-              imageUrls.push(card.cover.url_default || card.cover.url_pre || '');
+            const coverUrl = card.cover?.url_default || card.cover?.url_pre || card.cover?.url || card.cover?.info_list?.[0]?.url || imageUrls[0] || '';
+            if (imageUrls.length === 0 && coverUrl) {
+              imageUrls.push(coverUrl);
             }
 
             const noteDetail = {
@@ -439,6 +440,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
               title: card.display_title || card.title || item.title || '',
               desc: card.desc || item.desc || '',
               video_url: '',
+              cover_url: coverUrl,
               time: card.time || item.time || Math.floor(Date.now() / 1000),
               last_update_time: Math.floor(Date.now() / 1000),
               creator_hash: user.user_id || user.id || '',
@@ -828,6 +830,10 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
       const images = (card.image_list || [])
         .map((image: any) => image.url_default || image.url || image.info_list?.[0]?.url || '')
         .filter(Boolean);
+      const coverUrl = card.cover?.url_default || card.cover?.url_pre || card.cover?.url || card.cover?.info_list?.[0]?.url || images[0] || '';
+      if (images.length === 0 && coverUrl) {
+        images.push(coverUrl);
+      }
       const videoUrl = card.video?.media?.stream?.h264?.[0]?.master_url
         || card.video?.media?.stream?.h265?.[0]?.master_url
         || '';
@@ -838,6 +844,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         title: card.title || '',
         desc: card.desc || '',
         video_url: videoUrl,
+        cover_url: coverUrl,
         time: card.time || Math.floor(Date.now() / 1000),
         last_update_time: card.last_update_time || Math.floor(Date.now() / 1000),
         creator_hash: card.user?.user_id || '',
@@ -900,9 +907,10 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           video: attr('video', 'src') || attr('meta[property="og:video"]', 'content'),
         };
       }, noteId);
+      const coverUrl = detail.images[0] || '';
       const record = {
         note_id: noteId, type: detail.video ? 'video' : 'normal', title: detail.title || '', desc: detail.desc || '',
-        video_url: detail.video || '', time: Math.floor(Date.now() / 1000), last_update_time: Math.floor(Date.now() / 1000),
+        video_url: detail.video || '', cover_url: coverUrl, time: Math.floor(Date.now() / 1000), last_update_time: Math.floor(Date.now() / 1000),
         creator_hash: detail.creatorId || '', nickname: detail.nickname || '', liked_count: detail.likes || 0,
         collected_count: detail.collects || 0, comment_count: detail.comments || 0, share_count: 0,
         image_list: [...new Set(detail.images || [])].join(','), tag_list: '', note_url: noteUrl,
