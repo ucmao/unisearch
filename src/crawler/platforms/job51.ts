@@ -55,10 +55,18 @@ export function classifyJob51PageState(input: {
     return { state: 'verification_required', reason: '触发滑块或安全验证' };
   }
 
-  // 2. Login required / Modal blocked detection
+  // 2. Direct login URL redirect
+  if (lowerUrl.includes('login.51job.com') || lowerUrl.includes('/passport')) {
+    return { state: 'login_required', reason: '页面重定向至登录账号中心' };
+  }
+
+  // 3. Job data present -> Ready! (Takes priority over non-blocking floating login widget or footer login text)
+  if (hasJobData) {
+    return { state: 'ready' };
+  }
+
+  // 4. Login required / Modal blocked detection
   if (
-    lowerUrl.includes('login.51job.com') ||
-    lowerUrl.includes('/passport') ||
     hasModal ||
     bodyText.includes('微信扫码登录') ||
     bodyText.includes('手机快捷登录') ||
@@ -69,20 +77,6 @@ export function classifyJob51PageState(input: {
     bodyText.includes('请先登录')
   ) {
     return { state: 'login_required', reason: '页面需要登录或弹出登录遮罩' };
-  }
-
-  // 3. Rate limited
-  if (
-    bodyText.includes('访问过于频繁') ||
-    bodyText.includes('操作过于频繁') ||
-    bodyText.includes('系统繁忙')
-  ) {
-    return { state: 'rate_limited', reason: '访问频次过高受限' };
-  }
-
-  // 4. Job data present -> Ready
-  if (hasJobData) {
-    return { state: 'ready' };
   }
 
   // 5. Genuine empty search result
@@ -485,8 +479,20 @@ export class Job51Crawler extends AbstractCrawler {
           return { title, salary, company, desc };
         }) || {}) as { title: string; salary: string; company: string; desc: string };
 
+        // Filter out anti-scraping security challenge titles like "访问验证" / "安全验证"
+        if (
+          !parsedDetail.title ||
+          parsedDetail.title.includes('验证') ||
+          parsedDetail.title.includes('verification') ||
+          parsedDetail.title.includes('security') ||
+          parsedDetail.title === '前程无忧职位详情'
+        ) {
+          console.warn(`[51Job] Detail target ${detailUrl} returned anti-scraping challenge page ("${parsedDetail.title}"), skipping emission.`);
+          continue;
+        }
+
         await connectorOutput.emitJob51Result({
-          title: parsedDetail.title || '前程无忧职位详情',
+          title: parsedDetail.title,
           company_name: parsedDetail.company || '',
           salary: parsedDetail.salary || '',
           desc: parsedDetail.desc || '',

@@ -522,8 +522,19 @@ export class LiepinCrawler extends AbstractCrawler {
           return { title, salary, company, desc };
         }) || {}) as { title: string; salary: string; company: string; desc: string };
 
+        if (
+          !parsedDetail.title ||
+          parsedDetail.title.includes('验证') ||
+          parsedDetail.title.includes('verification') ||
+          parsedDetail.title.includes('security') ||
+          parsedDetail.title === '猎聘职位详情'
+        ) {
+          console.warn(`[Liepin] Detail target ${detailUrl} returned anti-scraping challenge page ("${parsedDetail.title}"), skipping emission.`);
+          continue;
+        }
+
         await connectorOutput.emitLiepinResult({
-          title: parsedDetail.title || '猎聘职位详情',
+          title: parsedDetail.title,
           company_name: parsedDetail.company || '',
           salary: parsedDetail.salary || '',
           desc: parsedDetail.desc || '',

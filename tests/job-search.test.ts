@@ -127,6 +127,10 @@ test('classifyJob51PageState and classifyLiepinPageState accurately detect login
     classifyJob51PageState({ url: 'https://we.51job.com', title: '职位列表', bodyText: '前端开发工程师', hasJobData: true }).state,
     'ready'
   );
+  assert.equal(
+    classifyJob51PageState({ url: 'https://we.51job.com', title: '职位列表', bodyText: '微信扫码登录 手机快捷登录 会计财务', hasJobData: true }).state,
+    'ready'
+  );
 
   // Liepin tests
   assert.equal(

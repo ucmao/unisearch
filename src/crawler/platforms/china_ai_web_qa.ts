@@ -179,11 +179,15 @@ export const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     ownDomains: ['yuanbao.tencent.com', 'tencent.com'],
     inputSelectors: [
       'textarea[placeholder*="问元宝"]',
+      'textarea[placeholder*="发送"]',
       'textarea[placeholder*="输入"]',
       'textarea[placeholder*="有问"]',
+      '#type-writer-input',
       '[class*="input-editor"][contenteditable="true"]',
       '[class*="chat-input"]',
       '[class*="agent-chat__input"] [contenteditable="true"]',
+      '[class*="yb-chat-input"]',
+      '[class*="yb-input"]',
       ...COMMON_INPUT_SELECTORS,
     ],
     newChatSelectors: [
@@ -318,16 +322,36 @@ export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     if (!this.page || /login|passport|signin|sign-in/.test(this.page.url())) return false;
     if (await this.findInputSelector()) return true;
     const loginVisible = await this.page.isVisible(
-      'button:has-text("登录"), a:has-text("登录"), button:has-text("Log in"), [class*="login-btn"], [class*="login-button"]',
+      'button:has-text("登录"), a:has-text("登录"), button:has-text("Log in"), [class*="login-btn"], [class*="login-button"], [class*="yb-login"]',
     ).catch(() => false);
-    return !loginVisible;
+    if (loginVisible) return false;
+    return false;
   }
 
   private async handleLogin(): Promise<void> {
     if (!this.page || !this.browserContext) return;
-    if (await this.isReady()) {
-      notifyLoginSuccess(this.platform.id);
-      return;
+    
+    // In multi-platform concurrency (e.g. 5 parallel platforms), background pages take longer to hydrate.
+    // Wait up to 10s for the input selector to become ready before declaring login state.
+    const startDeadline = Date.now() + 10000;
+    while (Date.now() < startDeadline) {
+      if (await this.findInputSelector()) {
+        notifyLoginSuccess(this.platform.id);
+        return;
+      }
+      await sleep(1000);
+    }
+
+    const loginVisible = await this.page.isVisible(
+      'button:has-text("登录"), a:has-text("登录"), button:has-text("Log in"), [class*="login-btn"], [class*="login-button"], [class*="yb-login"]',
+    ).catch(() => false);
+
+    if (!loginVisible && !/login|passport|signin|sign-in/.test(this.page.url())) {
+      // If no login button is visible and page URL is not auth-redirected, check input selector one final time
+      if (await this.findInputSelector()) {
+        notifyLoginSuccess(this.platform.id);
+        return;
+      }
     }
 
     notifyLoginRequired(this.platform.id, `请在内置${this.platform.name}窗口完成登录；成功后任务会自动继续。`);
@@ -336,13 +360,13 @@ export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
     ).catch(() => {});
     const deadline = Date.now() + MANUAL_LOGIN_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      if (await this.isReady()) {
+      if (await this.findInputSelector()) {
         notifyLoginSuccess(this.platform.id);
         return;
       }
       await sleep(1500);
     }
-    throw new Error(`${this.platform.name}尚未登录。请完成登录后重新执行任务。`);
+    throw new Error(`${this.platform.name}尚未登录或未找到输入框。请完成登录后重新执行任务。`);
   }
 
   private async startNewConversation(): Promise<void> {

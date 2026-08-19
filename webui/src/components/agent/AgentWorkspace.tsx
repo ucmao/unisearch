@@ -437,7 +437,7 @@ function ChatCrawlingStatusBanner({
       <div className="flex items-center gap-2 py-1">
         <div className="inline-flex items-center gap-1.5 text-cyber-text-secondary">
           <Search className="h-3.5 w-3.5 text-cyber-neon-cyan animate-pulse" />
-          <span>{isPostProcessing ? '正在提炼与生成深度分析研报...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
+          <span>{isPostProcessing ? '正在生成深度分析研报...' : `正在采集数据，已入库 ${contentCount} 条（平台 ${completedSteps}/${totalSteps}）`}</span>
           <span className="text-cyber-border-default">·</span>
           <PlanElapsedTime plan={activePlan} className="text-cyber-text-secondary" />
         </div>
@@ -554,9 +554,8 @@ function AttachmentDisplayCard({
   const displayTitle = truncateMiddle(title, compact ? 12 : 16)
   return (
     <div
-      className={`flex items-center gap-2 rounded-xl border border-cyber-border-subtle/70 bg-cyber-bg-panel/75 backdrop-blur-xs shadow-2xs transition-all hover:bg-cyber-bg-panel/90 hover:border-cyber-border-highlight ${
-        compact ? 'w-fit max-w-[210px] min-w-0 px-2 py-1' : 'w-fit min-w-[160px] max-w-[230px] px-2.5 py-1.5'
-      }`}
+      className={`flex items-center gap-2 rounded-xl border border-cyber-border-subtle/70 bg-cyber-bg-panel/75 backdrop-blur-xs shadow-2xs transition-all hover:bg-cyber-bg-panel/90 hover:border-cyber-border-highlight ${compact ? 'w-fit max-w-[210px] min-w-0 px-2 py-1' : 'w-fit min-w-[160px] max-w-[230px] px-2.5 py-1.5'
+        }`}
       title={title}
     >
       {type === 'spreadsheet' && (
@@ -2020,11 +2019,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
         />
       )}
       <aside
-        className={`shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-panel md:bg-cyber-bg-secondary/70 ${
-          threadsCollapsed
+        className={`shrink-0 flex-col border-r border-cyber-border-subtle bg-cyber-bg-panel md:bg-cyber-bg-secondary/70 ${threadsCollapsed
             ? 'hidden'
             : 'fixed inset-y-0 left-0 z-50 flex shadow-2xl md:relative md:z-auto md:shadow-none'
-        }`}
+          }`}
         style={{ width: leftSidebarWidth }}
       >
         <div className={`flex h-9 shrink-0 items-center justify-between ${isMacPlatform() ? 'pl-[74px]' : 'pl-3'} pr-2`}>
@@ -2107,13 +2105,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       }
                     }}
                     title={`${thread.title}${hasData ? ` (已采集 ${thread.total_items} 条数据)` : ''}`}
-                    className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-all ${
-                      selectedId === thread.thread_id
+                    className={`flex h-[34px] w-full items-center gap-2 rounded-xl px-2.5 text-left transition-all ${selectedId === thread.thread_id
                         ? 'bg-cyber-neon-cyan/10 font-semibold text-cyber-text-primary border border-cyber-neon-cyan/30 shadow-sm'
                         : threadMenuId === thread.thread_id
                           ? 'bg-cyber-bg-tertiary/80 text-cyber-text-primary font-medium'
                           : 'font-medium text-cyber-text-primary/70 hover:bg-cyber-bg-tertiary/70 hover:text-cyber-text-primary'
-                    }`}
+                      }`}
                   >
                     {/* Fixed 20x20 Slot: Category Icon + Top-Right Data Count Badge */}
                     <div className="relative shrink-0 flex h-5 w-5 items-center justify-center text-cyber-text-muted/65">
@@ -2170,9 +2167,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           event.stopPropagation()
                           setThreadMenuId((current) => (current === thread.thread_id ? null : thread.thread_id))
                         }}
-                        className={`items-center justify-center rounded-md p-1 transition-colors text-cyber-text-muted hover:bg-cyber-bg-panel hover:text-cyber-text-primary ${
-                          threadMenuId === thread.thread_id ? 'flex text-cyber-text-primary' : 'hidden group-hover:flex'
-                        }`}
+                        className={`items-center justify-center rounded-md p-1 transition-colors text-cyber-text-muted hover:bg-cyber-bg-panel hover:text-cyber-text-primary ${threadMenuId === thread.thread_id ? 'flex text-cyber-text-primary' : 'hidden group-hover:flex'
+                          }`}
                         aria-label={`管理 ${thread.title}`}
                         aria-haspopup="menu"
                         aria-expanded={threadMenuId === thread.thread_id}
@@ -2185,11 +2181,9 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
 
                   <div
                     role="menu"
-                    className={`${
-                      threadMenuId === thread.thread_id ? 'absolute' : 'hidden'
-                    } right-1.5 z-50 w-32 overflow-hidden rounded-lg border border-cyber-border-default bg-cyber-bg-panel py-1 shadow-xl ${
-                      filteredThreads.length > 2 && index >= filteredThreads.length - 2 ? 'bottom-8' : 'top-8'
-                    }`}
+                    className={`${threadMenuId === thread.thread_id ? 'absolute' : 'hidden'
+                      } right-1.5 z-50 w-32 overflow-hidden rounded-lg border border-cyber-border-default bg-cyber-bg-panel py-1 shadow-xl ${filteredThreads.length > 2 && index >= filteredThreads.length - 2 ? 'bottom-8' : 'top-8'
+                      }`}
                   >
                     <button
                       type="button"
@@ -2270,11 +2264,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
       </aside>
 
       <section className="flex min-w-0 flex-1 flex-col">
-        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 ${threadsCollapsed ? 'app-drag' : 'md:app-drag'} ${
-          isMacPlatform()
+        <div className={`flex h-11 shrink-0 items-center justify-between border-b border-cyber-border-subtle pr-2 sm:pr-2.5 ${threadsCollapsed ? 'app-drag' : 'md:app-drag'} ${isMacPlatform()
             ? (threadsCollapsed ? 'pl-[74px]' : 'pl-[74px] md:pl-4 sm:md:pl-6')
             : (threadsCollapsed ? 'pl-2.5 sm:pl-3.5' : 'pl-2.5 md:pl-4 sm:md:pl-6')
-        }`}>
+          }`}>
           <div className="flex items-center gap-1.5 min-w-0">
             <div className={`items-center gap-1.5 app-no-drag ${threadsCollapsed ? 'flex' : 'flex md:hidden'}`}>
               <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 rounded-xl text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary" onClick={toggleThreads} title="展开任务栏">
@@ -2389,7 +2382,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               </div>}
             </div>
 
-            <div className="shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-4 backdrop-blur sm:px-6">
+            <div className="relative shrink-0 bg-cyber-bg-primary/90 px-4 pb-3 pt-1.5 backdrop-blur sm:px-6">
+              <div className="pointer-events-none absolute -top-10 left-0 right-0 h-10 bg-gradient-to-t from-cyber-bg-primary/90 via-cyber-bg-primary/40 to-transparent" />
               <div className="mx-auto max-w-3xl">
                 <div
                   className="agent-composer relative flex flex-col rounded-3xl border border-cyber-border-default bg-cyber-bg-panel p-2.5 sm:p-3 transition-colors"
@@ -2737,11 +2731,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                         <button
                           type="button"
                           onClick={() => setSidebarSelectedRound('all')}
-                          className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${
-                            sidebarSelectedRound === 'all'
+                          className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${sidebarSelectedRound === 'all'
                               ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
                               : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
-                          }`}
+                            }`}
                         >
                           <span>全部</span>
                           <span className="font-mono text-[10px] opacity-80">({sessionTotalItems})</span>
@@ -2757,11 +2750,10 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                               key={plan.plan_id || idx}
                               type="button"
                               onClick={() => setSidebarSelectedRound(roundNum)}
-                              className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${
-                                isSelected
+                              className={`shrink-0 whitespace-nowrap flex items-center justify-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition-all ${isSelected
                                   ? 'bg-cyber-neon-cyan/20 text-cyber-neon-cyan border border-cyber-neon-cyan/40 shadow-xs'
                                   : 'text-cyber-text-secondary hover:text-cyber-text-primary hover:bg-cyber-bg-surface/50 border border-transparent'
-                              }`}
+                                }`}
                             >
                               {isPlanRunning ? (
                                 <span className="h-1.5 w-1.5 rounded-full bg-cyber-neon-cyan animate-ping shrink-0" />
@@ -2810,13 +2802,12 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                       onClick={handleOpenResults}
                       disabled={sessionTotalItems <= 0}
                       aria-label={sessionTotalItems > 0 ? `查看已采集的 ${roundItemCount} 条数据` : undefined}
-                      className={`w-full rounded-xl border p-3.5 text-left shadow-sm transition-all ${
-                        displayedPlan && isRunning
+                      className={`w-full rounded-xl border p-3.5 text-left shadow-sm transition-all ${displayedPlan && isRunning
                           ? 'border-cyber-neon-cyan/40 bg-cyber-bg-panel/90 shadow-xs'
                           : sessionTotalItems > 0
-                          ? 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70'
-                          : 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-default'
-                      }`}
+                            ? 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-pointer hover:border-cyber-neon-cyan/50 hover:bg-cyber-bg-panel focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyber-neon-cyan/70'
+                            : 'border-cyber-border-default bg-cyber-bg-panel/70 cursor-default'
+                        }`}
                     >
                       <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
                         <span className="font-semibold uppercase tracking-wider">
@@ -2829,8 +2820,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                               {displayedPlan.status === 'queued'
                                 ? '排队中'
                                 : activeConnectorsCompleted
-                                ? '正在分析采集结果'
-                                : '采集中'}
+                                  ? '正在分析采集结果'
+                                  : '采集中'}
                             </span>
                             <PlanElapsedTime plan={displayedPlan} className="ml-1 font-mono text-cyber-text-secondary" />
                           </span>
@@ -2870,14 +2861,14 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                             const tooltip = isPlatformRunning
                               ? '正在执行采集'
                               : isSuccess
-                              ? `采集成功（共获取 ${count} 条内容）`
-                              : isPartialSuccess
-                              ? `已采集 ${count} 条，后续抓取中断或遭遇限流`
-                              : isZeroSuccess
-                              ? '已检索，该平台暂未命中有效相关内容'
-                              : isFailedZero
-                              ? (item.error_message || '采集未完成/连接异常')
-                              : undefined
+                                ? `采集成功（共获取 ${count} 条内容）`
+                                : isPartialSuccess
+                                  ? `已采集 ${count} 条，后续抓取中断或遭遇限流`
+                                  : isZeroSuccess
+                                    ? '已检索，该平台暂未命中有效相关内容'
+                                    : isFailedZero
+                                      ? (item.error_message || '采集未完成/连接异常')
+                                      : undefined
 
                             return (
                               <div
@@ -3098,8 +3089,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
                           isAllSelected
                             ? 'border-cyber-neon-cyan bg-cyber-neon-cyan text-white'
                             : hasSomeSelected
-                            ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-bold'
-                            : 'border-cyber-border-default bg-cyber-bg-secondary/80 group-hover:border-cyber-neon-cyan/60'
+                              ? 'border-cyber-neon-cyan/80 bg-cyber-neon-cyan/20 text-cyber-neon-cyan font-bold'
+                              : 'border-cyber-border-default bg-cyber-bg-secondary/80 group-hover:border-cyber-neon-cyan/60'
                         )}
                       >
                         {isAllSelected ? <Check className="h-3 w-3 stroke-[2.5]" /> : hasSomeSelected ? '−' : null}
