@@ -3,10 +3,12 @@ import {
   AbstractCrawler,
   connectToElectronChromium,
   getElectronCrawlerPage,
+  notifyCrawlerPageRecoveryRequired,
   notifyLoginRequired,
   notifyLoginSuccess,
   notifyManualVerificationRequired,
   notifyManualVerificationSuccess,
+  recoverElectronCrawlerPage,
 } from '../base/BaseCrawler';
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
@@ -55,15 +57,16 @@ export function classifyLiepinPageState(input: {
     return { state: 'verification_required', reason: '触发滑块或安全验证' };
   }
 
-  // 2. Login required / Modal blocked detection
+  // 2. Job cards present -> Page is ready! (Takes priority over static footer/hidden modal text)
+  if (hasJobCards) {
+    return { state: 'ready' };
+  }
+
+  // 3. Login required / Modal blocked detection
   if (
     lowerUrl.includes('passport.liepin.com') ||
     lowerUrl.includes('/login') ||
     hasModal ||
-    bodyText.includes('微信扫码登录') ||
-    bodyText.includes('手机快捷登录') ||
-    bodyText.includes('账号密码登录') ||
-    bodyText.includes('验证码登录') ||
     bodyText.includes('登录查看更多职位') ||
     bodyText.includes('登录后可查看') ||
     bodyText.includes('请先登录')
@@ -71,18 +74,13 @@ export function classifyLiepinPageState(input: {
     return { state: 'login_required', reason: '页面需要登录或弹出登录遮罩' };
   }
 
-  // 3. Rate limited
+  // 4. Rate limited
   if (
     bodyText.includes('访问过于频繁') ||
     bodyText.includes('操作过于频繁') ||
     bodyText.includes('系统繁忙')
   ) {
     return { state: 'rate_limited', reason: '访问频次过高受限' };
-  }
-
-  // 4. Job cards present -> Ready
-  if (hasJobCards) {
-    return { state: 'ready' };
   }
 
   // 5. Genuine empty search result
@@ -114,6 +112,49 @@ export class LiepinCrawler extends AbstractCrawler {
   public page: Page | null = null;
   private hasDeclinedLogin = false;
 
+  private async requireActivePage(stage: string, recoveryUrl = ''): Promise<Page> {
+    if (this.page && !this.page.isClosed()) {
+      if (recoveryUrl && (this.page.url().includes('#unisearch-crawler-') || this.page.url().startsWith('about:blank'))) {
+        console.warn(`[Liepin] Restoring ${recoveryUrl} after placeholder state in ${stage}.`);
+        await this.page.goto(recoveryUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      }
+      return this.page;
+    }
+
+    if (!this.browserContext) {
+      throw new Error(`[Liepin] BrowserContext closed during ${stage}.`);
+    }
+
+    let replacement = await recoverElectronCrawlerPage(
+      this.browserContext,
+      'liepin',
+      (candidate) => {
+        try {
+          const hostname = new URL(candidate.url()).hostname;
+          return hostname === 'liepin.com' || hostname.endsWith('.liepin.com');
+        } catch {
+          return false;
+        }
+      },
+      20
+    );
+
+    if (!replacement) {
+      notifyCrawlerPageRecoveryRequired('liepin', `页面在 ${stage} 时掉线`);
+      replacement = await recoverElectronCrawlerPage(this.browserContext, 'liepin', () => true, 30);
+    }
+
+    if (!replacement) {
+      throw new Error(`[Liepin] Failed to recover crawler page during ${stage}.`);
+    }
+
+    this.page = replacement;
+    if (recoveryUrl) {
+      await this.page.goto(recoveryUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    }
+    return this.page;
+  }
+
   public async start(): Promise<void> {
     console.log('[Liepin] Connecting Liepin crawler to Electron built-in browser engine...');
     const p = require('playwright');
@@ -138,11 +179,16 @@ export class LiepinCrawler extends AbstractCrawler {
     const bodyText = await this.page.locator('body').innerText({ timeout: 1500 }).catch(() => '');
 
     const domInfo = await this.page.evaluate(() => {
-      const hasModal = Boolean(
-        document.querySelector(
-          '[class*="login-modal"], [class*="modal-login"], [class*="login-dialog"], [data-selector="login-modal"], [class*="login-container"], .ant-modal-mask'
+      const modalEls = Array.from(
+        document.querySelectorAll(
+          '[class*="login-modal"], [class*="modal-login"], [class*="login-dialog"], [data-selector="login-modal"], .ant-modal-mask'
         )
       );
+      const hasModal = modalEls.some((el) => {
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden' && (el as HTMLElement).offsetWidth > 0;
+      });
+
       const cards = document.querySelectorAll(
         '.job-card-pc-container, div[class*="job-card"], div[class*="job-list-item"], a[href*="/job/"]'
       );
@@ -248,10 +294,11 @@ export class LiepinCrawler extends AbstractCrawler {
         console.log(`[Liepin] Navigating to page ${pageNum}: ${searchUrl}`);
 
         try {
-          await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          const page = await this.requireActivePage(`页码 ${pageNum}`, searchUrl);
+          await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           
           // Wait for job cards or empty state or login modal to appear
-          await this.page.waitForSelector(
+          await page.waitForSelector(
             '.job-card-pc-container, div[class*="job-card"], div[class*="job-list"], a[href*="/job/"], [class*="login-modal"], .ant-modal-mask, [class*="no-data"], .no-data-box',
             { timeout: 8000 }
           ).catch(() => {});
@@ -375,9 +422,14 @@ export class LiepinCrawler extends AbstractCrawler {
       }
 
       return cards.map((card) => {
-        const linkEl = card.querySelector('a[href*="/job/"]') || card.querySelector('a');
-        const href = (linkEl as HTMLAnchorElement)?.href || '';
-        const titleEl = card.querySelector('.ellipsis-1, [class*="job-title"], [class*="title"], h3, h4');
+        const linkEl = (card.querySelector('a[href*="/job/"]') || (card.matches('a[href*="/job/"]') ? card : null)) as HTMLAnchorElement | null;
+        if (!linkEl) return null;
+        const href = linkEl.href || '';
+        if (!href || !href.includes('/job/')) return null;
+
+        const titleEl = card.querySelector('.ellipsis-1, [class*="job-title"], [class*="title"], h3, h4') || linkEl;
+        const title = titleEl?.textContent?.trim() || '';
+        if (!title || title.includes('更多职位') || title.includes('查看更多') || title.includes('行业资讯')) return null;
 
         // Find inner text elements
         const spans = Array.from(card.querySelectorAll('span, div, p, em, i, b'))
@@ -399,8 +451,8 @@ export class LiepinCrawler extends AbstractCrawler {
 
         return {
           content_id: jobId,
-          title: titleEl?.textContent?.trim() || '',
-          company_name: compEl?.textContent?.trim() || '',
+          title,
+          company_name: compEl?.textContent?.trim() || '未知公司',
           salary: salaryMatch || '',
           work_city: cityEl?.textContent?.trim() || '',
           job_experience: expMatch || '',
@@ -408,7 +460,7 @@ export class LiepinCrawler extends AbstractCrawler {
           content_url: href,
           published_at: Date.now(),
         };
-      }).filter((x) => (x.title || x.content_id) && x.content_url);
+      }).filter((x): x is NonNullable<typeof x> => Boolean(x && x.title && x.content_url && x.content_url.includes('/job/')));
     }).catch(() => [])) as Array<{
       content_id: string;
       title: string;

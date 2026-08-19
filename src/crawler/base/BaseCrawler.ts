@@ -13,7 +13,7 @@ interface CrawlerPageConfiguration {
 }
 
 function crawlerPageConfiguration(platform: string): CrawlerPageConfiguration {
-  const maskWebdriver = platform === 'boss' || platform === 'kuaishou';
+  const maskWebdriver = true;
   const preventWindowClose = platform === 'boss' || platform === 'quark';
   return { maskWebdriver, preventWindowClose };
 }
@@ -39,7 +39,14 @@ async function configureCrawlerPage(
   if (configuration.maskWebdriver && typeof (page as any).addInitScript === 'function') {
     await page.addInitScript(() => {
       try {
+        Object.defineProperty(Navigator.prototype, 'webdriver', {
+          configurable: true,
+          get: () => undefined,
+        });
+      } catch {}
+      try {
         Object.defineProperty(Object.getPrototypeOf(navigator), 'webdriver', {
+          configurable: true,
           get: () => undefined,
         });
       } catch {}

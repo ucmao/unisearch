@@ -568,7 +568,11 @@ export async function prepareCrawlerWindow(platform: string, preserveCurrentPage
   // navigated this view. Preparing it again must only surface the existing
   // page; replacing a challenge with about:blank destroys the user's flow and
   // can make the worker interpret the marker page as a successful navigation.
-  if (!preserveCurrentPage || !alreadyPrepared) await view.webContents.loadURL(crawlerMarkerUrl(platform));
+  const currentUrl = view.webContents.getURL();
+  const hasRealWebPage = Boolean(currentUrl && (currentUrl.startsWith('http://') || currentUrl.startsWith('https://')));
+  if ((!preserveCurrentPage || !alreadyPrepared) && !hasRealWebPage) {
+    await view.webContents.loadURL(crawlerMarkerUrl(platform));
+  }
   if (!activeCrawlerPlatform || activeCrawlerPlatform === platform || !crawlerViews.has(activeCrawlerPlatform)) {
     activateCrawlerView(platform);
   }
@@ -654,6 +658,14 @@ export function showCrawlerWindow(platform?: string): boolean {
     if (!view.webContents.isDestroyed()) {
       void view.webContents.loadURL(crawlerMarkerUrl(resolvedPlatform)).catch(() => {});
     }
+  } else {
+    try {
+      const url = existing.webContents.getURL();
+      if (!url || url === 'about:blank' || url.startsWith('data:text/html')) {
+        const entryUrl = PLATFORM_ENTRY_URLS[resolvedPlatform] || `https://${resolvedPlatform}.com`;
+        void existing.webContents.loadURL(entryUrl).catch(() => {});
+      }
+    } catch {}
   }
   if (!activateCrawlerView(resolvedPlatform)) return false;
   if (hub.isMinimized()) hub.restore();
