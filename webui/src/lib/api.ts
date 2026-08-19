@@ -439,6 +439,11 @@ export interface RetrievalProfile {
   timeoutMs: number
 }
 
+export interface RetrievalProfiles {
+  activeProvider: RetrievalProvider
+  profiles: RetrievalProfile[]
+}
+
 export interface AgentMemory {
   memory_id: string
   category: 'identity' | 'preference' | 'context' | 'rule'
@@ -595,6 +600,7 @@ export const configApi = {
 
 export const retrievalApi = {
   getProfile: () => api.get<RetrievalProfile>('/knowledge/retrieval-profile'),
+  getProfiles: () => api.get<RetrievalProfiles>('/knowledge/retrieval-profiles'),
   saveProfile: (profile: Partial<RetrievalProfile> & { apiKey?: string; clearApiKey?: boolean }) =>
     api.put<RetrievalProfile>('/knowledge/retrieval-profile', profile),
   testProfile: () => api.post<{

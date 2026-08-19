@@ -130,7 +130,15 @@ test('retrieval profile supports local provider by default and custom provider c
 
     // 清除 Key
     assert.equal(service.saveProfile({ clearApiKey: true }).apiKeyConfigured, false);
-    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 4);
+    assert.equal((JSON.parse(readFileSync(configPath, 'utf8')) as any).version, 5);
+
+    // 重新保存 custom key，切换到 local 后，再次切回 custom，key 依然保留
+    service.saveProfile({ provider: 'custom', apiKey: 'custom-secret-key-123' });
+    service.saveProfile({ provider: 'local' });
+    assert.equal(service.getProfile(false).provider, 'local');
+    const customProfile = service.getProfile(true, 'custom');
+    assert.equal(customProfile.apiKey, 'custom-secret-key-123');
+    assert.equal(customProfile.apiKeyConfigured, true);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

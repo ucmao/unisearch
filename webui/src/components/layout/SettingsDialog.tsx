@@ -272,9 +272,9 @@ export function SettingsDialog({
     queryFn: async () => (await agentApi.getModelProfiles()).data,
     enabled: dialogOpen && activeSection === 'models',
   })
-  const retrievalProfileQuery = useQuery({
-    queryKey: ['knowledge-retrieval-profile'],
-    queryFn: async () => (await retrievalApi.getProfile()).data,
+  const retrievalProfilesQuery = useQuery({
+    queryKey: ['knowledge-retrieval-profiles'],
+    queryFn: async () => (await retrievalApi.getProfiles()).data,
     enabled: dialogOpen && activeSection === 'retrieval',
   })
   const memorySettingsQuery = useQuery({
@@ -341,20 +341,15 @@ export function SettingsDialog({
   }, [profilesQuery.data])
 
   useEffect(() => {
-    if (retrievalProfileQuery.data) {
-      const activeProvider = retrievalProfileQuery.data.provider
-      retrievalDrafts.current[activeProvider] = {
-        ...retrievalProfileQuery.data,
-        apiKey: '',
-        clearApiKey: false,
+    if (retrievalProfilesQuery.data) {
+      const drafts: Partial<Record<RetrievalProfile['provider'], RetrievalForm>> = {}
+      for (const profile of retrievalProfilesQuery.data.profiles) {
+        drafts[profile.provider] = { ...profile, apiKey: profile.apiKey || '', clearApiKey: false }
       }
-      setRetrievalForm({
-        ...retrievalProfileQuery.data,
-        apiKey: '',
-        clearApiKey: false,
-      })
+      retrievalDrafts.current = drafts
+      setRetrievalForm(drafts[retrievalProfilesQuery.data.activeProvider] || {})
     }
-  }, [retrievalProfileQuery.data])
+  }, [retrievalProfilesQuery.data])
 
   const save = useMutation({
     mutationFn: () => agentApi.saveModelProfile(form),
@@ -382,9 +377,10 @@ export function SettingsDialog({
     mutationFn: () => retrievalApi.saveProfile(retrievalForm),
     onSuccess: ({ data }) => {
       queryClient.setQueryData(['knowledge-retrieval-profile'], data)
-      retrievalDrafts.current[data.provider] = { ...data, apiKey: '', clearApiKey: false }
-      setRetrievalForm({ ...data, apiKey: '', clearApiKey: false })
-      toast.success('知识检索配置已保存；更换向量模型后将自动重建索引')
+      queryClient.invalidateQueries({ queryKey: ['knowledge-retrieval-profiles'] })
+      retrievalDrafts.current[data.provider] = { ...data, apiKey: data.apiKey || '', clearApiKey: false }
+      setRetrievalForm({ ...data, apiKey: data.apiKey || '', clearApiKey: false })
+      toast.success('知识检索配置已保存')
     },
     onError: (error) => toast.error(getError(error)),
   })
@@ -395,6 +391,7 @@ export function SettingsDialog({
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['knowledge-retrieval-profile'] })
+      queryClient.invalidateQueries({ queryKey: ['knowledge-retrieval-profiles'] })
       toast.success(`${data.message} · ${data.latency_ms}ms`)
     },
     onError: (error) => toast.error(`连接失败：${getError(error)}`),
@@ -760,7 +757,7 @@ export function SettingsDialog({
                   <DialogTitle className="font-sans text-xl text-cyber-text-primary">知识检索</DialogTitle>
                   <DialogDescription>配置语义向量与重排模型，用于本地知识库检索及深度研究候选网页的语义精排。</DialogDescription>
                 </DialogHeader>
-                {retrievalProfileQuery.isLoading ? (
+                {retrievalProfilesQuery.isLoading ? (
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取知识检索配置…</div>
                 ) : (
                   <div className="mt-7 space-y-5">
@@ -774,26 +771,41 @@ export function SettingsDialog({
                             onClick={() => applyRetrievalProvider(provider)}
                             className={`rounded-lg border px-3 py-2.5 text-xs transition-colors ${retrievalForm.provider === provider ? 'border-cyber-neon-cyan bg-cyber-neon-cyan/10 text-cyber-neon-cyan font-semibold' : 'border-cyber-border-subtle text-cyber-text-secondary hover:border-cyber-border-default hover:bg-cyber-bg-secondary/50'}`}
                           >
-                            {provider === 'local' ? '内置本地模型 (推荐)' : provider === 'siliconflow' ? '硅基流动' : '自定义兼容接口'}
+                            {provider === 'local' ? '内置本地模型' : provider === 'siliconflow' ? '硅基流动' : '自定义兼容接口'}
                           </button>
                         ))}
                       </div>
                     </div>
 
                     {retrievalForm.provider === 'local' ? (
-                      <div className="space-y-3 rounded-xl border border-cyber-neon-cyan/30 bg-cyber-neon-cyan/5 p-4 text-xs">
-                        <div className="flex items-center gap-2 font-semibold text-cyber-neon-cyan">
-                          <Sparkles className="h-4 w-4 shrink-0" />
-                          <span>内置轻量向量引擎（开箱即用）</span>
+                      <div className="space-y-3.5 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4.5 sm:p-5 text-xs">
+                        <div className="flex items-center gap-2 text-cyber-text-primary">
+                          <Brain className="h-4 w-4 text-cyber-text-muted shrink-0" />
+                          <span className="font-mono text-sm font-semibold">BAAI/bge-small-zh-v1.5</span>
+                          <span className="text-[11px] text-cyber-text-muted">（INT8 量化版）</span>
                         </div>
+
                         <p className="text-cyber-text-secondary leading-relaxed">
-                          采用内置 <span className="font-mono font-medium text-cyber-text-primary">BAAI/bge-small-zh-v1.5 (INT8 量化版)</span>，生成 512 维稠密向量。
+                          本地 CPU 离线运行的轻量级向量模型，生成 512 维稠密语义向量。
                         </p>
-                        <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2 text-[11px] text-cyber-text-muted">
-                          <div>• 零配置免填 API Key，完全免费</div>
-                          <div>• 100% 本地离线运行，隐私全保护</div>
-                          <div>• CPU 毫秒级极速向量化与余弦匹配</div>
-                          <div>• 自动融合 BM25 词法实现高质量混合检索</div>
+
+                        <div className="grid grid-cols-1 gap-2 border-t border-cyber-border-subtle/60 pt-3 sm:grid-cols-2 text-[11px] text-cyber-text-muted">
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1 w-1 rounded-full bg-cyber-text-muted/60" />
+                            <span>零配置免填 API Key，完全免费</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1 w-1 rounded-full bg-cyber-text-muted/60" />
+                            <span>100% 本地离线运行，隐私全保护</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1 w-1 rounded-full bg-cyber-text-muted/60" />
+                            <span>毫秒级极速向量化与余弦匹配</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="h-1 w-1 rounded-full bg-cyber-text-muted/60" />
+                            <span>自动融合 BM25 词法实现高质量混合检索</span>
+                          </div>
                         </div>
                       </div>
                     ) : (

@@ -16,8 +16,7 @@
 <p align="center">
 <a href="#️-系统架构">系统架构</a> •
 <a href="#-核心特性">核心特性</a> •
-<a href="#-32-采集信源矩阵">采集信源矩阵</a> •
-<a href="#-内置技能体系">内置技能体系</a> •
+<a href="#-32-全网信源与-13-大内置技能体系">信源与技能体系</a> •
 <a href="#-快速开始">快速开始</a> •
 <a href="#-多平台打包与发布">打包与发布</a> •
 <a href="#-项目目录结构">项目目录结构</a> •
@@ -57,7 +56,7 @@ flowchart TB
     subgraph Runtime_Layer["🛡️ 多引擎隔离执行层 (子进程 Worker)"]
         CrawlerMgr["爬虫管理器 (调度与健康监控)"]
         CrawlerWorker["Crawler Worker (HTTP并发 / Playwright / CDP)"]
-        ProcessorWorker["Processor Worker (HTML抽取 / 正文清洗 / 媒体转写)"]
+        ProcessorWorker["Processor Worker (HTML抽取 / 音频提取 / Whisper / Pandoc)"]
     end
 
     subgraph Connectors_Layer["🔌 32+ 平台连接器矩阵"]
@@ -69,24 +68,25 @@ flowchart TB
         UtilConn["通用工具 (网页正文阅读器/全网无水印解析)"]
     end
 
-    subgraph Storage_Layer["💾 本地数据与知识引擎 (SQLite & 向量检索)"]
-        DocEngine["标准文档清洗与归一化引擎"]
+    subgraph Storage_Layer["💾 本地数据与知识引擎 (SQLite & 混合向量库)"]
+        DocEngine["Canonical Document 标准清洗与归一化引擎"]
         SQLiteDB[("SQLite 本地数据库")]
-        Knowledge["混合知识库 (FTS5 全文索引 + 本地向量检索)"]
+        Knowledge["混合知识库 (FTS5 全文索引 + 纯本地 ONNX 向量引擎 + RRF 融合)"]
         EntityGraph["实体抽取与知识图谱"]
     end
 
     subgraph Output_Layer["📊 洞察输出与资产沉淀"]
         CitedRAG["引用式精准 RAG (逐句溯源)"]
         Analyzer["深度分析与调研报告生成"]
-        Exporters["多格式导出器 (Excel / Word / PDF / Markdown / JSON / CSV)"]
+        Exporters["全格式资产导出 (Excel / Word / PDF / Markdown / Obsidian / IMA)"]
     end
 
     UI_Layer <--> Server_Layer
     Server_Layer --> Runtime_Layer
-    Runtime_Layer --> Connectors_Layer
-    Connectors_Layer --> CrawlerWorker
-    CrawlerWorker --> DocEngine
+    Runtime_Layer --> CrawlerWorker
+    Runtime_Layer --> ProcessorWorker
+    CrawlerWorker --> Connectors_Layer
+    Connectors_Layer --> DocEngine
     ProcessorWorker --> DocEngine
     DocEngine --> SQLiteDB
     SQLiteDB --> Knowledge
@@ -94,53 +94,56 @@ flowchart TB
     EntityGraph --> Workbench
     Knowledge --> CitedRAG
     CitedRAG --> Analyzer
+    Analyzer --> Workbench
     Analyzer --> Exporters
 ```
 
 ### 架构亮点
 
-- **子进程沙箱隔离**：采集与数据处理独立在 Node.js 子进程中运行，避免 UI 卡顿，单 Worker 异常自动恢复。
-- **混合多引擎调度**：免认证接口走 HTTP 高并发，复杂动态页面走 Playwright，风控挑战自动无缝桥接至内置 Chromium。
-- **统一标准化文档**：多源异构数据统一归一化为标准文档结构，包含标题、正文、作者、发布时间、多媒体及互动指标。
-- **本地优先与隐私安全**：采集数据、知识索引与登录态 Cookie 均保存在本地 SQLite 与沙箱目录，不上传第三方服务器。
+- **多进程隔离与高容错自愈**：爬虫采集与数据处理独立运行在 Node.js Worker 子进程中，通过 IPC 异步通信，单 Worker 异常自动熔断恢复，保障 UI 始终丝滑流畅。
+- **三模混合采集调度网关**：按信源特性智能路由——公开接口走 HTTP 极速并发，动态页面走 Playwright 渲染，风控挑战无缝桥接至内置 Chromium 会话沙箱。
+- **Canonical Document V2 标准模型**：对 32+ 平台多源异构数据统一清洗归一，内置内容 Hash 校验、字段置信度门禁与不可变版本快照。
+- **本地双轨检索与 RRF 融合**：SQLite FTS5 全文索引与 Transformers.js ONNX 本地向量引擎协同运行，基于倒数排名融合（RRF）实现毫秒级混合召回。
+- **Local-First 零信任隐私机制**：所有采集数据、向量索引与登录态 Cookie 100% 留存在本地 SQLite 与沙箱环境，零云端上传，彻底杜绝数据泄露。
 
 ---
 
 ## ✨ 核心特性
 
-- **🤖 AI 自主拆解与增量调度**：输入调研课题，AI 自动拆解意图、匹配连接器、拓宽关键词并规划深度；支持断点续采与增量去重。
-- **🧩 13+ 场景化业务与采集技能**：支持直接自然语言触发、输入框键入 `@` 呼出快捷技能菜单，或使用 `/` 斜杠指令。
-- **🧠 本地混合 RAG & 逐句证据溯源**：融合 SQLite FTS5 全文检索与本地向量检索，所有研报结论与提取数据均精准标注原始出处段落与链接。
-- **🕸️ 实体治理与知识图谱**：自动抽取公司、品牌、人物及竞品实体，支持实体一键归并、多义拆分与拓扑演化展现。
-- **📊 多维数据透视与多格式导出**：按平台、时间、作者及互动指标多维筛选过滤，支持导出 Excel、Word、PDF、Markdown、JSON、CSV 等。
-- **🔒 隔离沙箱与防风控认证**：内置 Chromium 沙箱扫码登录并持久化 Cookie；人机验证可视化交互；数据 100% 本地存储不上传第三方。
+- **🤖 自然语言自主调研与增量迭代**：输入任意研究课题，AI 自主拆解意图、规划采集路径并拓宽关键词；支持增量去重、断点续采与多版本研报对比。
+- **🧩 13+ 场景化业务与采集技能**：内置深度研报、品牌 GEO 监测、招聘薪酬分析、学术代码搜索等全场景工作流，支持自然语言、`@` 快捷菜单或 `/` 斜杠指令。
+- **🌐 32+ 全网主流公开信源覆盖**：开箱即用覆盖社交自媒体、全网搜索引擎、AI 网页问答、科技资讯与垂直招聘五大领域连接器。
+- **📖 证据级引用研报与逐句溯源**：基于本地知识库执行精准 RAG 分析，所有观点与数据结论均严格标注原始命中段落与网页链接，彻底告别 AI 幻觉。
+- **🕸️ 实体治理与交互式知识图谱**：自动抽取公司、品牌、人物及竞品等实体，支持实体一键归并、多义拆分与力导向拓扑关系穿透下钻。
+- **📊 多维数据透视与全格式资产沉淀**：按平台、发布时间、作者及互动量灵活筛选聚合，一键导出 Excel、Word、PDF、Markdown、Obsidian 知识库及 IMA。
+- **🐾 Codex Pet 桌面伴侣与状态联动**：内置桌面数字伴侣实时联动 Agent 执行状态与采集进度，兼具运行健康监控与桌面陪伴体验。
 
 ---
 
-## 🌐 32+ 采集信源矩阵
+## 🌐 32+ 全网信源与 13 大内置技能体系
+
+UniSearch 构建了从「底层多平台数据接入」到「上层场景化业务编排」的完整闭环体系：
+
+### 🔌 32+ 平台连接器矩阵（底层数据采集驱动）
 
 内置 **32 个开箱即用的专业连接器**，覆盖全网主流公开信源：
 
-- 📱 **社交自媒体**：小红书、抖音、快手、哔哩哔哩、微博、知乎、百度贴吧
-- 🔍 **全网搜索引擎**：百度、必应、360、搜狗、头条、神马、中国搜索
-- 🤖 **AI 网页问答**：DeepSeek、Kimi、豆包、通义千问、腾讯元宝、纳米 AI、文心一言
-- 📰 **技术与商业资讯**：36氪、arXiv 论文、GitHub 热门、AI HOT 热点
-- 💼 **招聘与维权**：智联招聘、前程无忧、猎聘、BOSS 直聘、黑猫投诉
-- 🛠️ **通用解析**：通用网页正文阅读器、30+ 平台综合无水印音视频解析
+- 📱 **社交自媒体 (7)**：小红书、抖音、快手、哔哩哔哩、微博、知乎、百度贴吧
+- 🔍 **全网搜索引擎 (7)**：百度、必应、360、搜狗、头条、神马、中国搜索
+- 🤖 **AI 网页问答 (7)**：DeepSeek、Kimi、豆包、通义千问、腾讯元宝、纳米 AI、文心一言
+- 📰 **技术与商业资讯 (4)**：36氪、arXiv 论文、GitHub 热门、AI HOT 热点
+- 💼 **招聘与维权 (5)**：智联招聘、前程无忧、猎聘、BOSS 直聘、黑猫投诉
+- 🛠️ **通用解析工具 (2)**：通用网页正文阅读器、30+ 平台综合无水印音视频解析
 
-👉 详细参数校验、接口覆盖与认证规范请参阅 [**32 个连接器完整矩阵文档**](docs/connectors-matrix.md)。
+### 🎯 13+ 场景化业务技能（上层 AI 任务编排）
 
----
+内置 **13 个专业业务与采集技能**，支持自然语言驱动、输入框键入 `@` 呼出或 `/` 斜杠指令调度：
 
-## 🎯 内置技能体系
+- 💼 **业务研报技能**：新媒体内容深度调研、品牌 GEO 呈现与舆情监测、招聘与行业薪酬测算
+- 🛠️ **场景采集技能**：全网网页/社媒/AI问答/岗位垂直搜索、学术与代码检索、创作者主页批量采集
+- ⚙️ **工具与数据管道**：全网 30+ 平台无水印解析、跨源数据 Canonical 归一化、音视频转知识库
 
-UniSearch 内置 **13 个场景化专业技能**，支持自然语言直接驱动，或在输入框键入 `@` 快速呼出：
-
-- 💼 **业务研报技能**：新媒体内容深度调研、品牌 GEO 呈现与风险监测、招聘与行业薪酬测算
-- 🛠️ **多源采集技能**：网页/社媒/AI问答/招聘垂直搜索、学术与代码检索、创作者主页精准采集
-- ⚙️ **工具与工作流**：全网 30+ 平台无水印音视频解析、多源数据标准化归一、音视频转知识库
-
-👉 完整技能清单、调用参数与执行链路请参阅 [**技能体系全景矩阵**](docs/skills-matrix.md) 与 [**业务技能 Manifest 规范文档**](docs/business-skills/)。
+> 👉 详细调用参数、接口覆盖与执行链路请参阅：[**32 个连接器完整矩阵**](docs/connectors-matrix.md) • [**13 大技能体系全景指南**](docs/skills-matrix.md) • [**业务技能 Manifest 规范**](docs/business-skills/)
 
 
 ---
@@ -153,16 +156,19 @@ UniSearch 内置 **13 个场景化专业技能**，支持自然语言直接驱�
 - **npm** >= `10.0.0`
 - **操作系统**：macOS (Apple Silicon / Intel) 或 Windows 10/11 (x64)
 
-### 📦 安装依赖
+### 📦 安装依赖与模型准备
 
 ```bash
 # 1. 克隆项目仓库
 git clone https://github.com/ucmao/unisearch.git
 cd unisearch
 
-# 2. 安装后端与前端依赖
+# 2. 安装后端与前端依赖（会自动通过 postinstall 拉取内置本地向量模型）
 npm install
 npm --prefix webui install
+
+# 3. （可选）手动检查或重新拉取本地向量模型文件
+npm run setup:models
 ```
 
 ### 🖥️ 启动开发模式
@@ -175,7 +181,14 @@ npm run webui:build && npm run build:backend
 npm run electron:dev
 ```
 
-> **🔑 模型配置提示**：首次进入应用后，请在「设置」中配置大模型 API 凭据（支持 MiniMax、DeepSeek、OpenAI 或任何兼容 API）。
+### ⚙️ 模型与检索配置指南
+
+进入应用后点击右上角 **「设置」**：
+1. **大语言模型（LLM）**：配置用于意图拆解与报告撰写的大模型 API（支持 MiniMax、DeepSeek、OpenAI、Ollama 或任何兼容接口）。
+2. **知识库检索引擎（Retrieval）**：
+   - **纯本地向量模型 (ONNX)（默认推荐）**：无需任何 API Key，使用内置本地模型，零网络请求、零费用，毫秒级向量语义召回。
+   - **硅基流动 (SiliconFlow)**：云端高维 Embedding（如 `BAAI/bge-m3`）与重排模型（如 `bge-reranker-v2-m3`）。
+   - **自定义兼容接口 (Custom)**：接入私有部署或第三方 OpenAI 兼容的 Embedding / Reranker 端点。
 
 ### 🧪 测试与代码规范
 
@@ -209,13 +222,9 @@ unisearch/
 ├── build/                 # 应用图标 (icns / ico / png) 与构建资源
 ├── data/                  # 本地运行时 SQLite 数据库与缓存
 ├── docs/                  # 详细架构设计、连接器矩阵与技能体系规范文档
-│   ├── architecture/      # 架构设计与演进文档
-│   ├── business-skills/   # 核心业务场景技能设计规范
-│   ├── connectors-matrix.md # 32+ 平台连接器全景矩阵
-│   ├── skills-matrix.md   # 13+ 场景化技能体系全景矩阵
-│   └── release-packaging.md # 桌面端打包与发布指南
 ├── resources/             # 打包外置依赖与静态资源
-├── scripts/               # 发布校验、环境检测与冒烟测试脚本
+│   └── models/            # 内置纯本地 ONNX 向量嵌入模型 (bge-small-zh-v1.5)
+├── scripts/               # 模型下载、发布校验、环境检测与冒烟测试脚本
 ├── src/                   # 后端主进程与核心服务源码 (TypeScript)
 │   ├── analyzers/         # 深度调研报告生成、图谱与数据分析器
 │   ├── connectors/        # 32+ 平台连接器 Manifests、Registry、健康检查
@@ -224,7 +233,7 @@ unisearch/
 │   ├── database/          # SQLite 数据库模型、Migrations 与 Repositories
 │   ├── document/          # 标准文档引擎与清洗归一化
 │   ├── exporters/         # Excel / Word / PDF / Markdown / JSON / CSV 等导出器
-│   ├── knowledge/         # FTS5 全文索引、向量检索、知识图谱与 RAG 引擎
+│   ├── knowledge/         # 本地 ONNX 向量引擎 (Transformers.js)、FTS5 检索与 RAG
 │   ├── main/              # Electron 主进程、窗口管理、托盘与 IPC 通信
 │   ├── processor/         # Processor Worker 子进程数据处理流水线
 │   ├── server/            # Fastify HTTP 服务、REST API 与 WebSocket 推送

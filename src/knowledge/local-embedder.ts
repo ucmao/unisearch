@@ -95,7 +95,7 @@ export class LocalEmbedder {
       success: true,
       latency_ms,
       dimensions: vectors[0]?.length || LOCAL_EMBEDDING_DIMENSIONS,
-      message: '本地内置向量模型运行正常 (BAAI/bge-small-zh-v1.5 INT8)',
+      message: '本地向量引擎运行正常',
     };
   }
 }

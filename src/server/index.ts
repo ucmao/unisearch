@@ -976,6 +976,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
   fastify.get('/api/agent/memory-settings', async () => agentRepository.getMemorySettings());
 
   fastify.get('/api/knowledge/retrieval-profile', async () => retrievalService.getProfile(false));
+  fastify.get('/api/knowledge/retrieval-profiles', async () => retrievalService.getProfiles());
 
   fastify.put('/api/knowledge/retrieval-profile', async (request, reply) => {
     try {

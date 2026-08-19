@@ -6,6 +6,8 @@ import { localEmbedder, LOCAL_EMBEDDING_MODEL } from './local-embedder';
 
 export type RetrievalProvider = 'local' | 'siliconflow' | 'custom';
 
+export const RETRIEVAL_PROVIDERS: RetrievalProvider[] = ['local', 'siliconflow', 'custom'];
+
 export interface RetrievalProfile {
   provider: RetrievalProvider;
   baseUrl: string;
@@ -16,24 +18,57 @@ export interface RetrievalProfile {
   timeoutMs: number;
 }
 
-interface StoredRetrievalProfile extends Omit<RetrievalProfile, 'apiKeyConfigured'> {
-  version: 4;
+export interface RetrievalProfiles {
+  activeProvider: RetrievalProvider;
+  profiles: RetrievalProfile[];
 }
 
-const DEFAULT_PROFILE: StoredRetrievalProfile = {
-  version: 4,
-  provider: 'local',
-  baseUrl: '',
-  embeddingModel: LOCAL_EMBEDDING_MODEL,
-  rerankerModel: '',
-  timeoutMs: 60000,
+interface StoredRetrievalProviderProfile {
+  baseUrl: string;
+  embeddingModel: string;
+  rerankerModel: string;
+  apiKey?: string;
+  timeoutMs: number;
+}
+
+interface StoredRetrievalConfig {
+  version: 5;
+  activeProvider: RetrievalProvider;
+  profiles: Record<RetrievalProvider, StoredRetrievalProviderProfile>;
+}
+
+const RETRIEVAL_PROVIDER_DEFAULTS: Record<RetrievalProvider, StoredRetrievalProviderProfile> = {
+  local: {
+    baseUrl: '',
+    embeddingModel: LOCAL_EMBEDDING_MODEL,
+    rerankerModel: '',
+    timeoutMs: 60000,
+  },
+  siliconflow: {
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    embeddingModel: 'BAAI/bge-m3',
+    rerankerModel: 'BAAI/bge-reranker-v2-m3',
+    timeoutMs: 60000,
+  },
+  custom: {
+    baseUrl: '',
+    embeddingModel: '',
+    rerankerModel: '',
+    timeoutMs: 60000,
+  },
 };
 
-const SILICONFLOW_DEFAULTS = {
-  baseUrl: 'https://api.siliconflow.cn/v1',
-  embeddingModel: 'BAAI/bge-m3',
-  rerankerModel: 'BAAI/bge-reranker-v2-m3',
-};
+function createDefaultRetrievalConfig(): StoredRetrievalConfig {
+  return {
+    version: 5,
+    activeProvider: 'local',
+    profiles: {
+      local: { ...RETRIEVAL_PROVIDER_DEFAULTS.local },
+      siliconflow: { ...RETRIEVAL_PROVIDER_DEFAULTS.siliconflow },
+      custom: { ...RETRIEVAL_PROVIDER_DEFAULTS.custom },
+    },
+  };
+}
 
 function normalizedBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
@@ -68,74 +103,112 @@ export class RetrievalService {
     return this.configFilePath || path.join(path.dirname(getDatabasePath()), 'retrieval-profile.json');
   }
 
-  private readStored(): StoredRetrievalProfile {
+  private readStored(): StoredRetrievalConfig {
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8')) as Partial<StoredRetrievalProfile & { version: number }>;
-      if (parsed.version === 3) {
-        // Upgrade from version 3
-        const provider: RetrievalProvider = parsed.provider === 'custom' ? 'custom' : parsed.provider === 'siliconflow' ? 'siliconflow' : 'local';
-        return {
-          version: 4,
-          provider,
-          baseUrl: normalizedBaseUrl(String(parsed.baseUrl || (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.baseUrl : ''))),
-          embeddingModel: String(parsed.embeddingModel || (provider === 'local' ? LOCAL_EMBEDDING_MODEL : SILICONFLOW_DEFAULTS.embeddingModel)).trim(),
-          apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : undefined,
-          rerankerModel: typeof parsed.rerankerModel === 'string' ? parsed.rerankerModel.trim() : (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.rerankerModel : ''),
-          timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
-        };
+      const parsed = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+      if (parsed?.version === 5 && parsed.profiles && typeof parsed.profiles === 'object') {
+        const config = createDefaultRetrievalConfig();
+        config.activeProvider = RETRIEVAL_PROVIDERS.includes(parsed.activeProvider) ? parsed.activeProvider : 'local';
+        for (const provider of RETRIEVAL_PROVIDERS) {
+          const stored = parsed.profiles[provider];
+          if (!stored || typeof stored !== 'object') continue;
+          config.profiles[provider] = {
+            ...config.profiles[provider],
+            ...stored,
+            baseUrl: normalizedBaseUrl(String(stored.baseUrl ?? config.profiles[provider].baseUrl)),
+            embeddingModel: String(stored.embeddingModel ?? config.profiles[provider].embeddingModel).trim(),
+            rerankerModel: String(stored.rerankerModel ?? config.profiles[provider].rerankerModel).trim(),
+            apiKey: typeof stored.apiKey === 'string' && stored.apiKey.trim() ? stored.apiKey.trim() : undefined,
+            timeoutMs: Math.max(5000, Math.min(180000, Number(stored.timeoutMs) || config.profiles[provider].timeoutMs)),
+          };
+        }
+        return config;
       }
-      if (parsed.version !== 4) return { ...DEFAULT_PROFILE };
-      const provider: RetrievalProvider = parsed.provider === 'custom' ? 'custom' : parsed.provider === 'siliconflow' ? 'siliconflow' : 'local';
-      return {
-        version: 4,
-        provider,
-        baseUrl: normalizedBaseUrl(String(parsed.baseUrl || (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.baseUrl : ''))),
-        embeddingModel: String(parsed.embeddingModel || (provider === 'local' ? LOCAL_EMBEDDING_MODEL : SILICONFLOW_DEFAULTS.embeddingModel)).trim(),
-        apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : undefined,
-        rerankerModel: typeof parsed.rerankerModel === 'string' ? parsed.rerankerModel.trim() : (provider === 'siliconflow' ? SILICONFLOW_DEFAULTS.rerankerModel : ''),
-        timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || DEFAULT_PROFILE.timeoutMs)),
-      };
+
+      // Backward compatibility for version 4, 3, or flat profiles
+      const config = createDefaultRetrievalConfig();
+      if (parsed && typeof parsed === 'object') {
+        const activeProvider: RetrievalProvider = parsed.provider === 'custom' ? 'custom' : parsed.provider === 'siliconflow' ? 'siliconflow' : 'local';
+        config.activeProvider = activeProvider;
+        if (activeProvider !== 'local') {
+          config.profiles[activeProvider] = {
+            baseUrl: normalizedBaseUrl(String(parsed.baseUrl || (activeProvider === 'siliconflow' ? RETRIEVAL_PROVIDER_DEFAULTS.siliconflow.baseUrl : ''))),
+            embeddingModel: String(parsed.embeddingModel || (activeProvider === 'siliconflow' ? RETRIEVAL_PROVIDER_DEFAULTS.siliconflow.embeddingModel : '')).trim(),
+            rerankerModel: String(parsed.rerankerModel ?? (activeProvider === 'siliconflow' ? RETRIEVAL_PROVIDER_DEFAULTS.siliconflow.rerankerModel : '')).trim(),
+            apiKey: typeof parsed.apiKey === 'string' && parsed.apiKey.trim() ? parsed.apiKey.trim() : undefined,
+            timeoutMs: Math.max(5000, Math.min(180000, Number(parsed.timeoutMs) || 60000)),
+          };
+        }
+      }
+      return config;
     } catch {
-      return { ...DEFAULT_PROFILE };
+      return createDefaultRetrievalConfig();
     }
   }
 
-  getProfile(includeSecret = false): RetrievalProfile {
-    const stored = this.readStored();
-    const isLocal = stored.provider === 'local';
+  private writeConfig(config: StoredRetrievalConfig): void {
+    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
+    fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+  }
+
+  getProfile(includeSecret = false, requestedProvider?: RetrievalProvider): RetrievalProfile {
+    const config = this.readStored();
+    const provider = requestedProvider || config.activeProvider;
+    const isLocal = provider === 'local';
+    const stored = config.profiles[provider] || RETRIEVAL_PROVIDER_DEFAULTS[provider];
+    const apiKey = includeSecret ? (stored.apiKey || '') : '';
     return {
-      provider: stored.provider,
+      provider,
       baseUrl: isLocal ? '' : stored.baseUrl,
-      ...(includeSecret ? { apiKey: stored.apiKey || '' } : {}),
+      ...(includeSecret ? { apiKey } : {}),
       apiKeyConfigured: isLocal ? true : Boolean(stored.apiKey),
-      embeddingModel: stored.embeddingModel,
-      rerankerModel: stored.rerankerModel,
+      embeddingModel: isLocal ? LOCAL_EMBEDDING_MODEL : stored.embeddingModel,
+      rerankerModel: isLocal ? '' : stored.rerankerModel,
       timeoutMs: stored.timeoutMs,
     };
   }
 
+  getProfiles(): RetrievalProfiles {
+    const config = this.readStored();
+    return {
+      activeProvider: config.activeProvider,
+      profiles: RETRIEVAL_PROVIDERS.map((provider) => this.getProfile(false, provider)),
+    };
+  }
+
   saveProfile(input: Partial<RetrievalProfile> & { clearApiKey?: boolean }): RetrievalProfile {
-    const previous = this.readStored();
-    const provider: RetrievalProvider = input.provider === 'local' ? 'local' : input.provider === 'custom' ? 'custom' : input.provider === 'siliconflow' ? 'siliconflow' : previous.provider;
+    const config = this.readStored();
+    const provider: RetrievalProvider = input.provider === 'local' ? 'local' : input.provider === 'custom' ? 'custom' : input.provider === 'siliconflow' ? 'siliconflow' : config.activeProvider;
+    const previous = config.profiles[provider] || { ...RETRIEVAL_PROVIDER_DEFAULTS[provider] };
     const inputApiKey = typeof input.apiKey === 'string' ? input.apiKey.trim() : '';
 
-    const next: StoredRetrievalProfile = {
-      version: 4,
-      provider,
-      baseUrl: provider === 'local' ? '' : normalizedBaseUrl(input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl)),
-      embeddingModel: String(input.embeddingModel === undefined ? (provider === 'local' ? LOCAL_EMBEDDING_MODEL : previous.embeddingModel) : input.embeddingModel).trim() || (provider === 'local' ? LOCAL_EMBEDDING_MODEL : ''),
-      apiKey: input.clearApiKey ? undefined : (inputApiKey || (provider === 'local' ? undefined : previous.apiKey)),
-      rerankerModel: String(input.rerankerModel === undefined ? previous.rerankerModel : input.rerankerModel).trim(),
-      timeoutMs: Math.max(5000, Math.min(180000, Number(input.timeoutMs) || previous.timeoutMs)),
-    };
+    const nextBaseUrl = provider === 'local' ? '' : normalizedBaseUrl(input.baseUrl === undefined ? previous.baseUrl : String(input.baseUrl));
+    const nextEmbeddingModel = provider === 'local' ? LOCAL_EMBEDDING_MODEL : String(input.embeddingModel === undefined ? previous.embeddingModel : input.embeddingModel).trim();
+    const nextRerankerModel = provider === 'local' ? '' : String(input.rerankerModel === undefined ? previous.rerankerModel : input.rerankerModel).trim();
+    const nextTimeoutMs = Math.max(5000, Math.min(180000, Number(input.timeoutMs) || previous.timeoutMs || 60000));
 
-    if (provider !== 'local' && (!next.baseUrl || !next.embeddingModel)) {
+    let nextApiKey: string | undefined = previous.apiKey;
+    if (input.clearApiKey) {
+      nextApiKey = undefined;
+    } else if (inputApiKey) {
+      nextApiKey = inputApiKey;
+    }
+
+    if (provider !== 'local' && (!nextBaseUrl || !nextEmbeddingModel)) {
       throw new Error('云端服务 API 地址和向量模型名称不能为空');
     }
 
-    fs.mkdirSync(path.dirname(this.configPath), { recursive: true });
-    fs.writeFileSync(this.configPath, JSON.stringify(next, null, 2), { mode: 0o600 });
-    return this.getProfile(false);
+    config.activeProvider = provider;
+    config.profiles[provider] = {
+      baseUrl: nextBaseUrl,
+      embeddingModel: nextEmbeddingModel,
+      rerankerModel: nextRerankerModel,
+      apiKey: nextApiKey,
+      timeoutMs: nextTimeoutMs,
+    };
+
+    this.writeConfig(config);
+    return this.getProfile(false, provider);
   }
 
   async embed(texts: string[]): Promise<number[][]> {

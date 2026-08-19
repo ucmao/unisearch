@@ -17,6 +17,7 @@
     "electron:build:mac:release": "node scripts/check-release-platform.mjs darwin && node scripts/check-macos-notarization-env.mjs && npm run build:backend && npm run webui:build && electron-builder --mac --arm64 --config.mac.notarize=true --config.forceCodeSigning=true",
     "electron:build:win:release": "node scripts/check-release-platform.mjs win32 && npm run build:backend && npm run webui:build && electron-builder --win --x64 --config.win.signAndEditExecutable=true --config.forceCodeSigning=true",
     "setup:models": "node scripts/download-models.mjs",
+    "postinstall": "node scripts/download-models.mjs",
     "verify:package": "node scripts/verify-packaged-runtime.mjs",
     "smoke:package": "node scripts/smoke-packaged-app.mjs"
   },
