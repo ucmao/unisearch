@@ -271,8 +271,13 @@ function compactText(value: string, maxLength = 180): string {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength).trimEnd()}…` : normalized;
 }
 
+import { cleanAiAnswerText } from '../../crawler/platforms/china_ai_web_qa';
+
 function canonicalMarkdown(item: RawItem, definition: ConnectorMappingDefinition): string {
   const value = String(item.hints.text || item.hints.title || '').trim();
+  if (definition.family === 'ai_qa' || item.kind === 'ai_answer') {
+    return cleanAiAnswerText(value);
+  }
   if (definition.family !== 'complaint') return value;
   // The legacy crawler prefixed these values into desc so the old social table
   // could display them. v2 stores them structurally and keeps markdown as body.

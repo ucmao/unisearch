@@ -86,6 +86,27 @@ export const NON_ANSWER_EXCLUDE_SELECTORS = [
   '[class*="toolbar"]',
   '[class*="action"]',
   '[class*="feedback"]',
+  '[class*="reference"]',
+  '[class*="citation"]',
+  '[class*="source-list"]',
+  '[class*="refer-"]',
+  '[class*="ref_"]',
+  '[class*="refs"]',
+  '[class*="search-result"]',
+  '[class*="baike-card"]',
+  '[class*="cosmic-dqa"]',
+  '[class*="guess"]',
+  '[class*="candidate"]',
+  '[class*="relate"]',
+  '[class*="query"]',
+  '[class*="operation"]',
+  '[class*="video-card"]',
+  '[class*="media-card"]',
+  '[class*="video-list"]',
+  '[class*="video-item"]',
+  '[class*="media-box"]',
+  '[class*="short-video"]',
+  '[class*="play-card"]',
   '[class*="agent-chat__conv--user"]',
   '[class*="agent-chat__item--user"]',
   '[class*="agent-dialogue__item--user"]',
@@ -101,6 +122,37 @@ export const NON_ANSWER_EXCLUDE_SELECTORS = [
   'textarea',
   'input',
 ];
+
+/**
+ * Normalizes AI QA answer text by stripping out leading search reference headers/lists,
+ * trailing follow-up prompt chips / action buttons, and cleaning up formatting anomalies.
+ */
+export function cleanAiAnswerText(text: string): string {
+  if (!text) return '';
+  let cleaned = text.trim();
+
+  // 1. Remove leading reference headers and 1..N reference item listings
+  // E.g., "共参考30篇资料\n 1. 【2026优化版】...\n 2. ..."
+  cleaned = cleaned.replace(
+    /^(?:共参考\s*\d+\s*篇(?:资料|文档|网页|文章|来源)?|参考资料|参考来源|引用来源|资料来源)[\s\S]*?(?=\n\s*(?:[#一二三四五六七八九十]+[、\.\s]|\*\*|[A-Z\u4e00-\u9fa5]{2,}[：:]|结合|根据|对于|针对|为了|作为|在|您好|很高兴|我是|人工智能|课程|以下))/u,
+    '',
+  ).trim();
+
+  // 2. Remove trailing suggestion prompts, follow-up questions, and quick action buttons
+  // E.g., "🆗 行，继续吧...", "👌 好的，继续吧...", "\n 猜你想问..."
+  cleaned = cleaned.replace(
+    /(?:\s*[🆗👌👍💡👉]|\n\s*(?:猜你想问|相关推荐|推荐问题|相关问题|继续提问|延伸阅读|快捷回复)[：:]?)[\s\S]*$/u,
+    '',
+  ).trim();
+
+  // 3. Remove orphaned timestamp lines left behind from raw media card text (e.g., "\n01:12\n")
+  cleaned = cleaned.replace(/\n\s*\d{2}:\d{2}\s*(?=\n|$)/g, '');
+
+  // 4. Normalize single-line item numbers like "1.\n【标题】" to "1. 【标题】"
+  cleaned = cleaned.replace(/^(\d+)\.\s*\n+(\S)/gm, '$1. $2');
+
+  return cleaned.trim();
+}
 
 export function isLikelyPromptTemplateOrPlaceholder(text: string, question?: string): boolean {
   if (!text) return true;
@@ -199,7 +251,7 @@ export const PLATFORMS: Record<PlatformId, AiWebQaPlatform> = {
     id: 'wenxin',
     name: '文心一言',
     url: 'https://wenxin.baidu.com/',
-    ownDomains: ['wenxin.baidu.com', 'baidu.com'],
+    ownDomains: ['wenxin.baidu.com', 'chat.baidu.com'],
     inputSelectors: [
       'textarea[placeholder*="文心"]',
       'textarea[placeholder*="有问题"]',
@@ -383,13 +435,14 @@ export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
 
     await this.waitForResponse(question, initialText);
     const result = await this.collectResult(question);
-    if (!result.answer || isLikelyPromptTemplateOrPlaceholder(result.answer, question)) {
+    const cleanedAnswer = cleanAiAnswerText(result.answer);
+    if (!cleanedAnswer || isLikelyPromptTemplateOrPlaceholder(cleanedAnswer, question)) {
       throw new Error(`${this.platform.name}已结束生成，但页面中未找到有效回答正文。`);
     }
     await connectorOutput.emitAiWebQaResult(this.platform.id, {
       question,
       title: question,
-      answer: result.answer,
+      answer: cleanedAnswer,
       reasoning_content: result.reasoning,
       citations: result.citations,
       url: result.url,
@@ -411,7 +464,7 @@ export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
 
       const cleanNodeText = (element: Element): string => {
         const clone = element.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll('button, [role="button"], [class*="chip"], [class*="action"], [class*="tool"], [class*="prompt"], [class*="suggest"], [class*="recommend"], [class*="feedback"], [class*="related"], [class*="followup"]').forEach((el) => el.remove());
+        clone.querySelectorAll('button, [role="button"], [class*="chip"], [class*="action"], [class*="tool"], [class*="prompt"], [class*="suggest"], [class*="recommend"], [class*="feedback"], [class*="related"], [class*="followup"], [class*="reference"], [class*="citation"], [class*="source-list"], [class*="refer-"], [class*="ref_"], [class*="refs"], [class*="search-result"], [class*="guess"], [class*="candidate"], [class*="operation"]').forEach((el) => el.remove());
         return clone.innerText?.trim() || '';
       };
 
@@ -517,7 +570,7 @@ export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
 
       const cleanNodeText = (element: Element): string => {
         const clone = element.cloneNode(true) as HTMLElement;
-        clone.querySelectorAll('button, [role="button"], [class*="chip"], [class*="action"], [class*="tool"], [class*="prompt"], [class*="suggest"], [class*="recommend"], [class*="feedback"], [class*="related"], [class*="followup"]').forEach((el) => el.remove());
+        clone.querySelectorAll('button, [role="button"], [class*="chip"], [class*="action"], [class*="tool"], [class*="prompt"], [class*="suggest"], [class*="recommend"], [class*="feedback"], [class*="related"], [class*="followup"], [class*="reference"], [class*="citation"], [class*="source-list"], [class*="refer-"], [class*="ref_"], [class*="refs"], [class*="search-result"], [class*="guess"], [class*="candidate"], [class*="operation"]').forEach((el) => el.remove());
         return clone.innerText?.trim() || '';
       };
 
@@ -586,6 +639,7 @@ export class ConfigurableAiWebQaCrawler extends AbstractCrawler {
         url: (node as HTMLAnchorElement).href,
       })).filter((link) => {
         if (!/^https?:/.test(link.url)) return false;
+        if (link.url.includes('baidu.com/link?')) return true;
         try {
           return !ownDomains.some((domain) => new URL(link.url).hostname.endsWith(domain));
         } catch {
