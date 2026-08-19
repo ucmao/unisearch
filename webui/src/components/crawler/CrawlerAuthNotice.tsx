@@ -96,12 +96,12 @@ export const CrawlerAuthNotice: React.FC = () => {
           const platformName = platformLabels[item.platform] || item.platform.toUpperCase()
           const isManual = item.kind === 'manual'
           return (
-            <div key={item.platform} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/70 p-3">
+            <div key={item.platform} className="overflow-hidden rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/70 p-3">
               <div className="flex items-start gap-2.5">
                 {isManual ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" /> : <LogIn className="mt-0.5 h-4 w-4 shrink-0 text-cyber-neon-cyan" />}
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-cyber-text-primary">{platformName}{isManual ? ' 需要人工验证' : ' 可能需要登录'}</p>
-                  <p className="mt-1 text-[10px] leading-4 text-cyber-text-muted">{item.reason || '请打开平台采集浏览器确认当前状态'}</p>
+                  <p className="text-xs font-medium text-cyber-text-primary break-words">{platformName}{isManual ? ' 需要人工验证' : ' 可能需要登录'}</p>
+                  <p className="mt-1 text-[10px] leading-4 text-cyber-text-muted break-all">{item.reason || '请打开平台采集浏览器确认当前状态'}</p>
                 </div>
               </div>
               <div className="mt-3 flex justify-end gap-2">

@@ -9,6 +9,7 @@ import {
 import { activeConfig } from '../../tools/config';
 import { connectorOutput } from '../../connectors/output/connector-output';
 import { MANUAL_LOGIN_TIMEOUT_MS } from '../base/interactiveTimeouts';
+import { cleanAiAnswerText } from './china_ai_web_qa';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -283,8 +284,10 @@ export class DeepSeekCrawler extends AbstractCrawler {
       };
     });
 
+    const cleanedAnswer = cleanAiAnswerText(resultData.answer);
+
     console.log(`[DEEPSEEK] Collected response for "${question}":`);
-    console.log(`  - Answer Length: ${resultData.answer.length} chars`);
+    console.log(`  - Answer Length: ${cleanedAnswer.length} chars`);
     console.log(`  - Reasoning Length: ${resultData.reasoning.length} chars`);
     console.log(`  - Citations Count: ${resultData.citations.length} links`);
 
@@ -292,7 +295,7 @@ export class DeepSeekCrawler extends AbstractCrawler {
       question,
       title: question,
       reasoning_content: resultData.reasoning,
-      answer: resultData.answer,
+      answer: cleanedAnswer,
       citations: resultData.citations,
       url: resultData.url,
       source_keyword: question,

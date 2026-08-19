@@ -134,7 +134,7 @@ export function cleanAiAnswerText(text: string): string {
   // 1. Remove leading reference headers and 1..N reference item listings
   // E.g., "共参考30篇资料\n 1. 【2026优化版】...\n 2. ..."
   cleaned = cleaned.replace(
-    /^(?:共参考\s*\d+\s*篇(?:资料|文档|网页|文章|来源)?|参考资料|参考来源|引用来源|资料来源)[\s\S]*?(?=\n\s*(?:[#一二三四五六七八九十]+[、\.\s]|\*\*|[A-Z\u4e00-\u9fa5]{2,}[：:]|结合|根据|对于|针对|为了|作为|在|您好|很高兴|我是|人工智能|课程|以下))/u,
+    /^(?:共参考\s*\d+\s*篇(?:资料|文档|网页|文章|来源)?|参考资料|参考来源|引用来源|资料来源)[\s\S]*?(?=\n\s*(?:[#一二三四五六七八九十]+[、.\s]|\*\*|[A-Z\u4e00-\u9fa5]{2,}[：:]|结合|根据|对于|针对|为了|作为|在|您好|很高兴|我是|人工智能|课程|以下))/u,
     '',
   ).trim();
 
@@ -145,10 +145,16 @@ export function cleanAiAnswerText(text: string): string {
     '',
   ).trim();
 
-  // 3. Remove orphaned timestamp lines left behind from raw media card text (e.g., "\n01:12\n")
+  // 3. Fix broken inline citation numbers from superscript buttons/links (e.g. "《课程》-\n3\n，内容" -> "《课程》[3]，内容")
+  cleaned = cleaned.replace(/(?:-\s*\n+(\d+)\s*\n*)+/g, (match) => {
+    const nums = match.match(/\d+/g);
+    return nums ? nums.map((n) => `[${n}]`).join('') : '';
+  });
+
+  // 4. Remove orphaned timestamp lines left behind from raw media card text (e.g., "\n01:12\n")
   cleaned = cleaned.replace(/\n\s*\d{2}:\d{2}\s*(?=\n|$)/g, '');
 
-  // 4. Normalize single-line item numbers like "1.\n【标题】" to "1. 【标题】"
+  // 5. Normalize single-line item numbers like "1.\n【标题】" to "1. 【标题】"
   cleaned = cleaned.replace(/^(\d+)\.\s*\n+(\S)/gm, '$1. $2');
 
   return cleaned.trim();

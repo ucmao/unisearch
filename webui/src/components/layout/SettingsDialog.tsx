@@ -13,6 +13,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -1074,12 +1075,17 @@ export function SettingsDialog({
                       <div className="space-y-5">
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
                           {[
-                            ['会话总数', storageQuery.data.thread_records || 0],
-                            ['消息总数', storageQuery.data.message_records || 0],
-                          ].map(([label, value]) => (
+                            ['会话总数', storageQuery.data.thread_records || 0, '个'],
+                            ['消息总数', storageQuery.data.message_records || 0, '条'],
+                          ].map(([label, value, unit]) => (
                             <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4">
-                              <p className="text-[10px] text-cyber-text-muted">{label}</p>
-                              <p className="mt-1 text-xl font-semibold text-cyber-text-primary">{Number(value || 0).toLocaleString('zh-CN')}</p>
+                              <p className="text-[11px] font-normal text-cyber-text-muted">{label}</p>
+                              <div className="mt-1 flex items-baseline gap-1">
+                                <span className="text-xl font-semibold tabular-nums tracking-tight text-cyber-text-primary">
+                                  {Number(value || 0).toLocaleString('zh-CN')}
+                                </span>
+                                <span className="text-xs font-medium text-cyber-text-secondary">{unit}</span>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1202,14 +1208,19 @@ export function SettingsDialog({
                       <div className="space-y-5">
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                           {[
-                            ['执行任务', `${Number(storageQuery.data.analytics_runs || 0).toLocaleString('zh-CN')} 次`],
-                            ['底层文档', `${Number(storageQuery.data.raw_records || storageQuery.data.analytics_records || 0).toLocaleString('zh-CN')} 篇`],
-                            ['向量切片', `${Number(storageQuery.data.chunk_records || 0).toLocaleString('zh-CN')} 段`],
-                            ['知识图谱', `${Number(storageQuery.data.graph_nodes || 0).toLocaleString('zh-CN')} 实体`],
-                          ].map(([label, value]) => (
+                            ['执行任务', storageQuery.data.analytics_runs || 0, '次'],
+                            ['底层文档', storageQuery.data.raw_records || storageQuery.data.analytics_records || 0, '篇'],
+                            ['向量切片', storageQuery.data.chunk_records || 0, '段'],
+                            ['知识图谱', storageQuery.data.graph_nodes || 0, '实体'],
+                          ].map(([label, value, unit]) => (
                             <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4">
-                              <p className="text-[10px] text-cyber-text-muted">{label}</p>
-                              <p className="mt-1 text-lg font-semibold text-cyber-text-primary">{value}</p>
+                              <p className="text-[11px] font-normal text-cyber-text-muted">{label}</p>
+                              <div className="mt-1 flex items-baseline gap-1">
+                                <span className="text-xl font-semibold tabular-nums tracking-tight text-cyber-text-primary">
+                                  {Number(value || 0).toLocaleString('zh-CN')}
+                                </span>
+                                <span className="text-xs font-medium text-cyber-text-secondary">{unit}</span>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1326,13 +1337,18 @@ export function SettingsDialog({
                       <div className="space-y-5">
                         <div className="grid grid-cols-3 gap-3">
                           {[
-                            ['研报制品', `${Number(storageQuery.data.artifact_records || 0).toLocaleString('zh-CN')} 份`],
-                            ['分析报告', `${Number(storageQuery.data.report_records || 0).toLocaleString('zh-CN')} 篇`],
-                            ['评估记录', `${Number(storageQuery.data.assessment_records || 0).toLocaleString('zh-CN')} 条`],
-                          ].map(([label, value]) => (
+                            ['研报制品', storageQuery.data.artifact_records || 0, '份'],
+                            ['分析报告', storageQuery.data.report_records || 0, '篇'],
+                            ['评估记录', storageQuery.data.assessment_records || 0, '条'],
+                          ].map(([label, value, unit]) => (
                             <div key={String(label)} className="rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/45 p-4">
-                              <p className="text-[10px] text-cyber-text-muted">{label}</p>
-                              <p className="mt-1 text-xl font-semibold text-cyber-text-primary">{value}</p>
+                              <p className="text-[11px] font-normal text-cyber-text-muted">{label}</p>
+                              <div className="mt-1 flex items-baseline gap-1">
+                                <span className="text-xl font-semibold tabular-nums tracking-tight text-cyber-text-primary">
+                                  {Number(value || 0).toLocaleString('zh-CN')}
+                                </span>
+                                <span className="text-xs font-medium text-cyber-text-secondary">{unit}</span>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1468,19 +1484,25 @@ export function SettingsDialog({
 
                       {isAddingMemory ? (
                         <div className="mb-3 rounded-xl border border-cyber-neon-cyan/40 bg-cyber-bg-secondary/60 p-3">
-                          <p className="mb-1.5 text-xs font-medium text-cyber-neon-cyan">添加一条长期记忆：</p>
-                          <div className="flex gap-2">
-                            <Select value={newMemoryCategory} onValueChange={(value: AgentMemory['category']) => setNewMemoryCategory(value)}>
-                              <SelectTrigger className="h-8 w-24 shrink-0 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="identity">身份</SelectItem>
-                                <SelectItem value="preference">偏好</SelectItem>
-                                <SelectItem value="context">背景</SelectItem>
-                                <SelectItem value="rule">规则</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <Input
+                          <div className="mb-2 flex items-center justify-between">
+                            <p className="text-xs font-medium text-cyber-neon-cyan">添加一条长期记忆：</p>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] text-cyber-text-muted">类别：</span>
+                              <Select value={newMemoryCategory} onValueChange={(value: AgentMemory['category']) => setNewMemoryCategory(value)}>
+                                <SelectTrigger className="h-7 w-24 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="identity">身份</SelectItem>
+                                  <SelectItem value="preference">偏好</SelectItem>
+                                  <SelectItem value="context">背景</SelectItem>
+                                  <SelectItem value="rule">规则</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Textarea
                               autoFocus
+                              rows={3}
                               placeholder={
                                 newMemoryCategory === 'identity'
                                   ? '例如：我是教育行业产品运营负责人'
@@ -1493,28 +1515,37 @@ export function SettingsDialog({
                               value={newMemoryContent}
                               onChange={(e) => setNewMemoryContent(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter' && newMemoryContent.trim()) {
+                                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && newMemoryContent.trim()) {
+                                  e.preventDefault()
                                   createMemory.mutate({ content: newMemoryContent.trim(), category: newMemoryCategory })
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault()
+                                  setIsAddingMemory(false)
                                 }
                               }}
-                              className="h-8 text-xs flex-1"
+                              className="min-h-[72px] resize-y text-xs leading-relaxed border-cyber-neon-cyan/40 bg-cyber-bg-tertiary/40 focus-visible:border-cyber-neon-cyan"
                             />
-                            <Button
-                              size="sm"
-                              className="h-8 bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 font-medium shadow-xs"
-                              disabled={!newMemoryContent.trim() || createMemory.isPending}
-                              onClick={() => createMemory.mutate({ content: newMemoryContent.trim(), category: newMemoryCategory })}
-                            >
-                              保存
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-8"
-                              onClick={() => setIsAddingMemory(false)}
-                            >
-                              取消
-                            </Button>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-cyber-text-muted">支持多行输入，按 ⌘/Ctrl+Enter 快捷保存</span>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs"
+                                  onClick={() => setIsAddingMemory(false)}
+                                >
+                                  取消
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  className="h-7 bg-cyber-neon-cyan text-white hover:bg-cyber-neon-cyan/90 text-xs font-medium shadow-xs"
+                                  disabled={!newMemoryContent.trim() || createMemory.isPending}
+                                  onClick={() => createMemory.mutate({ content: newMemoryContent.trim(), category: newMemoryCategory })}
+                                >
+                                  保存
+                                </Button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ) : null}
@@ -1541,9 +1572,29 @@ export function SettingsDialog({
                                   ) : null}
                                 </div>
                                 {editMemoryId === memory.memory_id ? (
-                                  <Input autoFocus value={editMemoryContent} onChange={(event) => setEditMemoryContent(event.target.value)} className="h-8 text-xs" />
+                                  <div className="space-y-1.5 py-0.5">
+                                    <Textarea
+                                      autoFocus
+                                      rows={3}
+                                      value={editMemoryContent}
+                                      onChange={(event) => setEditMemoryContent(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && editMemoryContent.trim()) {
+                                          event.preventDefault()
+                                          updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent.trim() } })
+                                        } else if (event.key === 'Escape') {
+                                          event.preventDefault()
+                                          setEditMemoryId(null)
+                                        }
+                                      }}
+                                      className="min-h-[72px] resize-y text-xs leading-relaxed border-cyber-neon-cyan/40 bg-cyber-bg-tertiary/40 focus-visible:border-cyber-neon-cyan"
+                                    />
+                                    <div className="flex items-center justify-between text-[10px] text-cyber-text-muted">
+                                      <span>按 ⌘/Ctrl+Enter 保存，Esc 取消</span>
+                                    </div>
+                                  </div>
                                 ) : (
-                                  <p className="text-xs leading-relaxed text-cyber-text-primary">{memory.content}</p>
+                                  <p className="text-xs leading-relaxed text-cyber-text-primary whitespace-pre-wrap">{memory.content}</p>
                                 )}
                                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
                                   <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>
@@ -1552,8 +1603,8 @@ export function SettingsDialog({
                               <div className="flex shrink-0 items-center gap-1">
                                 {editMemoryId === memory.memory_id ? (
                                   <>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
-                                    <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-neon-cyan hover:bg-cyber-neon-cyan/10" disabled={!editMemoryContent.trim() || updateMemory.isPending} onClick={() => updateMemory.mutate({ memoryId: memory.memory_id, patch: { content: editMemoryContent.trim() } })} title="保存"><Check className="h-3.5 w-3.5" /></Button>
+                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-cyber-text-secondary hover:text-cyber-text-primary" onClick={() => setEditMemoryId(null)} title="取消"><X className="h-3.5 w-3.5" /></Button>
                                   </>
                                 ) : (
                                   <>

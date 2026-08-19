@@ -44,15 +44,18 @@ export class DoubaoCrawler extends AbstractCrawler {
     return null;
   }
 
-  private async checkLoginState(): Promise<boolean> {
+  private async hasExplicitLoginModal(): Promise<boolean> {
     if (!this.page) return false;
-    if (/login|passport/.test(this.page.url())) return false;
+    if (/login|passport/.test(this.page.url())) return true;
 
-    // 严谨检测真实的登录遮罩/弹窗容器，避免误命中页面普通推广文案（如“登录即可免费使用”）
-    const hasBlockingLoginModal = await this.page.isVisible(
+    return await this.page.isVisible(
       '[class*="login-modal"], [class*="passport-modal"], [class*="auth-modal"], div[role="dialog"] [class*="login"], div[role="dialog"]:has-text("手机号登录"), div[role="dialog"]:has-text("扫码登录"), iframe[src*="passport"]',
     ).catch(() => false);
-    if (hasBlockingLoginModal) return false;
+  }
+
+  private async checkLoginState(): Promise<boolean> {
+    if (!this.page) return false;
+    if (await this.hasExplicitLoginModal()) return false;
 
     // 检查已登录特征：头像或用户信息
     const hasAvatar = await this.page.isVisible(
@@ -67,18 +70,23 @@ export class DoubaoCrawler extends AbstractCrawler {
     if (!this.page || !this.browserContext) return;
     console.log('[DOUBAO] Checking Doubao page readiness and login status...');
 
-    // 豆包为 Modern.js / React 纯客户端单页应用（CSR），首次加载需缓冲等待组件 Hydration
-    const readyDeadline = Date.now() + 8000;
+    // 豆包为 Modern.js / React 纯客户端单页应用（CSR），首次加载及并发负载下需缓冲等待组件 Hydration
+    const readyDeadline = Date.now() + 25000;
     while (Date.now() < readyDeadline) {
       if (await this.checkLoginState()) {
         console.log('[DOUBAO] Login state verified.');
         notifyLoginSuccess('doubao');
         return;
       }
-      await sleep(600);
+      // 若在缓冲期内检测到了明确的阻断式登录弹窗或跳转，立即中断缓冲，避免不必要的等待
+      if (await this.hasExplicitLoginModal()) {
+        console.log('[DOUBAO] Explicit login dialog or passport redirect detected.');
+        break;
+      }
+      await sleep(800);
     }
 
-    // 8秒后若仍未就绪或出现明确登录弹窗，才向系统和前端发送需要登录的提示
+    // 超过缓冲期仍未就绪，或检测到明确登录弹窗，才向系统和前端发送需要登录提示
     console.log('[DOUBAO] Doubao login required or page not ready. Waiting for manual login in crawler window...');
     notifyLoginRequired('doubao', '请在内置豆包窗口完成登录；登录成功后任务会自动继续。');
 
