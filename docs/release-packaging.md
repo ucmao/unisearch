@@ -8,6 +8,8 @@ UniSearch 打包分为两种场景：**无证书常规打包（适合日常开�
 
 无需购买或配置任何开发者证书与钥匙串，开箱即用，自动生成本地可运行的安装包或免安装压缩包。
 
+> 💡 **提示**：若本地系统/钥匙串中存在残留证书引发签名错误，可在命令前加 `CSC_IDENTITY_AUTO_DISCOVERY=false`（Windows CMD 使用 `set CSC_IDENTITY_AUTO_DISCOVERY=false && ...`，PowerShell 使用 `$env:CSC_IDENTITY_AUTO_DISCOVERY="false"; ...`）。
+
 ### 1. 一键生成默认安装包
 在目标操作系统终端中运行：
 
@@ -19,28 +21,39 @@ npm run electron:build
 
 ---
 
-### 2. 指定打包格式与架构（ZIP 免安装包 / Intel 架构）
+### 2. 指定打包格式与架构（ZIP 免安装包 / 架构选择）
 
 如果需要免安装绿色包（ZIP）或指定 CPU 架构，可按如下命令打包：
 
 #### 🪟 Windows 平台
-- **生成 x64 免安装 ZIP 压缩包（解压即用）**：
+- **同时生成 x64 安装包 (.exe) 与免安装包 (.zip)**：
+  ```bash
+  npm run build:backend && npm run webui:build
+  npx electron-builder --win nsis zip --x64
+  ```
+- **仅生成 x64 免安装 ZIP 压缩包（解压即用）**：
   ```bash
   npm run build:backend && npm run webui:build
   npx electron-builder --win zip --x64
   ```
 
 #### 🍎 macOS 平台
+- **一次性生成 Apple Silicon (arm64) 和 Intel (x64) 两个独立 DMG 安装包**：
+  ```bash
+  npm run build:backend && npm run webui:build
+  npx electron-builder --mac --arm64 --x64
+  ```
+- **仅生成 Intel (x64) 架构 DMG**：
+  ```bash
+  npm run build:backend && npm run webui:build
+  npx electron-builder --mac --x64
+  ```
 - **生成 ZIP 绿色免安装包**：
   ```bash
   npm run build:backend && npm run webui:build
   npx electron-builder --mac zip
   ```
-- **生成 Intel (x64) 架构 DMG**：
-  ```bash
-  npm run build:backend && npm run webui:build
-  npx electron-builder --mac --x64
-  ```
+> ⚠️ **注意**：如需打包 Universal (通用二进制) 包，命令格式为 `npx electron-builder --mac --universal`（必须带 `--` 前缀，不能写成 `electron-builder --mac universal`）。
 
 ---
 
