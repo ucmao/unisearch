@@ -38,13 +38,11 @@ async function downloadFileWithFallback(relativePath) {
   fs.mkdirSync(path.dirname(destination), { recursive: true });
 
   const tempDestination = `${destination}.tmp`;
-
   let lastError = null;
 
   for (const mirrorBase of MIRROR_BASES) {
     const url = `${mirrorBase}/${relativePath}`;
     try {
-      console.log(`[download-models] Downloading ${relativePath} from ${new URL(mirrorBase).host}...`);
       const response = await fetch(url, {
         headers: { 'User-Agent': 'UniSearch-Model-Fetcher/1.0' },
         signal: AbortSignal.timeout(180000), // 3 min timeout per file
@@ -74,11 +72,9 @@ async function downloadFileWithFallback(relativePath) {
         fs.unlinkSync(destination);
       }
       fs.renameSync(tempDestination, destination);
-      console.log(`[download-models] ✓ Successfully downloaded: ${relativePath} (${(fs.statSync(destination).size / (1024 * 1024)).toFixed(2)} MB)`);
       return;
     } catch (err) {
       lastError = err;
-      console.warn(`[download-models] Mirror ${mirrorBase} failed for ${relativePath}: ${err.message}, trying fallback mirror...`);
       if (fs.existsSync(tempDestination)) {
         try { fs.unlinkSync(tempDestination); } catch {}
       }
@@ -89,30 +85,28 @@ async function downloadFileWithFallback(relativePath) {
 }
 
 async function main() {
-  console.log(`[download-models] Checking local embedding model: ${MODEL_NAME}`);
-  if (isModelComplete()) {
-    console.log(`[download-models] ✓ Local model is ready: ${TARGET_DIR}`);
+  const missingFiles = MODEL_FILES.filter((file) => {
+    const fullPath = path.join(TARGET_DIR, file.path);
+    return !fs.existsSync(fullPath) || fs.statSync(fullPath).size < file.minBytes;
+  });
+
+  if (missingFiles.length === 0) {
     return;
   }
 
-  console.log(`[download-models] Local model files missing, starting auto-download...`);
+  console.log(`Downloading embedding model (${MODEL_NAME})...`);
   fs.mkdirSync(TARGET_DIR, { recursive: true });
 
   const startedAt = Date.now();
-  for (const file of MODEL_FILES) {
-    const fullPath = path.join(TARGET_DIR, file.path);
-    if (fs.existsSync(fullPath) && fs.statSync(fullPath).size >= file.minBytes) {
-      console.log(`[download-models] - File already exists, skipping: ${file.path}`);
-      continue;
-    }
+  for (const file of missingFiles) {
     await downloadFileWithFallback(file.path);
   }
 
   const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
-  console.log(`[download-models] 🎉 All model files are ready! Elapsed: ${durationSec}s, path: ${TARGET_DIR}`);
+  console.log(`✓ Embedding model ready (${durationSec}s)`);
 }
 
 main().catch((err) => {
-  console.error(`[download-models] ❌ Failed to prepare model:`, err);
+  console.error(`❌ Failed to prepare model:`, err.message || err);
   process.exit(1);
 });
