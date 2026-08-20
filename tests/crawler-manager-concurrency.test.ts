@@ -5,7 +5,7 @@ import { CrawlerManager } from '../src/server/services/CrawlerManager';
 test('crawler manager uses a bounded application-wide concurrency limit', () => {
   const manager = new CrawlerManager();
 
-  assert.equal(manager.getMaxConcurrentTasks(), 3);
+  assert.equal(manager.getMaxConcurrentTasks(), 2);
   assert.equal(manager.setMaxConcurrentTasks(5), 5);
   assert.equal(manager.setMaxConcurrentTasks(8), 5);
   assert.equal(manager.setMaxConcurrentTasks(10), 5);

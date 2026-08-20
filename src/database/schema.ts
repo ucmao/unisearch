@@ -56,14 +56,14 @@ export function initSchema(db: Database): void {
 
     CREATE TABLE IF NOT EXISTS agent_runtime_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
-      max_concurrent_crawlers INTEGER NOT NULL DEFAULT 3,
+      max_concurrent_crawlers INTEGER NOT NULL DEFAULT 2,
       connector_failover_policy TEXT NOT NULL DEFAULT 'smart',
       keyword_expansion_policy TEXT NOT NULL DEFAULT 'smart',
       updated_at TEXT NOT NULL
     );
     INSERT OR IGNORE INTO agent_runtime_settings
       (id, max_concurrent_crawlers, updated_at)
-    VALUES (1, 3, datetime('now'));
+    VALUES (1, 2, datetime('now'));
 
     CREATE TABLE IF NOT EXISTS agent_memories (
       memory_id TEXT PRIMARY KEY,

@@ -667,7 +667,7 @@ function PlanMessageContent({
             <span>已创建任务并开始采集</span>
             <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
           </summary>
-          <div className="mt-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
+          <div className="mt-2 rounded-lg border border-cyber-border-subtle/50 bg-cyber-bg-tertiary/30 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             {displayConfig}
           </div>
         </details>
@@ -677,14 +677,14 @@ function PlanMessageContent({
             <span>采集任务原始配置信息</span>
             <ChevronRight className="h-3.5 w-3.5 text-cyber-text-muted transition-transform group-open:rotate-90 shrink-0" />
           </summary>
-          <div className="mt-2 rounded-lg border border-cyber-border-subtle/40 bg-cyber-bg-tertiary/20 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap">
+          <div className="mt-2 rounded-lg border border-cyber-border-subtle/40 bg-cyber-bg-tertiary/20 p-3 text-[12px] leading-relaxed text-cyber-text-muted whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
             {displayConfig}
           </div>
         </details>
       )}
 
       {shouldShowNotice ? (
-        <div className="text-sm leading-relaxed text-cyber-text-primary whitespace-pre-wrap">
+        <div className="text-sm leading-relaxed text-cyber-text-primary whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
           {noticeText}
         </div>
       ) : null}

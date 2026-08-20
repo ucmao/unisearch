@@ -23,7 +23,7 @@ export class WebReaderCrawler extends AbstractCrawler {
     }
     console.log(`[WebReader] Starting hybrid content extraction for ${urls.length} target URL(s)...`);
     let nextIndex = 0;
-    const concurrency = Math.max(1, Math.min(Number(activeConfig.WEB_READER_CONCURRENCY || 3), urls.length));
+    const concurrency = Math.max(1, Math.min(Number(activeConfig.WEB_READER_CONCURRENCY || 2), urls.length));
     await Promise.all(Array.from({ length: concurrency }, async () => {
       while (nextIndex < urls.length) {
         const index = nextIndex++;

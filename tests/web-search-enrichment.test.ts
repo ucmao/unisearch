@@ -21,7 +21,7 @@ function enrichmentPlan(overrides: Partial<ResearchPlan> = {}): ResearchPlan {
     targets: [],
     connectorOptions: {},
     contentEnrichment: {
-      mode: 'auto', maxReadItems: 8, maxPerDomain: 2, concurrency: 3, timeoutMsPerUrl: 15_000,
+      mode: 'auto', maxReadItems: 8, maxPerDomain: 2, concurrency: 2, timeoutMsPerUrl: 15_000,
     },
     collectionDepth: 'quick',
     loginType: 'none',
@@ -71,7 +71,7 @@ test('snippet mode does not create selection or reader stages', () => {
     const thread = repository.createThread('摘要搜索');
     const workflow = repository.createPlan(thread.thread_id, enrichmentPlan({
       contentEnrichment: {
-        mode: 'snippet', maxReadItems: 0, maxPerDomain: 2, concurrency: 3, timeoutMsPerUrl: 15_000,
+        mode: 'snippet', maxReadItems: 0, maxPerDomain: 2, concurrency: 2, timeoutMsPerUrl: 15_000,
       },
     }));
     const keys = (db.prepare('SELECT step_key FROM workflow_steps WHERE workflow_id=?').all(workflow.plan_id) as any[])

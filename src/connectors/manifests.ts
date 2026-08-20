@@ -817,7 +817,7 @@ const webReader: ConnectorManifest = {
         },
         {
           key: 'concurrency', label: '读取并发数', description: '同时读取的网页数量。',
-          type: 'number', default: 3, min: 1, max: 8, runtimeConfigKey: 'web_reader_concurrency',
+          type: 'number', default: 2, min: 1, max: 8, runtimeConfigKey: 'web_reader_concurrency',
         },
       ],
       outputType: 'web_reader_content', outputFields: [
@@ -846,7 +846,7 @@ const webReader: ConnectorManifest = {
         },
         {
           key: 'concurrency', label: '读取并发数', description: '同时读取的网页数量。',
-          type: 'number', default: 3, min: 1, max: 8, runtimeConfigKey: 'web_reader_concurrency',
+          type: 'number', default: 2, min: 1, max: 8, runtimeConfigKey: 'web_reader_concurrency',
         },
       ],
       outputType: 'web_reader_content', outputFields: [

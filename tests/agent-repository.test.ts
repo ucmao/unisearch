@@ -387,7 +387,7 @@ test('dual-track memory supports manual multi-items and automatic category slots
 test('runtime settings persist and clamp the global crawler limit', () => {
   const { db, repository: repo } = repository();
   try {
-    const defaultSettings = { maxConcurrentCrawlers: 3, connectorFailoverPolicy: 'smart', keywordExpansionPolicy: 'smart' };
+    const defaultSettings = { maxConcurrentCrawlers: 2, connectorFailoverPolicy: 'smart', keywordExpansionPolicy: 'smart' };
     assert.deepEqual(repo.getRuntimeSettings(), defaultSettings);
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 5 }), { ...defaultSettings, maxConcurrentCrawlers: 5 });
     assert.deepEqual(repo.updateRuntimeSettings({ maxConcurrentCrawlers: 8 }), { ...defaultSettings, maxConcurrentCrawlers: 5 });

@@ -570,7 +570,7 @@ export async function prepareCrawlerWindow(platform: string, preserveCurrentPage
   // can make the worker interpret the marker page as a successful navigation.
   const currentUrl = view.webContents.getURL();
   const hasRealWebPage = Boolean(currentUrl && (currentUrl.startsWith('http://') || currentUrl.startsWith('https://')));
-  if ((!preserveCurrentPage || !alreadyPrepared) && !hasRealWebPage) {
+  if (!preserveCurrentPage || !alreadyPrepared || !hasRealWebPage) {
     await view.webContents.loadURL(crawlerMarkerUrl(platform));
   }
   if (!activeCrawlerPlatform || activeCrawlerPlatform === platform || !crawlerViews.has(activeCrawlerPlatform)) {

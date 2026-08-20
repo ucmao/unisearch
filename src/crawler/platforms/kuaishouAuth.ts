@@ -9,7 +9,10 @@ export function isExplicitKuaishouAuthFailure(body: any): boolean {
   // 403 is deliberately excluded: Kuaishou also uses it for fingerprint and risk-control blocks.
   if (body?.__httpStatus === 401) return true;
 
-  const errors = Array.isArray(body?.errors) ? body.errors : [];
+  const responseBody = body?.__responseBody;
+  const errors = Array.isArray(body?.errors)
+    ? body.errors
+    : Array.isArray(responseBody?.errors) ? responseBody.errors : [];
   return errors.some((error: any) => {
     const code = String(error?.extensions?.code || error?.code || '');
     const message = String(error?.message || error?.msg || '');
@@ -20,7 +23,13 @@ export function isExplicitKuaishouAuthFailure(body: any): boolean {
 
 export function summarizeKuaishouGraphqlFailure(body: any, resultField: string): string {
   if (body?.__transportError) return String(body.__transportError);
-  if (body?.__httpStatus) return `HTTP ${body.__httpStatus}`;
+  if (body?.__httpStatus) {
+    const response = body.__responseBody;
+    const detail = response == null || response === ''
+      ? ''
+      : `，响应：${(typeof response === 'string' ? response : JSON.stringify(response)).slice(0, 300)}`;
+    return `HTTP ${body.__httpStatus}${detail}`;
+  }
   if (Array.isArray(body?.errors) && body.errors.length) {
     const first = body.errors[0] || {};
     return `GraphQL ${String(first.extensions?.code || first.code || 'error')}: ${String(first.message || first.msg || '未知错误')}`;

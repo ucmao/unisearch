@@ -41,6 +41,47 @@ test('Kuaishou creator archive follows pcursor to no_more without a positive cei
   resetConfig();
 });
 
+test('Kuaishou creator archive uses signed REST V2 profile feed pagination', async () => {
+  resetConfig();
+  applyConfig({ crawler_max_notes_count: 0 });
+  const crawler = new KuaishouCrawler() as any;
+  crawler.humanDelay = async () => {};
+  const requests: Array<{ uri: string; data: any }> = [];
+  crawler.restV2 = async (uri: string, data: any) => {
+    requests.push({ uri, data });
+    const ids = data.pcursor ? ['2', '3'] : ['1', '2'];
+    return {
+      result: 1,
+      pcursor: data.pcursor ? 'no_more' : 'next',
+      feeds: ids.map((id) => ({ author: { id: 'u', name: 'n' }, photo: { id, caption: id } })),
+    };
+  };
+
+  const videos = await crawler.listCreatorWorksViaRestV2('u');
+  assert.deepEqual(videos.map((item: any) => item.video_id), ['1', '2', '3']);
+  assert.deepEqual(requests, [
+    { uri: '/rest/v/profile/feed', data: { user_id: 'u', pcursor: '', page: 'profile' } },
+    { uri: '/rest/v/profile/feed', data: { user_id: 'u', pcursor: 'next', page: 'profile' } },
+  ]);
+  resetConfig();
+});
+
+test('Kuaishou creator collection does not report success when every profile source fails', async () => {
+  resetConfig();
+  applyConfig({ platform: 'kuaishou', crawler_type: 'creator', creator_ids: 'u', enable_comments: false });
+  const crawler = new KuaishouCrawler() as any;
+  crawler.page = {};
+  crawler.listCreatorWorksViaRestV2 = async () => null;
+  crawler.listCreatorWorksViaGraphql = async () => null;
+  crawler.scrapeCreatorWorksFromPage = async () => 0;
+
+  await assert.rejects(
+    () => crawler.getCreatorsAndVideos(),
+    /主页作品接口不可用，页面兜底也未发现作品/,
+  );
+  resetConfig();
+});
+
 test('Xiaohongshu creator archive follows cursor until has_more is false', async () => {
   resetConfig();
   applyConfig({ crawler_max_notes_count: 0 });

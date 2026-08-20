@@ -475,7 +475,7 @@ export class CrawlerManager extends EventEmitter {
   private startingPlatforms = new Set<string>();
   private globalLogs: LogEntry[] = [];
   private windowCoordinator: CrawlerWindowCoordinator = {};
-  private maxConcurrentTasks = 3;
+  private maxConcurrentTasks = 2;
 
   public setWindowCoordinator(coordinator: CrawlerWindowCoordinator): void {
     this.windowCoordinator = coordinator;

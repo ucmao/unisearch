@@ -420,7 +420,7 @@ export class AgentRepository {
       ? row.keyword_expansion_policy
       : 'smart';
     return {
-      maxConcurrentCrawlers: Math.max(1, Math.min(5, Number(row?.max_concurrent_crawlers) || 3)),
+      maxConcurrentCrawlers: Math.max(1, Math.min(5, Number(row?.max_concurrent_crawlers) || 2)),
       connectorFailoverPolicy: validFailover as ConnectorFailoverPolicy,
       keywordExpansionPolicy: validExpansion as KeywordExpansionPolicy,
     };

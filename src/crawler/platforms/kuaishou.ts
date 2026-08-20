@@ -103,6 +103,50 @@ const KS_PROFILE_QUERY = `
     }
   }`;
 
+// Kuaishou moved profile/search list traffic away from GraphQL to signed REST endpoints.
+// Capture the signing realm exposed by the site's own runtime before any Kuaishou document loads;
+// the crawler only asks that runtime to sign the request it is about to send from the same page.
+const KS_SIGN_CAPTURE_SCRIPT = `
+  (() => {
+    if (window.__unisearchKsSigningRealm) return;
+    let captured = false;
+    const setter = function (value) {
+      if (!captured && this && typeof this === 'object' && this !== window
+          && typeof this.$encode === 'function' && typeof this.$getCatVersion === 'function') {
+        captured = true;
+        window.__unisearchKsSigningRealm = this;
+        try { delete Object.prototype.caver; } catch {}
+      }
+      Object.defineProperty(this, 'caver', {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    };
+    try {
+      Object.defineProperty(Object.prototype, 'caver', { set: setter, configurable: true });
+    } catch {}
+  })();
+`;
+
+const summarizeKuaishouRestFailure = (body: any): string => {
+  if (body?.__signError) return `生成 __NS_hxfalcon 签名失败：${String(body.__signError)}`;
+  if (body?.__transportError) return String(body.__transportError);
+  if (body?.__httpStatus) {
+    const response = body.__responseBody;
+    const detail = response == null || response === ''
+      ? ''
+      : `，响应：${(typeof response === 'string' ? response : JSON.stringify(response)).slice(0, 300)}`;
+    return `HTTP ${body.__httpStatus}${detail}`;
+  }
+  if (body?.result !== undefined) {
+    const message = body?.error_msg || body?.errorMsg || body?.message || body?.msg;
+    return `result=${String(body.result)}${message ? `，${String(message)}` : ''}`;
+  }
+  return `接口返回非预期数据（${JSON.stringify(body ?? null).slice(0, 300)}）`;
+};
+
 // Kuaishou hands every anonymous visitor `did` / `kpf` / `kwssectoken`, so those prove nothing.
 // Only these are written once an account session exists.
 const KS_AUTH_COOKIES = ['passToken', 'kuaishou.server.web_st', 'kuaishou.server.web_ph'];
@@ -119,10 +163,7 @@ export class KuaishouCrawler extends AbstractCrawler {
     const p = require('playwright');
     this.browserContext = await connectToElectronChromium(p);
     this.page = await getElectronCrawlerPage(this.browserContext, 'kuaishou');
-
-
-
-
+    await this.page.addInitScript(KS_SIGN_CAPTURE_SCRIPT);
     await this.page.goto('https://www.kuaishou.com?isHome=1', { waitUntil: 'domcontentloaded' });
     const landingText = await this.page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
     if (/"result"\s*:\s*2/.test(landingText)) {
@@ -377,8 +418,11 @@ export class KuaishouCrawler extends AbstractCrawler {
             headers: { 'Content-Type': 'application/json;charset=UTF-8' },
             body: JSON.stringify({ operationName, variables, query }),
           });
-          if (!response.ok) return { __httpStatus: response.status };
-          return await response.json();
+          const responseText = await response.text();
+          let responseBody: any = responseText;
+          try { responseBody = responseText ? JSON.parse(responseText) : null; } catch {}
+          if (!response.ok) return { __httpStatus: response.status, __responseBody: responseBody };
+          return responseBody;
         } catch (error: any) {
           return { __transportError: error?.message || 'fetch failed' };
         }
@@ -412,6 +456,94 @@ export class KuaishouCrawler extends AbstractCrawler {
       await this.humanDelay(this.page!);
     }
     throw new Error(`${context}失败：${lastError}。未发现明确的登录失效信号，可能是限流、风控或快手接口变更`);
+  }
+
+  private async ensureRestSigningEnvironment(): Promise<void> {
+    if (!this.page) throw new Error('快手采集页面尚未初始化');
+    try {
+      await this.page.waitForFunction(
+        () => !!(window as any).__unisearchKsSigningRealm,
+        undefined,
+        { timeout: 15000 },
+      );
+    } catch {
+      // A page that was already open before addInitScript was registered needs one fresh document.
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+      await this.page.waitForFunction(
+        () => !!(window as any).__unisearchKsSigningRealm,
+        undefined,
+        { timeout: 20000 },
+      ).catch(() => {
+        throw new Error('未捕获到快手页面签名环境，请完全退出并重启 UniSearch 后重试');
+      });
+    }
+  }
+
+  /** Calls a signed Kuaishou REST V2 endpoint from the logged-in crawler page. */
+  private async restV2<T = any>(
+    uri: string,
+    data: Record<string, any>,
+    context: string,
+  ): Promise<T> {
+    await this.ensureRestSigningEnvironment();
+    let lastError = '未知错误';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const body: any = await this.page!.evaluate(async ({ uri, data }) => {
+        try {
+          const realm = (window as any).__unisearchKsSigningRealm;
+          if (!realm || typeof realm.call !== 'function') {
+            return { __signError: '页面签名环境不可用' };
+          }
+          const query = { caver: 2 };
+          const signature = await new Promise<string>((resolve, reject) => {
+            realm.call('$encode', [
+              { url: uri, query, form: {}, requestBody: data },
+              {
+                suc: (value: unknown) => resolve(String(value || '')),
+                err: (error: unknown) => reject(new Error(String(error || '签名失败'))),
+              },
+            ]);
+          });
+          if (!signature) return { __signError: '页面返回了空签名' };
+          const response = await fetch(`${uri}?__NS_hxfalcon=${encodeURIComponent(signature)}&caver=2`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json;charset=UTF-8' },
+            body: JSON.stringify(data),
+          });
+          const responseText = await response.text();
+          let responseBody: any = responseText;
+          try { responseBody = responseText ? JSON.parse(responseText) : null; } catch {}
+          if (!response.ok) return { __httpStatus: response.status, __responseBody: responseBody };
+          return responseBody;
+        } catch (error: any) {
+          return { __transportError: error?.message || 'fetch failed' };
+        }
+      }, { uri, data }).catch((error: any) => ({ __transportError: error?.message || 'evaluate failed' }));
+
+      if (body?.result === 1) return body as T;
+      lastError = summarizeKuaishouRestFailure(body);
+      console.warn(`[KS] ${context} attempt ${attempt}/3 rejected: ${lastError}`);
+
+      if (attempt === 3) break;
+      if (await this.hasManualVerification()) {
+        await this.waitForManualVerification(`${context}时触发快手安全验证`);
+        continue;
+      }
+      if (await this.hasExplicitLoginPrompt()) {
+        await this.waitForInteractiveLogin(`${context}时快手明确要求重新登录`);
+        continue;
+      }
+      if (body?.result === 2) {
+        const delayMs = (5 * (2 ** (attempt - 1)) + Math.random() * 2) * 1000;
+        await this.page!.waitForTimeout(delayMs);
+        continue;
+      }
+      // result=50 is a deterministic signature rejection; retrying the same page state is useless.
+      if (body?.result === 50 || body?.__signError) break;
+      await this.humanDelay(this.page!);
+    }
+    throw new Error(`${context}失败：${lastError}`);
   }
 
   /** Normalises a search / profile feed entry into the stored video record shape. */
@@ -832,18 +964,63 @@ export class KuaishouCrawler extends AbstractCrawler {
     for (const target of configuredTargets('kuaishou', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const creatorId = firstMatch(resolved, [/\/profile\/([^/?#]+)/i, /[?&]userId=([^&#]+)/i]);
-      const records = await this.listCreatorWorksViaGraphql(creatorId);
+      let records = await this.listCreatorWorksViaRestV2(creatorId);
       if (records === null) {
-        console.warn(`[KS] Profile GraphQL unavailable for ${creatorId}; falling back to page scraping.`);
-        await this.scrapeCreatorWorksFromPage(creatorId);
+        console.warn(`[KS] Profile REST V2 unavailable for ${creatorId}; trying legacy GraphQL.`);
+        records = await this.listCreatorWorksViaGraphql(creatorId);
+      }
+      if (records === null) {
+        console.warn(`[KS] Profile APIs unavailable for ${creatorId}; falling back to page scraping.`);
+        const discovered = await this.scrapeCreatorWorksFromPage(creatorId);
+        if (!discovered) {
+          throw new Error(`采集创作者 ${creatorId} 失败：主页作品接口不可用，页面兜底也未发现作品`);
+        }
         continue;
       }
-      console.log(`[KS] Creator ${creatorId}: collected ${records.length} works via GraphQL`);
+      console.log(`[KS] Creator ${creatorId}: collected ${records.length} works via profile API`);
       for (const record of records) {
         await connectorOutput.emitKuaishouVideo(record);
         if (activeConfig.ENABLE_GET_COMMENTS) await this.getVideoComments(record.video_id);
         await this.humanDelay(this.page!);
       }
+    }
+  }
+
+  /** Current Kuaishou web profile feed: signed REST V2 with cursor pagination. */
+  private async listCreatorWorksViaRestV2(creatorId: string): Promise<any[] | null> {
+    const limit = creatorItemLimit();
+    const records: any[] = [];
+    const seenIds = new Set<string>();
+    const seenCursors = new Set<string>();
+    let pcursor = '';
+    try {
+      while (!creatorLimitReached(records.length, limit)) {
+        if (seenCursors.has(pcursor)) {
+          console.warn(`[KS] Creator REST cursor repeated (${pcursor || '<first>'}); stopping to avoid a loop.`);
+          break;
+        }
+        seenCursors.add(pcursor);
+        const result = await this.restV2<any>(
+          '/rest/v/profile/feed',
+          { user_id: creatorId, pcursor, page: 'profile' },
+          `通过 REST V2 采集创作者 ${creatorId} 的作品列表`,
+        );
+        const feeds = Array.isArray(result?.feeds) ? result.feeds as any[] : [];
+        for (const feed of feeds) {
+          if (creatorLimitReached(records.length, limit)) break;
+          const record = this.mapFeed(feed, `创作者:${creatorId}`);
+          if (!record || seenIds.has(record.video_id)) continue;
+          seenIds.add(record.video_id);
+          records.push(record);
+        }
+        pcursor = String(result?.pcursor || '');
+        if (!feeds.length || !pcursor || pcursor === 'no_more') break;
+        await this.humanDelay(this.page!);
+      }
+      return records;
+    } catch (error: any) {
+      console.warn(`[KS] Profile REST V2 failed for ${creatorId}: ${error.message}`);
+      return records.length ? records : null;
     }
   }
 
@@ -888,15 +1065,30 @@ export class KuaishouCrawler extends AbstractCrawler {
     }
   }
 
-  private async scrapeCreatorWorksFromPage(creatorId: string): Promise<void> {
+  private async scrapeCreatorWorksFromPage(creatorId: string): Promise<number> {
     await this.page!.goto(`https://www.kuaishou.com/profile/${encodeURIComponent(creatorId)}`, { waitUntil: 'domcontentloaded' });
     await this.page!.waitForTimeout(2200);
     const limit = creatorItemLimit();
     const ids = new Set<string>();
     let stagnantRounds = 0;
     while (!creatorLimitReached(ids.size, limit) && stagnantRounds < 4) {
-      const visible = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/short-video/"]'))
-        .map((link) => link.getAttribute('href')?.match(/\/short-video\/([^/?#]+)/)?.[1] || '').filter(Boolean));
+      const visible = await this.page!.evaluate(() => {
+        const ids = new Set<string>();
+        for (const link of Array.from(document.querySelectorAll('a[href*="/short-video/"]'))) {
+          const id = link.getAttribute('href')?.match(/\/short-video\/([^/?#]+)/)?.[1];
+          if (id) ids.add(id);
+        }
+        // New profile cards may not expose an anchor until interaction. Their cover CDN URL still
+        // carries clientCacheKey, which is the same photo id used by the detail endpoint.
+        for (const image of Array.from(document.querySelectorAll<HTMLImageElement>('.photo-card img, img[class*="cover"]'))) {
+          try {
+            const id = new URL(image.currentSrc || image.src, location.href).searchParams
+              .get('clientCacheKey')?.replace(/\.(?:jpe?g|webp|avif)$/i, '');
+            if (id) ids.add(id);
+          } catch {}
+        }
+        return [...ids];
+      });
       const before = ids.size;
       for (const id of visible) {
         ids.add(id);
@@ -911,5 +1103,6 @@ export class KuaishouCrawler extends AbstractCrawler {
     const unique = [...ids];
     console.log(`[KS] Creator ${creatorId}: discovered ${unique.length} works`);
     for (const id of unique) await this.fetchVideoDetail(id, `创作者:${creatorId}`);
+    return unique.length;
   }
 }

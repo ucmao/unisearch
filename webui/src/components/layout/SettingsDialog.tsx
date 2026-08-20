@@ -914,7 +914,10 @@ export function SettingsDialog({
                       {/* 第 1 行: 全局并发平台上限 */}
                       <div className="flex items-center justify-between gap-6 py-4 sm:py-5">
                         <div>
-                          <div className="text-sm font-medium text-cyber-text-primary">全局并发平台上限</div>
+                          <div className="flex items-center gap-1.5 text-sm font-medium text-cyber-text-primary">
+                            <span>全局并发平台上限</span>
+                            <FieldHelp content="请根据电脑配置酌情选择，并发过高可能导致采集失败或卡顿。" />
+                          </div>
                           <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。</div>
                         </div>
                         <Select
@@ -1637,7 +1640,7 @@ export function SettingsDialog({
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="text-xs leading-relaxed text-cyber-text-primary whitespace-pre-wrap">{memory.content}</p>
+                                  <p className="text-xs leading-relaxed text-cyber-text-primary whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{memory.content}</p>
                                 )}
                                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-cyber-text-muted">
                                   <span>更新于 {new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(memory.updated_at))}</span>

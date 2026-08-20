@@ -164,11 +164,49 @@ export async function connectToElectronChromium(playwright: PlaywrightModule): P
   return await playwright.chromium.launchPersistentContext(userDataDir, launchOptions);
 }
 
+const PLATFORM_URL_PATTERNS: Record<string, (string | RegExp)[]> = {
+  xhs: [/xiaohongshu\.com/i, /rednote\.com/i, /xhslink\.com/i],
+  douyin: [/douyin\.com/i],
+  kuaishou: [/kuaishou\.com/i],
+  bili: [/bilibili\.com/i, /b23\.tv/i],
+  weibo: [/weibo\.com/i, /weibo\.cn/i],
+  tieba: [/tieba\.baidu\.com/i],
+  zhihu: [/zhihu\.com/i],
+  boss: [/zhipin\.com/i],
+  zhaopin: [/zhaopin\.com/i],
+  job51: [/51job\.com/i],
+  liepin: [/liepin\.com/i],
+  heimao: [/tousu\.sina\.com\.cn/i],
+  deepseek: [/deepseek\.com/i],
+  kimi: [/moonshot\.cn/i],
+  doubao: [/doubao\.com/i],
+  qwen: [/aliyun\.com/i, /qianwen/i],
+  yuanbao: [/yuanbao\.tencent\.com/i],
+  toutiao: [/toutiao\.com/i],
+  baidu: [/baidu\.com/i],
+  bing: [/bing\.com/i],
+  so360: [/so\.com/i],
+  sogou: [/sogou\.com/i],
+  quark: [/sm\.cn/i],
+  chinaso: [/chinaso\.com/i],
+  arxiv: [/arxiv\.org/i],
+  github_repositories: [/github\.com/i],
+  aihot: [/virxact\.com/i],
+};
+
+function isPlatformUrl(platform: string, url: string): boolean {
+  const patterns = PLATFORM_URL_PATTERNS[platform];
+  if (!patterns) return false;
+  return patterns.some((p) => typeof p === 'string' ? url.includes(p) : p.test(url));
+}
+
 export async function getElectronCrawlerPage(browserContext: BrowserContext, platform: string, attempts = 20): Promise<Page> {
   const marker = `#unisearch-crawler-${encodeURIComponent(platform)}`;
   const pageConfiguration = crawlerPageConfiguration(platform);
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const page = browserContext.pages().find((candidate) => candidate.url().includes(marker));
+    const pages = browserContext.pages();
+    const page = pages.find((candidate) => candidate.url().includes(marker))
+      || pages.find((candidate) => isPlatformUrl(platform, candidate.url()));
     if (page) {
       return configureCrawlerPage(browserContext, page, pageConfiguration);
     }

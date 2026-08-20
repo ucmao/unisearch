@@ -28,6 +28,15 @@ test('standalone browser fallback accepts its only blank page', async () => {
   assert.equal(page.url(), 'about:blank');
 });
 
+test('crawler page selection matches already-navigated platform URLs as fallback', async () => {
+  const context = contextWithUrls([
+    'http://127.0.0.1:8080/',
+    'https://www.xiaohongshu.com/explore',
+  ]);
+  const page: any = await getElectronCrawlerPage(context, 'xhs', 1);
+  assert.equal(page.url(), 'https://www.xiaohongshu.com/explore');
+});
+
 test('crawler runtime and electron sessions suppress unexpected file downloads', async () => {
   const { readFileSync } = await import('node:fs');
   const path = await import('node:path');

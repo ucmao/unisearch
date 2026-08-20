@@ -73,7 +73,7 @@ skillRegistry.register({
     capability: 'keyword_search',
     collectionDepth: 'quick',
     contentEnrichment: {
-      mode: 'auto', maxReadItems: 8, maxPerDomain: 2, concurrency: 3, timeoutMsPerUrl: 15_000,
+      mode: 'auto', maxReadItems: 8, maxPerDomain: 2, concurrency: 2, timeoutMsPerUrl: 15_000,
     },
     analysis: [],
     outputs: ['markdown'],

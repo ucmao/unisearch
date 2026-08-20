@@ -101,7 +101,7 @@ function normalizeContentEnrichment(
     mode,
     maxReadItems: mode === 'snippet' ? 0 : number(configured?.maxReadItems, budget, 1, 100),
     maxPerDomain: number(configured?.maxPerDomain, 2, 1, 20),
-    concurrency: number(configured?.concurrency, 3, 1, 8),
+    concurrency: number(configured?.concurrency, 2, 1, 8),
     timeoutMsPerUrl: number(configured?.timeoutMsPerUrl, 15_000, 1_000, 30_000),
   };
 }
