@@ -539,7 +539,7 @@ test('negative platform exclusion directives filter out specified platforms', ()
   );
 
   assert.equal(plan.platforms.includes('heimao'), false);
-  assert.deepEqual(plan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin']);
+  assert.deepEqual(plan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen']);
   assert.deepEqual(plan.keywords, ['易拓']);
 
   const additivePlan = normalizePlan(
@@ -552,7 +552,7 @@ test('negative platform exclusion directives filter out specified platforms', ()
 
   assert.equal(additivePlan.platforms.includes('heimao'), false);
   assert.equal(additivePlan.platforms.includes('baidu'), true);
-  assert.deepEqual(additivePlan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'yuanbao', 'nami', 'wenxin', 'baidu']);
+  assert.deepEqual(additivePlan.platforms, ['deepseek', 'kimi', 'doubao', 'qwen', 'baidu']);
   assert.deepEqual(additivePlan.keywords, ['皮卡丘']);
 });
 

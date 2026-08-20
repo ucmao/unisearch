@@ -560,7 +560,7 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
     if (!platforms.length && !context.mentionedConnectors?.length && !context.mentionedSkills?.length) {
       return {
         action: 'clarify',
-        reply: '明白了。你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。如果没有采集量偏好，我会按快速模式自动开始并尽快返回首批结果。',
+        reply: '明白了。你想采集哪些平台？可以直接说“小红书和抖音”或“全部平台”。如果没有采集量偏好，我会按快速模式自动开始并尽快返回首批结果。',
         missingFields: ['platforms'],
       };
     }
@@ -664,7 +664,7 @@ export function localIntentDecision(text: string, context: IntentContext = {}): 
     if (!inferResearchPlatforms(value).length) {
       return {
         action: 'clarify',
-        reply: '明白了。你想采集哪些平台？可以直接说“小红书和微博”或“全部平台”。如果没有采集量偏好，我会按快速模式自动开始并尽快返回首批结果；你也可以现在指定标准或深度。',
+        reply: '明白了。你想采集哪些平台？可以直接说“小红书和抖音”或“全部平台”。如果没有采集量偏好，我会按快速模式自动开始并尽快返回首批结果；你也可以现在指定标准或深度。',
         missingFields: ['platforms'],
       };
     }

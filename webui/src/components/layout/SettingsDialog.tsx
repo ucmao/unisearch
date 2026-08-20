@@ -40,7 +40,7 @@ const themes: { value: Theme; label: string; icon: typeof Sun }[] = [
 ]
 
 const petModes: { value: PetMode; label: string; icon: typeof Sparkles }[] = [
-  { value: 'dynamic', label: '灵动模式', icon: Sparkles },
+  { value: 'dynamic', label: '活泼灵动', icon: Sparkles },
   { value: 'quiet', label: '安静克制', icon: Coffee },
   { value: 'off', label: '极简关闭', icon: EyeOff },
 ]
@@ -330,7 +330,7 @@ export function SettingsDialog({
   })
 
   useEffect(() => {
-    if (profilesQuery.data) {
+    if (dialogOpen && profilesQuery.data) {
       const drafts: Partial<Record<ModelProfile['provider'], ModelForm>> = {}
       for (const profile of profilesQuery.data.profiles) {
         drafts[profile.provider] = { ...profile, apiKey: profile.apiKey || '', clearApiKey: false }
@@ -338,10 +338,10 @@ export function SettingsDialog({
       providerDrafts.current = drafts
       setForm(drafts[profilesQuery.data.activeProvider] || {})
     }
-  }, [profilesQuery.data])
+  }, [dialogOpen, activeSection, profilesQuery.data])
 
   useEffect(() => {
-    if (retrievalProfilesQuery.data) {
+    if (dialogOpen && retrievalProfilesQuery.data) {
       const drafts: Partial<Record<RetrievalProfile['provider'], RetrievalForm>> = {}
       for (const profile of retrievalProfilesQuery.data.profiles) {
         drafts[profile.provider] = { ...profile, apiKey: profile.apiKey || '', clearApiKey: false }
@@ -349,7 +349,7 @@ export function SettingsDialog({
       retrievalDrafts.current = drafts
       setRetrievalForm(drafts[retrievalProfilesQuery.data.activeProvider] || {})
     }
-  }, [retrievalProfilesQuery.data])
+  }, [dialogOpen, activeSection, retrievalProfilesQuery.data])
 
   const save = useMutation({
     mutationFn: () => agentApi.saveModelProfile(form),
@@ -608,7 +608,7 @@ export function SettingsDialog({
 
                   <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                     <div>
-                      <div className="text-sm font-medium text-cyber-text-primary">宠物行为</div>
+                      <div className="text-sm font-medium text-cyber-text-primary">宠物模式</div>
                       <div className="mt-1 text-xs text-cyber-text-muted">调整空状态下的像素助手显示与互动偏好</div>
                     </div>
                     <Select value={petMode} onValueChange={(value: PetMode) => setPetMode(value)}>

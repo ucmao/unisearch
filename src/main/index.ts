@@ -229,9 +229,12 @@ function closeCrawlerTab(platform: string): void {
     } else {
       activeCrawlerPlatform = null;
       if (crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+        const wasVisible = crawlerHubWindow.isVisible();
         crawlerHubWindow.setBrowserView(null);
         crawlerHubWindow.hide();
-        focusMainWindow();
+        if (wasVisible) {
+          focusMainWindow();
+        }
       }
     }
   } else {
@@ -504,8 +507,11 @@ function createCrawlerHubWindow(): BrowserWindow {
   crawlerHubWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
+      const wasVisible = crawlerHubWindow?.isVisible() ?? false;
       crawlerHubWindow?.hide();
-      focusMainWindow();
+      if (wasVisible) {
+        focusMainWindow();
+      }
     }
   });
   crawlerHubWindow.on('closed', () => {
@@ -617,8 +623,11 @@ export function releaseCrawlerWindow(platform: string, _status = 'completed', _m
   refreshCrawlerHubTabs();
 
   if (crawlerViews.size === 0 && crawlerHubWindow && !crawlerHubWindow.isDestroyed()) {
+    const wasVisible = crawlerHubWindow.isVisible();
     crawlerHubWindow.hide();
-    focusMainWindow();
+    if (wasVisible) {
+      focusMainWindow();
+    }
   }
   return true;
 }
@@ -682,8 +691,11 @@ export function showCrawlerWindow(platform?: string): boolean {
 export function hideCrawlerWindow(platform?: string): boolean {
   if (!crawlerHubWindow || crawlerHubWindow.isDestroyed()) return false;
   if (platform && activeCrawlerPlatform !== platform) return true;
+  const wasVisible = crawlerHubWindow.isVisible();
   crawlerHubWindow.hide();
-  focusMainWindow();
+  if (wasVisible) {
+    focusMainWindow();
+  }
   return true;
 }
 

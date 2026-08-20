@@ -42,6 +42,8 @@ test('creator profile Skill documents an executable target contract for all seve
   assert.equal(skill.category, 'tool');
   assert.equal(skill.defaults?.capability, 'creator_profile');
   assert.deepEqual(skill.defaults?.platforms, []);
+  assert.equal(skill.description, '按主页链接或 ID，采集小红书、抖音、B站等博主的公开作品');
+  assert.ok(skill.limitations.some((item) => item.includes('严格限定为七个社交平台')));
   assert.deepEqual(
     skill.targetGuidance.map((item) => item.platform),
     ['xhs', 'douyin', 'kuaishou', 'bili', 'weibo', 'tieba', 'zhihu'],
@@ -286,4 +288,3 @@ test('mixing business skill and tool mentions retains business analysis while un
   assert.ok(plan.analysis.includes('内容主题与表达方式'));
   assert.equal(plan.autoAnalyze, true);
 });
-
