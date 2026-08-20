@@ -2210,16 +2210,18 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
       </Dialog>
 
       <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
-        <DialogContent className="sm:max-w-[500px] h-[550px] flex flex-col justify-between border-cyber-border-subtle bg-cyber-bg-panel/95 backdrop-blur-md p-5 overflow-hidden">
+        <DialogContent className="sm:max-w-[480px] h-[540px] flex flex-col justify-between border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl rounded-2xl p-5 overflow-hidden">
           <DialogHeader className="pb-1 shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-base font-bold text-cyber-text-primary">
-              <Download className="h-4 w-4 text-cyber-neon-cyan" />
+            <DialogTitle className="flex items-center gap-2.5 text-base font-semibold text-slate-900 dark:text-slate-100">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
+                <Download className="h-4 w-4" />
+              </div>
               数据与知识库导出
             </DialogTitle>
           </DialogHeader>
 
-          {/* 分类 Tabs */}
-          <div className="flex rounded-xl bg-cyber-bg-secondary/60 p-1 border border-cyber-border-subtle/50 my-1 shrink-0">
+          {/* 分类 Tabs (白底极简 Segmented Control) */}
+          <div className="flex rounded-xl bg-slate-100/80 dark:bg-slate-800/60 p-1 border border-slate-200/50 dark:border-slate-700/50 my-1 shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -2228,14 +2230,14 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                   setExportFormat('xlsx')
                 }
               }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-medium transition-all ${
                 exportCategory === 'data'
-                  ? 'bg-cyber-bg-panel text-cyber-neon-cyan shadow-xs border border-cyber-border-subtle/70'
-                  : 'text-cyber-text-muted hover:text-cyber-text-secondary'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs border border-slate-200/60 dark:border-slate-800 font-semibold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}
             >
-              <FileSpreadsheet className="h-3.5 w-3.5" />
-              表格与通用数据 ({DATA_FORMAT_OPTIONS.length})
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-500" />
+              表格与通用数据
             </button>
             <button
               type="button"
@@ -2245,19 +2247,25 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                   setExportFormat('obsidian')
                 }
               }}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-medium transition-all ${
                 exportCategory === 'knowledge'
-                  ? 'bg-cyber-bg-panel text-cyber-neon-cyan shadow-xs border border-cyber-border-subtle/70'
-                  : 'text-cyber-text-muted hover:text-cyber-text-secondary'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xs border border-slate-200/60 dark:border-slate-800 font-semibold'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
               }`}
             >
-              <Bot className="h-3.5 w-3.5" />
-              知识库与智能体 ({KNOWLEDGE_FORMAT_OPTIONS.length})
+              <Bot className="h-3.5 w-3.5 text-purple-500" />
+              知识库与智能体
             </button>
           </div>
 
-          {/* 格式选项列表 (固定高度，自适应滚动) */}
-          <div className="grid gap-2 flex-1 min-h-0 overflow-y-auto pr-1 my-1">
+          {/* 格式选项列表 (极简白底卡片) */}
+          <div
+            className={`grid flex-1 min-h-0 my-1 ${
+              exportCategory === 'data'
+                ? 'gap-1.5'
+                : 'gap-2'
+            } overflow-y-auto pr-1 [scrollbar-gutter:stable]`}
+          >
             {(exportCategory === 'data' ? DATA_FORMAT_OPTIONS : KNOWLEDGE_FORMAT_OPTIONS).map((item) => {
               const isSelected = exportFormat === item.id
               const Icon = item.icon
@@ -2265,14 +2273,22 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                 <div
                   key={item.id}
                   onClick={() => setExportFormat(item.id)}
-                  className={`group flex cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all ${
+                  className={`group flex cursor-pointer items-center justify-between rounded-xl border px-3.5 transition-all ${
+                    exportCategory === 'data' ? 'py-2' : 'py-2.5'
+                  } ${
                     isSelected
-                      ? 'border-cyber-neon-cyan/50 bg-cyber-neon-cyan/[0.08] shadow-xs'
-                      : 'border-cyber-border-subtle bg-cyber-bg-secondary/40 hover:border-cyber-border-subtle/80 hover:bg-cyber-bg-secondary/70'
+                      ? 'border-blue-500/80 bg-blue-50/40 dark:bg-blue-950/20 dark:border-blue-500/60 shadow-xs ring-1 ring-blue-500/20'
+                      : 'border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-9 w-9 rounded-lg flex items-center justify-center shrink-0 p-1.5 transition-colors bg-white/90 border border-slate-200/60 shadow-2xs">
+                    <div
+                      className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 p-1.5 transition-all ${
+                        isSelected
+                          ? 'bg-white dark:bg-slate-900 shadow-xs border border-slate-200/60 dark:border-slate-700'
+                          : 'bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/40 dark:border-slate-700/40'
+                      }`}
+                    >
                       {item.logoUrl ? (
                         <img src={item.logoUrl} alt={item.title} className="h-5 w-5 object-contain" />
                       ) : Icon ? (
@@ -2281,21 +2297,21 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                     </div>
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-semibold text-cyber-text-primary">{item.title}</span>
-                        <span className="font-mono text-[10px] text-cyber-text-muted">{item.ext}</span>
+                        <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">{item.title}</span>
+                        <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">{item.ext}</span>
                         {item.badge && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyber-neon-cyan/15 text-cyber-neon-cyan font-medium">
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-medium border border-blue-100 dark:border-blue-900/50">
                             {item.badge}
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-cyber-text-muted truncate">{item.hint}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">{item.hint}</p>
                     </div>
                   </div>
 
                   {isSelected && (
-                    <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyber-neon-cyan text-white shadow-xs">
-                      <Check className="h-3 w-3 stroke-[2.5]" />
+                    <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-xs">
+                      <Check className="h-2.5 w-2.5 stroke-[3]" />
                     </div>
                   )}
                 </div>
@@ -2303,14 +2319,14 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
             })}
           </div>
 
-          {/* 底部配置与状态区 (高度完全固定，无论切换任何格式均不跳动) */}
-          <div className="shrink-0 space-y-2 border-t border-cyber-border-subtle/50 pt-2.5 mt-1">
+          {/* 底部配置与状态区 (清爽微缝对齐) */}
+          <div className="shrink-0 space-y-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-1">
             {/* 配置/规范行 */}
-            <div className="flex items-center justify-between py-1.5 px-3 rounded-lg bg-cyber-bg-secondary/40 border border-cyber-border-subtle/30 text-xs min-h-[34px]">
+            <div className="flex items-center justify-between py-1.5 px-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/60 dark:border-slate-800 text-xs min-h-[36px]">
               {exportFormat === 'xlsx' || exportFormat === 'csv' ? (
                 <>
-                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
-                    <Settings2 className="h-3.5 w-3.5 text-cyber-neon-cyan" />
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1.5">
+                    <Settings2 className="h-3.5 w-3.5 text-blue-500" />
                     字段范围
                   </span>
                   <div className="flex items-center gap-1">
@@ -2323,10 +2339,10 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                         key={val}
                         type="button"
                         onClick={() => setExportFieldMode(val)}
-                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-medium transition-all ${
                           exportFieldMode === val
-                            ? 'bg-cyber-neon-cyan/15 text-cyber-neon-cyan border border-cyber-neon-cyan/40 font-semibold'
-                            : 'text-cyber-text-muted hover:text-cyber-text-primary'
+                            ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/80 dark:border-slate-600 font-semibold'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                         }`}
                       >
                         {lbl}
@@ -2336,45 +2352,44 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                 </>
               ) : exportFormat === 'dify' ? (
                 <>
-                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
-                    <Bot className="h-3.5 w-3.5 text-blue-400" />
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1.5">
+                    <Bot className="h-3.5 w-3.5 text-blue-500" />
                     RAG 切片规范
                   </span>
-                  <span className="text-[11px] text-cyber-text-muted">按语义/段落自动拆分 Chunks</span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">按语义/段落自动拆分 Chunks</span>
                 </>
               ) : exportFormat === 'obsidian' || exportFormat === 'notion' || exportFormat === 'feishu' || exportFormat === 'yuque' || exportFormat === 'ima' || exportFormat === 'logseq' ? (
                 <>
-                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
-                    <Layers className="h-3.5 w-3.5 text-purple-400" />
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-purple-500" />
                     知识库规范
                   </span>
-                  <span className="text-[11px] text-cyber-text-muted">独立 Markdown 笔记 + 索引大纲</span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">独立 Markdown 笔记 + 索引大纲</span>
                 </>
               ) : (
                 <>
-                  <span className="text-[11px] text-cyber-text-secondary flex items-center gap-1.5">
-                    <FileText className="h-3.5 w-3.5 text-amber-400" />
+                  <span className="text-[11px] text-slate-600 dark:text-slate-300 font-medium flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-amber-500" />
                     原始全集规范
                   </span>
-                  <span className="text-[11px] text-cyber-text-muted">包含完整字段与 Frontmatter 元数据</span>
+                  <span className="text-[11px] text-slate-400 dark:text-slate-500">包含完整字段与 Frontmatter 元数据</span>
                 </>
               )}
             </div>
 
-            {/* 条数与提示行 */}
-            <div className="flex items-center justify-between px-1 text-[11px] text-cyber-text-muted">
-              <span>基于当前透视表筛选切片导出</span>
-              <span className="font-mono font-medium text-cyber-neon-cyan bg-cyber-neon-cyan/10 px-1.5 py-0.5 rounded">
-                {summary?.totals?.document_count || 0} 条
+            {/* 操作按钮与计数提示行 (左右分布) */}
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
+                基于筛选切片导出
+                <span className="font-mono font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded-md text-[10px]">
+                  {summary?.totals?.document_count || 0} 条
+                </span>
               </span>
-            </div>
-
-            {/* 操作按钮行 */}
-            <div className="flex items-center justify-end gap-2 pt-1 border-t border-cyber-border-subtle/30">
-              <Button variant="outline" size="sm" onClick={() => setExportDialogOpen(false)} className="h-8 text-xs">
-                取消
-              </Button>
-              <Button size="sm" className="h-8 gap-1.5 text-xs bg-cyber-neon-cyan text-white font-medium hover:bg-cyber-neon-cyan/90 active:scale-[0.98] shadow-xs" asChild>
+              <Button
+                size="sm"
+                className="h-9 gap-1.5 text-xs px-5 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700 active:scale-[0.98] shadow-sm transition-all shrink-0"
+                asChild
+              >
                 <a
                   href={exportUrl}
                   download
@@ -2385,7 +2400,7 @@ export function ResultWorkbench({ initialScope = 'all', onBack }: { initialScope
                   }}
                 >
                   <Download className="h-3.5 w-3.5" />
-                  下载 {([...DATA_FORMAT_OPTIONS, ...KNOWLEDGE_FORMAT_OPTIONS].find((o) => o.id === exportFormat)?.title) || exportFormat.toUpperCase()}
+                  导出下载 {([...DATA_FORMAT_OPTIONS, ...KNOWLEDGE_FORMAT_OPTIONS].find((o) => o.id === exportFormat)?.title) || exportFormat.toUpperCase()}
                 </a>
               </Button>
             </div>

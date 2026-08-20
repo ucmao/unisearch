@@ -256,7 +256,7 @@ export class DouyinCrawler extends AbstractCrawler {
       try {
         await this.page!.click('.login-guide, .header-login-btn, [data-e2e="header-login-btn"]', { timeout: 3000 });
       } catch {}
-      notifyLoginRequired('douyin', '抖音当前会话未登录，需要在采集浏览器中确认或完成登录');
+      notifyLoginRequired('douyin', '抖音当前会话未登录，需要在 UniSearch 浏览器中确认或完成登录');
 
       const startTime = Date.now();
       while (Date.now() - startTime < MANUAL_LOGIN_TIMEOUT_MS) {
@@ -420,7 +420,7 @@ export class DouyinCrawler extends AbstractCrawler {
       }
       await this.page!.waitForTimeout(1000);
     }
-    throw new Error('抖音登录等待超时。请点击工作区登录提示，打开采集浏览器完成登录后重试。');
+    throw new Error('抖音登录等待超时。请点击工作区登录提示，打开 UniSearch 浏览器完成登录后重试。');
   }
 
   private async openSearchPage(keyword: string, allowLoginRetry = true): Promise<DouyinSearchCapture | null> {
@@ -593,10 +593,10 @@ export class DouyinCrawler extends AbstractCrawler {
           // classifyConnectorError into reporting the wrong failure code.
           console.warn(`[DY] Empty search result. Page text: ${pageText}`);
           if (!capture) {
-            throw new Error('未捕获到抖音搜索请求，页面可能被风控或尚未完成加载。请打开内置采集浏览器查看抖音页面当前状态。');
+            throw new Error('未捕获到抖音搜索请求，页面可能被风控或尚未完成加载。请打开 UniSearch 浏览器查看抖音页面当前状态。');
           }
           if (capture.bodyError) {
-            throw new Error('CDP 无法读取搜索响应，且页面未渲染出作品。请打开内置采集浏览器检查是否有验证或风控提示。');
+            throw new Error('CDP 无法读取搜索响应，且页面未渲染出作品。请打开 UniSearch 浏览器检查是否有验证或风控提示。');
           }
           const isExplicitEmptyResult = /暂无搜索结果|没有找到相关|未找到相关|换个关键词试试/.test(pageText);
           if (!isExplicitEmptyResult) {

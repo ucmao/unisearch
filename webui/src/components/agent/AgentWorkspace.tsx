@@ -976,7 +976,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     onSuccess: (data) => {
       client.setQueryData(['browser-window-status'], data)
       if (data.can_open === false) {
-        toast.info('当前没有可查看的采集浏览器窗口（该任务为后台 HTTP 接口采集或已结束）')
+        toast.info('当前没有可查看的 UniSearch 浏览器窗口（该任务为后台接口传输或已结束）')
       }
     },
     onError: (error) => toast.error(getError(error)),
@@ -2304,8 +2304,8 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               className={`h-8 w-8 rounded-xl transition-all focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${browserWindowQuery.data?.visible ? 'bg-cyber-bg-tertiary/30 text-cyber-neon-cyan' : 'text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary'}`}
               onClick={() => toggleBrowserWindow.mutate(currentThreadPreferredPlatform)}
               disabled={toggleBrowserWindow.isPending}
-              title={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
-              aria-label={browserWindowQuery.data?.visible ? '隐藏内置采集浏览器窗口' : '查看/操控内置采集浏览器窗口'}
+              title={browserWindowQuery.data?.visible ? '隐藏 UniSearch 浏览器窗口' : '查看/操控 UniSearch 浏览器窗口'}
+              aria-label={browserWindowQuery.data?.visible ? '隐藏 UniSearch 浏览器窗口' : '查看/操控 UniSearch 浏览器窗口'}
               aria-pressed={browserWindowQuery.data?.visible}
             >
               {toggleBrowserWindow.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}

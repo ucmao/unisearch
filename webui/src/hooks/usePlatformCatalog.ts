@@ -21,15 +21,17 @@ export function usePlatformLabels(): Record<string, string> {
 }
 
 const SKILL_ORDER: Record<string, number> = {
-  // 采集与执行工具（Tool · 纯采集清洗，置前）
+  // 4个搜索技能
   'web-search-research': 10,
   'social-search-research': 20,
   'ai-qa-research': 30,
   'job-search-research': 40,
   'academic-search-research': 50,
   'code-search-research': 60,
+  // 2个工具技能
   'web-media-parser': 70,
-  // 深度业务研报技能（Business · 采集后自动出研报）
+  'creator-profile-collection': 75,
+  // 3个深度业务研报技能
   'marketing-content-research': 80,
   'brand-geo-risk-monitor': 90,
   'hr-salary-benchmark': 100,

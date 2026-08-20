@@ -1119,7 +1119,7 @@ export async function startServer(port = 8080, windowControls: ServerWindowContr
     }
     const success = windowControls.showCrawlerWindow?.(body.platform) ?? false;
     if (!success) {
-      return reply.status(503).send({ detail: '内置采集浏览器仅可在桌面应用中打开' });
+      return reply.status(503).send({ detail: 'UniSearch 浏览器仅可在桌面应用中打开' });
     }
     return { status: 'ok', success: true, message: 'Crawler browser opened' };
   });

@@ -411,7 +411,7 @@ function crawlerHubHtml(): string {
       .icon-box.stopped { background: rgba(134,138,145,0.15) !important; }
     }
   </style></head><body class="${isDark ? 'dark' : ''}">
-    <div class="bar"><div class="brand">UniSearch采集浏览器</div><nav class="tabs">${tabs}</nav></div>
+    <div class="bar"><div class="brand">UniSearch 浏览器</div><nav class="tabs">${tabs}</nav></div>
     ${bodyContent}
   </body></html>`;
 }
@@ -449,7 +449,7 @@ function activateCrawlerView(platform: string): boolean {
   } else {
     crawlerHubWindow.setBrowserView(null);
   }
-  crawlerHubWindow.setTitle(`UniSearch 内置采集浏览器 · ${platformLabel(platform)}`);
+  crawlerHubWindow.setTitle(`UniSearch 浏览器 · ${platformLabel(platform)}`);
   refreshCrawlerHubTabs();
   return true;
 }
@@ -463,7 +463,7 @@ function createCrawlerHubWindow(): BrowserWindow {
     minWidth: 820,
     minHeight: 560,
     show: false,
-    title: 'UniSearch 内置采集浏览器',
+    title: 'UniSearch 浏览器',
     icon: getAppIconPath(),
     backgroundColor: crawlerHubBackgroundColor(),
     ...(process.platform === 'darwin' ? {

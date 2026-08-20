@@ -95,7 +95,7 @@ skillRegistry.register({
   name: '社媒搜索',
   description: '聚合小红书、抖音、快手、B站、微博、贴吧和知乎的公开作品与讨论',
   category: 'tool',
-  icon: 'message-circle',
+  icon: 'search',
   mentionable: true,
   inputs: [
     { key: 'keywords', required: true, description: '一个或多个搜索关键词' },
@@ -131,7 +131,7 @@ skillRegistry.register({
   name: 'AI搜索',
   description: '聚合DeepSeek、Kimi、豆包、千问、元宝、纳米AI和文心一言的问答结果',
   category: 'tool',
-  icon: 'brain',
+  icon: 'search',
   mentionable: true,
   inputs: [
     { key: 'keywords', required: true, description: '提问或查询主题' },
@@ -166,7 +166,7 @@ skillRegistry.register({
   name: '岗位搜索',
   description: '聚合智联招聘、前程无忧、猎聘和BOSS直聘的公开职位数据',
   category: 'tool',
-  icon: 'briefcase',
+  icon: 'search',
   mentionable: true,
   inputs: [
     { key: 'keywords', required: true, description: '岗位名称或搜索关键词' },
@@ -202,7 +202,7 @@ skillRegistry.register({
   name: '学术搜索',
   description: '检索arXiv学术论文库，获取文献摘要、作者与发布信息',
   category: 'tool',
-  icon: 'book-open',
+  icon: 'search',
   mentionable: false,
   inputs: [
     { key: 'keywords', required: true, description: '论文主题、关键词或学者姓名' },
@@ -237,7 +237,7 @@ skillRegistry.register({
   name: '代码搜索',
   description: '检索GitHub开源仓库、热门项目与Star趋势',
   category: 'tool',
-  icon: 'terminal',
+  icon: 'search',
   mentionable: false,
   inputs: [
     { key: 'keywords', required: true, description: '仓库名、技术关键词或项目主题' },
@@ -269,7 +269,7 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'web-media-parser',
   version: '1.0.0',
-  name: '全网解析',
+  name: '无水印解析',
   description: '批量解析多平台作品链接，提取无水印视频、原图与元数据',
   category: 'tool',
   icon: 'link',
@@ -305,11 +305,11 @@ skillRegistry.register({
 skillRegistry.register({
   id: 'creator-profile-collection',
   version: '1.0.0',
-  name: '创作者主页采集',
+  name: '博主主页采集',
   description: '按平台主页链接或账号标识采集社交媒体平台的创作者公开作品。',
   category: 'tool',
-  icon: 'users',
-  mentionable: false,
+  icon: 'link',
+  mentionable: true,
   inputs: [
     { key: 'platforms', required: true, description: '至少选择或说明一个平台；提供可识别域名的主页链接时可自动判断。' },
     { key: 'targets', required: true, description: '创作者主页链接或平台账号标识；多个目标逐行填写，裸 ID 必须与平台对应。' },
@@ -355,7 +355,7 @@ skillRegistry.register({
   name: '新媒体内容调研',
   description: '采集社媒公开作品和评论，分析主题、爆款表达、互动与用户诉求',
   category: 'business',
-  icon: 'chart-no-axes-combined',
+  icon: 'sparkles',
   mentionable: true,
   inputs: [
     { key: 'subject', required: true, description: '关键词，或对标账号名称、主页链接与账号 ID' },
@@ -384,7 +384,7 @@ skillRegistry.register({
   name: '品牌GEO监测',
   description: '对比品牌在多个 AI 平台中的呈现，识别负面主题与待核验风险',
   category: 'business',
-  icon: 'shield-alert',
+  icon: 'sparkles',
   mentionable: true,
   inputs: [
     { key: 'subject', required: true, description: '品牌正式名称、别名及监测问题或关键词' },
@@ -413,7 +413,7 @@ skillRegistry.register({
   name: '招聘薪酬调研',
   description: '基于公开岗位数据分析薪资分布、城市差异、学历经验与定价参考',
   category: 'business',
-  icon: 'badge-chinese-yuan',
+  icon: 'sparkles',
   mentionable: true,
   inputs: [
     { key: 'subject', required: true, description: '标准岗位名称与常见别名' },

@@ -209,7 +209,7 @@ export class BossCrawler extends AbstractCrawler {
           return { page: this.page, recovered: false };
         }
         if (!this.browserContext) {
-          throw new ConnectorRuntimeError('PROCESS_CRASHED', `BOSS直聘采集浏览器在${stage}时已断开`, true);
+          throw new ConnectorRuntimeError('PROCESS_CRASHED', `BOSS直聘 UniSearch 浏览器在${stage}时已断开`, true);
         }
         const browserContext = this.browserContext;
         const findReplacement = (attempts = 20) => recoverElectronCrawlerPage(

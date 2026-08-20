@@ -37,7 +37,8 @@ test('generic collection auto-analyzes without inventing visible goals', () => {
 test('creator profile Skill documents an executable target contract for all seven social platforms', () => {
   const skill = skillRegistry.get('creator-profile-collection');
 
-  assert.equal(skill.mentionable, false);
+  assert.equal(skill.name, '博主主页采集');
+  assert.equal(skill.mentionable, true);
   assert.equal(skill.category, 'tool');
   assert.equal(skill.defaults?.capability, 'creator_profile');
   assert.deepEqual(skill.defaults?.platforms, []);
@@ -48,7 +49,7 @@ test('creator profile Skill documents an executable target contract for all seve
   assert.ok(skill.targetGuidance.every((item) => item.accepted.length && item.examples.length));
 });
 
-test('input catalog exposes three business skills and five deterministic tools', () => {
+test('input catalog exposes three business skills and six deterministic tools', () => {
   const mentionable = skillRegistry.list().filter((skill) => skill.mentionable);
   assert.deepEqual(
     mentionable.filter((skill) => skill.category === 'business').map((skill) => skill.id),
@@ -62,6 +63,7 @@ test('input catalog exposes three business skills and five deterministic tools',
       'ai-qa-research',
       'job-search-research',
       'web-media-parser',
+      'creator-profile-collection',
     ],
   );
 
@@ -79,7 +81,7 @@ test('input catalog exposes three business skills and five deterministic tools',
   assert.equal(ai.name, 'AI搜索');
 
   const parser = skillRegistry.get('web-media-parser');
-  assert.equal(parser.name, '全网解析');
+  assert.equal(parser.name, '无水印解析');
   assert.deepEqual(parser.defaults?.platforms, ['media_parser']);
   assert.equal(parser.defaults?.capability, 'url_resolve');
   assert.deepEqual(parser.defaults?.analysis, []);
@@ -98,7 +100,7 @@ test('tool defaults choose their deterministic connector capability', () => {
   const parser = skillRegistry.get('web-media-parser');
   const parserPlan = normalizePlan(
     { goal: '批量解析链接', targets: ['https://example.com/a', 'https://example.com/b'] },
-    '@全网解析 https://example.com/a https://example.com/b',
+    '@无水印解析 https://example.com/a https://example.com/b',
     undefined,
     false,
     parser,
@@ -115,7 +117,7 @@ test('tool defaults choose their deterministic connector capability', () => {
       targets: ['https://www.douyin.com/video/7668613077083983144'],
       capability: 'url_resolve',
     },
-    '@全网解析 https://www.douyin.com/video/7668613077083983144',
+    '@无水印解析 https://www.douyin.com/video/7668613077083983144',
     undefined,
     false,
     parser,

@@ -313,7 +313,7 @@ export class CrawlerTask {
             this.addLog(`忽略无效的 Connector IPC 消息: ${error.message}`, 'warning', manager);
           }
         } else if (msg && msg.type === 'LOGIN_REQUIRED') {
-          this.addLog(`${this.platform} 可能需要登录，请在提示中选择是否打开采集浏览器`, 'warning', manager);
+          this.addLog(`${this.platform} 可能需要登录，请在提示中选择是否打开 UniSearch 浏览器`, 'warning', manager);
           manager.emit('login_required', msg);
         } else if (msg && msg.type === 'LOGIN_QRCODE_REQUIRED') {
           this.addLog(`检测到 ${this.platform} 可能需要登录，请在界面提示中确认`, 'warning', manager);

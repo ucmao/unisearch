@@ -28,17 +28,18 @@ const ENTITY_ICONS: Record<string, any> = {
   // Slash Commands
   crawl: Search,
   report: FileText,
-  // Skills & Tools
-  'web-search-research': Globe,
-  'social-search-research': MessageCircle,
-  'ai-qa-research': Brain,
-  'job-search-research': Briefcase,
-  'academic-search-research': BookOpen,
-  'code-search-research': Terminal,
+  // Skills & Tools (3 icons total across all skills)
+  'web-search-research': Search,
+  'social-search-research': Search,
+  'ai-qa-research': Search,
+  'job-search-research': Search,
+  'academic-search-research': Search,
+  'code-search-research': Search,
   'web-media-parser': Link2,
+  'creator-profile-collection': Link2,
   'marketing-content-research': Sparkles,
-  'brand-geo-risk-monitor': ShieldAlert,
-  'hr-salary-benchmark': Briefcase,
+  'brand-geo-risk-monitor': Sparkles,
+  'hr-salary-benchmark': Sparkles,
   // Platforms & Connectors
   xhs: BookOpen,
   douyin: Music,

@@ -348,7 +348,7 @@ test('critical auth errors immediately set state to blocked without buffering', 
       (run_id,thread_id,workflow_id,task_title,task_name,platform,crawler_type,keywords,status,started_at,config_json)
       VALUES ('run-auth','thread-1','workflow-1','测试','测试','xhs','search','咖啡','running',?,?)`)
       .run(now, '{}');
-    repository.finishRun('run-auth', 'failed', 1, [], '小红书明确显示当前会话未登录，请在采集浏览器中完成登录');
+    repository.finishRun('run-auth', 'failed', 1, [], '小红书明确显示当前会话未登录，请在 UniSearch 浏览器中完成登录');
     const health = service.get('xhs');
     assert.equal(health.state, 'blocked');
     assert.equal(health.lastErrorCode, 'AUTH_REQUIRED');

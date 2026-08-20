@@ -137,15 +137,15 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
       }
       if ((state === 'unauthenticated' || Date.now() - startedAt > 10_000) && !loginNotificationSent) {
         const reason = state === 'unauthenticated'
-          ? '小红书明确显示当前会话未登录，请在采集浏览器中完成登录'
-          : '小红书登录状态暂时无法确认，请在采集浏览器中检查登录或验证页面';
+          ? '小红书明确显示当前会话未登录，请在 UniSearch 浏览器中完成登录'
+          : '小红书登录状态暂时无法确认，请在 UniSearch 浏览器中检查登录或验证页面';
         notifyLoginRequired('xhs', reason);
         loginNotificationSent = true;
       }
       await this.page!.waitForTimeout(1_000);
     }
 
-    throw new Error('小红书登录或安全验证等待超时。请在内置采集浏览器中完成验证后重新运行任务。');
+    throw new Error('小红书登录或安全验证等待超时。请在 UniSearch 浏览器中完成验证后重新运行任务。');
   }
 
   /** Authentication cookie names from the Electron page's actual session partition. */

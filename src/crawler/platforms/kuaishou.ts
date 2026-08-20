@@ -206,7 +206,7 @@ export class KuaishouCrawler extends AbstractCrawler {
 
       const reason = initialApiState === 'unauthenticated'
         ? '快手页面可能仍显示头像，但采集接口会话已失效；请先退出当前账号，再重新登录'
-        : '快手当前会话未登录，需要在采集浏览器中确认或完成登录';
+        : '快手当前会话未登录，需要在 UniSearch 浏览器中确认或完成登录';
       notifyLoginRequired('kuaishou', reason);
 
       const startTime = Date.now();
@@ -222,7 +222,7 @@ export class KuaishouCrawler extends AbstractCrawler {
         await new Promise((r) => setTimeout(r, 1000));
       }
       if (!isLoggedIn) {
-        throw new Error('快手登录等待超时。请在内置采集浏览器中完成登录后重新运行任务。');
+        throw new Error('快手登录等待超时。请在 UniSearch 浏览器中完成登录后重新运行任务。');
       }
     }
     // Search works anonymously but visionCommentList returns an empty list, so say so up front
@@ -391,7 +391,7 @@ export class KuaishouCrawler extends AbstractCrawler {
       }
       await this.page!.waitForTimeout(1000);
     }
-    throw new Error('快手登录等待超时。请在内置采集浏览器中完成登录后重新运行任务。');
+    throw new Error('快手登录等待超时。请在 UniSearch 浏览器中完成登录后重新运行任务。');
   }
 
   /**
