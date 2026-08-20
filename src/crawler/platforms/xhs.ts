@@ -22,10 +22,20 @@ import { XhsSigner } from '../base/xhsSigner';
 import { MANUAL_LOGIN_TIMEOUT_MS, MANUAL_VERIFICATION_TIMEOUT_MS } from '../base/interactiveTimeouts';
 
 type XhsLoginState = 'authenticated' | 'unauthenticated' | 'verification' | 'unknown';
+type XhsCreatorNoteTarget = { id: string; href: string };
 
 const XHS_AUTH_COOKIES = new Set(['web_session', 'id_token', 'a1']);
 const LOGIN_INITIAL_SETTLE_MS = 1_500;
 const LOGIN_SUCCESS_SETTLE_MS = 3_000;
+
+/** URLSearchParams decodes percent-encoded security tokens exactly once. */
+const xhsUrlParam = (value: string, name: string): string => {
+  try {
+    return new URL(value, 'https://www.xiaohongshu.com').searchParams.get(name) || '';
+  } catch {
+    return '';
+  }
+};
 
 export class XiaoHongShuCrawler extends AbstractCrawler {
   public browserContext: BrowserContext | null = null;
@@ -705,8 +715,8 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     for (const target of configuredTargets('xhs', 'creator')) {
       const resolved = await resolveRedirect(this.page!, target);
       const creatorId = firstMatch(resolved, [/\/user\/profile\/([^/?#]+)/i, /[?&]user_id=([^&#]+)/i]);
-      const xsecToken = resolved.match(/[?&]xsec_token=([^&#]+)/i)?.[1] || '';
-      const xsecSource = resolved.match(/[?&]xsec_source=([^&#]+)/i)?.[1] || 'pc_user';
+      const xsecToken = xhsUrlParam(resolved, 'xsec_token');
+      const xsecSource = xhsUrlParam(resolved, 'xsec_source') || 'pc_feed';
       const profileUrl = `${indexUrl}/user/profile/${encodeURIComponent(creatorId)}`
         + `${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=${encodeURIComponent(xsecSource)}` : ''}`;
       await this.page!.goto(profileUrl, { waitUntil: 'domcontentloaded' });
@@ -716,6 +726,9 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
       if (unique === null) {
         console.warn(`[XHS] Creator API unavailable for ${creatorId}; falling back to profile scrolling.`);
         unique = await this.listCreatorNotesViaDom();
+        if (!unique.length) {
+          throw new Error(`采集创作者 ${creatorId} 失败：主页作品接口不可用，页面兜底也未发现作品`);
+        }
       }
       console.log(`[XHS] Creator ${creatorId}: discovered ${unique.length} works`);
       for (const note of unique) await this.fetchNoteDetail(note.href, `创作者:${creatorId}`);
@@ -727,10 +740,10 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     creatorId: string,
     xsecToken: string,
     xsecSource: string,
-  ): Promise<Array<{ id: string; href: string }> | null> {
+  ): Promise<XhsCreatorNoteTarget[] | null> {
     if (!this.signer?.hasTemplate()) return null;
     const limit = creatorItemLimit();
-    const notes = new Map<string, { id: string; href: string }>();
+    const notes = new Map<string, XhsCreatorNoteTarget>();
     const seenCursors = new Set<string>();
     let cursor = '';
     try {
@@ -754,10 +767,11 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           const id = String(item.note_id || item.id || '');
           if (!id) continue;
           const token = String(item.xsec_token || '');
+          const source = String(item.xsec_source || xsecSource || 'pc_feed');
           notes.set(id, {
             id,
             href: `${this.indexUrl}/explore/${id}`
-              + `${token ? `?xsec_token=${encodeURIComponent(token)}&xsec_source=pc_user` : ''}`,
+              + `${token ? `?xsec_token=${encodeURIComponent(token)}&xsec_source=${encodeURIComponent(source)}` : ''}`,
           });
           if (creatorLimitReached(notes.size, limit)) break;
         }
@@ -775,9 +789,9 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   }
 
   /** Browser-driven fallback; the page itself signs every lazy-load request. */
-  private async listCreatorNotesViaDom(): Promise<Array<{ id: string; href: string }>> {
+  private async listCreatorNotesViaDom(): Promise<XhsCreatorNoteTarget[]> {
     const limit = creatorItemLimit();
-    const notes = new Map<string, { id: string; href: string }>();
+    const notes = new Map<string, XhsCreatorNoteTarget>();
     let stagnantRounds = 0;
     while (!creatorLimitReached(notes.size, limit) && stagnantRounds < 4) {
       const visible = await this.page!.evaluate(() => Array.from(document.querySelectorAll('a[href*="/explore/"]')).map((link) => {
@@ -805,6 +819,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
   private async fetchNoteDetailFromApi(
     noteId: string,
     xsecToken: string,
+    xsecSource: string,
     noteUrl: string,
     sourceKeyword?: string,
   ): Promise<any | null> {
@@ -818,7 +833,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
           source_note_id: noteId,
           image_formats: ['jpg', 'webp', 'avif'],
           extra: { need_body_topic: '1' },
-          xsec_source: 'pc_search',
+          xsec_source: xsecSource || 'pc_search',
           xsec_token: xsecToken,
         },
       });
@@ -858,6 +873,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         note_url: noteUrl,
         source_keyword: sourceKeyword,
         xsec_token: xsecToken,
+        xsec_source: xsecSource,
       };
     } catch (error: any) {
       console.warn(`[XHS] Signed detail request failed for ${noteId}, falling back to DOM: ${error.message}`);
@@ -869,12 +885,15 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
     const indexUrl = this.indexUrl;
     const resolved = await resolveRedirect(this.page!, target);
     const noteId = firstMatch(resolved, [/\/explore\/([^/?#]+)/i, /\/discovery\/item\/([^/?#]+)/i, /[?&]note_id=([^&#]+)/i]);
-    const xsecToken = resolved.match(/[?&]xsec_token=([^&#]+)/i)?.[1] || '';
+    const xsecToken = xhsUrlParam(resolved, 'xsec_token');
+    const xsecSource = xhsUrlParam(resolved, 'xsec_source')
+      || (sourceKeyword?.startsWith('创作者:') ? 'pc_feed' : 'pc_search');
     const noteUrl = /^https?:\/\//i.test(resolved) && resolved.includes(noteId)
       ? resolved
-      : `${indexUrl}/explore/${encodeURIComponent(noteId)}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_user` : ''}`;
+      : `${indexUrl}/explore/${encodeURIComponent(noteId)}`
+        + `${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=${encodeURIComponent(xsecSource)}` : ''}`;
 
-    const apiRecord = await this.fetchNoteDetailFromApi(noteId, xsecToken, noteUrl, sourceKeyword);
+    const apiRecord = await this.fetchNoteDetailFromApi(noteId, xsecToken, xsecSource, noteUrl, sourceKeyword);
     if (apiRecord) {
       await connectorOutput.emitXhsNote(apiRecord);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.crawlComments(noteId, xsecToken);
@@ -914,7 +933,7 @@ export class XiaoHongShuCrawler extends AbstractCrawler {
         creator_hash: detail.creatorId || '', nickname: detail.nickname || '', liked_count: detail.likes || 0,
         collected_count: detail.collects || 0, comment_count: detail.comments || 0, share_count: 0,
         image_list: [...new Set(detail.images || [])].join(','), tag_list: '', note_url: noteUrl,
-        source_keyword: sourceKeyword, xsec_token: xsecToken,
+        source_keyword: sourceKeyword, xsec_token: xsecToken, xsec_source: xsecSource,
       };
       await connectorOutput.emitXhsNote(record);
       if (activeConfig.ENABLE_GET_COMMENTS) await this.crawlComments(noteId, xsecToken);

@@ -93,11 +93,75 @@ test('Xiaohongshu creator archive follows cursor until has_more is false', async
       const cursor = new URL(`https://x.invalid${path}`).searchParams.get('cursor');
       return cursor
         ? { data: { notes: [{ note_id: 'n3', xsec_token: 't3' }], has_more: false, cursor: '' } }
-        : { data: { notes: [{ note_id: 'n1' }, { note_id: 'n2' }], has_more: true, cursor: 'next' } };
+        : { data: { notes: [
+          { note_id: 'n1', xsec_token: 't1', xsec_source: 'pc_profile' },
+          { note_id: 'n2', xsec_token: 't2' },
+        ], has_more: true, cursor: 'next' } };
     },
   };
-  const notes = await crawler.listCreatorNotesViaApi('u', '', 'pc_user');
+  const notes = await crawler.listCreatorNotesViaApi('u', '', 'pc_feed');
   assert.deepEqual(notes.map((item: any) => item.id), ['n1', 'n2', 'n3']);
+  assert.equal(new URL(notes[0].href).searchParams.get('xsec_source'), 'pc_profile');
+  assert.equal(new URL(notes[1].href).searchParams.get('xsec_source'), 'pc_feed');
+  resetConfig();
+});
+
+test('Xiaohongshu creator URL decodes xsec_token once and defaults to pc_feed', async () => {
+  resetConfig();
+  applyConfig({
+    platform: 'xhs', crawler_type: 'creator', enable_comments: false,
+    creator_ids: 'https://www.xiaohongshu.com/user/profile/u?xsec_token=token%3D&xsec_source=pc_feed',
+  });
+  const crawler = new XiaoHongShuCrawler() as any;
+  let currentUrl = '';
+  const navigations: string[] = [];
+  crawler.page = {
+    goto: async (url: string) => { currentUrl = url; navigations.push(url); },
+    url: () => currentUrl,
+    waitForTimeout: async () => {},
+  };
+  let apiArgs: any[] = [];
+  crawler.listCreatorNotesViaApi = async (...args: any[]) => { apiArgs = args; return []; };
+
+  await crawler.getCreatorsAndNotes();
+  assert.deepEqual(apiArgs, ['u', 'token=', 'pc_feed']);
+  assert.equal(new URL(navigations.at(-1)!).searchParams.get('xsec_token'), 'token=');
+  assert.doesNotMatch(navigations.at(-1)!, /%253D/);
+  resetConfig();
+});
+
+test('Xiaohongshu creator detail preserves the note xsec_source', async () => {
+  const crawler = new XiaoHongShuCrawler() as any;
+  let requestBody: any;
+  crawler.signer = {
+    hasTemplate: () => true,
+    request: async ({ body }: any) => {
+      requestBody = body;
+      return { data: { items: [{ note_card: { title: 'note', interact_info: {} } }] } };
+    },
+  };
+
+  const record = await crawler.fetchNoteDetailFromApi(
+    'n1', 'token=', 'pc_profile',
+    'https://www.xiaohongshu.com/explore/n1?xsec_token=token%3D&xsec_source=pc_profile',
+  );
+  assert.equal(requestBody.xsec_source, 'pc_profile');
+  assert.equal(requestBody.xsec_token, 'token=');
+  assert.equal(record.xsec_source, 'pc_profile');
+});
+
+test('Xiaohongshu creator collection fails when API and DOM fallback are both unavailable', async () => {
+  resetConfig();
+  applyConfig({ platform: 'xhs', crawler_type: 'creator', creator_ids: 'u', enable_comments: false });
+  const crawler = new XiaoHongShuCrawler() as any;
+  crawler.page = { goto: async () => {}, waitForTimeout: async () => {} };
+  crawler.listCreatorNotesViaApi = async () => null;
+  crawler.listCreatorNotesViaDom = async () => [];
+
+  await assert.rejects(
+    () => crawler.getCreatorsAndNotes(),
+    /主页作品接口不可用，页面兜底也未发现作品/,
+  );
   resetConfig();
 });
 

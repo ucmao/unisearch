@@ -1140,21 +1140,18 @@ export function SettingsDialog({
                             <div>
                               <p className="text-sm font-medium text-cyber-text-primary">清理短小 / 零星会话</p>
                               <p className="mt-0.5 text-xs text-cyber-text-muted">
-                                {shortMessageThreshold === 0
-                                  ? '清理未发送任何提问且未采集到有效数据的空会话。'
-                                  : `清理用户提问少于 ${shortMessageThreshold} 条且未采集到有效数据的对话。`}
+                                清理用户提问少于 {shortMessageThreshold} 条且未采集到有效数据的对话。
                               </p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
                               <Select
-                                value={String(shortMessageThreshold)}
+                                value={String(Math.max(2, shortMessageThreshold))}
                                 onValueChange={(val) => setShortMessageThreshold(Number(val))}
                               >
                                 <SelectTrigger className="h-8 w-28 border-cyber-border-subtle bg-cyber-bg-panel text-xs">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="0" className="text-xs">0 条提问</SelectItem>
                                   <SelectItem value="2" className="text-xs">少于 2 条</SelectItem>
                                   <SelectItem value="3" className="text-xs">少于 3 条</SelectItem>
                                   <SelectItem value="5" className="text-xs">少于 5 条</SelectItem>
@@ -1172,8 +1169,8 @@ export function SettingsDialog({
                                     清理
                                   </Button>
                                 }
-                                title={shortMessageThreshold === 0 ? '清理 0 条提问的空会话？' : `清理提问少于 ${shortMessageThreshold} 条的零星会话？`}
-                                description={`所选范围内${shortMessageThreshold === 0 ? '未发送任何提问' : `用户提问少于 ${shortMessageThreshold} 条`}且未采集到有效数据的对话消息、附件与侧边栏会话将彻底删除${storagePreviewQuery.data ? `（预计清理 ${storagePreviewQuery.data.thread_empty_short} 个会话）` : ''}；知识底座与研报成果不受影响。`}
+                                title={`清理提问少于 ${shortMessageThreshold} 条的零星会话？`}
+                                description={`所选范围内用户提问少于 ${shortMessageThreshold} 条且未采集到有效数据的对话消息、附件与侧边栏会话将彻底删除${storagePreviewQuery.data ? `（预计清理 ${storagePreviewQuery.data.thread_empty_short} 个会话）` : ''}；知识底座与研报成果不受影响。`}
                                 confirmLabel="确认清理"
                                 onConfirm={() => cleanupThreads.mutateAsync({ mode: 'empty_short', maxMessages: shortMessageThreshold })}
                               />

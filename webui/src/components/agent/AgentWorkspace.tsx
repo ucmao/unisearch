@@ -1002,8 +1002,47 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     terminalHeight: number
   }>>({})
 
+  const threadDraftsRef = useRef<Record<string, {
+    input: string
+    attachments: AgentAttachment[]
+    taskReferences: Array<{ plan_id: string; goal: string; content_count?: number }>
+  }>>({})
+  const prevSelectedIdRef = useRef<string | null>(selectedId)
+
+  const latestInputRef = useRef(input)
+  const latestAttachmentsRef = useRef(attachments)
+  const latestTaskReferencesRef = useRef(taskReferences)
+
+  latestInputRef.current = input
+  latestAttachmentsRef.current = attachments
+  latestTaskReferencesRef.current = taskReferences
+
   useEffect(() => {
     setSidebarSelectedRound('all')
+
+    const prevKey = prevSelectedIdRef.current || '__new__'
+    const currentKey = selectedId || '__new__'
+
+    if (prevKey !== currentKey) {
+      threadDraftsRef.current[prevKey] = {
+        input: latestInputRef.current,
+        attachments: latestAttachmentsRef.current,
+        taskReferences: latestTaskReferencesRef.current,
+      }
+
+      const savedDraft = threadDraftsRef.current[currentKey]
+      if (savedDraft) {
+        setInput(savedDraft.input)
+        setAttachments(savedDraft.attachments)
+        setTaskReferences(savedDraft.taskReferences)
+      } else {
+        setInput('')
+        setAttachments([])
+        setTaskReferences([])
+      }
+      prevSelectedIdRef.current = selectedId
+    }
+
     if (!selectedId) {
       setRightSidebarOpen(false)
       setTerminalOpen(false)
@@ -1353,16 +1392,6 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
     }
   }
 
-  const createNewTask = useMutation({
-    mutationFn: async () => (await agentApi.createThread()).data,
-    onSuccess: (thread) => {
-      client.setQueryData(['agent-thread', thread.thread_id], thread)
-      setSelectedId(thread.thread_id)
-      client.invalidateQueries({ queryKey: ['agent-threads'] })
-      window.requestAnimationFrame(() => composerInputRef.current?.focus())
-    },
-    onError: (error) => toast.error(getError(error)),
-  })
 
   const create = useMutation({
     mutationFn: async (_submission: { content: string; references: Array<{ plan_id: string }>; taskReferences: Array<{ plan_id: string; goal: string; content_count?: number }> }) =>
@@ -1391,6 +1420,7 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   const remove = useMutation({
     mutationFn: ({ id, withData }: { id: string; withData: boolean }) => agentApi.deleteThread(id, withData),
     onMutate: async ({ id }) => {
+      delete threadDraftsRef.current[id]
       await Promise.all([
         client.cancelQueries({ queryKey: ['agent-threads'] }),
         client.cancelQueries({ queryKey: ['agent-thread', id] }),
@@ -1959,18 +1989,13 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
   }
 
   const openNewTask = () => {
-    setInput('')
-    setTerminalOpen(false)
-    createNewTask.mutate()
-  }
-
-  const navigateToHome = () => {
     setSelectedId(null)
     setTerminalOpen(false)
     if (window.innerWidth < 768) {
       setThreadsCollapsed(true)
     }
   }
+
 
   const updateLeftSidebarWidth = (value: number) => {
     const next = Math.round(Math.min(420, Math.max(220, value)))
@@ -2032,21 +2057,15 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
           </Button>
         </div>
         <div className="pl-6 pr-3 pt-2 pb-2.5">
-          <button
-            type="button"
-            onClick={navigateToHome}
-            title="UniSearch 首页"
-            aria-label="UniSearch 首页"
-            className="cursor-pointer text-left select-none app-no-drag focus:outline-none transition-opacity hover:opacity-80 active:opacity-60"
-          >
+          <div className="select-none app-no-drag">
             <span className="text-xl font-bold tracking-tight text-cyber-text-primary">
               UniSearch
             </span>
-          </button>
+          </div>
         </div>
         <div className="px-2 pb-1.5">
-          <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={openNewTask} disabled={create.isPending || createNewTask.isPending} title="新建任务">
-            {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SquarePen className="h-4 w-4" />}新建任务
+          <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={openNewTask} disabled={create.isPending} title="新建任务">
+            <SquarePen className="h-4 w-4" />新建任务
           </Button>
           <Button className="w-full justify-start gap-2 h-9 text-sm font-medium rounded-xl" variant="ghost" onClick={() => onOpenResults({ scope: 'all' })} title="知识库">
             <BookOpen className="h-4 w-4" />知识库
@@ -2306,11 +2325,11 @@ export function AgentWorkspace({ selectedId, onSelectedIdChange: setSelectedId, 
               variant="ghost"
               className={`h-8 w-8 rounded-xl transition-all text-cyber-text-muted hover:bg-cyber-bg-tertiary/25 hover:text-cyber-text-primary focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 ${threadsCollapsed ? 'flex md:hidden' : 'hidden'}`}
               onClick={openNewTask}
-              disabled={create.isPending || createNewTask.isPending}
+              disabled={create.isPending}
               title="新建任务"
               aria-label="新建任务"
             >
-              {createNewTask.isPending ? <Loader2 className="h-4 w-4 animate-spin text-cyber-neon-cyan" /> : <SquarePen className="h-4 w-4" />}
+              <SquarePen className="h-4 w-4" />
             </Button>
             {selectedId && <Button
               size="icon"
