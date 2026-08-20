@@ -47,10 +47,21 @@ for (const moduleName of ['playwright', 'playwright-core', 'better-sqlite3']) {
 }
 
 const resourcesRoot = path.dirname(unpacked);
-for (const relativePath of ['resources/hit_stopwords.txt']) {
+for (const relativePath of [
+  'resources/hit_stopwords.txt',
+  'resources/models/bge-small-zh-v1.5/onnx/model_quantized.onnx',
+  'resources/models/bge-small-zh-v1.5/tokenizer.json',
+]) {
   if (!fs.existsSync(path.join(resourcesRoot, relativePath))) {
     throw new Error(`安装包缺少只读资源: ${relativePath}`);
   }
 }
 
+// 检查 onnxruntime-node 是否正确解压且仅保留目标平台库
+const onnxNodePkg = path.join(unpacked, 'node_modules/onnxruntime-node/package.json');
+if (!fs.existsSync(onnxNodePkg)) {
+  throw new Error('安装包缺少 onnxruntime-node 运行时');
+}
+
 console.log(`安装包运行时检查通过: ${path.dirname(unpacked)}`);
+

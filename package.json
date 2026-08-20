@@ -62,7 +62,13 @@
       "dist/crawler/**/*",
       "dist/processor/**/*",
       "api/webui/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/@xenova/transformers/dist/*.wasm",
+      "!node_modules/@xenova/transformers/dist/*.map",
+      "!node_modules/@xenova/transformers/src/**/*",
+      "!node_modules/onnxruntime-web/**/*",
+      "!node_modules/sharp/**/*",
+      "!node_modules/@img/**/*"
     ],
     "extraResources": [
       {
@@ -85,7 +91,6 @@
       "node_modules/better-sqlite3/**/*",
       "node_modules/playwright/**/*",
       "node_modules/playwright-core/**/*",
-      "node_modules/@xenova/transformers/**/*",
       "node_modules/onnxruntime-node/**/*",
       "dist/crawler/worker.js",
       "dist/processor/worker.js"
@@ -96,12 +101,21 @@
       "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.utilities",
       "hardenedRuntime": true,
-      "notarize": false
+      "notarize": false,
+      "files": [
+        "!node_modules/onnxruntime-node/bin/napi-v3/win32/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v3/linux/**/*"
+      ]
     },
     "win": {
       "icon": "build/icon.ico",
       "target": "nsis",
-      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}",
+      "files": [
+        "!node_modules/onnxruntime-node/bin/napi-v3/darwin/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v3/linux/**/*",
+        "!node_modules/onnxruntime-node/bin/napi-v3/win32/arm64/**/*"
+      ]
     },
     "nsis": {
       "oneClick": false,
