@@ -909,65 +909,71 @@ export function SettingsDialog({
                   <div className="flex min-h-60 items-center justify-center text-xs text-cyber-text-muted"><Loader2 className="mr-2 h-4 w-4 animate-spin" />正在读取采集设置…</div>
                 ) : runtimeSettingsQuery.data ? (
                   <div className="mt-7 space-y-4">
-                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
-                      <div>
-                        <div className="text-sm font-medium text-cyber-text-primary">全局平台并发数</div>
-                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。</div>
+                    {/* 卡片 1: 采集调度与策略 */}
+                    <div className="divide-y divide-cyber-border-subtle rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 px-4 sm:px-5">
+                      {/* 第 1 行: 全局并发平台上限 */}
+                      <div className="flex items-center justify-between gap-6 py-4 sm:py-5">
+                        <div>
+                          <div className="text-sm font-medium text-cyber-text-primary">全局并发平台上限</div>
+                          <div className="mt-1 text-xs leading-5 text-cyber-text-muted">所有任务合计最多同时采集的平台数。</div>
+                        </div>
+                        <Select
+                          value={String(runtimeSettingsQuery.data.maxConcurrentCrawlers)}
+                          onValueChange={(value) => saveRuntimeSettings.mutate({ maxConcurrentCrawlers: Number(value) })}
+                          disabled={saveRuntimeSettings.isPending}
+                        >
+                          <SelectTrigger className="h-9 w-28 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="全局并发平台上限">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {[1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <Select
-                        value={String(runtimeSettingsQuery.data.maxConcurrentCrawlers)}
-                        onValueChange={(value) => saveRuntimeSettings.mutate({ maxConcurrentCrawlers: Number(value) })}
-                        disabled={saveRuntimeSettings.isPending}
-                      >
-                        <SelectTrigger className="h-9 w-28 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="全局平台并发数">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[1, 2, 3, 4, 5].map((value) => <SelectItem key={value} value={String(value)} className="text-xs">{value} 个平台</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
 
-                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
-                      <div>
-                        <div className="text-sm font-medium text-cyber-text-primary">连接器故障容灾策略</div>
-                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">当所选连接器不可用或异常时，控制是否改用同类健康连接器。</div>
+                      {/* 第 2 行: 采集器故障切换 */}
+                      <div className="flex items-center justify-between gap-6 py-4 sm:py-5">
+                        <div>
+                          <div className="text-sm font-medium text-cyber-text-primary">采集器故障切换</div>
+                          <div className="mt-1 text-xs leading-5 text-cyber-text-muted">当所选采集器不可用或异常时，自动改用同类健康采集器。</div>
+                        </div>
+                        <Select
+                          value={runtimeSettingsQuery.data.connectorFailoverPolicy || 'smart'}
+                          onValueChange={(value) => saveRuntimeSettings.mutate({ connectorFailoverPolicy: value as any })}
+                          disabled={saveRuntimeSettings.isPending}
+                        >
+                          <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="采集器故障切换">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="smart" className="text-xs">智能模式（推荐）</SelectItem>
+                            <SelectItem value="never" className="text-xs">从不替换</SelectItem>
+                            <SelectItem value="always" className="text-xs">总是替换</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <Select
-                        value={runtimeSettingsQuery.data.connectorFailoverPolicy || 'smart'}
-                        onValueChange={(value) => saveRuntimeSettings.mutate({ connectorFailoverPolicy: value as any })}
-                        disabled={saveRuntimeSettings.isPending}
-                      >
-                        <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="连接器故障容灾策略">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="smart" className="text-xs">智能模式（推荐）</SelectItem>
-                          <SelectItem value="never" className="text-xs">从不自动替换</SelectItem>
-                          <SelectItem value="always" className="text-xs">总是自动替代</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
 
-                    <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
-                      <div>
-                        <div className="text-sm font-medium text-cyber-text-primary">搜索关键词拓展策略</div>
-                        <div className="mt-1 text-xs leading-5 text-cyber-text-muted">控制 AI 规划采集任务时的关键词智能改写与扩词行为。</div>
+                      {/* 第 3 行: 搜索词智能拓展 */}
+                      <div className="flex items-center justify-between gap-6 py-4 sm:py-5">
+                        <div>
+                          <div className="text-sm font-medium text-cyber-text-primary">搜索词智能拓展</div>
+                          <div className="mt-1 text-xs leading-5 text-cyber-text-muted">由 AI 在规划采集任务时智能改写与扩充搜索关键词。</div>
+                        </div>
+                        <Select
+                          value={runtimeSettingsQuery.data.keywordExpansionPolicy || 'smart'}
+                          onValueChange={(value) => saveRuntimeSettings.mutate({ keywordExpansionPolicy: value as any })}
+                          disabled={saveRuntimeSettings.isPending}
+                        >
+                          <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="搜索词智能拓展">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="smart" className="text-xs">智能模式（推荐）</SelectItem>
+                            <SelectItem value="strict" className="text-xs">仅用原词</SelectItem>
+                            <SelectItem value="always" className="text-xs">总是拓展</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
-                      <Select
-                        value={runtimeSettingsQuery.data.keywordExpansionPolicy || 'smart'}
-                        onValueChange={(value) => saveRuntimeSettings.mutate({ keywordExpansionPolicy: value as any })}
-                        disabled={saveRuntimeSettings.isPending}
-                      >
-                        <SelectTrigger className="h-9 w-36 shrink-0 border-cyber-border-subtle bg-cyber-bg-panel text-xs" aria-label="搜索关键词拓展策略">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="smart" className="text-xs">智能模式（推荐）</SelectItem>
-                          <SelectItem value="strict" className="text-xs">严格使用原词</SelectItem>
-                          <SelectItem value="always" className="text-xs">总是 AI 拓展</SelectItem>
-                        </SelectContent>
-                      </Select>
                     </div>
 
                     {/* 卡片 2: 平台账号预登录 */}
@@ -1035,10 +1041,10 @@ export function SettingsDialog({
                       </div>
                     </div>
 
-                    {/* 卡片 3: 凭证与缓存重置 */}
+                    {/* 卡片 3: 登录态与缓存重置 */}
                     <div className="flex items-center justify-between gap-6 rounded-xl border border-cyber-border-subtle bg-cyber-bg-secondary/55 p-4 sm:p-5">
                       <div>
-                        <div className="text-sm font-medium text-cyber-text-primary">凭证与缓存重置</div>
+                        <div className="text-sm font-medium text-cyber-text-primary">登录态与缓存重置</div>
                         <div className="mt-1 text-xs leading-5 text-cyber-text-muted">一键清空所有平台在本地保存的登录凭据与会话缓存。</div>
                       </div>
 
@@ -1050,7 +1056,7 @@ export function SettingsDialog({
                             className="h-9 shrink-0 gap-1.5 px-3.5 text-xs font-medium"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                            清空所有凭证
+                            清空
                           </Button>
                         }
                         title="清空所有浏览器平台凭证与缓存"

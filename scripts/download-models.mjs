@@ -44,7 +44,7 @@ async function downloadFileWithFallback(relativePath) {
   for (const mirrorBase of MIRROR_BASES) {
     const url = `${mirrorBase}/${relativePath}`;
     try {
-      console.log(`[download-models] 正在从 ${new URL(mirrorBase).host} 下载 ${relativePath} ...`);
+      console.log(`[download-models] Downloading ${relativePath} from ${new URL(mirrorBase).host}...`);
       const response = await fetch(url, {
         headers: { 'User-Agent': 'UniSearch-Model-Fetcher/1.0' },
         signal: AbortSignal.timeout(180000), // 3 min timeout per file
@@ -74,45 +74,45 @@ async function downloadFileWithFallback(relativePath) {
         fs.unlinkSync(destination);
       }
       fs.renameSync(tempDestination, destination);
-      console.log(`[download-models] ✓ 成功下载: ${relativePath} (${(fs.statSync(destination).size / (1024 * 1024)).toFixed(2)} MB)`);
+      console.log(`[download-models] ✓ Successfully downloaded: ${relativePath} (${(fs.statSync(destination).size / (1024 * 1024)).toFixed(2)} MB)`);
       return;
     } catch (err) {
       lastError = err;
-      console.warn(`[download-models] 镜像源 ${mirrorBase} 获取 ${relativePath} 失败: ${err.message}，尝试备用源...`);
+      console.warn(`[download-models] Mirror ${mirrorBase} failed for ${relativePath}: ${err.message}, trying fallback mirror...`);
       if (fs.existsSync(tempDestination)) {
         try { fs.unlinkSync(tempDestination); } catch {}
       }
     }
   }
 
-  throw new Error(`无法从所有镜像源下载文件 ${relativePath}: ${lastError?.message || '未知错误'}`);
+  throw new Error(`Failed to download ${relativePath} from all mirrors: ${lastError?.message || 'Unknown error'}`);
 }
 
 async function main() {
-  console.log(`[download-models] 检查本地向量模型: ${MODEL_NAME}`);
+  console.log(`[download-models] Checking local embedding model: ${MODEL_NAME}`);
   if (isModelComplete()) {
-    console.log(`[download-models] ✓ 本地模型完整可用: ${TARGET_DIR}`);
+    console.log(`[download-models] ✓ Local model is ready: ${TARGET_DIR}`);
     return;
   }
 
-  console.log(`[download-models] 本地模型文件缺失，开始自动拉取...`);
+  console.log(`[download-models] Local model files missing, starting auto-download...`);
   fs.mkdirSync(TARGET_DIR, { recursive: true });
 
   const startedAt = Date.now();
   for (const file of MODEL_FILES) {
     const fullPath = path.join(TARGET_DIR, file.path);
     if (fs.existsSync(fullPath) && fs.statSync(fullPath).size >= file.minBytes) {
-      console.log(`[download-models] - 文件已就绪，跳过: ${file.path}`);
+      console.log(`[download-models] - File already exists, skipping: ${file.path}`);
       continue;
     }
     await downloadFileWithFallback(file.path);
   }
 
   const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1);
-  console.log(`[download-models] 🎉 全部模型文件准备就绪！耗时: ${durationSec}s，路径: ${TARGET_DIR}`);
+  console.log(`[download-models] 🎉 All model files are ready! Elapsed: ${durationSec}s, path: ${TARGET_DIR}`);
 }
 
 main().catch((err) => {
-  console.error(`[download-models] ❌ 模型准备失败:`, err);
+  console.error(`[download-models] ❌ Failed to prepare model:`, err);
   process.exit(1);
 });
