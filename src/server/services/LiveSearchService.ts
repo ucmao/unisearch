@@ -1,6 +1,6 @@
 import * as cheerio from 'cheerio';
 import { systemHttpClient } from '../../crawler/base/SystemHttpClient';
-import { canonicalSearchResultUrl, resolveSearchPublisher } from '../../crawler/platforms/search_engine';
+import { canonicalSearchResultUrl, resolveSearchPublisher, generateChinaSoBid, parseChinaSoApiResponse } from '../../crawler/platforms/search_engine';
 import { webReaderService, type WebReaderParsedArticle } from '../../services/web-reader-service';
 import { listLiveSearchConnectorIds } from '../../connectors/registry';
 
@@ -307,8 +307,39 @@ export function parseQuarkSearchHtml(html: unknown, limit = 4): EvidenceDraft[] 
   return results;
 }
 
-export function parseChinaSoSearchHtml(html: unknown, limit = 4): EvidenceDraft[] {
-  const $ = cheerio.load(String(html || ''));
+export function parseChinaSoSearchHtml(htmlOrData: unknown, limit = 4): EvidenceDraft[] {
+  if (htmlOrData && typeof htmlOrData === 'object') {
+    const apiItems = parseChinaSoApiResponse(htmlOrData);
+    if (apiItems.length > 0) {
+      return apiItems.slice(0, limit).map((item) => ({
+        title: item.title,
+        source: 'chinaso' as const,
+        sourceUrl: item.url,
+        excerpt: item.snippet,
+        publisher: item.publisher,
+        publishedAt: item.time ? resultTime(item.time) : undefined,
+      }));
+    }
+  }
+
+  if (typeof htmlOrData === 'string' && (htmlOrData.trim().startsWith('{') || htmlOrData.trim().startsWith('['))) {
+    try {
+      const parsed = JSON.parse(htmlOrData);
+      const apiItems = parseChinaSoApiResponse(parsed);
+      if (apiItems.length > 0) {
+        return apiItems.slice(0, limit).map((item) => ({
+          title: item.title,
+          source: 'chinaso' as const,
+          sourceUrl: item.url,
+          excerpt: item.snippet,
+          publisher: item.publisher,
+          publishedAt: item.time ? resultTime(item.time) : undefined,
+        }));
+      }
+    } catch {}
+  }
+
+  const $ = cheerio.load(String(htmlOrData || ''));
   const results: EvidenceDraft[] = [];
   $('.search-list .list, .list-wrapper .list, .reItem, li.reItem, .natural-word, .natural-news-group, .natural-image, article, .item').each((_, element) => {
     if (results.length >= limit) return false;
@@ -479,10 +510,13 @@ export class LiveSearchService {
           'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1 Quark/6.5.0.1234',
         },
       }).then((response) => parseQuarkSearchHtml(response.data, perProvider)) },
-      { provider: 'chinaso', execute: () => this.client.get(`https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(query)}&pn=1`, {
-        ...requestOptions,
-        referer: 'https://www.chinaso.com/',
-      }).then((response) => parseChinaSoSearchHtml(response.data, perProvider)) },
+      { provider: 'chinaso', execute: () => {
+        const bid = generateChinaSoBid();
+        return this.client.get(`https://www.chinaso.com/v5/general/v1/web/search?q=${encodeURIComponent(query)}&pn=1&rn=10&bid=${bid}`, {
+          ...requestOptions,
+          referer: `https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(query)}`,
+        }).then((response) => parseChinaSoSearchHtml(response.data, perProvider));
+      } },
     ];
     const enabledProviders = new Set(listLiveSearchConnectorIds());
     const settled = await Promise.allSettled(

@@ -878,7 +878,7 @@ export const CONNECTOR_MANIFESTS: ConnectorManifest[] = [
   searchEngine('sogou', '搜狗搜索', 'search', { engine: 'http', liveSearch: true }),
   searchEngine('toutiao', '头条搜索', 'newspaper', { engine: 'hybrid', liveSearch: true }),
   searchEngine('quark', '神马搜索', 'zap', { engine: 'hybrid', liveSearch: false, mayRequireInteraction: true }),
-  searchEngine('chinaso', '中国搜索', 'shield', { engine: 'hybrid', liveSearch: false }),
+  searchEngine('chinaso', '中国搜索', 'shield', { engine: 'http', liveSearch: true }),
   arxiv,
   githubRepositories,
   aiHot,

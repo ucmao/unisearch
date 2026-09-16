@@ -4,6 +4,7 @@ import {
   LiveSearchService,
   parseBaiduSearchHtml,
   parseBingSearchHtml,
+  parseChinaSoSearchHtml,
   parseSo360SearchHtml,
   parseSogouSearchHtml,
   parseToutiaoSearchHtml,
@@ -56,14 +57,21 @@ const quarkHtml = `
     <div class="c-footer">中国气象</div>
   </div>`;
 
-const chinasoHtml = `
-  <div class="search-list">
-    <div class="list">
-      <h2 class="list-title"><a href="https://www.weather.gov.cn/chinaso">福州权威天气公报</a></h2>
-      <div class="list-content">气象台发布福州最新权威天气公报。</div>
-      <div class="list-source">气象局官方</div>
-    </div>
-  </div>`;
+const chinasoData = {
+  status: 0,
+  msg: 'success',
+  data: {
+    data: [
+      {
+        title: '福州权威天气公报',
+        url: 'https://www.chinaso.com/link?url=weather_test',
+        snippet: '气象台发布福州最新权威天气公报。',
+        source: '气象局官方',
+        timestamp: 1750000000,
+      },
+    ],
+  },
+};
 
 test('search result parsers return transient evidence drafts', () => {
   assert.deepEqual(parseBaiduSearchHtml(baiduHtml).map((item) => item.source), ['baidu']);
@@ -71,7 +79,9 @@ test('search result parsers return transient evidence drafts', () => {
   assert.deepEqual(parseSogouSearchHtml(sogouHtml).map((item) => item.source), ['sogou']);
   assert.deepEqual(parseSo360SearchHtml(so360Html).map((item) => item.source), ['so360']);
   assert.deepEqual(parseToutiaoSearchHtml(toutiaoHtml).map((item) => item.source), ['toutiao']);
+  assert.deepEqual(parseChinaSoSearchHtml(chinasoData).map((item) => item.source), ['chinaso']);
   assert.equal(parseSogouSearchHtml(sogouHtml)[0].sourceUrl, 'https://www.sogou.com/link?url=forecast');
+  assert.equal(parseChinaSoSearchHtml(chinasoData)[0].sourceUrl, 'https://www.chinaso.com/link?url=weather_test');
 });
 
 test('live search fans out without creating persistent document records', async () => {
@@ -84,18 +94,18 @@ test('live search fans out without creating persistent document records', async 
       if (url.includes('sogou.com')) return { data: sogouHtml };
       if (url.includes('toutiao.com')) return { data: toutiaoHtml };
       if (url.includes('m.sm.cn')) return { data: quarkHtml };
-      if (url.includes('chinaso.com')) return { data: chinasoHtml };
+      if (url.includes('chinaso.com')) return { data: chinasoData };
       return { data: so360Html };
     },
   };
   const service = new LiveSearchService(client);
-  const evidence = await service.search('福州 今天天气', { limit: 5 });
+  const evidence = await service.search('福州 今天天气', { limit: 6 });
 
-  assert.deepEqual(evidence.map((item) => item.id), ['S1', 'S2', 'S3', 'S4', 'S5']);
-  assert.deepEqual(evidence.map((item) => item.source), ['baidu', 'bing', 'sogou', 'so360', 'toutiao']);
-  assert.equal(requests.length, 5);
+  assert.deepEqual(evidence.map((item) => item.id), ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+  assert.deepEqual(evidence.map((item) => item.source), ['baidu', 'bing', 'sogou', 'so360', 'toutiao', 'chinaso']);
+  assert.equal(requests.length, 6);
   assert.equal(requests.some((request) => request.url.includes('m.sm.cn')), false);
-  assert.equal(requests.some((request) => request.url.includes('chinaso.com')), false);
+  assert.equal(requests.some((request) => request.url.includes('chinaso.com')), true);
   assert.equal(requests.every((request) => request.options?.maxRetries === 1), true);
   assert.equal(requests.every((request) => request.options?.timeout === 4_000), true);
 

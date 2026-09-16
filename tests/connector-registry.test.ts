@@ -25,7 +25,7 @@ const baseRequest: ConnectorStartRequest = {
 assert.equal(listConnectorManifests().length, 32);
 assert.ok(listConnectorManifests().every((manifest) => !manifest.auth.methods.includes('cookie' as never)));
 assert.deepEqual(listWebSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'quark', 'chinaso']);
-assert.deepEqual(listLiveSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao']);
+assert.deepEqual(listLiveSearchConnectorIds(), ['baidu', 'bing', 'so360', 'sogou', 'toutiao', 'chinaso']);
 assert.equal(listConnectorManifests().find((manifest) => manifest.id === 'quark')?.searchSurfaces?.mayRequireInteraction, true);
 assert.deepEqual(
   listConnectorManifests()

@@ -126,3 +126,44 @@ test('quark anti-bot detector recognizes current bxpunish challenge responses', 
   assert.equal(detectQuarkAntiBotChallenge('<html></html>', { bxpunish: '1' }), true);
   assert.equal(detectQuarkAntiBotChallenge('<html><title>正常搜索结果</title></html>'), false);
 });
+
+test('generateChinaSoBid produces positive numeric security bids', async () => {
+  const { generateChinaSoBid } = await import('../src/crawler/platforms/search_engine');
+  const bid1 = generateChinaSoBid();
+  const bid2 = generateChinaSoBid();
+  assert.equal(typeof bid1, 'number');
+  assert.ok(bid1 > 0);
+  assert.equal(typeof bid2, 'number');
+  assert.ok(bid2 > 0);
+});
+
+test('parseChinaSoApiResponse extracts clean structured items from ChinaSo v5 API responses', async () => {
+  const { parseChinaSoApiResponse } = await import('../src/crawler/platforms/search_engine');
+  const sampleApiResponse = {
+    status: 0,
+    msg: 'success',
+    data: {
+      total: 100,
+      data: [
+        {
+          title: '<em>人工智能</em>安全治理框架发布',
+          url: 'https://www.chinaso.com/link?url=test_token_123',
+          snippet: '　　新闻1+1丨<em>人工智能</em>安全治理，再升级！梳理更新<em>人工智能</em>安全风险分类。',
+          source: '央视新闻客户端',
+          timestamp: 1789544520,
+          image_list: ['https://p0.ssl.qhimgs1.com/t01.jpg'],
+        },
+      ],
+    },
+  };
+
+  const parsed = parseChinaSoApiResponse(sampleApiResponse);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].title, '人工智能安全治理框架发布');
+  assert.equal(parsed[0].url, 'https://www.chinaso.com/link?url=test_token_123');
+  assert.equal(parsed[0].snippet, '新闻1+1丨人工智能安全治理，再升级！梳理更新人工智能安全风险分类。');
+  assert.equal(parsed[0].publisher, '央视新闻客户端');
+  assert.equal(parsed[0].images.length, 1);
+  assert.equal(parsed[0].images[0], 'https://p0.ssl.qhimgs1.com/t01.jpg');
+});
+

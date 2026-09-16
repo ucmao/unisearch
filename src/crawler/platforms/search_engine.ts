@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import * as cheerio from 'cheerio';
 import {
   AbstractCrawler,
@@ -1562,7 +1563,87 @@ interface ChinaSoSearchResultItem {
   images: string[];
 }
 
-function parseChinaSoHtml(html: string): ChinaSoSearchResultItem[] {
+export function generateChinaSoBid(): number {
+  const u = Date.now();
+  const c = Math.floor(10000 * Math.random() + 1);
+  const md5 = createHash('md5').update(`${u}${c}`).digest('hex');
+  return parseInt(md5.substring(0, 13), 16);
+}
+
+export function parseChinaSoApiResponse(data: unknown): ChinaSoSearchResultItem[] {
+  const items: ChinaSoSearchResultItem[] = [];
+  if (!data || typeof data !== 'object') return items;
+
+  const resObj = data as Record<string, any>;
+  const list = resObj?.data?.data || (Array.isArray(resObj?.data) ? resObj.data : (Array.isArray(resObj) ? resObj : []));
+  if (!Array.isArray(list)) return items;
+
+  const seen = new Set<string>();
+  for (const raw of list) {
+    const rawTitle = String(raw?.title || '').trim();
+    const title = cleanText(rawTitle.replace(/<[^>]+>/g, ''));
+    let url = String(raw?.web_url || raw?.url || '').trim();
+    if (!title || !url || url.startsWith('javascript:') || url === '#') continue;
+    if (url.startsWith('//')) url = `https:${url}`;
+
+    const dedupeKey = canonicalSearchResultUrl(url);
+    if (!dedupeKey || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const rawSnippet = String(raw?.snippet || raw?.abstract || raw?.desc || '').trim();
+    let snippet = cleanText(rawSnippet.replace(/<[^>]+>/g, ''));
+    if (!snippet) {
+      snippet = title;
+    }
+
+    const publisher = cleanText(
+      String(raw?.source || raw?.media_name || raw?.author || raw?.source_name || '')
+    ) || '中国搜索';
+
+    let time = '';
+    if (raw?.timestamp) {
+      const ts = Number(raw.timestamp);
+      if (!Number.isNaN(ts) && ts > 0) {
+        const ms = ts > 10_000_000_000 ? ts : ts * 1000;
+        time = new Date(ms).toISOString().split('T')[0];
+      }
+    } else if (raw?.time || raw?.publish_time || raw?.pub_time) {
+      time = String(raw.time || raw.publish_time || raw.pub_time);
+    }
+
+    const images: string[] = [];
+    if (Array.isArray(raw?.image_list)) {
+      for (const img of raw.image_list) {
+        if (typeof img === 'string' && img.startsWith('http')) images.push(img);
+        else if (typeof img === 'object' && img?.url && String(img.url).startsWith('http')) images.push(img.url);
+      }
+    } else if (typeof raw?.pic === 'string' && raw.pic.startsWith('http')) {
+      images.push(raw.pic);
+    }
+
+    const finalPublisher = resolveSearchPublisher(publisher, url, '中国搜索');
+    items.push({
+      title,
+      url,
+      snippet,
+      publisher: finalPublisher,
+      time,
+      images,
+    });
+  }
+
+  return items;
+}
+
+export function parseChinaSoHtml(html: string): ChinaSoSearchResultItem[] {
+  if (typeof html === 'string' && (html.trim().startsWith('{') || html.trim().startsWith('['))) {
+    try {
+      const parsed = JSON.parse(html);
+      const apiResults = parseChinaSoApiResponse(parsed);
+      if (apiResults.length > 0) return apiResults;
+    } catch {}
+  }
+
   const $ = cheerio.load(html);
   const items: ChinaSoSearchResultItem[] = [];
   const seen = new Set<string>();
@@ -1683,20 +1764,24 @@ export class ChinaSoCrawler extends AbstractCrawler {
         let pageItems: ChinaSoSearchResultItem[] = [];
 
         try {
-          const url = `https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(keyword)}&pn=${page}`;
-          const res = await systemHttpClient.get(url, {
+          const bid = generateChinaSoBid();
+          const apiUrl = `https://www.chinaso.com/v5/general/v1/web/search?q=${encodeURIComponent(keyword)}&pn=${page}&rn=15&bid=${bid}`;
+          const res = await systemHttpClient.get(apiUrl, {
             mode: 'desktop',
-            referer: 'https://www.chinaso.com/',
+            referer: `https://www.chinaso.com/newssearch/all/allResults?q=${encodeURIComponent(keyword)}`,
             timeout: 8000,
           });
-          pageItems = parseChinaSoHtml(res.data);
+          pageItems = parseChinaSoApiResponse(res.data);
+          if (pageItems.length === 0 && typeof res.data === 'string') {
+            pageItems = parseChinaSoHtml(res.data);
+          }
         } catch (err: any) {
-          console.warn(`[CHINASO] HTTP fetch failed on page ${page}: ${err.message}`);
+          console.warn(`[CHINASO] API fetch failed on page ${page}: ${err.message}`);
         }
 
-        // ChinaSo uses client-side rendering (Vue SPA), so if HTTP returns empty, switch to Playwright browser
+        // Fallback to browser crawler only if API returns empty
         if (pageItems.length === 0) {
-          console.log(`[CHINASO] Pure HTTP returned no rendered items for page ${page}. Engaging Playwright browser crawler...`);
+          console.log(`[CHINASO] Direct HTTP API returned no items for page ${page}. Trying browser fallback...`);
           const browserResults = await this.searchViaBrowser(keyword, maxItems - totalRank, page);
           pageItems = browserResults;
         }
